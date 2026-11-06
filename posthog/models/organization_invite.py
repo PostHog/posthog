@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models, transaction
+from django.db.models.functions import Upper
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -12,14 +13,14 @@ from rest_framework import exceptions
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
-from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.activity_logging.model_activity import ActingUserContext, ModelActivityMixin
 from posthog.models.onboarding_delegation import mark_delegators_accepted
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -34,7 +35,7 @@ _DELEGATION_UNSUPPRESS_WARN_THRESHOLD = 5
 
 
 def validate_private_project_access(value):
-    from posthog.rbac.user_access_control import ACCESS_CONTROL_LEVELS_MEMBER
+    from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_LEVELS_MEMBER
 
     if not isinstance(value, list):
         raise exceptions.ValidationError("The field must be a list of dictionaries.")
@@ -72,6 +73,11 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         null=True,
     )
     emailing_attempt_made = models.BooleanField(default=False)
+    email_suppressed = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="True when the email provider reported the target address as suppressed at send time.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     message = models.TextField(blank=True, null=True)
@@ -92,6 +98,12 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             "Downstream logic routes the delegate through full onboarding on accept."
         ),
     )
+
+    class Meta:
+        indexes = [
+            # Serves `target_email__iexact`, which Django compiles to `UPPER(target_email::text)`.
+            models.Index(Upper("target_email"), name="orginvite_upper_email_idx"),
+        ]
 
     def validate(
         self,
@@ -184,13 +196,15 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                     # If the team doesn't exist, it was probably deleted. We can still continue with the invite.
                     continue
 
-                AccessControl.objects.create(
-                    team=team,
-                    resource="project",
-                    resource_id=str(team.id),
-                    organization_member=parent_membership,
-                    access_level=item["level"],
-                )
+                # The inviter chose this access, so the audit row names them rather than the invitee.
+                with ActingUserContext(self.created_by):
+                    AccessControl.objects.create(
+                        team=team,
+                        resource="project",
+                        resource_id=str(team.id),
+                        organization_member=parent_membership,
+                        access_level=item["level"],
+                    )
 
             # Sibling-invite sweep: clean up any other pending invites for the same email in this
             # org so the invitee doesn't accumulate stale rows. Other DELEGATION invites have

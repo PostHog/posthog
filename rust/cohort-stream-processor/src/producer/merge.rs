@@ -113,6 +113,9 @@ const FAIL_ALWAYS: usize = usize::MAX;
 pub(crate) struct Capture<T> {
     items: Arc<Mutex<Vec<T>>>,
     fail_remaining: Arc<AtomicUsize>,
+    /// Produce calls made, failed ones included. A test that asserts how much a batch amortizes
+    /// counts calls, not records: the round trip is what a run is paying to avoid.
+    calls: Arc<AtomicUsize>,
 }
 
 impl<T> Clone for Capture<T> {
@@ -120,6 +123,7 @@ impl<T> Clone for Capture<T> {
         Self {
             items: self.items.clone(),
             fail_remaining: self.fail_remaining.clone(),
+            calls: self.calls.clone(),
         }
     }
 }
@@ -129,6 +133,7 @@ impl<T> Default for Capture<T> {
         Self {
             items: Arc::default(),
             fail_remaining: Arc::default(),
+            calls: Arc::default(),
         }
     }
 }
@@ -136,8 +141,8 @@ impl<T> Default for Capture<T> {
 impl<T> Capture<T> {
     pub(crate) fn failing_first(n: usize) -> Self {
         Self {
-            items: Arc::default(),
             fail_remaining: Arc::new(AtomicUsize::new(n)),
+            ..Self::default()
         }
     }
 
@@ -145,7 +150,12 @@ impl<T> Capture<T> {
         Self::failing_first(FAIL_ALWAYS)
     }
 
+    pub(crate) fn produce_calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
     pub(crate) fn produce(&self, items: Vec<T>) -> Vec<Result<(), KafkaProduceError>> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
         let should_fail = self
             .fail_remaining
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| match n {

@@ -1,4 +1,7 @@
 .dashboard-items-wrapper {
+    // Sidebar geometry changes must not invalidate styles throughout the tile grid.
+    --scene-layout-rect-width: initial;
+
     width: 100%; // This provides the width for the dashboard items grid
     padding-top: 0.5rem;
 
@@ -12,21 +15,113 @@
 }
 
 .react-grid-layout {
+    --tile-hog-slide-duration: 200ms; // Also drives the hog's slide in TileDecorations.scss
+    --dashboard-tile-transition:
+        transform 220ms ease-out, width 220ms ease-out, height 220ms ease-out, border-color 100ms ease;
+
     position: relative;
     transition: height 100ms ease;
 
-    /* remove initial loading animation, animations are only needed in edit mode */
-    &.dashboard-view-mode .react-grid-item {
-        transition: border-color 100ms ease;
-
-        /* Skip rendering for off-screen tiles during resize/reflow */
+    .react-grid-item {
+        /* Entry into edit mode must not force layout for off-screen charts. */
         content-visibility: auto;
         contain-intrinsic-size: auto 30rem;
 
         /* content-visibility paint-clips the resize handles revealed on border hover; lift it while one shows */
-        &:has(> .handle) {
+        &:hover:has(> .handle),
+        &.resizing,
+        &.react-draggable-dragging {
             content-visibility: visible;
         }
+
+        /* Tile decorations draw outside the tile box, so the same paint clip would cut them off */
+        &:has(
+            > .TileDecorations__group-title,
+            > .TileDecorations__crown,
+            > .InsightCard > .TileDecorations__group-title,
+            > .InsightCard > .TileDecorations__crown
+        ) {
+            content-visibility: visible;
+        }
+
+        /* The hog only shows while hovered. On leave, hold the lift for the hog's slide down (browsers without discrete content-visibility transitions hide it at once) */
+        &:where(:has(> .TileDecorations__hog, > .InsightCard > .TileDecorations__hog)) {
+            &:hover {
+                content-visibility: visible;
+                transition-delay: 0s;
+            }
+
+            @supports (transition-behavior: allow-discrete) {
+                transition:
+                    var(--dashboard-tile-transition),
+                    content-visibility 0s linear var(--tile-hog-slide-duration) allow-discrete;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                transition: var(--dashboard-tile-transition);
+            }
+        }
+    }
+
+    /* Preserve the tile border transition while spacing changes animate. */
+    &.dashboard-view-mode .react-grid-item {
+        transition: var(--dashboard-tile-transition);
+    }
+
+    &.dashboard-tile-spacing-changing {
+        transition: none;
+
+        .react-grid-item {
+            transition: none;
+        }
+    }
+
+    &.dashboard-layout-interaction .react-grid-item {
+        transition: none;
+    }
+
+    &.dashboard-edit-mode .react-grid-item:not(:hover, .resizing, .react-draggable-dragging) > .handle {
+        visibility: hidden;
+    }
+
+    &.dashboard-edit-mode [data-attr='dashboard-edit-mode-from-card-edge'] {
+        display: none;
+    }
+
+    &.dashboard-layout-settling .react-grid-item:not(.react-draggable-dragging, .resizing) {
+        transition: transform 180ms ease-out;
+    }
+}
+
+.dashboard-insight-tile {
+    z-index: 3;
+
+    &__placeholder {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        width: 100%;
+        height: 100%;
+        padding: 1rem;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    > .InsightCard {
+        height: 100%;
+    }
+
+    &:has(> .InsightCard--details-shown) {
+        z-index: var(--z-raised);
+    }
+}
+
+.dashboard-container-width-changing .react-grid-layout {
+    transition: none;
+
+    .react-grid-item {
+        transition: none;
     }
 }
 
@@ -44,9 +139,9 @@
 
 .react-grid-item.react-draggable.DashboardTileCard {
     .CardMeta,
-    .TextCard__body,
-    .ButtonTileCard__body,
-    .WidgetCard__header {
+    .DashboardTileCard__body,
+    .WidgetCard__header,
+    .drag-handle {
         // CardMeta: insight + widget (dashboard_tile layout). Bodies: text/button tiles. Header: widget (simple layout).
         cursor: grab;
         user-select: none; // Prevent accidental text selection while dragging
@@ -69,20 +164,41 @@
     z-index: 2;
     max-width: 100%;
     user-select: none;
-    border: 1px solid var(--color-accent);
+    background:
+        linear-gradient(var(--color-accent-highlight-secondary), var(--color-accent-highlight-secondary)),
+        var(--color-bg-surface-primary);
+    border: 2px dashed var(--color-accent);
     border-radius: var(--radius);
-    outline: 1px solid var(--color-accent);
     transition: 100ms ease;
+
+    // A resize preview sits under the tile, so a fill would hide its content.
+    &.placeholder-resizing {
+        background: none;
+        border: 1px solid var(--color-accent);
+        outline: 1px solid var(--color-accent);
+    }
 }
 
 .react-resizable-hide > .react-resizable-handle {
     display: none;
 }
 
+@keyframes DashboardResizeHandle__Reveal {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
 .react-grid-item {
     box-sizing: border-box;
-    transition: all 100ms ease;
-    transition-property: left, top;
+    transition:
+        transform 220ms ease-out,
+        width 220ms ease-out,
+        height 220ms ease-out;
 
     // Drop InsightCard's fixed 30rem so RGL's inline height is the only constraint.
     &.DashboardTileCard.InsightCard {
@@ -98,6 +214,7 @@
         align-items: flex-end;
         justify-content: center;
         pointer-events: none;
+        animation: DashboardResizeHandle__Reveal 300ms step-end;
 
         &.horizontal {
             svg {
@@ -143,6 +260,10 @@
                 transform: translate(0.5rem, 0.5rem);
             }
 
+            &.bottom-right svg {
+                transform: translate(-0.25rem, -0.25rem);
+            }
+
             &.bottom-left {
                 align-items: flex-end;
                 justify-content: flex-start;
@@ -172,6 +293,10 @@
         }
     }
 
+    &.resizing > .handle {
+        animation: none;
+    }
+
     & > .react-resizable-handle {
         position: absolute;
         right: -0.5rem;
@@ -183,6 +308,8 @@
     }
 
     & > .react-resizable-handle.react-resizable-handle-se {
+        right: 0;
+        bottom: 0;
         cursor: se-resize;
     }
 
@@ -200,15 +327,6 @@
         cursor: ns-resize;
     }
 
-    & > .react-resizable-handle.react-resizable-handle-n {
-        top: -0.5rem;
-        right: 3rem;
-        left: 3rem;
-        width: auto;
-        height: 1rem;
-        cursor: ns-resize;
-    }
-
     & > .react-resizable-handle.react-resizable-handle-w {
         top: 0;
         bottom: 2rem;
@@ -218,27 +336,18 @@
         cursor: ew-resize;
     }
 
-    & > .react-resizable-handle.react-resizable-handle-nw {
-        top: -0.5rem;
-        left: -0.5rem;
-        width: 2rem;
-        height: 2rem;
-        cursor: nw-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-ne {
-        top: -0.5rem;
-        right: -0.5rem;
-        width: 2rem;
-        height: 2rem;
-        cursor: ne-resize;
-    }
-
     & > .react-resizable-handle.react-resizable-handle-sw {
         bottom: -0.5rem;
         left: -0.5rem;
         width: 2rem;
         height: 2rem;
         cursor: sw-resize;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .react-grid-layout.dashboard-view-mode .react-grid-item,
+    .react-grid-layout .react-grid-item {
+        transition: none;
     }
 }

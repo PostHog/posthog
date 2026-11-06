@@ -48,6 +48,7 @@ class TestObservationCreateTask(_VisionAPITestCase):
         self.assertEqual(resp.json()["task_id"], str(task_id))
         kwargs = create.call_args.kwargs
         self.assertEqual(kwargs["team"], self.team)
+        self.assertEqual(kwargs["profile"].key, "user")
         self.assertIn("Rage clicks", kwargs["title"])
         self.assertIn("sess-1", kwargs["description"])
 
@@ -102,7 +103,7 @@ class TestObservationCreateTask(_VisionAPITestCase):
         session_route_url = f"/api/environments/{self.team.id}/vision/observations/{self.observation.id}/create_task/"
         with (
             patch(
-                "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
                 side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
             ),
             patch(_CREATE) as create,

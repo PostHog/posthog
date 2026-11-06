@@ -7,10 +7,12 @@ import zlib
 import random
 import threading
 import statistics
+from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections
 from django.utils.dateparse import parse_datetime
@@ -19,11 +21,14 @@ import dagster
 import structlog
 from dagster import Backoff, Jitter, RetryPolicy
 from prometheus_client import Counter, Gauge
+from pydantic import Field
 
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_DATA_TABLE
+from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries, tags_context
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity
@@ -32,6 +37,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner_o
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
 from posthog.query_cache import QueryCache
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.storage import object_storage
 
@@ -43,6 +49,9 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     BACKGROUND_WARMING_TRIGGERS,
     MAX_PRECOMPUTE_DAYS,
     SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS,
+    get_sticky_warm_shapes,
+    is_team_above_volume_floor,
+    publish_volume_floor_teams,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute as can_use_overview_lazy_precompute,
@@ -68,12 +77,21 @@ WARMING_SHAPES_SELECTED_GAUGE = Gauge(
     "posthog_web_analytics_warming_shapes_selected",
     "Number of hot query shapes selected for web analytics warming in the last run",
 )
+WARMING_PRESET_SHAPES_SELECTED_GAUGE = Gauge(
+    "posthog_web_analytics_warming_preset_shapes_selected",
+    "Number of selected shapes attributed to a saved filter preset in the last run",
+)
+WARMING_PRESETS_SELECTED_GAUGE = Gauge(
+    "posthog_web_analytics_warming_presets_selected",
+    "Number of distinct saved filter presets the last selection kept shapes for",
+)
 WARMING_QUERIES_COUNTER = Counter(
     "posthog_web_analytics_warming_queries_total",
     "Web analytics warming outcomes per query shape",
-    # warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand |
+    # outcome: warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand |
     # skipped_cold | skipped_already_warmed | failed | unsupported
-    ["outcome"],
+    # lane: demand (selected by query volume) | preset (selected by a saved filter preset)
+    ["outcome", "lane"],
 )
 
 logger = structlog.get_logger(__name__)
@@ -96,6 +114,24 @@ LAZY_PRECOMPUTE_QUERY_KINDS = frozenset(
 # (the queries replay outside the tenant's own request throttles).
 MAX_SHAPES_PER_TEAM = 100
 
+# The preset lane: shapes a team ran while a saved filter preset was applied. Exploration
+# rarely clears the demand floor, so without this a preset stays permanently cold — which
+# is the whole reason someone saved it. The lane is bounded on three axes instead, all
+# enforced in Python against Postgres after the scan (ClickHouse can't see which presets
+# exist), so a client that invents preset ids in its query tags buys nothing.
+PRESET_LANE_MAX_PRESETS_PER_TEAM = 15
+# One dashboard render is ~15-20 distinct shapes; the headroom covers tab clicks and
+# breakdown re-sorts made with the preset still applied.
+PRESET_LANE_MAX_SHAPES_PER_PRESET = 25
+# Backstop for the union across a team's presets — they overlap heavily in practice, so
+# this bites well before 15 x 25 would.
+PRESET_LANE_MAX_SHAPES_PER_TEAM = 250
+# Bound on the preset ids collected per shape in ClickHouse, and on their length, so a
+# hostile client can't balloon the aggregate state before Postgres ever sees the ids.
+# The length matches WebAnalyticsFilterPreset.short_id's max_length.
+PRESET_LANE_MAX_IDS_PER_SHAPE = 10
+PRESET_ID_MAX_LENGTH = 12
+
 # Demand is selected by API query kind, not by query_type tag: the tag
 # vocabulary is a growing zoo of strategy variants (no_join, session_id_set,
 # lazy reads, per-breakdown inserts, …) and enumerating it would silently drop
@@ -114,18 +150,119 @@ UNWARMABLE_QUERY_KINDS = ("WebVitalsQuery",)
 INTERNAL_QUERY_TYPE_SUFFIXES = ("_lazy_insert", "_preflight")
 _INTERNAL_QUERY_TYPE_FILTER = " OR ".join(f"endsWith(query_type, '{s}')" for s in INTERNAL_QUERY_TYPE_SUFFIXES)
 
-# Request kind (top-level log_comment `kind`) excluded from demand selection.
+# Request kind (top-level log_comment `kind`) excluded from the system.query_log demand selection.
 # Temporal-kind requests are batch/scheduled workflows that run web queries
 # across nearly every team; counting them made the selection reflect background
 # traffic rather than real dashboard usage. UI and personal-API-key requests are
 # kept — those are the reads warming is meant to keep fast.
 EXCLUDED_REQUEST_KIND = "temporal"
 
+# What counts as demand on the query_log_archive path. The archive has no
+# `trigger` column, so it can't exclude background replays by trigger. They are
+# told apart by kind and task id instead: the warmer's own replays run from
+# Dagster with no kind, stale revalidation and warmingV2 run as celery under
+# their own task names, and batch workflows run as temporal. UI and
+# personal-API-key reads are `request`. A UI read that executes asynchronously
+# (a dashboard tile, a scene's async load) is also user demand, but the celery
+# prerun tags it kind=celery/id=<task name> and process_query_task lets those
+# tags win over the inherited request tags, so in the archive it is a celery
+# row whose id is the async query task. Keep this in step with
+# _fetch_active_wa_team_ids in eager_web_analytics_precompute.py.
+DEMAND_REQUEST_KIND = "request"
+ASYNC_QUERY_TASK_KIND = "celery"
+ASYNC_QUERY_TASK_ID = "posthog.tasks.tasks.process_query_task"
+
 # Read-bytes ceiling for the demand-selection scan. The 14-day fleet-wide
-# query_log scan reads ~40 TiB, over the default cap, so it's raised — but to a
-# finite value (~150 TiB, generous headroom for fleet growth) rather than 0, so
-# the ClickHouse kill switch's overload cap still clamps it during an overload.
+# system.query_log scan (the preset-lane path) reads ~40 TiB, over the default
+# cap, so it's raised — but to a finite value (~150 TiB, generous headroom for
+# fleet growth) rather than 0, so the ClickHouse kill switch's overload cap still
+# clamps it during an overload.
 _SELECTION_MAX_BYTES_TO_READ = 150 * 1024**4
+
+# Demand-selection source fragments. Both sources yield the same row columns
+# (team_id, query_json_raw, web_query_kind, query_type, request_kind, feature,
+# request_id) plus the columns its own demand filter reads, so one aggregation
+# serves both.
+#
+# query_log_archive holds one row per query chain, with the log_comment tags in
+# typed lc_* columns. Its sort key starts with the chain's start hour, so the
+# window filter prunes by primary key, and the LowCardinality lc_query__kind
+# filter skips the query JSON of every non-web row. The table is an
+# AggregatingMergeTree read without FINAL, so a chain can still be split across
+# unmerged rows. is_initial_query keeps only the row that holds the initial query,
+# which is the only row with lc_query filled, and counting distinct
+# initial_query_id makes a duplicate row harmless.
+_ARCHIVE_ROW_COLUMNS = """
+                team_id,
+                lc_query AS query_json_raw,
+                -- From the query JSON, not lc_query__kind. lc_query__kind holds a
+                -- wrapped source's kind (WebVitalsQuery wraps a TrendsQuery), so
+                -- the lc_query__kind prefilter below drops any web kind with a
+                -- non-web source. That is safe only while all such kinds are in
+                -- UNWARMABLE_QUERY_KINDS.
+                JSONExtractString(lc_query, 'kind') AS web_query_kind,
+                lc_query_type AS query_type,
+                lc_kind AS request_kind,
+                lc_id AS request_task_id,
+                lc_feature AS feature,
+                initial_query_id AS request_id"""
+_ARCHIVE_SOURCE = f"""
+            FROM {QUERY_LOG_ARCHIVE_DATA_TABLE}
+            WHERE
+                initial_query_start_time >= now() - INTERVAL %(days)s DAY
+                AND startsWith(lc_query__kind, %(kind_prefix)s)
+                AND is_initial_query
+                AND type = 'QueryFinish'
+                AND query_kind = 'Select'"""
+_ARCHIVE_DEMAND_FILTER = """(
+                request_kind = %(demand_request_kind)s
+                OR (request_kind = %(async_query_task_kind)s AND request_task_id = %(async_query_task_id)s)
+            )"""
+
+# system.query_log keeps the preset_id tag the archive drops, so the preset lane
+# still reads it. Dagster connects to offline nodes, while the user traffic to
+# replay lands on other replicas, hence clusterAllReplicas. Web rows are spread
+# through every granule, so no row filter here reduces the read of the large
+# log_comment column across the window.
+_QUERY_LOG_ROW_COLUMNS = """
+                JSONExtractInt(log_comment, 'team_id') AS team_id,
+                JSONExtractRaw(log_comment, 'query') AS query_json_raw,
+                -- aliased away from the native `query_kind` column so the PREWHERE
+                -- below binds to the column (Select/Insert/…), not this JSON kind
+                -- (WebOverviewQuery/…); with prefer_column_name_to_alias=0 a name
+                -- collision would resolve `query_kind = 'Select'` against the alias
+                -- and silently select nothing.
+                JSONExtractString(log_comment, 'query', 'kind') AS web_query_kind,
+                JSONExtractString(log_comment, 'query_type') AS query_type,
+                JSONExtractString(log_comment, 'kind') AS request_kind,
+                JSONExtractString(log_comment, 'feature') AS feature,
+                JSONExtractString(log_comment, 'trigger') AS trigger,
+                query_id AS request_id"""
+_QUERY_LOG_SOURCE = f"""
+            FROM clusterAllReplicas(%(cluster)s, system.query_log)
+            -- Filter the cheap native columns first so the big log_comment String
+            -- is read only for surviving rows. is_initial_query alone drops roughly
+            -- nine-tenths of the window (the rest are distributed subqueries), and
+            -- query_kind excludes the warmer's own INSERT replays without a JSON
+            -- parse — every warmable web query executes as a Select.
+            PREWHERE
+                type = 'QueryFinish'
+                AND is_initial_query
+                AND query_kind = 'Select'
+            WHERE
+                event_date >= toDate(now() - INTERVAL %(days)s DAY)
+                AND event_time >= now() - INTERVAL %(days)s DAY
+                -- cheap substring prefilter on the query's own kind before any
+                -- JSON extraction; a superset of the kind filter below, false
+                -- positives re-checked. A bare '%%Web%%' also matches user agents
+                -- (AppleWebKit) and keeps most rows.
+                AND log_comment LIKE '%%"kind":"{WARMABLE_QUERY_KIND_PREFIX}%%'"""
+# trigger/feature exclusions keep the warmer's own replays (and every other
+# background warmer) out of the demand counts. Otherwise a once-warmed shape
+# keeps itself hot forever. Temporal-kind requests (batch/scheduled workflows)
+# run web queries across nearly every team. Left in, they dominated the selection
+# and filled the cap with shapes no dashboard reader ever loads.
+_QUERY_LOG_DEMAND_FILTER = "trigger NOT IN %(background_triggers)s AND request_kind != %(excluded_request_kind)s"
 
 
 def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
@@ -373,8 +510,139 @@ def build_replay_runner(
     return runner, eligible_json, True
 
 
+# Teams per Postgres round trip when validating preset ids. Keeps the IN lists to a
+# size Postgres plans well while still being a handful of queries, not thousands.
+_PRESET_VALIDATION_TEAM_CHUNK = 500
+
+
+def _valid_preset_ids(ids_by_team: dict[int, set[str]]) -> set[tuple[int, str]]:
+    """The (team_id, short_id) pairs that are real, live presets.
+
+    ClickHouse only knows what clients claimed in their query tags, and that tag is
+    client-supplied, so nothing downstream may act on an id until Postgres has confirmed
+    it belongs to this team and is not deleted.
+    """
+    # WebAnalyticsFilterPreset is not on a fail-closed manager yet. If it ever is, this
+    # call site is genuinely cross-team and becomes `.all_teams` — not `for_team`, which
+    # is per-team and would turn one query into thousands.
+    from products.web_analytics.backend.models.web_analytics_filter_preset import (  # noqa: PLC0415 — keeps the Django model off the Dagster code-location import path
+        WebAnalyticsFilterPreset,
+    )
+
+    team_ids = sorted(ids_by_team)
+    valid: set[tuple[int, str]] = set()
+    for start in range(0, len(team_ids), _PRESET_VALIDATION_TEAM_CHUNK):
+        chunk = team_ids[start : start + _PRESET_VALIDATION_TEAM_CHUNK]
+        short_ids: set[str] = set()
+        for team_id in chunk:
+            short_ids |= ids_by_team[team_id]
+        valid.update(
+            WebAnalyticsFilterPreset.objects.filter(
+                team_id__in=chunk, deleted=False, short_id__in=sorted(short_ids)
+            ).values_list("team_id", "short_id")
+        )
+    return valid
+
+
+def _apply_preset_lane(context: dagster.OpExecutionContext, rows: list[dict], minimum_query_count: int) -> list[dict]:
+    """Validate the preset ids ClickHouse reported and hold the lane to its caps.
+
+    Every row keeps only the preset ids Postgres vouches for. A row left with none is no
+    longer a preset shape and falls back to the demand rules it was exempted from, which
+    is what makes an invented id worthless. Surviving rows are then bounded per preset
+    and per team, so no tenant can turn saved presets into unbounded background compute.
+    """
+    ids_by_team: dict[int, set[str]] = {}
+    for row in rows:
+        if row.get("preset_ids"):
+            ids_by_team.setdefault(row["team_id"], set()).update(row["preset_ids"])
+    claimed = sum(len(ids) for ids in ids_by_team.values())
+    valid = _valid_preset_ids(ids_by_team) if ids_by_team else set()
+
+    # Demand rank per (team, preset), used both to pick a team's 15 and to order shapes.
+    # Epoch seconds rather than datetimes: ClickHouse hands back naive values here, but a
+    # tz-aware one would make the comparison raise mid-selection.
+    last_seen_by_preset: dict[tuple[int, str], float] = {}
+    demand_by_preset: dict[tuple[int, str], int] = {}
+    for row in rows:
+        kept = [pid for pid in row.get("preset_ids") or [] if (row["team_id"], pid) in valid]
+        row["preset_ids"] = kept
+        # Popped, not kept: the selection is cached as JSON and a datetime would not
+        # serialize. Its only use is the ranking below.
+        last_seen = row.pop("preset_last_seen_at", None)
+        last_seen_at = last_seen.timestamp() if isinstance(last_seen, datetime) else 0.0
+        for pid in kept:
+            key = (row["team_id"], pid)
+            demand_by_preset[key] = demand_by_preset.get(key, 0) + row["query_count"]
+            last_seen_by_preset[key] = max(last_seen_by_preset.get(key, 0.0), last_seen_at)
+
+    # Which presets a team gets: most recently used first, demand breaking ties. Recency
+    # comes from the scan rather than the model's last_modified_at, which is a
+    # modification time — renaming a preset nobody opens must not outrank a daily one.
+    kept_presets: set[tuple[int, str]] = set()
+    presets_by_team: dict[int, list[str]] = {}
+    for team_id, preset_id in demand_by_preset:
+        presets_by_team.setdefault(team_id, []).append(preset_id)
+    for team_id, preset_ids in presets_by_team.items():
+        preset_ids.sort(
+            key=lambda pid: (last_seen_by_preset[(team_id, pid)], demand_by_preset[(team_id, pid)]), reverse=True
+        )
+        kept_presets.update((team_id, pid) for pid in preset_ids[:PRESET_LANE_MAX_PRESETS_PER_TEAM])
+    presets_dropped_over_cap = len(demand_by_preset) - len(kept_presets)
+
+    # Hottest shapes first, so every cap below truncates the tail rather than an
+    # arbitrary slice.
+    ordered = sorted(rows, key=lambda row: row["query_count"], reverse=True)
+
+    shapes_per_preset: dict[tuple[int, str], int] = {}
+    shapes_per_team: dict[int, int] = {}
+    demand_shapes_per_team: dict[int, int] = {}
+    selected: list[dict] = []
+    for row in ordered:
+        team_id = row["team_id"]
+        attributed = [pid for pid in row["preset_ids"] if (team_id, pid) in kept_presets]
+        attributed = [
+            pid for pid in attributed if shapes_per_preset.get((team_id, pid), 0) < PRESET_LANE_MAX_SHAPES_PER_PRESET
+        ]
+        if attributed and shapes_per_team.get(team_id, 0) < PRESET_LANE_MAX_SHAPES_PER_TEAM:
+            # One row can serve several presets but is warmed once, so it counts against
+            # each preset's budget and once against the team's.
+            for pid in attributed:
+                shapes_per_preset[(team_id, pid)] = shapes_per_preset.get((team_id, pid), 0) + 1
+            shapes_per_team[team_id] = shapes_per_team.get(team_id, 0) + 1
+            row["preset_ids"] = attributed
+            selected.append(row)
+            continue
+        # Not (or no longer) a preset shape: it has to earn its place on demand alone,
+        # against the same floor and per-team cap as everything else.
+        row["preset_ids"] = []
+        if row["query_count"] < minimum_query_count or demand_shapes_per_team.get(team_id, 0) >= MAX_SHAPES_PER_TEAM:
+            continue
+        demand_shapes_per_team[team_id] = demand_shapes_per_team.get(team_id, 0) + 1
+        selected.append(row)
+
+    context.log.info(
+        f"Preset lane: {len(kept_presets)} presets across {len(shapes_per_team)} teams, "
+        f"{sum(shapes_per_team.values())} shapes "
+        f"({claimed - len(valid)} claimed ids invalid, {presets_dropped_over_cap} presets over the per-team cap)"
+    )
+    logger.info(
+        "web_analytics_warming_preset_lane",
+        presets_selected=len(kept_presets),
+        preset_teams=len(shapes_per_team),
+        preset_shapes=sum(shapes_per_team.values()),
+        presets_invalid=claimed - len(valid),
+        presets_dropped_over_cap=presets_dropped_over_cap,
+    )
+    return selected
+
+
 def queries_to_keep_fresh(
-    context: dagster.OpExecutionContext, days: int = 2, minimum_query_count: int = 2, max_shapes: int = 40000
+    context: dagster.OpExecutionContext,
+    days: int = 2,
+    minimum_query_count: int = 2,
+    max_shapes: int = 40000,
+    preset_lane: bool = False,
 ) -> list[dict]:
     """Fleet-wide demand selection: every (team, query shape) with at least
     `minimum_query_count` runs in the window, hottest first, capped at
@@ -383,15 +651,23 @@ def queries_to_keep_fresh(
     The audience is implicit — any team with a hot shape is active on web
     analytics and benefits from warming. One batched query replaces the previous
     per-team loop, which could not scale past a handful of teams.
+
+    With `preset_lane`, shapes run under a saved filter preset are also selected,
+    below the demand floor and in their own per-team budget — see
+    `_apply_preset_lane`, which enforces the lane's caps once Postgres has said
+    which of the tagged preset ids are real.
     """
     context.log.info(
         f"Selecting fleet-wide web analytics queries with >= {minimum_query_count} runs "
-        f"in the last {days} days (cap {max_shapes} shapes)."
+        f"in the last {days} days (cap {max_shapes} shapes, preset lane {'on' if preset_lane else 'off'})."
     )
 
-    # Selection reads system.query_log across the whole cluster: Dagster connects
-    # to offline nodes, while the user traffic we want to replay lands on other
-    # replicas. (metrics_query_log_mv only looks usable — its DDL in
+    # Selection reads query_log_archive, which holds every query chain in the
+    # window with the log_comment tags as typed columns. A scan of
+    # system.query_log over the same window must read the large log_comment
+    # column for every row, which can run past max_execution_time. The preset
+    # lane needs the preset_id tag, which only system.query_log keeps, so that
+    # path still scans it. (metrics_query_log_mv only looks usable — its DDL in
     # posthog/models/query_metrics/sql.py was never migrated, the table does not
     # exist in production.) Demand is grouped by the NORMALIZED shape — the query
     # JSON with the range-varying and non-shape fields stripped
@@ -404,24 +680,74 @@ def queries_to_keep_fresh(
     # worst hit. The representative to replay is the most-demanded variant (argMax
     # below); its range is then deepened to the widest the shape actually needs
     # (its distinct ranges come back in observed_date_froms). Demand is counted as
-    # distinct query_ids so duplicated log rows for one request can't inflate it.
+    # distinct query ids so duplicated log rows for one request can't inflate it.
     # The per-shape hash is
     # cityHash64 of the group key rather than normalizedQueryHash(query), which
     # would read the full `query` SQL-text column — the largest in query_log —
     # across the whole window purely for a logging id.
     #
-    # The scan spans the whole WEB_ANALYTICS_WARMING_DAYS window fleet-wide, which
-    # exceeds the default max_bytes_to_read, so the cap is raised to
+    # The system.query_log scan spans the whole WEB_ANALYTICS_WARMING_DAYS window
+    # fleet-wide, which exceeds the default max_bytes_to_read, so the cap is raised to
     # _SELECTION_MAX_BYTES_TO_READ — a finite value, not 0, so the ClickHouse
     # kill switch's overload byte cap still clamps it (min(kill_switch_cap, ours))
     # and the giant scan is refused rather than piled on during an overload. The
     # run is also bounded by max_execution_time and by the demand-selection cache
     # upstream, so this heavy scan happens on the cache TTL cadence, not every run.
     #
-    # trigger/feature exclusions keep the warmer's own replays — and every other
-    # background warmer — out of the demand counts, otherwise a once-warmed shape
-    # would keep itself hot forever. LIKE literals are %%-escaped because
-    # clickhouse_driver %-formats the query when params are passed.
+    # Each source excludes background replays its own way (see
+    # _ARCHIVE_DEMAND_FILTER and _QUERY_LOG_DEMAND_FILTER). LIKE literals
+    # are %%-escaped because clickhouse_driver %-formats the query when params are
+    # passed.
+    # The preset lane's SQL is spliced in rather than always present, so with the lane off
+    # the scan does no extra JSON extraction, carries no extra aggregate state, and keeps
+    # the original HAVING — the kill switch costs the fleet nothing. Every fragment is
+    # built from module-level constants, so the nosemgrep rationale below still holds.
+    if preset_lane:
+        preset_row_columns = ", JSONExtractString(log_comment, 'preset_id') AS preset_id, event_time"
+        preset_variant_columns = (
+            f", groupUniqArrayIf({PRESET_LANE_MAX_IDS_PER_SHAPE})"
+            f"(preset_id, preset_id != '' AND length(preset_id) <= {PRESET_ID_MAX_LENGTH}) AS variant_preset_ids"
+            ", maxIf(event_time, preset_id != '') AS variant_preset_last_seen"
+        )
+        preset_outer_columns = (
+            # Bounded aggregate, not arrayDistinct(arrayFlatten(groupArray(...))): ignored-field
+            # variants each carry up to the per-variant cap of ids, so an unbounded outer merge
+            # would let one shape accumulate an attacker-sized id array (aggregate state included)
+            # before Postgres validation ever sees it.
+            f", groupUniqArrayArray({PRESET_LANE_MAX_IDS_PER_SHAPE})(variant_preset_ids) AS preset_ids"
+            ", max(variant_preset_last_seen) AS preset_last_seen_at"
+            # Whether the representative variant itself ran under a preset. The raw replay
+            # floor keys on this, not on shape-level tagging: raw replays aren't shared
+            # across variants, so a tagged sibling must not lower the bar for an untagged
+            # representative.
+            ", argMax(notEmpty(variant_preset_ids), variant_count) AS representative_preset_tagged"
+            # Priority is capped at the lane's own per-team budget so tagged rows beyond it
+            # (or with invented ids Postgres will reject later) compete on demand terms
+            # instead of evicting a team's real hot shapes before validation can run.
+            ", notEmpty(preset_ids)"
+            " AND row_number() OVER (PARTITION BY team_id, notEmpty(preset_ids) ORDER BY query_count DESC)"
+            f" <= {PRESET_LANE_MAX_SHAPES_PER_TEAM} AS preset_priority"
+        )
+        # A preset shape is kept whatever its demand — that is the point of the lane —
+        # and, up to the lane's per-team budget, sorted ahead of the demand lane so
+        # neither LIMIT can crowd it out. The per-team LIMIT is widened by the lane's
+        # own budget so the demand lane keeps its full MAX_SHAPES_PER_TEAM slots.
+        preset_having = "query_count >= %(minimum_query_count)s OR notEmpty(preset_ids)"
+        preset_order_by = "preset_priority DESC, "
+        max_shapes_per_team = MAX_SHAPES_PER_TEAM + PRESET_LANE_MAX_SHAPES_PER_TEAM
+    else:
+        preset_row_columns = ""
+        preset_variant_columns = ""
+        preset_outer_columns = ""
+        preset_having = "query_count >= %(minimum_query_count)s"
+        preset_order_by = ""
+        max_shapes_per_team = MAX_SHAPES_PER_TEAM
+
+    if preset_lane:
+        row_columns, source, demand_filter = _QUERY_LOG_ROW_COLUMNS, _QUERY_LOG_SOURCE, _QUERY_LOG_DEMAND_FILTER
+    else:
+        row_columns, source, demand_filter = _ARCHIVE_ROW_COLUMNS, _ARCHIVE_SOURCE, _ARCHIVE_DEMAND_FILTER
+
     # nosemgrep: clickhouse-fstring-param-audit (interpolations are module-level constants from hardcoded tuples, not user input; everything dynamic is parameterized)
     results = sync_execute(
         f"""
@@ -446,15 +772,16 @@ def queries_to_keep_fresh(
             -- normalization, so the warmer deepens it to the widest of these
             -- (see deepen_to_widest_warmable_range).
             groupUniqArray(JSONExtractString(query_json_raw, 'dateRange', 'date_from')) AS observed_date_froms
+            {preset_outer_columns}
         FROM (
             SELECT
                 team_id,
                 normalized_shape,
                 query_json_raw,
-                uniqExact(query_id) AS variant_count
+                uniqExact(request_id) AS variant_count
+                {preset_variant_columns}
             FROM (
             SELECT
-                JSONExtractInt(log_comment, 'team_id') AS team_id,
                 -- The shape key: every top-level query field except the range-
                 -- varying / non-shape ones the precompute namespace ignores, so
                 -- date-range and compare variants of one shape group together
@@ -465,39 +792,14 @@ def queries_to_keep_fresh(
                         kv -> concat(kv.1, char(31), kv.2),
                         arrayFilter(
                             kv -> NOT has(%(shape_ignored_fields)s, kv.1),
-                            JSONExtractKeysAndValuesRaw(JSONExtractRaw(log_comment, 'query'))
+                            JSONExtractKeysAndValuesRaw(query_json_raw)
                         )
                     )),
                     char(30)
                 ) AS normalized_shape,
-                -- aliased away from the native `query_kind` column so the PREWHERE
-                -- below binds to the column (Select/Insert/…), not this JSON kind
-                -- (WebOverviewQuery/…); with prefer_column_name_to_alias=0 a name
-                -- collision would resolve `query_kind = 'Select'` against the alias
-                -- and silently select nothing.
-                JSONExtractString(log_comment, 'query', 'kind') AS web_query_kind,
-                JSONExtractString(log_comment, 'query_type') AS query_type,
-                JSONExtractString(log_comment, 'trigger') AS trigger,
-                JSONExtractString(log_comment, 'feature') AS feature,
-                JSONExtractString(log_comment, 'kind') AS request_kind,
-                JSONExtractRaw(log_comment, 'query') AS query_json_raw,
-                query_id
-            FROM clusterAllReplicas(%(cluster)s, system.query_log)
-            -- Filter the cheap native columns first so the big log_comment String
-            -- is read only for surviving rows. is_initial_query alone drops roughly
-            -- nine-tenths of the window (the rest are distributed subqueries), and
-            -- query_kind excludes the warmer's own INSERT replays without a JSON
-            -- parse — every warmable web query executes as a Select.
-            PREWHERE
-                type = 'QueryFinish'
-                AND is_initial_query
-                AND query_kind = 'Select'
-            WHERE
-                event_date >= toDate(now() - INTERVAL %(days)s DAY)
-                AND event_time >= now() - INTERVAL %(days)s DAY
-                -- cheap substring prefilter before any JSON extraction; a
-                -- superset of the kind filter below, false positives re-checked
-                AND log_comment LIKE '%%{WARMABLE_QUERY_KIND_PREFIX}%%'
+                {row_columns}
+                {preset_row_columns}
+            {source}
         ) AS sub
         WHERE
             team_id != 0
@@ -505,14 +807,10 @@ def queries_to_keep_fresh(
             AND startsWith(web_query_kind, %(kind_prefix)s)
             AND web_query_kind NOT IN %(unwarmable_kinds)s
             AND NOT ({_INTERNAL_QUERY_TYPE_FILTER})
-            AND trigger NOT IN %(background_triggers)s
             AND feature != %(cache_warmup_feature)s
             -- Demand should reflect real product usage, not background query
-            -- traffic. Temporal-kind requests (batch/scheduled workflows) run
-            -- web queries across nearly every team — left in, they dominated the
-            -- selection and filled the cap with shapes no dashboard reader ever
-            -- loads. UI and personal-API-key traffic are kept.
-            AND request_kind != %(excluded_request_kind)s
+            -- traffic.
+            AND {demand_filter}
             GROUP BY
                 team_id,
                 normalized_shape,
@@ -521,9 +819,9 @@ def queries_to_keep_fresh(
         GROUP BY
             team_id,
             normalized_shape
-        HAVING query_count >= %(minimum_query_count)s
+        HAVING {preset_having}
         ORDER BY
-            query_count DESC
+            {preset_order_by}query_count DESC
         LIMIT %(max_shapes_per_team)s BY team_id
         LIMIT %(max_shapes)s
         """,
@@ -532,18 +830,21 @@ def queries_to_keep_fresh(
             "days": days,
             "minimum_query_count": minimum_query_count,
             "max_shapes": max_shapes,
-            "max_shapes_per_team": MAX_SHAPES_PER_TEAM,
+            "max_shapes_per_team": max_shapes_per_team,
             "shape_ignored_fields": sorted(SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS),
             "kind_prefix": WARMABLE_QUERY_KIND_PREFIX,
             "unwarmable_kinds": UNWARMABLE_QUERY_KINDS,
             "background_triggers": tuple(BACKGROUND_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS),
             "cache_warmup_feature": Feature.CACHE_WARMUP.value,
             "excluded_request_kind": EXCLUDED_REQUEST_KIND,
+            "demand_request_kind": DEMAND_REQUEST_KIND,
+            "async_query_task_kind": ASYNC_QUERY_TASK_KIND,
+            "async_query_task_id": ASYNC_QUERY_TASK_ID,
         },
         settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 600},
     )
 
-    return [
+    rows = [
         {
             "team_id": result[0],
             # Faithful representative range — deepening happens in
@@ -553,12 +854,26 @@ def queries_to_keep_fresh(
             "representative_query_count": result[3],
             "normalized_query_hash": result[4],
             "observed_date_froms": result[5],
+            # Preset ids ClickHouse saw on this shape, still unvalidated. Absent
+            # entirely when the lane is off, so downstream code can key on the field.
+            **(
+                {
+                    "preset_ids": list(result[6]),
+                    "preset_last_seen_at": result[7],
+                    "representative_preset_tagged": bool(result[8]),
+                }
+                if preset_lane
+                else {}
+            ),
         }
         for result in results
     ]
+    if preset_lane:
+        rows = _apply_preset_lane(context, rows, minimum_query_count)
+    return rows
 
 
-# The demand selection scans terabytes of query_log fleet-wide, so its result is
+# The demand selection scans the whole lookback window fleet-wide, so its result is
 # cached in Redis and shared across warming runs: the hourly warmer replays the
 # cached shape list and the scan only re-runs once the cache expires
 # (WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS). This is what lets the lookback
@@ -572,15 +887,15 @@ def queries_to_keep_fresh(
 # miss — object storage has no per-key expiry of its own.
 #
 # The vN suffix versions the selection *logic*: the cache only validates the
-# settings params (days/min/max), not the query itself, so a change to the
-# selection query (new filter, different grouping) would otherwise keep replaying
+# settings params (days/min/max/preset lane), not the query itself, so a change to
+# the selection query (new filter, different grouping) would otherwise keep replaying
 # a stale blob written by the old logic until its TTL expired. Bump the version
 # whenever the selection query changes so the new logic takes effect on deploy.
-_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v5.json.gz"
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v7.json.gz"
 
 
 def _read_cached_warmable_queries(
-    days: int, minimum_query_count: int, max_shapes: int, ttl_seconds: int
+    days: int, minimum_query_count: int, max_shapes: int, preset_lane: bool, ttl_seconds: int
 ) -> Optional[list[dict]]:
     # Fail open: any storage, decode, or unexpected-payload problem is treated as
     # a miss so warming falls back to a fresh scan rather than erroring. The field
@@ -591,11 +906,15 @@ def _read_cached_warmable_queries(
         if raw is None:
             return None
         payload = json.loads(gzip.decompress(raw))
-        params_match = (payload["days"], payload["minimum_query_count"], payload["max_shapes"]) == (
-            days,
-            minimum_query_count,
-            max_shapes,
-        )
+        params_match = (
+            payload["days"],
+            payload["minimum_query_count"],
+            payload["max_shapes"],
+            # Part of the key so flipping the preset lane off drops preset shapes on the
+            # next run rather than at the end of the TTL — otherwise the kill switch is
+            # cosmetic for up to six hours.
+            payload["preset_lane"],
+        ) == (days, minimum_query_count, max_shapes, preset_lane)
         is_fresh = time.time() - payload["generated_at"] < ttl_seconds
         if not params_match or not is_fresh:
             return None
@@ -605,11 +924,14 @@ def _read_cached_warmable_queries(
         return None
 
 
-def _write_cached_warmable_queries(days: int, minimum_query_count: int, max_shapes: int, queries: list[dict]) -> None:
+def _write_cached_warmable_queries(
+    days: int, minimum_query_count: int, max_shapes: int, preset_lane: bool, queries: list[dict]
+) -> None:
     payload = {
         "days": days,
         "minimum_query_count": minimum_query_count,
         "max_shapes": max_shapes,
+        "preset_lane": preset_lane,
         "generated_at": time.time(),
         "queries": queries,
     }
@@ -619,32 +941,178 @@ def _write_cached_warmable_queries(days: int, minimum_query_count: int, max_shap
         logger.warning("web_analytics_warming_cache_write_failed", exc_info=True)
 
 
+def _summarize_preset_lane(queries: list[dict]) -> dict[str, int]:
+    """Shape counts for the preset lane, recomputed from the selection so the numbers
+    are the same whether it was scanned this run or read back from the cache."""
+    preset_shapes = [q for q in queries if q.get("preset_ids")]
+    presets = {(q["team_id"], pid) for q in preset_shapes for pid in q["preset_ids"]}
+    return {
+        "preset_shape_count": len(preset_shapes),
+        "preset_team_count": len({q["team_id"] for q in preset_shapes}),
+        "presets_selected": len(presets),
+    }
+
+
 @dagster.op
-def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
+def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
+    """Refresh the above-floor team set the shared eligibility gate reads.
+
+    The count reads only the timestamp column over a 7-day window on the
+    OFFLINE workload; publishing before selection means this hour's warming
+    pass and all reads share one fresh floor. Fail-open by design: on any
+    error the previous set (or its expiry) governs and warming proceeds.
+    """
+    floor = settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS
+    if floor <= 0:
+        context.log.info("Volume floor disabled (WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS <= 0).")
+        return True
+    try:
+        # Scan down to the exit floor (half the entry floor) so hysteresis has
+        # the candidates it needs: existing members stay until they fall below
+        # the exit floor instead of flapping around the entry threshold.
+        exit_floor = max(1, floor // 2)
+        with tags_context(
+            feature=Feature.CACHE_WARMUP,
+            trigger="webAnalyticsQueryWarming",
+            product=Product.WEB_ANALYTICS,
+            query_type="web_cache_warming_volume_floor",
+        ):
+            rows = sync_execute(
+                """
+                SELECT team_id, count() AS ev7d
+                FROM events
+                WHERE timestamp > now() - INTERVAL 7 DAY AND timestamp < now()
+                GROUP BY team_id
+                HAVING ev7d >= %(exit_floor)s
+                """,
+                {"exit_floor": exit_floor},
+                workload=Workload.OFFLINE,
+                # Bound the fleet scan like the shape-selection query: a marks-only
+                # count still reads the timestamp column across every team, so cap it
+                # rather than let a plan regression drain offline capacity to timeout.
+                settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 300},
+            )
+        above_floor = [int(r[0]) for r in rows if int(r[1]) >= floor]
+        above_exit_floor = [int(r[0]) for r in rows]
+        if not above_floor:
+            # On any real fleet an empty result means the scan broke, not that
+            # every team shrank below the floor at once. Skip the publish so
+            # the previous set (or its 48h expiry, which fails open) governs.
+            context.log.error("Volume floor scan returned no teams; skipping publish (previous set governs).")
+            return True
+        publish_volume_floor_teams(above_floor, above_exit_floor=above_exit_floor)
+        context.log.info(
+            f"Published {len(above_floor)} teams at/above the {floor}-events/7d precompute floor "
+            f"(hysteresis band down to {exit_floor})."
+        )
+    except Exception:
+        context.log.exception("Volume floor refresh failed; readers keep the previous set (fail-open).")
+    return True
+
+
+@dagster.op
+def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published: bool = True) -> list[dict]:
     days = get_instance_setting("WEB_ANALYTICS_WARMING_DAYS")
     minimum_query_count = get_instance_setting("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT")
     max_shapes = get_instance_setting("WEB_ANALYTICS_WARMING_MAX_SHAPES")
     ttl_seconds = get_instance_setting("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS")
+    preset_lane = bool(get_instance_setting("WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED"))
 
-    queries = _read_cached_warmable_queries(days, minimum_query_count, max_shapes, ttl_seconds)
+    queries = _read_cached_warmable_queries(days, minimum_query_count, max_shapes, preset_lane, ttl_seconds)
     from_cache = queries is not None
     if queries is None:
         queries = queries_to_keep_fresh(
-            context, days=days, minimum_query_count=minimum_query_count, max_shapes=max_shapes
+            context,
+            days=days,
+            minimum_query_count=minimum_query_count,
+            max_shapes=max_shapes,
+            preset_lane=preset_lane,
         )
-        _write_cached_warmable_queries(days, minimum_query_count, max_shapes, queries)
+        _write_cached_warmable_queries(days, minimum_query_count, max_shapes, preset_lane, queries)
+
+    # `selection_cap_reached` reflects the selection query alone: sticky entries
+    # are appended below and floor-dropped shapes still consumed cap slots, so
+    # neither must read as the selection hitting its LIMIT.
+    selection_cap_reached = len(queries) >= max_shapes
+
+    # Union in shapes that check-missed twice since the selection was cached:
+    # they are proven lazy-eligible (recorded from inside the lazy gate) and
+    # their teams have repeat demand right now, so waiting for the selection
+    # blob's TTL leaves them re-missing for hours. No dedupe against the
+    # selection here — the warm pass already dedupes replays by (team_id, cache
+    # key), so an overlap costs one `skipped_duplicate`, not a double build.
+    # `representative_query_count=1` keeps any shape whose eligibility has since
+    # changed under the raw-replay demand bar, so stickiness can never mint raw
+    # background scans.
+    sticky = get_sticky_warm_shapes()
+    # Cap sticky contributions per team with the same bound the demand
+    # selection's `LIMIT ... BY team_id` uses. The two caps stack — a team can
+    # contribute up to MAX_SHAPES_PER_TEAM sticky shapes on top of its
+    # selection shapes — but each side is bounded, so one tenant filling the
+    # shared sticky set can't crowd the fleet-wide warm pass.
+    sticky_per_team: defaultdict[int, int] = defaultdict(int)
+    sticky_added = 0
+    for entry in sticky:
+        team_id = entry["team_id"]
+        if sticky_per_team[team_id] >= MAX_SHAPES_PER_TEAM:
+            continue
+        sticky_per_team[team_id] += 1
+        query_json = entry.get("query") or {}
+        date_from = (query_json.get("dateRange") or {}).get("date_from")
+        queries.append(
+            {
+                "team_id": team_id,
+                "query_json": query_json,
+                "query_count": 1,
+                "representative_query_count": 1,
+                # Stable per-shape int for the staleness jitter, derived the same
+                # way selection derives it — from the payload content.
+                "normalized_query_hash": zlib.crc32(json.dumps(query_json, sort_keys=True).encode()),
+                "observed_date_froms": [date_from] if date_from else [],
+            }
+        )
+        sticky_added += 1
+    if sticky_added:
+        context.log.info(f"Unioned {sticky_added} sticky check-miss shapes into the warm pass")
+
+    # The floor is enforced here, per replay, not in the selection SQL: keeping the
+    # cached selection floor-agnostic means a team that grows above the floor is
+    # warmed on the next pass, rather than waiting for the selection blob's TTL to
+    # lapse. It applies to sticky-unioned shapes too, so a below-floor team can't
+    # be warmed through the sticky path. A fresh `is_team_above_volume_floor`
+    # verdict (60s-cached) applies each pass.
+    pre_floor_count = len(queries)
+    queries = [q for q in queries if is_team_above_volume_floor(int(q["team_id"]))]
+    floor_dropped = pre_floor_count - len(queries)
+    # Preset stats reflect the shapes actually warmed, so count them after the floor.
+    preset_stats = _summarize_preset_lane(queries)
 
     team_count = len({q["team_id"] for q in queries})
-
     WARMING_SHAPES_SELECTED_GAUGE.set(len(queries))
+    WARMING_PRESET_SHAPES_SELECTED_GAUGE.set(preset_stats["preset_shape_count"])
+    WARMING_PRESETS_SELECTED_GAUGE.set(preset_stats["presets_selected"])
     source = "cached" if from_cache else "freshly selected"
-    context.log.info(f"Warming {len(queries)} {source} hot query shapes across {team_count} teams")
+    context.log.info(
+        f"Warming {len(queries)} {source} hot query shapes across {team_count} teams "
+        f"({preset_stats['preset_shape_count']} from saved presets)"
+        + (
+            f" (volume floor dropped {floor_dropped} shapes under "
+            f"{settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS} events/7d)"
+            if floor_dropped
+            else ""
+        )
+    )
     context.add_output_metadata(
         {
             "query_count": len(queries),
             "team_count": team_count,
-            "cap_reached": len(queries) >= max_shapes,
+            "sticky_count": len(sticky),
+            "sticky_added": sticky_added,
+            "floor_dropped": floor_dropped,
+            "cap_reached": selection_cap_reached,
             "from_cache": from_cache,
+            "preset_lane_enabled": preset_lane,
+            **preset_stats,
         }
     )
     return queries
@@ -654,6 +1122,21 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
 # min-2 selection floor is safe for bucket-backed shapes but would let raw
 # replays amplify a tenant's two runs into hourly background scans.
 RAW_REPLAY_MIN_QUERY_COUNT = 10
+
+# The same bar for preset shapes. Not a bypass: a raw replay is a full live query every
+# stale hour, so exempting it entirely is exactly where the lane's cost would blow up.
+# But at 10 a preset with a conversion goal (raw-only) would never warm, which is the
+# promise the lane exists to keep — so a preset earns its replay at two loads in the
+# window instead. The lower floor applies only when the representative variant itself
+# ran under the preset, and raw preset replays are further capped per team below.
+PRESET_RAW_REPLAY_MIN_QUERY_COUNT = 2
+
+# Raw preset replays a team can warm per pass. Validated preset ids prove membership,
+# not that the query matches the preset, so without this cap a team member could tag
+# arbitrary expensive raw-only shapes and have the warmer rerun them hourly. One
+# preset's worth of shapes keeps the conversion-goal promise while bounding the
+# amplification to a fraction of the lane's overall budget.
+PRESET_LANE_MAX_RAW_SHAPES_PER_TEAM = PRESET_LANE_MAX_SHAPES_PER_PRESET
 
 # Worker threads for the warm pass. The pass is IO-bound (cache checks, CH
 # reads/inserts), so a pool cuts wall time at the widened selection size. A cold
@@ -713,6 +1196,12 @@ WARMING_PASS_DEADLINE_SECONDS = 3 * 3600
 # before the process exits hard rather than hanging on a blocked thread join.
 WARMING_CANCEL_GRACE_SECONDS = 60
 
+# The hourly schedule starts each team at its own offset inside this window, so
+# the pass does not send every team's first queries to the offline ClickHouse
+# pool in the same minute. The window is far below the stall timeout, so a
+# pass that is still releasing teams never looks stalled.
+WARMING_RELEASE_WINDOW_SECONDS = 10 * 60
+
 
 # The warmer shares its per-user ClickHouse query budget with every other
 # Dagster job (the `dagster` CH user has a hard simultaneous-query cap on the
@@ -759,8 +1248,9 @@ def _team_still_exists(team_id: int) -> bool:
 
 
 class WarmQueriesConfig(dagster.Config):
-    """Launchpad knobs for targeted warming runs. The hourly schedule passes no
-    config, so it keeps the defaults; a manual launch can scope a run.
+    """Launchpad knobs for targeted warming runs. The hourly schedule sets only
+    `release_window_seconds` and keeps the other defaults; a manual launch can
+    scope a run.
 
     The concurrent-run guard makes launches of this job mutually exclusive with
     the hourly schedule, so bound a manual backfill with `limit` — an unbounded
@@ -776,6 +1266,10 @@ class WarmQueriesConfig(dagster.Config):
     team_ids: list[int] = []
     # Process at most this many shapes, hottest first (0 = no limit).
     limit: int = 0
+    # Spread the teams' start times over this many seconds (0 = start every team at once).
+    # Capped at the hourly window because a window near the stall timeout can leave a
+    # shard with only waiting workers, and the stall guard then kills a healthy pass.
+    release_window_seconds: int = Field(default=0, ge=0, le=WARMING_RELEASE_WINDOW_SECONDS)
 
 
 def _scope_queries(config: WarmQueriesConfig, queries: list[dict]) -> tuple[str, list[dict]]:
@@ -792,7 +1286,7 @@ def _scope_queries(config: WarmQueriesConfig, queries: list[dict]) -> tuple[str,
 @dagster.op(retry_policy=cache_warming_retry_policy)
 def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConfig, queries: list[dict]) -> None:
     mode, queries = _scope_queries(config, queries)
-    _warm_queries(context, mode, queries)
+    _warm_queries(context, mode, queries, release_window=timedelta(seconds=config.release_window_seconds))
 
 
 @dagster.op(out=dagster.DynamicOut(dict), retry_policy=cache_warming_retry_policy)
@@ -816,15 +1310,26 @@ def split_warmable_queries_op(context: dagster.OpExecutionContext, config: WarmQ
         buckets.setdefault(query_info["team_id"] % shards, []).append(query_info)
     context.log.info(f"Split {len(queries)} shapes into {len(buckets)} shards (mode={mode})")
     for shard_index in sorted(buckets):
-        yield dagster.DynamicOutput({"mode": mode, "queries": buckets[shard_index]}, mapping_key=f"shard_{shard_index}")
+        yield dagster.DynamicOutput(
+            {
+                "mode": mode,
+                "queries": buckets[shard_index],
+                "release_window_seconds": config.release_window_seconds,
+            },
+            mapping_key=f"shard_{shard_index}",
+        )
 
 
 @dagster.op(retry_policy=cache_warming_retry_policy)
 def warm_queries_shard_op(context: dagster.OpExecutionContext, shard: dict) -> None:
-    _warm_queries(context, shard["mode"], shard["queries"])
+    _warm_queries(
+        context, shard["mode"], shard["queries"], release_window=timedelta(seconds=shard["release_window_seconds"])
+    )
 
 
-def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[dict]) -> None:
+def _warm_queries(
+    context: dagster.OpExecutionContext, mode: str, queries: list[dict], release_window: timedelta = timedelta(0)
+) -> None:
     team_ids = {q["team_id"] for q in queries}
     teams: dict[int, Team] = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
     missing_teams = team_ids - teams.keys()
@@ -834,9 +1339,24 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
     # Selection groups by raw JSON text, so differently-encoded rows can
     # normalize to one cache key; first worker to claim it warms, the rest skip.
     seen_cache_keys: set[tuple[int, str]] = set()
+    # Raw (non-lazy) preset replays warmed this pass, per team — see the budget gate below.
+    raw_preset_replays_by_team: dict[int, int] = {}
     seen_lock = threading.Lock()
 
+    release_after = {
+        team_id: deterministic_offset(str(team_id), release_window).total_seconds() for team_id in team_ids
+    }
+    # Submitted in release order, so a worker never waits on a late team while
+    # shapes that are already released queue behind it.
+    queries = sorted(queries, key=lambda query_info: release_after[query_info["team_id"]])
+    stop_releasing = threading.Event()
+
     def _warm_one(query_info: dict) -> str:
+        release_in = release_after[query_info["team_id"]] - (time.monotonic() - started_at)
+        # The wait ends early on cancellation, so a worker that has not started
+        # its shape does not use up the cancellation grace period.
+        if release_in > 0 and stop_releasing.wait(release_in):
+            return "cancelled"
         # One line per shape, every outcome — deliberately verbose (~a line per
         # selected shape per run). Warm passes have repeatedly been slow for
         # reasons aggregate counters couldn't attribute (bucket identity churn,
@@ -860,6 +1380,8 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                 was_cold=query_info.get("_was_cold"),
                 capacity_retries=query_info.get("_capacity_retries"),
                 normalized_query_hash=query_info.get("normalized_query_hash"),
+                lane="preset" if query_info.get("preset_ids") else "demand",
+                preset_ids=query_info.get("preset_ids") or None,
             )
         except Exception:
             # Observability must never abort the pass: a malformed shape already
@@ -868,6 +1390,9 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
         return outcome
 
     def _warm_one_inner(query_info: dict) -> str:
+        # Labels every outcome below, so the lane's cost is separable from the demand
+        # lane's in Grafana without re-deriving it from the selection.
+        lane = "preset" if query_info.get("preset_ids") else "demand"
         team = teams.get(query_info["team_id"])
         if team is None:
             return "team_missing"
@@ -897,7 +1422,7 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
             # the selected shape's range in exactly the cases worth debugging.
             query_info["_replay_date_from"] = (query_json.get("dateRange") or {}).get("date_from")
             if runner is None:
-                WARMING_QUERIES_COUNTER.labels(outcome="unsupported").inc()
+                WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="unsupported").inc()
                 return "unsupported"
 
             # Raw-path replays keep the pre-widening demand bar: a lazy-eligible
@@ -909,43 +1434,59 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
             # representative variant's own demand, not the shape-wide sum: raw
             # replays aren't shared across variants, so a rarely-run expensive
             # variant must not inherit a popular sibling's count.
-            if not lazy_eligible and query_info.get("representative_query_count", 0) < RAW_REPLAY_MIN_QUERY_COUNT:
-                WARMING_QUERIES_COUNTER.labels(outcome="skipped_raw_low_demand").inc()
+            raw_floor = (
+                PRESET_RAW_REPLAY_MIN_QUERY_COUNT
+                if lane == "preset" and query_info.get("representative_preset_tagged")
+                else RAW_REPLAY_MIN_QUERY_COUNT
+            )
+            if not lazy_eligible and query_info.get("representative_query_count", 0) < raw_floor:
+                WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_raw_low_demand").inc()
                 return "skipped_raw_low_demand"
 
             cache_key = runner.get_cache_key()
             with seen_lock:
                 if (team.pk, cache_key) in seen_cache_keys:
-                    WARMING_QUERIES_COUNTER.labels(outcome="skipped_duplicate").inc()
+                    WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_duplicate").inc()
                     return "skipped_duplicate"
                 seen_cache_keys.add((team.pk, cache_key))
 
-            entry = QueryCache(team_id=team.pk, cache_key=cache_key).lookup().entry
-            query_info["_was_cold"] = entry is None
+            freshness = QueryCache(team_id=team.pk, cache_key=cache_key).freshness()
+            query_info["_was_cold"] = freshness is None
 
             # The cache entry doubles as the warm/cold discriminator: a shape
             # warmed at least once has one (possibly stale); a never-warmed shape
             # doesn't. refresh keeps the warm set fresh without paying for cold
             # builds; backfill expands coverage without re-touching the warm set.
-            if mode == "refresh" and entry is None:
-                WARMING_QUERIES_COUNTER.labels(outcome="skipped_cold").inc()
+            if mode == "refresh" and freshness is None:
+                WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_cold").inc()
                 return "skipped_cold"
-            if mode == "backfill" and entry is not None:
-                WARMING_QUERIES_COUNTER.labels(outcome="skipped_already_warmed").inc()
+            if mode == "backfill" and freshness is not None:
+                WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_already_warmed").inc()
                 return "skipped_already_warmed"
 
-            cached_data = entry.as_full_response() if entry else None
-
-            if cached_data is not None:
-                last_refresh = parse_datetime(cached_data["last_refresh"])
+            # The probe answers from Redis alone: S3-backed entries carry last_refresh in the
+            # pointer record, so no blob is fetched to make the staleness decision.
+            if freshness is not None and freshness.last_refresh is not None:
+                last_refresh = parse_datetime(freshness.last_refresh)
                 aged_refresh = (
                     last_refresh - _staleness_jitter(query_info["normalized_query_hash"], last_refresh)
                     if last_refresh
                     else None
                 )
                 if not runner._is_stale(aged_refresh):
-                    WARMING_QUERIES_COUNTER.labels(outcome="skipped_fresh").inc()
+                    WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_fresh").inc()
                     return "skipped_fresh"
+
+            # A raw replay is a full live query, so the lane's low floor alone would let one
+            # team turn a handful of preset loads into hundreds of hourly scans. Budget is
+            # consumed here, after every skip gate, so fresh or duplicate shapes don't burn it.
+            if lane == "preset" and not lazy_eligible:
+                with seen_lock:
+                    used = raw_preset_replays_by_team.get(team.pk, 0)
+                    if used >= PRESET_LANE_MAX_RAW_SHAPES_PER_TEAM:
+                        WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_raw_over_budget").inc()
+                        return "skipped_raw_over_budget"
+                    raw_preset_replays_by_team[team.pk] = used + 1
 
             # TODO: We shouldn't try to run a query if it failed last run
             # Blocking-always, not the stale-checking default: run() re-checks
@@ -966,7 +1507,7 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                     if attempt == WARMING_CAPACITY_RETRIES:
                         raise
                     time.sleep(random.uniform(*WARMING_CAPACITY_BACKOFF_RANGE_SECONDS))
-            WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
+            WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="warmed").inc()
             return "warmed"
         except Exception as e:
             # A team deleted after the teams dict was loaded (the 14-day demand
@@ -989,7 +1530,7 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                 normalized_query_hash=query_info["normalized_query_hash"],
             )
             capture_exception(e)
-            WARMING_QUERIES_COUNTER.labels(outcome="failed").inc()
+            WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="failed").inc()
             return "failed"
         finally:
             # Pool threads hold their own Django connections; drop expired ones so
@@ -1006,7 +1547,10 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
     processed = 0
     started_at = time.monotonic()
     last_log_at = started_at
-    context.log.info(f"Warming {total} shapes across {len(teams)} teams (mode={mode}, concurrency={concurrency})")
+    context.log.info(
+        f"Warming {total} shapes across {len(teams)} teams (mode={mode}, concurrency={concurrency}, "
+        f"release window={int(release_window.total_seconds())}s)"
+    )
     # No `with` block: the context manager's exit calls shutdown(wait=True),
     # which joins worker threads — on the exceptional paths below that would
     # re-block on the very wedged threads this code exists to escape.
@@ -1094,7 +1638,10 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
         # in-flight shapes a bounded grace to finish, then exit hard if any
         # remain — re-raising with blocked threads alive would just hang again
         # at the interpreter's exit join.
+        stop_releasing.set()
         pool.shutdown(wait=False, cancel_futures=True)
+        # wait() can report shutdown-cancelled futures as pending even though they are done.
+        pending = {future for future in pending if not future.done()}
         if pending:
             _, still_pending = wait(pending, timeout=WARMING_CANCEL_GRACE_SECONDS)
             if still_pending:
@@ -1151,15 +1698,20 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
     total_underlying_requests = sum(q["query_count"] for q in queries)
     median_shapes = statistics.median(shape_counts) if shape_counts else 0
 
+    preset_stats = _summarize_preset_lane(queries)
+
     context.log.info(
         f"DRY RUN — would warm {len(queries)} query shapes across {len(per_team)} teams "
         f"(~{total_underlying_requests} underlying requests over the warming window). "
+        f"Of those, {preset_stats['preset_shape_count']} shapes come from "
+        f"{preset_stats['presets_selected']} saved presets across {preset_stats['preset_team_count']} teams. "
         f"Per-team shapes: max={shape_counts[0] if shape_counts else 0}, median={median_shapes}. "
         f"Top teams by shape count: {per_team[:10]}"
     )
     context.add_output_metadata(
         {
             "dry_run": True,
+            **preset_stats,
             "team_count": len(per_team),
             "total_query_shapes_to_warm": len(queries),
             "total_underlying_requests": total_underlying_requests,
@@ -1199,7 +1751,8 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
     },
 )
 def web_analytics_cache_warming_job():
-    queries = get_warmable_queries_op()
+    floor_published = publish_volume_floor_op()
+    queries = get_warmable_queries_op(floor_published)
     # Aliased so the config path stays ops.warm_queries_op.config — the split op
     # takes the same WarmQueriesConfig, so saved Launchpad configs written for
     # the pre-sharding single op keep binding unchanged.
@@ -1219,7 +1772,7 @@ def web_analytics_cache_warming_dry_run_job():
 
 
 @dagster.schedule(
-    cron_schedule="0 * * * *",
+    cron_schedule="3 * * * *",
     job=web_analytics_cache_warming_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
@@ -1229,4 +1782,6 @@ def web_analytics_cache_warming_schedule(context: dagster.ScheduleEvaluationCont
     if skip_reason:
         return skip_reason
 
-    return dagster.RunRequest()
+    return dagster.RunRequest(
+        run_config={"ops": {"warm_queries_op": {"config": {"release_window_seconds": WARMING_RELEASE_WINDOW_SECONDS}}}}
+    )

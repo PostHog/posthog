@@ -162,7 +162,7 @@ pub(super) async fn resolve_work_item(
                     event_slot: work_item.event_slot,
                     exception_slot: work_item.exception_slot,
                     target: work_item.target,
-                    exception,
+                    exception: *exception,
                     release_id,
                 });
             }
@@ -282,7 +282,7 @@ fn single_outcome(
 #[derive(Debug)]
 enum ItemDecision {
     Done {
-        exception: Exception,
+        exception: Box<Exception>,
         release_id: Option<Uuid>,
     },
     Overloaded(String),
@@ -305,7 +305,7 @@ fn classify_outcome(
 
     match result {
         resolve_outcome::Result::Done(done) => {
-            let exception = serde_json::from_slice::<Exception>(&done.resolved_exception_json)
+            let exception = serde_json::from_slice::<Box<Exception>>(&done.resolved_exception_json)
                 .map_err(|err| {
                     terminal_item_error(
                         work_item.token,

@@ -5,8 +5,12 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:"
     },
+    "devDependencies": {
+        "@testing-library/react": "^14.3.1"
+    },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
+        "@testing-library/react": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

@@ -22,8 +22,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
+import { MCPAuthTypeEnumApi, MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
+import { GatewayConnectionModal } from './GatewayConnectionModal'
 import { isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
 import { GatewayAccessSection } from './GatewayServerAccess'
@@ -33,10 +34,9 @@ import { GatewayServersLoadError } from './GatewayServersHome'
 import { POLICY_OPTIONS, PolicySummary } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
-const TOOL_POLICY_BACKGROUND_CLASSES: Record<MCPToolApprovalStateEnumApi, string> = {
-    approved: 'bg-success-highlight',
-    needs_approval: 'bg-warning-highlight',
-    do_not_use: 'bg-danger-highlight',
+const AUTH_TYPE_LABELS: Record<MCPAuthTypeEnumApi, string> = {
+    api_key: 'API key',
+    oauth: 'OAuth',
 }
 
 export const scene: SceneExport<(typeof gatewayServerLogic)['props']> = {
@@ -70,11 +70,11 @@ export function GatewayServerScene({
     const goBack = onBack ?? (() => router.actions.push(urls.mcpGateway()))
 
     if (!server && serverLoading) {
-        return <SceneContent>Loading…</SceneContent>
+        return <SceneContent className="mx-auto w-full max-w-[1200px]">Loading…</SceneContent>
     }
     if (!server && serversLoadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="mx-auto w-full max-w-[1200px]">
                 <LemonButton size="small" type="tertiary" icon={<IconArrowLeft />} onClick={goBack}>
                     Back to servers
                 </LemonButton>
@@ -83,7 +83,7 @@ export function GatewayServerScene({
         )
     }
     if (!server) {
-        return <SceneContent>Server not found.</SceneContent>
+        return <SceneContent className="mx-auto w-full max-w-[1200px]">Server not found.</SceneContent>
     }
 
     const connection = server.your_connection
@@ -92,6 +92,12 @@ export function GatewayServerScene({
         removingServerIds.has(server.id) ||
         Boolean(connection && disconnectingInstallationIds.has(connection.installation_id))
     const needsReconnect = Boolean(connection?.pending_oauth || connection?.needs_reauth)
+    const canReconnect = Boolean(connection && (server.auth_type === 'oauth' || needsReconnect))
+    const reconnectDisabledReason = !server.is_team_enabled
+        ? 'This server is turned off for the team.'
+        : server.is_revoked_for_you
+          ? 'Ask an admin to restore your access first.'
+          : undefined
     const confirmRemoval = (): void => {
         if (!connection && removalAction !== 'delete_for_everyone') {
             return
@@ -120,12 +126,30 @@ export function GatewayServerScene({
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="mx-auto w-full max-w-[1200px]">
+            <GatewayConnectionModal />
+
             <LemonButton size="small" type="tertiary" icon={<IconArrowLeft />} onClick={goBack}>
                 Back to servers
             </LemonButton>
 
             {serversLoadFailed && <GatewayServersLoadError serverDetail onRetry={loadServers} />}
+
+            {connection && needsReconnect && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Reconnect your account',
+                        type: 'primary',
+                        disabledReason: reconnectDisabledReason,
+                        onClick: () => reconnectServer(connection.installation_id),
+                        'data-attr': 'mcp-server-reconnect',
+                    }}
+                >
+                    <div className="font-semibold">Reconnect required</div>
+                    <div>{server.name} tools are not available to you or your agents until you reconnect.</div>
+                </LemonBanner>
+            )}
 
             <div className="flex items-start gap-3">
                 <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={56} />
@@ -136,9 +160,16 @@ export function GatewayServerScene({
                     </div>
                     {server.description && <div className="text-secondary mt-1">{server.description}</div>}
                     <div className="flex items-center gap-3 mt-2 text-xs text-secondary">
-                        {server.created_by && (
-                            <span>Added by {server.created_by.first_name || server.created_by.email}</span>
-                        )}
+                        <span className="min-w-0 truncate">
+                            {[
+                                server.created_by &&
+                                    `Added by ${server.created_by.first_name || server.created_by.email}`,
+                                server.template_auth_type && AUTH_TYPE_LABELS[server.template_auth_type],
+                                server.url,
+                            ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                        </span>
                         {server.docs_url && (
                             <LemonButton
                                 size="xsmall"
@@ -174,18 +205,13 @@ export function GatewayServerScene({
                                     }
                                 />
                             </div>
-                            {needsReconnect && (
+                            {canReconnect && !needsReconnect && (
                                 <LemonButton
                                     type="primary"
                                     size="small"
-                                    disabledReason={
-                                        !server.is_team_enabled
-                                            ? 'This server is turned off for the team.'
-                                            : server.is_revoked_for_you
-                                              ? 'Ask an admin to restore your access first.'
-                                              : undefined
-                                    }
+                                    disabledReason={reconnectDisabledReason}
                                     onClick={() => reconnectServer(connection.installation_id)}
+                                    data-attr="mcp-server-reconnect"
                                 >
                                     Reconnect your account
                                 </LemonButton>
@@ -254,6 +280,7 @@ export function GatewayServerScene({
 function ToolPoliciesSection(): JSX.Element {
     const {
         availableScopes,
+        canEditScope,
         displayedToolPolicies,
         filteredToolPolicies,
         isAdmin,
@@ -265,13 +292,12 @@ function ToolPoliciesSection(): JSX.Element {
         scopeIsResolving,
         toolPolicies,
         toolPoliciesLoading,
+        toolPolicyGroups,
         toolSearch,
         toolsExpanded,
     } = useValues(gatewayServerLogic)
     const { setScope, setAllTools, setToolSearch, toggleToolsExpanded } = useActions(gatewayServerLogic)
     const { refreshServerTools } = useActions(mcpGatewayLogic)
-    const canEditScope =
-        isAdmin || scope.scopeType === 'member' || (scope.scopeType === 'agent' && canManageAgentAccess)
     const agentScope = scope.scopeType === 'agent'
     const bulkOptions = agentScope
         ? POLICY_OPTIONS.filter((option) => option.value !== 'needs_approval')
@@ -390,8 +416,28 @@ function ToolPoliciesSection(): JSX.Element {
                 <div className="border border-dashed rounded p-6 text-center text-secondary text-sm">
                     No tools match “{toolSearch}”.
                 </div>
+            ) : toolPolicyGroups ? (
+                <LemonCollapse
+                    multiple
+                    defaultActiveKeys={toolPolicyGroups.map((group) => group.key)}
+                    panels={toolPolicyGroups.map((group) => ({
+                        key: group.key,
+                        header: (
+                            <span className="flex items-center gap-2">
+                                {group.label}
+                                <LemonTag type="muted" size="small">
+                                    {group.policies.length}
+                                </LemonTag>
+                            </span>
+                        ),
+                        className: 'divide-y',
+                        content: group.policies.map((policy) => (
+                            <ToolPolicyRow key={policy.tool_name} policy={policy} />
+                        )),
+                    }))}
+                />
             ) : (
-                <div className="border rounded divide-y overflow-hidden">
+                <div className="border rounded divide-y overflow-hidden bg-surface-primary">
                     {displayedToolPolicies.map((policy) => (
                         <ToolPolicyRow key={policy.tool_name} policy={policy} />
                     ))}
@@ -409,15 +455,13 @@ function ToolPoliciesSection(): JSX.Element {
 }
 
 function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Element {
-    const { server, scope, isAdmin, canManageAgentAccess, toolPoliciesLoading } = useValues(gatewayServerLogic)
+    const { server, scope, canEditScope, toolPoliciesLoading } = useValues(gatewayServerLogic)
     const { setToolPolicy } = useActions(gatewayServerLogic)
 
     const fqName = `${server?.name ?? ''}.${policy.tool_name}`
     const ruleLocked = policy.decided_by === 'rule'
     const setByTeamAdmin =
         scope.scopeType !== 'team' && (policy.decided_by === 'team' || policy.decided_by === 'preset')
-    const canEditScope =
-        isAdmin || scope.scopeType === 'member' || (scope.scopeType === 'agent' && canManageAgentAccess)
     const agentScope = scope.scopeType === 'agent'
     const displayedState: MCPToolApprovalStateEnumApi =
         agentScope && policy.policy_state === 'needs_approval' ? 'do_not_use' : policy.policy_state
@@ -477,7 +521,7 @@ function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Eleme
         )
 
     return (
-        <div className={`flex items-start gap-2 transition-colors ${TOOL_POLICY_BACKGROUND_CLASSES[displayedState]}`}>
+        <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
                 <LemonCollapse
                     embedded

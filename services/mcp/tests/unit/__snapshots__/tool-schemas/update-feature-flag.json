@@ -54,7 +54,7 @@
             "description": "Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`."
         },
         "filters": {
-            "description": "Feature flag targeting configuration.",
+            "description": "Full release-condition object. It replaces the stored filters, so read the flag first and send every condition you want to keep. The tool description covers condition_id and group targeting.",
             "properties": {
                 "aggregation_group_type_index": {
                     "anyOf": [
@@ -98,6 +98,10 @@
                                 ],
                                 "description": "Group type index for this condition set. None means person-level aggregation."
                             },
+                            "condition_id": {
+                                "description": "The condition_id this condition had when you read the flag. Send it unchanged when you keep, edit, or move the condition. Leave it off a new condition or one copied from a different flag. The update is refused when no condition on the flag has this ID.",
+                                "type": "string"
+                            },
                             "properties": {
                                 "description": "Property conditions for this release condition group.",
                                 "items": {
@@ -124,7 +128,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -151,7 +155,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -184,7 +188,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -196,7 +200,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -229,7 +233,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -241,7 +245,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -275,21 +279,21 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
                                                     "type": "string"
                                                 },
                                                 "operator": {
-                                                    "description": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
+                                                    "description": "Semantic version comparison operator.\n\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
                                                     "enum": [
+                                                        "semver_eq",
+                                                        "semver_neq",
                                                         "semver_gt",
                                                         "semver_gte",
                                                         "semver_lt",
                                                         "semver_lte",
-                                                        "semver_eq",
-                                                        "semver_neq",
                                                         "semver_tilde",
                                                         "semver_caret",
                                                         "semver_wildcard"
@@ -297,7 +301,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -331,7 +335,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -343,7 +347,7 @@
                                                     "type": "string"
                                                 },
                                                 "type": {
-                                                    "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                    "description": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
                                                     "enum": ["cohort", "person", "group"],
                                                     "type": "string"
                                                 },
@@ -360,6 +364,14 @@
                                         },
                                         {
                                             "properties": {
+                                                "cohort_deleted": {
+                                                    "description": "Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.",
+                                                    "type": "boolean"
+                                                },
+                                                "cohort_missing": {
+                                                    "description": "Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.",
+                                                    "type": "boolean"
+                                                },
                                                 "cohort_name": {
                                                     "anyOf": [
                                                         {
@@ -380,7 +392,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -425,7 +437,7 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Group type index when using group-based filters."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -550,6 +562,11 @@
                 "type": "string"
             },
             "type": "array"
+        },
+        "version": {
+            "description": "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it.",
+            "minimum": 0,
+            "type": "number"
         }
     },
     "required": ["id"],

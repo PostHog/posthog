@@ -1,17 +1,34 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
+from functools import partial
 
-from freezegun import freeze_time
+import pytest
+import time_machine
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import AlertCalculationInterval
+from posthog.schema import AlertCalculationInterval, AlertState
 
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
-from posthog.tasks.alerts.utils import calculation_interval_to_order, next_check_time, trigger_alert_hog_functions
+from posthog.tasks.alerts.utils import (
+    calculation_interval_to_order,
+    detector_verdict_event_fields,
+    disable_invalid_alert,
+    dispatch_alert_notification,
+    next_check_time,
+    send_notifications_for_breaches,
+    send_notifications_for_disabled,
+    send_notifications_for_errors,
+    trigger_alert_hog_functions,
+)
 
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import ActiveAlertDestination
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestAlertUtils:
@@ -20,16 +37,32 @@ class TestAlertUtils:
             AlertCalculationInterval.EVERY_15_MINUTES
         )
 
+    @parameterized.expand(
+        [
+            (
+                "llm_verdict",
+                {"rationale": "Signups fell to 12 on Jan 7.", "kind": "drop"},
+                {"anomaly_rationale": "Signups fell to 12 on Jan 7.", "anomaly_kind": "drop"},
+            ),
+            ("statistical_detector", {"series_index": 2}, {}),
+            ("no_metadata", None, {}),
+            ("blank_rationale", {"rationale": "", "kind": "none"}, {"anomaly_kind": "none"}),
+        ]
+    )
+    def test_detector_verdict_event_fields(self, _name: str, metadata: dict | None, expected: dict) -> None:
+        assert detector_verdict_event_fields(metadata) == expected
+
     def test_next_check_time_advances_by_2_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)
         alert.calculation_interval = AlertCalculationInterval.REAL_TIME
         alert.next_check_at = datetime(2026, 4, 6, 14, 0, 0, tzinfo=UTC)
         alert.team = MagicMock()
         alert.team.timezone = "UTC"
+        alert.schedule_start_time = None
         alert.schedule_restriction = None
         alert.skip_weekend = False
 
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             assert next_check_time(alert) == datetime(2026, 4, 6, 14, 2, 0, tzinfo=UTC)
 
     @parameterized.expand(
@@ -57,11 +90,13 @@ class TestAlertUtils:
     @patch("posthog.tasks.alerts.utils.alert_internal_event_delivered", return_value=True)
     @patch("posthog.tasks.alerts.utils.flush_alert_internal_events")
     @patch("posthog.tasks.alerts.utils.produce_alert_internal_event")
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations", return_value=[])
     def test_trigger_alert_hog_functions_uses_shared_delivery(
         self,
         _name: str,
         detector_config: dict | None,
         expected_props: dict,
+        _mock_list: MagicMock,
         mock_produce: MagicMock,
         mock_flush: MagicMock,
         mock_delivered: MagicMock,
@@ -77,6 +112,7 @@ class TestAlertUtils:
         alert.team_id = 2
         alert.team.name = "test project"
         alert.detector_config = detector_config
+        alert.internal_event_properties.side_effect = partial(AlertConfiguration.internal_event_properties, alert)
 
         trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
 
@@ -89,7 +125,10 @@ class TestAlertUtils:
         mock_delivered.assert_not_called()
 
     @patch("posthog.tasks.alerts.utils.produce_alert_internal_event", return_value=None)
-    def test_trigger_alert_hog_functions_ignores_enqueue_failure(self, _mock_produce: MagicMock) -> None:
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations", return_value=[])
+    def test_trigger_alert_hog_functions_ignores_enqueue_failure(
+        self, _mock_list: MagicMock, _mock_produce: MagicMock
+    ) -> None:
         alert = MagicMock(spec=AlertConfiguration)
         alert.id = "00000000-0000-0000-0000-000000000001"
         alert.team_id = 2
@@ -99,7 +138,10 @@ class TestAlertUtils:
         trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
 
     @patch("posthog.tasks.alerts.utils.produce_alert_internal_event", return_value=None)
-    def test_destination_enqueue_failure_fails_delivery_slo(self, _mock_produce: MagicMock) -> None:
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations", return_value=[])
+    def test_destination_enqueue_failure_fails_delivery_slo(
+        self, _mock_list: MagicMock, _mock_produce: MagicMock
+    ) -> None:
         alert = MagicMock(spec=AlertConfiguration)
         alert.id = "00000000-0000-0000-0000-000000000001"
         alert.name = "test alert"
@@ -132,8 +174,10 @@ class TestAlertUtils:
     @patch("posthog.tasks.alerts.utils.alert_internal_event_delivered", return_value=False)
     @patch("posthog.tasks.alerts.utils.flush_alert_internal_events")
     @patch("posthog.tasks.alerts.utils.produce_alert_internal_event")
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations", return_value=[])
     def test_destination_delivery_failure_fails_delivery_slo(
         self,
+        _mock_list: MagicMock,
         mock_produce: MagicMock,
         mock_flush: MagicMock,
         _mock_delivered: MagicMock,
@@ -169,3 +213,218 @@ class TestAlertUtils:
         assert len(completed) == 1
         assert completed[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
         assert completed[0].kwargs["properties"]["failure_phase"] == "notification_delivery"
+
+    @patch("posthog.tasks.alerts.utils.produce_alert_internal_event")
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations")
+    def test_trigger_hog_functions_returns_receipt_per_destination(
+        self, mock_list: MagicMock, mock_produce: MagicMock
+    ) -> None:
+        mock_list.return_value = [ActiveAlertDestination(id="hf-1", name="#eng-alerts", destination_type="slack")]
+        mock_produce.return_value = MagicMock()  # non-None = enqueue accepted
+        alert = MagicMock(spec=AlertConfiguration)
+        alert.id = "00000000-0000-0000-0000-000000000001"
+        alert.name = "test alert"
+        alert.insight.name = "test insight"
+        alert.insight.short_id = "abcd1234"
+        alert.state = "firing"
+        alert.last_checked_at = None
+        alert.team_id = 2
+        alert.team.name = "test project"
+        alert.detector_config = None
+
+        receipts = trigger_alert_hog_functions(alert=alert, properties={"breaches": "x"})
+
+        assert [(r.channel, r.target, r.target_id, r.template, r.status) for r in receipts] == [
+            ("hog_function", "#eng-alerts", "hf-1", "slack", "accepted")
+        ]
+
+    @patch("posthog.tasks.alerts.utils.produce_alert_internal_event", return_value=None)
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations")
+    def test_trigger_hog_functions_returns_empty_on_produce_failure(
+        self, mock_list: MagicMock, _mock_produce: MagicMock
+    ) -> None:
+        mock_list.return_value = [ActiveAlertDestination(id="hf-1", name="#eng-alerts", destination_type="slack")]
+        alert = MagicMock(spec=AlertConfiguration)
+        alert.id = "00000000-0000-0000-0000-000000000001"
+        alert.team_id = 2
+        alert.last_checked_at = None
+        alert.detector_config = None
+
+        assert trigger_alert_hog_functions(alert=alert, properties={}) == []
+
+
+class TestSendNotificationsReceipts(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, name="test insight")
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name="test alert",
+            condition={"type": "absolute_value"},
+            created_by=self.user,
+        )
+        self.alert.subscribed_users.add(self.user)
+
+    @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_breach_notifications_return_email_receipts(self, mock_send: MagicMock, _mock_trigger: MagicMock) -> None:
+        receipts = send_notifications_for_breaches(self.alert, ["breach"], idempotency_key="check-1")
+
+        assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
+        mock_send.assert_called_once()
+
+    @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
+    @patch("posthog.tasks.alerts.utils.send_alert_email", side_effect=RuntimeError("smtp down"))
+    def test_breach_notifications_propagate_email_failure(
+        self, _mock_send: MagicMock, _mock_trigger: MagicMock
+    ) -> None:
+        with pytest.raises(RuntimeError):
+            send_notifications_for_breaches(self.alert, ["breach"], idempotency_key="check-1")
+
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_error_notifications_return_empty_without_eligible_recipients(self, mock_send: MagicMock) -> None:
+        self.alert.subscribed_users.clear()
+
+        assert send_notifications_for_errors(self.alert, {"message": "boom"}, idempotency_key="check-1") == []
+        mock_send.assert_not_called()
+
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_error_notifications_return_email_receipts(self, mock_send: MagicMock) -> None:
+        receipts = send_notifications_for_errors(self.alert, {"message": "boom"}, idempotency_key="check-1")
+
+        assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
+        mock_send.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("breaches", lambda alert: send_notifications_for_breaches(alert, ["breach"], idempotency_key="check-1")),
+            ("errors", lambda alert: send_notifications_for_errors(alert, {"message": "boom"}, idempotency_key="c-1")),
+            (
+                "disabled",
+                lambda alert: send_notifications_for_disabled(alert, "bad config", [alert.created_by.email]),
+            ),
+        ]
+    )
+    @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
+    @patch("products.alerts.backend.facade.email.EmailMessage")
+    @patch("products.alerts.backend.facade.email.is_email_available", return_value=False)
+    def test_notifications_skip_email_when_instance_has_no_email(
+        self, _name: str, send: Callable, _mock_available: MagicMock, mock_message: MagicMock, _mock_trigger: MagicMock
+    ) -> None:
+        assert send(self.alert) == []
+        mock_message.assert_not_called()
+
+
+class TestDispatchAlertInsightChart(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, name="test insight")
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name="test alert",
+            condition={"type": "absolute_value"},
+            created_by=self.user,
+        )
+        self.alert.subscribed_users.add(self.user)
+        self.alert_check = AlertCheck.objects.create(
+            alert_configuration=self.alert,
+            state=AlertState.FIRING,
+            calculated_value=42.0,
+        )
+
+    @patch(
+        "posthog.tasks.alerts.utils.prepare_alert_insight_chart_url",
+        return_value="https://export/chart.png?token=abc",
+    )
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_firing_alert_attaches_rendered_chart_url(self, mock_send: MagicMock, _mock_prepare: MagicMock) -> None:
+        dispatch_alert_notification(self.alert, self.alert_check, ["Series A is below 1000"])
+
+        assert (
+            mock_send.call_args.kwargs["extra_properties"]["insight_chart_url"] == "https://export/chart.png?token=abc"
+        )
+
+    @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_real_time_alert_skips_chart_render(self, mock_send: MagicMock, mock_prepare: MagicMock) -> None:
+        self.alert.calculation_interval = AlertCalculationInterval.REAL_TIME
+        self.alert.save(update_fields=["calculation_interval"])
+
+        dispatch_alert_notification(self.alert, self.alert_check, ["breach"])
+
+        mock_prepare.assert_not_called()
+        assert "insight_chart_url" not in mock_send.call_args.kwargs["extra_properties"]
+
+    @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_render_chart_false_skips_render_under_a_lock(self, _mock_send: MagicMock, mock_prepare: MagicMock) -> None:
+        # Callers holding a row lock pre-render instead; rendering here would block the
+        # lock for up to RENDER_TIMEOUT.
+        dispatch_alert_notification(self.alert, self.alert_check, ["breach"], render_chart=False)
+
+        mock_prepare.assert_not_called()
+
+    @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_supplied_chart_url_is_not_re_rendered(self, mock_send: MagicMock, mock_prepare: MagicMock) -> None:
+        dispatch_alert_notification(
+            self.alert,
+            self.alert_check,
+            ["breach"],
+            extra_properties={"insight_chart_url": "https://supplied/url"},
+        )
+
+        mock_prepare.assert_not_called()
+        assert mock_send.call_args.kwargs["extra_properties"]["insight_chart_url"] == "https://supplied/url"
+
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_alert_the_platform_took_over_after_it_was_loaded_sends_nothing(self, mock_send: MagicMock) -> None:
+        AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.PLATFORM)
+
+        assert dispatch_alert_notification(self.alert, self.alert_check, ["breach"], render_chart=False) is None
+        mock_send.assert_not_called()
+
+
+class TestDisableInvalidAlert(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, name="test insight")
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name="test alert",
+            condition={"type": "absolute_value"},
+            created_by=self.user,
+        )
+        self.alert.subscribed_users.add(self.user)
+
+    @patch("posthog.tasks.alerts.utils.send_alert_email", side_effect=RuntimeError("smtp down"))
+    def test_disable_invalid_alert_records_nothing_when_send_fails(self, _mock_send: MagicMock) -> None:
+        with pytest.raises(RuntimeError):
+            disable_invalid_alert(self.alert, reason="bad config")
+
+        check = AlertCheck.objects.filter(alert_configuration=self.alert).latest("created_at")
+        assert check.targets_notified == {}
+        assert check.notification_sent_at is None
+
+    @parameterized.expand([(PlatformAlertOwner.SOURCE,), (PlatformAlertOwner.PLATFORM,)])
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_disable_invalid_alert_emails_only_for_an_alert_the_insight_stack_owns(
+        self, owner: PlatformAlertOwner, mock_send: MagicMock
+    ) -> None:
+        self.alert.owner = owner
+        self.alert.save(update_fields=["owner"])
+
+        check = disable_invalid_alert(self.alert, reason="bad config")
+
+        check.refresh_from_db()
+        self.alert.refresh_from_db()
+        assert self.alert.enabled is False
+        if owner == PlatformAlertOwner.SOURCE:
+            assert check.targets_notified == {"users": [self.user.email], "destinations": []}
+            mock_send.assert_called_once()
+        else:
+            assert check.targets_notified == {}
+            mock_send.assert_not_called()

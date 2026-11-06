@@ -1,9 +1,9 @@
 import re
 from time import perf_counter
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import HttpRequest, JsonResponse
 from django.http.response import HttpResponseBase
 
 import orjson
@@ -14,7 +14,14 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotAuthenticated,
+    NotFound,
+    PermissionDenied,
+    Throttled,
+    ValidationError,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -24,6 +31,7 @@ from posthog.schema import (
     LimitContext as SchemaLimitContext,
     QueryRequest,
     QueryResponseAlternative,
+    QueryScanResponse,
     QueryStatusResponse,
     QueryUpgradeRequest,
     QueryUpgradeResponse,
@@ -41,23 +49,38 @@ from posthog.api.monitoring import (
     Feature as MonitoringFeature,
     monitor,
 )
-from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
-from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
+from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
+from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_http_request_id, get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
+from posthog.errors import (
+    GENERIC_INTERNAL_CH_ERROR_MESSAGE,
+    ExposedCHQueryError,
+    InternalCHQueryError,
+    internal_ch_error_user_message,
+    look_up_clickhouse_error_code_meta,
+)
+from posthog.event_usage import (
+    AnalyticsProps,
+    EventSource,
+    get_request_analytics_properties,
+    report_user_or_team_action,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.models.utils import uuid7
+from posthog.query_scan import slot as query_scan_slot
+from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
+from posthog.query_scan.serve import analysis_with_prompt
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -65,10 +88,18 @@ from posthog.rate_limit import (
     APIQueriesSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    ErrorTrackingFingerprintProjectionBurstRateThrottle,
+    ErrorTrackingFingerprintProjectionSustainedRateThrottle,
     HogQLQueryThrottle,
 )
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.customer_analytics.backend.facade.api import validate_account_users_access
+from products.customer_analytics.backend.facade.constants import ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX
+from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
+from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
+from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
 
 from common.hogvm.python.utils import HogVMException
 
@@ -80,12 +111,28 @@ tracer = trace.get_tracer(__name__)
 # exception embeds an internal Redis key + task id, so we log that for debugging and surface this
 # friendly message instead of leaking implementation details into the UI.
 CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS = 5
+MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE = (
+    "This managed warehouse connection is no longer available. Select a source and run the query again."
+)
+MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE = "managed_warehouse_connection_unavailable"
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
     "Query validation failures returned from the query API.",
     labelnames=["query_type", "validation_code"],
 )
+
+
+def _add_query_cost_headers(response: HttpResponseBase, bytes_read: int, remaining_bytes: int | None) -> None:
+    response["X-PostHog-Query-Bytes-Read"] = str(bytes_read)
+    if remaining_bytes is not None:
+        response["X-PostHog-Query-Budget-Remaining-Bytes"] = str(remaining_bytes)
+
+
+def _scan_extra(error: Exception) -> dict[str, Any]:
+    """The scan a stopped run left on the exception, for the error body's ``extra``."""
+    return {key: value for key in ("cache_key", "query_scan") if (value := getattr(error, key, None)) is not None}
 
 
 def _extract_validation_code(error: ValidationError) -> str:
@@ -126,6 +173,12 @@ def _mark_explicit_date_boundaries(query: BaseModel) -> None:
         date_range.explicitDate = True
 
 
+def set_query_id_on_span(span: trace.Span, query_id: str) -> None:
+    # Client IDs are free text in the API, so only export opaque UUIDs to traces.
+    if re.fullmatch(r"[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", query_id):
+        span.set_attribute("query.client_query_id", query_id)
+
+
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
 ) -> tuple[BaseModel, str, ExecutionMode]:
@@ -162,27 +215,60 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "InboxUsageQuery": ["query:read", "signal_usage:read"],
+    "AccountUsersQuery": ["query:read", "account:read", "person:read"],
     "AccountsTableQuery": ["query:read", "account:read"],
+    "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
+    "ErrorTrackingReleasesQuery": ["query:read", "error_tracking:read"],
+    "ErrorTrackingIssueEventsQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
+    "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
+    "MCPHarnessBreakdownQuery": ["query:read", "mcp_analytics:read"],
+    "MCPMissingCapabilitiesQuery": ["query:read", "mcp_analytics:read"],
+    "MCPModelBreakdownQuery": ["query:read", "mcp_analytics:read"],
+    "MCPProtocolVersionBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolCategoryMapQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolQualityRowsQuery": ["query:read", "mcp_analytics:read"],
 }
 
 
-def _required_scopes_for_query_payload(query: object) -> list[str] | None:
+def required_scopes_for_query_payload(query: object) -> list[str] | None:
     current_query = query
     while isinstance(current_query, dict):
         kind = current_query.get("kind")
+        # The experiment_exposure recordings filter reads experiment data, so it needs
+        # experiment:read on top of query:read — keyed on query content, not kind alone.
+        if kind == "RecordingsQuery" and current_query.get("experiment_exposure"):
+            return ["query:read", "experiment:read"]
         if isinstance(kind, str) and kind in _QUERY_KIND_SCOPES:
             return _QUERY_KIND_SCOPES[kind]
         current_query = current_query.get("source")
     return None
 
 
-class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+def add_query_response_identity_headers(response: Response) -> Response:
+    if http_request_id := get_http_request_id():
+        response["X-Request-ID"] = http_request_id
+        request_id_timing = f'request_id;desc="{http_request_id}"'
+        if existing_server_timing := response.get("Server-Timing"):
+            request_id_timing = f"{existing_server_timing}, {request_id_timing}"
+        response["Server-Timing"] = request_id_timing
+    return response
+
+
+def get_query_request_analytics_properties(request: HttpRequest | Request) -> AnalyticsProps:
+    analytics_props = get_request_analytics_properties(request)
+    if http_request_id := get_http_request_id():
+        analytics_props["http_request_id"] = http_request_id
+    return analytics_props
+
+
+class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     serializer_class = _FallbackSerializer
@@ -191,26 +277,34 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
 
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        return add_query_response_identity_headers(super().finalize_response(request, response, *args, **kwargs))
+
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         if getattr(view, "action", None) != "create":
             return None
         query = request.data.get("query") if isinstance(request.data, dict) else None
-        return _required_scopes_for_query_payload(query)
+        return required_scopes_for_query_payload(query)
 
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if self.action == "get_query_log":
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
+        query = self.request.data.get("query")
+        if isinstance(query, dict) and query.get("kind") == "ErrorTrackingFingerprintProjectionQuery":
+            return [
+                ErrorTrackingFingerprintProjectionBurstRateThrottle(),
+                ErrorTrackingFingerprintProjectionSustainedRateThrottle(),
+            ]
         if (
             self.team_id in settings.API_QUERIES_PER_TEAM
             or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
             or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
-        if query := self.request.data.get("query"):
-            if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
-                return [HogQLQueryThrottle()]
+        if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
+            return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     def check_team_api_queries_concurrency(self):
@@ -227,7 +321,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     def _raise_concurrency_throttled(self, exc: ConcurrencyLimitExceeded) -> NoReturn:
         # Log the raw detail (Redis key + task id) for Loki, but surface a clean message to the user.
         logger.warning("query_concurrency_limit_exceeded", detail=str(exc))
-        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+        raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE)
 
     @extend_schema(
         request=QueryRequest,
@@ -254,7 +348,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 _mark_explicit_date_boundaries(query)
 
             self._tag_client_query_id(client_query_id)
-            analytics_props = get_request_analytics_properties(request)
+            analytics_props = get_query_request_analytics_properties(request)
             query_dict = query.model_dump()
 
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
@@ -273,12 +367,15 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             else:
                 limit_context = None
 
+            reset_request_query_cost()
+            is_query_service = get_query_tag_value("access_method") == "personal_api_key"
+            if is_query_service:
+                tag_queries(api_queries_budgeted=True)
             with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
                 process_span.set_attribute("team_id", self.team.pk)
                 process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
-                process_span.set_attribute(
-                    "query.is_query_service", get_query_tag_value("access_method") == "personal_api_key"
-                )
+                process_span.set_attribute("query.is_query_service", is_query_service)
+                set_query_id_on_span(process_span, client_query_id)
                 if limit_context is not None:
                     process_span.set_attribute("query.limit_context", limit_context.value)
                 result = process_query_model(
@@ -287,7 +384,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                     execution_mode=execution_mode,
                     query_id=client_query_id,
                     user=request.user,  # type: ignore[arg-type]
-                    is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                    is_query_service=is_query_service,
                     limit_context=limit_context,
                     analytics_props=analytics_props,
                 )
@@ -330,13 +427,26 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                     if formatted is not None:
                         result["formatted_results"] = formatted
 
-            return Response(result, status=response_status)
+            response = Response(result, status=response_status)
+            cost = get_request_query_cost()
+            if cost is not None and get_query_tag_value("access_method") == "personal_api_key":
+                _add_query_cost_headers(
+                    response,
+                    cost.bytes_read,
+                    int(cost.remaining_bytes) if cost.remaining_bytes is not None else None,
+                )
+            return response
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             detail = str(e)
             extra: dict | None = None
             if isinstance(e, ExposedHogQLError):
                 request_user = request.user if isinstance(request.user, User) else None
                 detail, extra = enrich_hogql_validation_error(query, self.team, request_user, detail)
+            # A run ClickHouse stopped carries its scan, so the client can show the advice under
+            # the error.
+            scan_extra = _scan_extra(e)
+            if scan_extra:
+                extra = {**(extra or {}), **scan_extra}
             validation_error = ValidationError(detail, getattr(e, "code_name", None))
             if extra is not None:
                 validation_error.extra = extra  # type: ignore[attr-defined]
@@ -344,7 +454,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            raise APIException("ClickHouse error while executing query.")
+            error_code = look_up_clickhouse_error_code_meta(e).name
+            user_message = internal_ch_error_user_message(error_code)
+            replacement = APIException(user_message or GENERIC_INTERNAL_CH_ERROR_MESSAGE)
+            scan_extra = _scan_extra(e)
+            if scan_extra:
+                replacement.extra = scan_extra  # type: ignore[attr-defined]
+            raise replacement
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except ResolutionError as e:
@@ -358,10 +474,18 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             raise
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except Throttled:
+            # Expected while a team is over its hourly query budget: a 429 with Retry-After is the
+            # caller's signal, not error noise.
+            raise
         except Exception as e:
-            # Breaker replays were already captured when the original failure happened.
-            if not getattr(e, "served_from_query_failure_cache", False):
+            if not captured_elsewhere(e):
                 capture_exception(e)
+            # The timeout and memory-limit classes land here, which are the runs the scan
+            # exists for.
+            scan_extra = _scan_extra(e)
+            if scan_extra:
+                e.extra = {**(getattr(e, "extra", None) or {}), **scan_extra}  # type: ignore[attr-defined]
             raise
 
     @extend_schema(
@@ -376,18 +500,63 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
-        query_status_response = QueryStatusResponse(query_status=query_status)
-
+        account_users_account_id = next(
+            (
+                label.removeprefix(ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX)
+                for label in query_status.labels or []
+                if label.startswith(ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX)
+            ),
+            None,
+        )
+        if account_users_account_id is not None:
+            try:
+                validate_account_users_access(
+                    self.team, request.user if isinstance(request.user, User) else None, account_users_account_id
+                )
+            except UserAccessControlError as error:
+                raise PermissionDenied(str(error)) from error
+        if managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL in (query_status.labels or []):
+            try:
+                validate_managed_trino_raw_access(self.team, request.user if isinstance(request.user, User) else None)
+            except ExposedHogQLError as error:
+                raise PermissionDenied(str(error)) from error
+        managed_connection_id = next(
+            (
+                label.removeprefix(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+                for label in query_status.labels or []
+                if label.startswith(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+            ),
+            None,
+        )
+        if managed_connection_id is not None and not is_managed_warehouse_connection_ready(
+            self.team.pk, managed_connection_id
+        ):
+            logger.info(
+                "Managed warehouse query result is unavailable",
+                team_id=self.team.pk,
+                query_id=pk,
+                connection_id=managed_connection_id,
+            )
+            raise QueryNotFoundError(
+                detail=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
+                code=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
+            )
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
             if query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
+                # Add safe copy only after choosing the existing HTTP status; internal failures stay 500.
+                query_status.error_message = internal_ch_error_user_message(query_status.error_code)
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
-        return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
+        query_status_response = QueryStatusResponse(query_status=query_status)
+        response = JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
+        if query_status.bytes_read is not None:
+            _add_query_cost_headers(response, query_status.bytes_read, query_status.budget_remaining_bytes)
+        return response
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["POST"], detail=False)
@@ -462,11 +631,45 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except Throttled:
+            # Expected while a team is over its hourly query budget: a 429 with Retry-After is the
+            # caller's signal, not error noise.
+            raise
         except Exception as e:
-            # Breaker replays were already captured when the original failure happened.
-            if not getattr(e, "served_from_query_failure_cache", False):
+            if not captured_elsewhere(e):
                 capture_exception(e)
             raise
+
+    @extend_schema(
+        description=(
+            "Get the query scan for a cache key: the analysis of the last slow run of that query. The body "
+            "is empty while the analysis runs. 404 when the query has not been analyzed."
+        ),
+        responses={
+            200: QueryScanResponse,
+            404: OpenApiResponse(description="No query scan exists for this cache key."),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"scan/(?P<cache_key>[^/]+)",
+        required_scopes=["query:read"],
+    )
+    def get_query_scan(self, request: Request, cache_key: str, *args, **kwargs) -> Response:
+        # `log_only` collects the analysis without showing it to anyone, and with the flag off
+        # there is no current configuration to hold a stored analysis to.
+        flag = get_query_scan_flag(self.team)
+        if flag is None or flag.mode != QueryScanMode.SHOW:
+            raise NotFound("There is no query scan for this cache key.")
+        slot = query_scan_slot.get(self.team_id, cache_key, thresholds=flag.thresholds_fingerprint)
+        if slot is None:
+            raise NotFound("There is no query scan for this cache key.")
+        if slot.analysis is None:
+            return Response({}, status=status.HTTP_200_OK)
+        # Nothing here knows the run that asked, so the prompt carries the findings without a run line.
+        scan = QueryScanResponse(analysis=analysis_with_prompt(slot.analysis))
+        return Response(scan.model_dump(by_alias=True, exclude_none=True), status=status.HTTP_200_OK)
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):

@@ -49,7 +49,7 @@ function renderBanner(variant?: "sidebar" | "compact") {
 
 const VARIANTS = [
   { variant: "sidebar", readyText: "1.2.3 ready" },
-  { variant: "compact", readyText: "1.2.3 ready — Restart" },
+  { variant: "compact", readyText: "1.2.3 ready" },
 ] as const;
 
 function dismissButton() {

@@ -29,15 +29,34 @@ threads-required = "num-cpus"
 # Run the whole suite even after a failure, so the JUnit output captures every
 # failing/flaky test for Trunk instead of stopping at the first one.
 fail-fast = false
+# One retry, CI only: timing-sensitive integration tests flake under runner
+# contention, and in the merge queue a single flake evicts a PR and restarts
+# CI for every entry behind it. A retried pass is reported as flaky in the
+# JUnit upload, so Trunk still tracks each occurrence; a real regression
+# fails both attempts. Queue-protection measure, not a fix — see
+# https://github.com/PostHog/posthog/issues/84781 for the deflake follow-up.
+retries = 1
 
 [profile.ci.junit]
 path = "junit.xml"
 
-# Same reservation under the CI profile. Its sibling
-# `two_partitions_double_zombie_loses_acked_writes` used to be reserved too,
-# but it only asserts a counterexample exists and now stops at one, which
-# leaves it a few seconds long — reserving the machine for it just serialized
-# it against the rest of the suite for nothing.
+# Same reservation under the CI profile.
 [[profile.ci.overrides]]
 filter = 'package(personhog-stateright) and test(epoch_fenced_two_partitions_double_zombie_is_safe)'
 threads-required = "num-cpus"
+
+# cohort-stream-processor's integration tests include broker and S3 tests that can hang on a
+# shutdown or a broker wait. Fail any of them at 2 minutes, well past the slowest one, instead of
+# letting them eat the job's timeout.
+[[profile.ci.overrides]]
+filter = 'package(cohort-stream-processor) & kind(test)'
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+# The persons DB stall tests each run for up to a minute by design. A retry of every failing one
+# would push the shard past its job timeout, so they get none. Fail a hung one at 2 minutes, and
+# keep the measurements each one prints in the job log.
+[[profile.ci.overrides]]
+filter = 'package(feature-flags) & binary(stall_recovery)'
+retries = 0
+slow-timeout = { period = "60s", terminate-after = 2 }
+success-output = "final"

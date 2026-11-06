@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in
-// products/feature_flags/backend/api/feature_flag.py (mirrored by the filters serializer in
-// products/feature_flags/backend/api/filters_schema.py — issue #50084). This enum is
+pub(crate) const ESTIMATED_COMPILED_REGEX_BYTES: usize = 2048;
+
+// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS, defined in
+// products/feature_flags/backend/api/filters_schema.py (used there by the filters serializer
+// and by the write-path serde guard in feature_flag.py — issue #50084). This enum is
 // deliberately a superset: cohort filters don't go through flag-level operator validation,
 // so operators the cohort UI allows (between/not_between, and the min/max aliases mirroring
 // FEATURE_FLAG_OPERATOR_ALIASES) must deserialize here even though the flag API rejects them.
@@ -66,6 +68,10 @@ pub enum PropertyType {
     Flag,
 }
 
+/// Regex backtrack limit to prevent ReDoS attacks.
+/// 10k steps completes in ~1ms worst case, which is acceptable for a hot path.
+const REGEX_BACKTRACK_LIMIT: usize = 10_000;
+
 /// Pre-compiled regex state for Regex/NotRegex operators.
 /// Populated by `prepare_regex()` at flag-load time.
 /// Clone is cheap: fancy_regex::Regex uses Arc<Prog> internally.
@@ -75,6 +81,18 @@ pub enum CompiledRegex {
     Compiled(fancy_regex::Regex),
     /// Pattern failed to compile — always returns Ok(false), no re-compilation needed.
     InvalidPattern,
+}
+
+impl CompiledRegex {
+    pub fn new(pattern: &str) -> Self {
+        match fancy_regex::RegexBuilder::new(pattern)
+            .backtrack_limit(REGEX_BACKTRACK_LIMIT)
+            .build()
+        {
+            Ok(regex) => Self::Compiled(regex),
+            Err(_) => Self::InvalidPattern,
+        }
+    }
 }
 
 impl std::fmt::Debug for CompiledRegex {

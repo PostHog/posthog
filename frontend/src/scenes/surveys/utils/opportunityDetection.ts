@@ -1,3 +1,4 @@
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import {
     AnyEntityNode,
     EventsNode,
@@ -5,8 +6,9 @@ import {
     FunnelsQuery,
     GroupNode,
     InsightVizNode,
+    NodeKind,
 } from '~/queries/schema/schema-general'
-import { DashboardTile, QueryBasedInsightModel, SurveyEventsWithProperties } from '~/types'
+import { DashboardTile, FunnelVizType, InsightModel, SurveyEventsWithProperties } from '~/types'
 
 export interface FunnelContext {
     insightName: string
@@ -16,14 +18,38 @@ export interface FunnelContext {
 
 interface FunnelStepResult {
     count: number
-    type: string
 }
 
 export interface SurveyableFunnelInsight {
     id?: number
+    short_id?: InsightModel['short_id']
     name?: string
     query: InsightVizNode<FunnelsQuery>
     result: FunnelStepResult[]
+}
+
+export function surveyOpportunityContextItems(
+    insight: Pick<SurveyableFunnelInsight, 'id' | 'short_id'>,
+    funnelContext: FunnelContext | null
+): AttachedContextItem[] | null {
+    return funnelContext
+        ? [
+              {
+                  type: 'insight',
+                  key: insight.id,
+                  pageId: insight.short_id ?? null,
+                  label: funnelContext.insightName,
+              },
+              {
+                  type: 'survey_opportunity_funnel_context',
+                  value: JSON.stringify({
+                      conversionRate: funnelContext.conversionRate,
+                      steps: funnelContext.steps,
+                  }),
+                  label: 'Funnel conversion context',
+              },
+          ]
+        : null
 }
 
 /**
@@ -36,9 +62,9 @@ export interface SurveyableFunnelInsight {
  * - Doesn't already have a linked survey
  */
 export function getBestSurveyOpportunityFunnel(
-    tiles: DashboardTile<QueryBasedInsightModel>[],
+    tiles: DashboardTile[],
     linkedInsightIds: Set<number> = new Set()
-): DashboardTile<QueryBasedInsightModel> | null {
+): DashboardTile | null {
     const candidates = tiles
         .filter(
             (tile) =>
@@ -59,16 +85,23 @@ export function getBestSurveyOpportunityFunnel(
  * Returns true only if we have a valid funnel query with results.
  */
 export function isSurveyableFunnelInsight(
-    insight: Partial<QueryBasedInsightModel> | undefined
+    insight: Partial<InsightModel> | undefined
 ): insight is SurveyableFunnelInsight {
     const query = insight?.query as InsightVizNode<FunnelsQuery> | undefined
     const result = insight?.result
+    if (!query || !isValidFunnelQuery(query)) {
+        return false
+    }
+    // Only steps and flow funnels return one row per step.
+    const vizType = query.source.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps
 
     return (
-        isValidFunnelQuery(query) &&
+        query.source.series.every((node) => node.kind === NodeKind.EventsNode || node.kind === NodeKind.ActionsNode) &&
+        (vizType === FunnelVizType.Steps || vizType === FunnelVizType.Flow) &&
         Array.isArray(result) &&
         result.length >= 2 &&
-        result.every((step: FunnelStepResult) => step.type === 'events' || step.type === 'actions')
+        // A breakdown funnel returns a list of steps for each breakdown value.
+        result.every((step) => !Array.isArray(step))
     )
 }
 
@@ -79,7 +112,7 @@ export function isSurveyableFunnelInsight(
  * @param insight funnel insight to extract context from
  * @returns funnel "context" object, or null if invalid
  */
-export function extractFunnelContext(insight: Partial<QueryBasedInsightModel> | undefined): FunnelContext | null {
+export function extractFunnelContext(insight: Partial<InsightModel> | undefined): FunnelContext | null {
     if (!isSurveyableFunnelInsight(insight)) {
         return null
     }

@@ -1,0 +1,55 @@
+rules:
+    - id: shared-mechanisms-stay-out-of-egress-and-ingress-domains
+      message: |
+          Tracing, request timing and metrics are shared mechanisms. Build them once in the
+          shared layer, so every domain gets them with no domain code:
+          - egress: the base clients in `posthog/egress/transport/transport.py` and the
+            recorder in `posthog/egress/observability/`
+          - ingress: `posthog/ingress/views.py`, `dispatch/` and `observability/`
+
+          A domain or provider package fills the hooks that layer defines. An egress domain
+          declares its request counter and rate-limit gauges inside `EgressMetrics(...)`, and
+          the base client records them.
+
+          Why: a reference domain such as `posthog/egress/github/` is the layout the next
+          domain copies. A mechanism added to one domain gets copied with its own names into
+          every new domain, and the domains that exist already never get it.
+
+          If only this domain can ever use it, keep it here and mark it on the lines above:
+              # One-off: <why no other domain needs it>
+              # nosemgrep: shared-mechanisms-stay-out-of-egress-and-ingress-domains
+          See "Shared mechanisms" in `posthog/egress/README.md`.
+      languages: [python]
+      severity: ERROR
+      pattern-either:
+          - patterns:
+                - pattern-either:
+                      - pattern: import $MODULE
+                      - pattern: from $MODULE import $NAME
+                - metavariable-regex:
+                      metavariable: $MODULE
+                      regex: ^opentelemetry(\..*)?$
+          - pattern: $TRACER.start_as_current_span(...)
+          - pattern: $TRACER.start_span(...)
+          - pattern: prometheus_client.Histogram(...)
+          - pattern: prometheus_client.Summary(...)
+          - patterns:
+                - pattern-either:
+                      - pattern: prometheus_client.Counter(...)
+                      - pattern: prometheus_client.Gauge(...)
+                - pattern-not-inside: EgressMetrics(...)
+      paths:
+          include:
+              - /posthog/egress/**/*.py
+              - /posthog/ingress/**/*.py
+          exclude:
+              # The shared layer, where these mechanisms belong.
+              - /posthog/egress/*.py
+              - /posthog/egress/transport/**
+              - /posthog/egress/observability/**
+              - /posthog/egress/limiter/**
+              - /posthog/ingress/*.py
+              - /posthog/ingress/dispatch/**
+              - /posthog/ingress/verify/**
+              - /posthog/ingress/observability/**
+              - '**/test/**'

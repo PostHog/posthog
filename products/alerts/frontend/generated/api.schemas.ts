@@ -153,12 +153,45 @@ export const InvestigationVerdictEnumApi = {
     Inconclusive: 'inconclusive',
 } as const
 
+export interface AlertDeliveryApi {
+    /** Delivery channel: 'email' or 'hog_function' (destinations). */
+    channel: string
+    /** Email address, or destination name, that received the notification. */
+    target: string
+    /**
+     * Hog function ID, for destination deliveries. Null for email.
+     * @nullable
+     */
+    target_id?: string | null
+    /**
+     * Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.
+     * @nullable
+     */
+    template?: string | null
+    /** Delivery status. Always 'accepted', for a confirmed send. */
+    status: string
+    /**
+     * When the delivery was recorded.
+     * @nullable
+     */
+    at: string | null
+    /** Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'. */
+    display_label: string
+}
+
+/**
+ * @nullable
+ */
+export type AlertCheckApiError = { [key: string]: string } | null
+
 export interface AlertCheckApi {
     readonly id: string
     readonly created_at: string
     /** @nullable */
     readonly calculated_value: number | null
     readonly state: AlertCheckStateEnumApi
+    /** @nullable */
+    readonly error: AlertCheckApiError
     readonly targets_notified: boolean
     readonly anomaly_scores: unknown
     readonly triggered_points: unknown
@@ -178,6 +211,11 @@ export interface AlertCheckApi {
     /** @nullable */
     readonly notification_sent_at: string | null
     readonly notification_suppressed_by_agent: boolean
+    /**
+     * Destinations that accepted this check's notification, one record per destination (channel, target, status, at). Null when no delivery receipt was recorded, which covers checks that notified nobody and checks predating delivery receipts.
+     * @nullable
+     */
+    readonly deliveries: readonly AlertDeliveryApi[] | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
@@ -246,10 +284,23 @@ export const MetricsAlertConfigApiType = {
     MetricsAlertConfig: 'MetricsAlertConfig',
 } as const
 
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+/**
+ * Values for the `$name` variables in the insight's query.
+ */
+export type MetricsAlertConfigApiVariables = { [key: string]: MetricsDashboardVariableSelectionApi } | null
+
 export interface MetricsAlertConfigApi {
     /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean | null
     type: MetricsAlertConfigApiType
+    /** Values for the `$name` variables in the insight's query. */
+    variables?: MetricsAlertConfigApiVariables
 }
 
 /**
@@ -522,6 +573,18 @@ export interface EnsembleDetectorConfigApi {
     type: EnsembleDetectorConfigApiType
 }
 
+export type LLMDetectorConfigApiType = (typeof LLMDetectorConfigApiType)[keyof typeof LLMDetectorConfigApiType]
+
+export const LLMDetectorConfigApiType = {
+    Llm: 'llm',
+} as const
+
+export interface LLMDetectorConfigApi {
+    /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+    instructions?: string | null
+    type: LLMDetectorConfigApiType
+}
+
 /**
  * Detector configuration types
  */
@@ -539,6 +602,7 @@ export type DetectorConfigApi =
     | LOFDetectorConfigApi
     | OCSVMDetectorConfigApi
     | PCADetectorConfigApi
+    | LLMDetectorConfigApi
 
 /**
  * * `real_time` - real_time
@@ -596,6 +660,15 @@ export interface AlertApi {
     readonly created_at: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight: number
+    /** Short ID of the insight monitored by this alert. */
+    readonly insight_short_id: string
+    /** Display name of the insight monitored by this alert. */
+    readonly insight_display_name: string
+    /**
+     * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+     * @nullable
+     */
+    readonly llm_detector_available: boolean | null
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -615,6 +688,11 @@ export interface AlertApi {
     readonly last_notified_at: string | null
     /** @nullable */
     readonly last_checked_at: string | null
+    /**
+     * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
+     * @nullable
+     */
+    schedule_start_time?: string | null
     /** @nullable */
     readonly next_check_at: string | null
     /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
@@ -627,6 +705,12 @@ export interface AlertApi {
     /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
+    /**
+     * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
      * * `real_time` - real_time
@@ -653,9 +737,9 @@ export interface AlertApi {
      * @nullable
      */
     readonly last_value: number | null
-    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    /** When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts. */
     investigation_agent_enabled?: boolean
-    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    /** When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
      *
@@ -681,6 +765,15 @@ export interface PatchedAlertApi {
     readonly created_at?: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight?: number
+    /** Short ID of the insight monitored by this alert. */
+    readonly insight_short_id?: string
+    /** Display name of the insight monitored by this alert. */
+    readonly insight_display_name?: string
+    /**
+     * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+     * @nullable
+     */
+    readonly llm_detector_available?: boolean | null
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -700,6 +793,11 @@ export interface PatchedAlertApi {
     readonly last_notified_at?: string | null
     /** @nullable */
     readonly last_checked_at?: string | null
+    /**
+     * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
+     * @nullable
+     */
+    schedule_start_time?: string | null
     /** @nullable */
     readonly next_check_at?: string | null
     /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
@@ -712,6 +810,12 @@ export interface PatchedAlertApi {
     /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
     config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
+    /**
+     * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
     /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
      * * `real_time` - real_time
@@ -738,9 +842,9 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly last_value?: number | null
-    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    /** When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts. */
     investigation_agent_enabled?: boolean
-    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    /** When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
      *
@@ -749,6 +853,42 @@ export interface PatchedAlertApi {
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
+}
+
+/**
+ * * `slack` - slack
+ */
+export type ChannelTypeEnumApi = (typeof ChannelTypeEnumApi)[keyof typeof ChannelTypeEnumApi]
+
+export const ChannelTypeEnumApi = {
+    Slack: 'slack',
+} as const
+
+export interface AlertCreateDestinationApi {
+    /** Destination type. Slack is the only type this endpoint creates.
+     *
+     * * `slack` - slack */
+    type?: ChannelTypeEnumApi
+    /** Integration ID of the Slack workspace to post in. List them with the integrations endpoint. */
+    slack_workspace_id: number
+    /** Slack channel ID to post in, for example C0123456789. */
+    slack_channel_id: string
+    /** Channel name shown on the destination, for example product-alerts. */
+    slack_channel_name?: string
+}
+
+export interface AlertDestinationResponseApi {
+    /** IDs of the created destination. Pass them to destinations/delete to remove it. */
+    hog_function_ids: string[]
+}
+
+export interface AlertDeleteDestinationApi {
+    /**
+     * Destination IDs to delete, as returned when the destination was created.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
 }
 
 /**
@@ -773,10 +913,16 @@ export interface AlertTestDeliveryResponseApi {
 }
 
 export interface AlertSimulateApi {
-    /** Insight ID to simulate the detector on. */
-    insight: number
-    /** Detector configuration to simulate. */
-    detector_config: DetectorConfigApi
+    /**
+     * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
+     * @minimum 0
+     * @maximum 100
+     */
+    evaluation_delay_intervals?: number
+    /** Numeric insight ID or saved insight short ID to simulate the detector on. */
+    insight: number | string
+    /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
+    detector_config?: DetectorConfigApi
     /** Zero-based index of the series to analyze (trends insights only). */
     series_index?: number
     /**
@@ -786,6 +932,11 @@ export interface AlertSimulateApi {
     date_from?: string | null
     /** Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends. */
     config?: AlertConfigUnionApi | null
+    /**
+     * ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert.
+     * @nullable
+     */
+    alert?: string | null
 }
 
 export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
@@ -814,11 +965,19 @@ export interface BreakdownSimulationResultApi {
 }
 
 export interface AlertSimulateResponseApi {
+    /** Completed intervals skipped. */
+    evaluation_delay_intervals?: number
+    /** Start of the latest eligible interval. */
+    evaluated_interval_start?: string
+    /** Exclusive end of the latest eligible interval. */
+    evaluated_interval_end?: string
+    /** Project timezone of the interval. */
+    evaluated_interval_timezone?: string
     /** Data values for each point. */
     data: number[]
     /** Date labels for each point. */
     dates: string[]
-    /** Anomaly score for each point (null if insufficient data). */
+    /** Score for each point. Null can mean insufficient data or a valid unscored point. The AI detector has no score, so every point is null in an AI preview. */
     scores: (number | null)[]
     /** Indices of points flagged as anomalies. */
     triggered_indices: number[]
@@ -835,6 +994,13 @@ export interface AlertSimulateResponseApi {
     anomaly_count: number
     /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
     sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
+    /** AI detector only: the model's reason for its verdict on the latest point. */
+    rationale?: string
+    /**
+     * AI detector only: the shape the model saw at the latest point, or 'none'.
+     * @nullable
+     */
+    kind?: string | null
     /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
     breakdown_results?: BreakdownSimulationResultApi[]
 }
@@ -867,9 +1033,17 @@ export type AlertsListParams = {
      */
     created_by?: string
     /**
+     * Optional. Restrict results by whether the alert uses anomaly detection.
+     */
+    has_detector?: boolean
+    /**
      * Optional. Restrict results to alerts on this insight ID.
      */
     insight_id?: number
+    /**
+     * Optional. Restrict results to alerts whose insight has this tag.
+     */
+    insight_tag?: string
     /**
      * Number of results to return per page.
      */

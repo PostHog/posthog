@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from products.managed_warehouse.backend.facade.contracts import (
+    DucklingTables,
     ManagedWarehouseBackfillState,
     ManagedWarehouseTeamMembership,
 )
@@ -13,15 +14,22 @@ __all__ = [
     "data_imports_table_naming_version",
     "list_enabled_backfill_team_memberships",
     "resolve_events_persons_tables",
+    "resolve_groups_table",
     "team_backfill_membership",
     "team_backfill_state",
 ]
 
 
-def resolve_events_persons_tables(team_id: int) -> tuple[str, str]:
+def resolve_events_persons_tables(team_id: int) -> DucklingTables:
     from products.managed_warehouse.backend import team_state
 
     return team_state.resolve_events_persons_tables(team_id)
+
+
+def resolve_groups_table(team_id: int) -> str:
+    from products.managed_warehouse.backend import team_state
+
+    return team_state.resolve_groups_table(team_id)
 
 
 def data_imports_schema(team_id: int) -> str:

@@ -17,7 +17,6 @@ export type EncodedRecordingSnapshot = {
 
 export const SnapshotSourceType = {
     blob_v2: 'blob_v2',
-    blob_v2_lts: 'blob_v2_lts',
     file: 'file',
 } as const
 
@@ -28,6 +27,8 @@ export interface SessionRecordingSnapshotSource {
     start_timestamp?: string
     end_timestamp?: string
     blob_key?: string
+    /** Fetch this block here directly, with the listing's block token, instead of through the snapshots endpoint. */
+    url?: string
 }
 
 export interface SessionRecordingSnapshotSourceResponse {

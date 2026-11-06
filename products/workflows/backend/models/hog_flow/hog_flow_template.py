@@ -7,6 +7,8 @@ import structlog
 
 from posthog.models.utils import UUIDTModel
 
+from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
+
 if TYPE_CHECKING:
     pass
 
@@ -24,34 +26,26 @@ class HogFlowTemplate(UUIDTModel):
             models.Index(fields=["team"]),
         ]
 
-    class ExitCondition(models.TextChoices):
-        CONVERSION = "exit_on_conversion"
-        TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
-        TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
-        ONLY_AT_END = "exit_only_at_end"
-
-    class Scope(models.TextChoices):
-        """Visibility of the workflow template"""
-
-        ONLY_TEAM = "team", "Only team"
-        ORGANIZATION = "organization", "Organization"
-        GLOBAL = "global", "Global"
+    ExitCondition = HogFlowTemplateExitCondition
+    Scope = HogFlowTemplateScope
 
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     image_url = models.CharField(max_length=8201, null=True, blank=True)
     tags = ArrayField(models.CharField(max_length=255), blank=True, default=list)
-    scope = models.CharField(max_length=24, choices=Scope)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    scope = models.CharField(max_length=24, choices=Scope.choices)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(null=True, blank=True)
     conversion = models.JSONField(null=True, blank=True)
-    exit_condition = models.CharField(max_length=100, choices=ExitCondition, default=ExitCondition.CONVERSION)
+    exit_condition = models.CharField(
+        max_length=100, choices=ExitCondition.choices, default=ExitCondition.CONVERSION.value
+    )
 
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)

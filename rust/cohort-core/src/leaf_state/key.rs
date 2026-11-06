@@ -19,7 +19,7 @@ impl LeafStateKey {
     }
 
     /// Hash the full predicate config. Field order must match the Python port
-    /// (`_extract_leaf_state_keys` in `posthog/models/cohort/dependencies.py`).
+    /// (`behavioral_leaf_key` in `products/cohorts/backend/models/leaf_shape.py`).
     pub fn for_behavioral(leaf: &BehavioralLeafConfig) -> Self {
         let mut h = Sha256::new();
         h.update(leaf.condition_hash);
@@ -45,10 +45,8 @@ impl LeafStateKey {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
-    use crate::filters::tree::{BehavioralLeafConfig, BehavioralValue};
+    use crate::filters::tree::BehavioralValue;
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
 
@@ -65,7 +63,6 @@ mod tests {
             explicit_datetime_to: None,
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
-            bytecode: Arc::new(vec![]),
             negated: false,
         }
         .with_state_key()
@@ -108,7 +105,6 @@ mod tests {
             explicit_datetime_to: Some("2026-02-01T00:00:00Z".to_string()),
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
-            bytecode: Arc::new(vec![]),
             negated: false,
         }
         .with_state_key()
@@ -139,7 +135,7 @@ mod tests {
 
     #[test]
     fn with_state_key_caches_the_derived_key() {
-        let leaf = baseline();
+        let leaf = golden_leaf();
         assert_eq!(leaf.leaf_state_key, LeafStateKey::for_behavioral(&leaf));
     }
 
@@ -169,8 +165,8 @@ mod tests {
 
     #[test]
     fn negation_is_excluded_from_the_key() {
-        let positive = baseline();
-        let mut negated = baseline();
+        let positive = golden_leaf();
+        let mut negated = golden_leaf();
         negated.negated = true;
         assert_eq!(
             LeafStateKey::for_behavioral(&positive),

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSkeleton, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSkeleton, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportedAssetBlob } from 'lib/components/ExportButton/exporter'
@@ -9,8 +9,8 @@ import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/E
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, ExportedAssetType, ExporterFormat } from '~/types'
 
@@ -18,15 +18,6 @@ import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'
 
 const ROW_LIMIT_IN_THOUSANDS = 300
-
-export const SidePanelExportsIcon = (): JSX.Element => {
-    const { freshUndownloadedExports } = useValues(sidePanelExportsLogic)
-    return (
-        <IconWithCount count={freshUndownloadedExports.length}>
-            <IconDownload />
-        </IconWithCount>
-    )
-}
 
 function ExportPanelHeader(): JSX.Element {
     const { assetFormat, exportsLoading } = useValues(sidePanelExportsLogic)
@@ -232,7 +223,10 @@ export const SidePanelExports = (): JSX.Element => {
                 }
             />
             <p className="m-4">
-                Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.
+                Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.{' '}
+                <Link to={urls.exports()} data-attr="side-panel-exports-view-all">
+                    View all exports
+                </Link>
             </p>
             <ExportsContent />
         </div>

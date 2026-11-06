@@ -3,9 +3,9 @@ import { memo, useRef } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { ConnectionSelector } from 'scenes/data-warehouse/editor/ConnectionSelector'
@@ -13,8 +13,9 @@ import { DATABASE_TREE_COLLAPSE_THRESHOLD, editorSizingLogic } from 'scenes/data
 import { DatabaseSearchField } from 'scenes/data-warehouse/editor/sidebar/DatabaseSearchField'
 import { QueryDatabase } from 'scenes/data-warehouse/editor/sidebar/QueryDatabase'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { ExpressionModal } from 'scenes/data-warehouse/ExpressionModal'
-import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
+
+import { ExpressionModal } from 'products/data_warehouse/frontend/shared/components/ExpressionModal'
+import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
 
 import { SyncMoreNotice } from './SyncMoreNotice'
 
@@ -101,7 +102,6 @@ export const DatabaseTree = memo(function DatabaseTree({
                     <QueryDatabase
                         virtualizationScrollContainerRef={scrollContainerRef}
                         extraTreeSections={extraTreeSections}
-                        tabId={tabId}
                     />
                 </div>
                 <SyncMoreNotice />

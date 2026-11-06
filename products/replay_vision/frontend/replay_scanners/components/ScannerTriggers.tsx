@@ -1,28 +1,29 @@
-import './ScannerTriggers.scss'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { useActions, useValues } from 'kea'
+import { LemonBanner, LemonCard, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { LemonBanner, LemonCard, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
-
-import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getExperimentVariants } from 'scenes/experiments/utils'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
-    convertUniversalFiltersToRecordingsQuery,
     deriveOperand,
     recordingsQueryToUniversalFilters,
 } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { RecordingsUniversalFilterAddFilterPopover } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { Settings } from 'scenes/settings/Settings'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
@@ -30,14 +31,41 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
+import { scannerExperimentScope } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
-import { ScannerQuotaForecast } from './ScannerQuotaForecast'
+import { overlayEditorFilters } from '../scannerQueryFilters'
+import { scannerSavedFilterLogic } from '../scannerSavedFilterLogic'
+import { ExperimentScopeFilter } from './ExperimentScopeFilter'
+
+// The wizard holds an unsaved draft, so sending someone to the settings scene to define their test
+// account filters drops them out of the flow they were told to fix. Configure them in place instead.
+// Exported so the story can snapshot the exact dialog the wizard opens.
+export function testAccountFilterSettingsDialogProps(): LemonDialogProps {
+    return {
+        title: 'Filter out internal and test users',
+        width: '40rem',
+        content: (
+            <Settings
+                logicKey="replay-vision-internal-user-filtering"
+                sectionId="environment-customization"
+                settingId="internal-user-filtering"
+                hideSections
+                handleLocally
+            />
+        ),
+        primaryButton: { children: 'Done' },
+    }
+}
+
+function openTestAccountFilterSettings(): void {
+    LemonDialog.open(testAccountFilterSettingsDialogProps())
+}
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
 // Group properties are appended per-project from groupsModel (see scannerFilterTypes below).
 const SCANNER_BASE_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.ReplaySavedFilters,
     TaxonomicFilterGroupType.Replay,
     TaxonomicFilterGroupType.Events,
     TaxonomicFilterGroupType.EventProperties,
@@ -69,6 +97,7 @@ export function groupHasNoFilters(group: UniversalFiltersGroup): boolean {
 function ScannerFilterGroup(): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const allowEntityNegation = useFeatureFlag('REPLAY_NEGATIVE_EVENT_FILTERS')
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -84,6 +113,7 @@ function ScannerFilterGroup(): JSX.Element {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
+                        allowEntityNegation={allowEntityNegation}
                     />
                 )
             )}
@@ -91,13 +121,89 @@ function ScannerFilterGroup(): JSX.Element {
     )
 }
 
+// Legacy experiment targeting on other scanner types. The backend derives the population from
+// exposure data at scan time, so there is no filter in the card below to hand-edit. It is read-only:
+// the API refuses a new target but accepts a clear. The experiment type shows its experiment inside
+// the filters card instead.
+function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { scanner, experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
+    const { setExperimentVariant, detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
+    // Until experiment scanners ship, legacy targeting keeps its variant picker.
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
+
+    if (!experimentContext || !scanner || scanner.scanner_type === 'experiment') {
+        return null
+    }
+    const { experiment, variantKey } = experimentContext
+    const experimentLink = <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>
+
+    if (!experimentScanners) {
+        // A null value targets every variant; each experiment variant is a single-select option.
+        const variantOptions: { value: string | null; label: string }[] = [
+            { value: null, label: 'All variants' },
+            ...getExperimentVariants(experiment).map((variant) => ({ value: variant.key, label: variant.key })),
+        ]
+        return (
+            <LemonCard hoverEffect={false} className="p-3 space-y-3" data-attr="vision-experiment-targeting">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1 space-y-1">
+                        <LemonLabel>Experiment targeting</LemonLabel>
+                        <div className="text-xs text-muted">
+                            This scanner watches sessions of people exposed to {experimentLink}. Pick a variant to
+                            narrow it, or watch every variant. Filters you add yourself are kept.
+                        </div>
+                    </div>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={() => detachExperimentContext()}
+                        tooltip="Stop limiting this scanner to people exposed to this experiment. Filters you added yourself are kept."
+                        data-attr="vision-experiment-targeting-detach"
+                    >
+                        Remove targeting
+                    </LemonButton>
+                </div>
+                <div className="max-w-160">
+                    <LemonSelect
+                        value={variantKey}
+                        onChange={(key) => setExperimentVariant(key)}
+                        options={variantOptions}
+                        data-attr="vision-experiment-targeting-variants"
+                    />
+                </div>
+            </LemonCard>
+        )
+    }
+
+    return (
+        <LemonCard hoverEffect={false} className="p-3" data-attr="vision-experiment-targeting">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 space-y-1">
+                    <LemonLabel>Experiment targeting</LemonLabel>
+                    <div className="text-xs text-muted">
+                        This scanner watches sessions of people exposed to {experimentLink}
+                        <span>{variantKey ? ` in ${variantKey}` : ', every variant'}</span>. To compare variants, create
+                        an experiment scanner.
+                    </div>
+                </div>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={() => detachExperimentContext()}
+                    tooltip="Stop limiting this scanner to people exposed to this experiment. Filters you added yourself are kept."
+                    data-attr="vision-experiment-targeting-detach"
+                >
+                    Remove targeting
+                </LemonButton>
+            </div>
+        </LemonCard>
+    )
+}
+
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner, scannerEstimate, scannerEstimateLoading } = useValues(replayScannerLogic({ id: scannerId }))
-    const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const categoryDropdownVariant = resolveCategoryDropdownVariant(
-        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
-    )
+    useMountedLogic(scannerSavedFilterLogic({ scannerId }))
     const scannerFilterTypes = [...SCANNER_BASE_FILTER_TYPES, ...groupsTaxonomicTypes]
     // Waits for the in-flight estimate so an edit can't report on the previous filters.
     const noMatchWindowDays =
@@ -108,28 +214,19 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
     }
+    // The experiment already limits the scan to exposed people, so a scanner without filters of its own
+    // does not scan every recording.
+    const experimentScoped = scannerExperimentScope(scanner) !== null
 
     return (
         <div className="space-y-6">
+            <ExperimentTargeting scannerId={scannerId} />
             <LemonField name="query">
                 {({ value, onChange }) => {
                     const query = value as RecordingsQuery | null
                     const universal = recordingsQueryToUniversalFilters(query)
                     const applyUniversal = (next: RecordingUniversalFilters): void => {
-                        const converted = convertUniversalFiltersToRecordingsQuery(next)
-                        // Overlay only the dimensions this editor renders so other query fields survive an edit.
-                        onChange({
-                            ...query,
-                            kind: converted.kind,
-                            events: converted.events,
-                            actions: converted.actions,
-                            properties: converted.properties,
-                            console_log_filters: converted.console_log_filters,
-                            having_predicates: converted.having_predicates,
-                            comment_text: converted.comment_text,
-                            filter_test_accounts: converted.filter_test_accounts,
-                            operand: converted.operand,
-                        })
+                        onChange(overlayEditorFilters(query, next))
                     }
                     const durationFilter = clampDurationFilter(universal.duration[0] ?? defaultRecordingDurationFilter)
                     const durationError = durationFilterError(durationFilter)
@@ -139,7 +236,8 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                 <div className="space-y-1">
                                     <LemonLabel>Recording filters</LemonLabel>
                                     <div className="text-xs text-muted">
-                                        Filter by event, action, person, session, or cohort.
+                                        Filter by event, action, person, session, or cohort, or start from a saved
+                                        filter.
                                     </div>
                                 </div>
                                 <TestAccountFilterSwitch
@@ -148,8 +246,10 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     onChange={(checked) =>
                                         applyUniversal({ ...universal, filter_test_accounts: checked })
                                     }
+                                    onConfigure={openTestAccountFilterSettings}
                                 />
                             </div>
+                            <ExperimentScopeFilter scannerId={scannerId} />
                             {/* -ml-2 cancels AndOrFilterSelect's built-in prefix indent so "Match" left-aligns with the rest. */}
                             <div className="-ml-2">
                                 <AndOrFilterSelect
@@ -180,6 +280,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     </span>
                                 </LemonBanner>
                             ) : (
+                                !experimentScoped &&
                                 groupHasNoFilters(universal.filter_group) && (
                                     <LemonBanner type="warning">
                                         <span className="text-xs">
@@ -225,7 +326,6 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                             }
                                         >
                                             <RecordingsUniversalFilterAddFilterPopover
-                                                categoryDropdownVariant={categoryDropdownVariant}
                                                 taxonomicGroupTypes={scannerFilterTypes}
                                             />
                                         </UniversalFilters>
@@ -271,73 +371,6 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                     )
                 }}
             </LemonField>
-
-            <LemonField name="sampling_rate">
-                {({ value, onChange }) => {
-                    const ratio = typeof value === 'number' ? value : 0
-                    const samplingPercent = Math.round(ratio * 1000) / 10
-                    return (
-                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
-                            <div className="space-y-1">
-                                <LemonLabel>Sampling</LemonLabel>
-                                <div className="text-xs text-muted">
-                                    Each observation counts against your monthly Vision quota.
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <div className="flex-1">
-                                    <LemonSlider
-                                        value={samplingPercent}
-                                        onChange={(v) => onChange(v / 100)}
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                    />
-                                </div>
-                                <div className="w-24">
-                                    <LemonInput
-                                        type="number"
-                                        value={samplingPercent}
-                                        onChange={(v) => onChange(Math.min(100, Number(v) || 0) / 100)}
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                        suffix={<span>%</span>}
-                                        status={samplingPercent < 0.1 ? 'danger' : undefined}
-                                    />
-                                </div>
-                            </div>
-                        </LemonCard>
-                    )
-                }}
-            </LemonField>
-
-            <LemonField name="sampling_mode">
-                {({ value, onChange }) => {
-                    const mode = (value ?? 'comprehensive') as SamplingMode
-                    const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
-                    return (
-                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
-                            <div className="space-y-1">
-                                <LemonLabel info="Filters which matching recordings this scanner watches, based on how much activity a recording has (interactions, errors, navigation). Narrower options skip low-activity recordings so your budget goes to recordings worth watching.">
-                                    Session coverage
-                                </LemonLabel>
-                            </div>
-                            <div className="space-y-1 @container">
-                                <LemonSegmentedButton
-                                    className="ScannerSessionCoverage"
-                                    value={mode}
-                                    onChange={onChange}
-                                    options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                                />
-                                <div className="text-xs text-muted">{option?.description}</div>
-                            </div>
-                        </LemonCard>
-                    )
-                }}
-            </LemonField>
-
-            <ScannerQuotaForecast scannerId={scannerId} />
         </div>
     )
 }

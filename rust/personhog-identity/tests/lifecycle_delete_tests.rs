@@ -3,15 +3,21 @@
 
 mod common;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::Utc;
-use common::TestContext;
-use tonic::Request;
+use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
+use common::{RecordingSink, TestContext};
+use personhog_common::partitioning::partition_for_person;
+use tonic::{Request, Status};
 use uuid::Uuid;
 
-use personhog_identity::lifecycle::delete::SEAL_VERSION_MARGIN;
+use personhog_identity::config::OutboxWrites;
+use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
+use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::publish::messages::DistinctIdRow;
 use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePersonsRequest};
@@ -19,7 +25,20 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
-        PersonHogLifecycleService::new(Arc::new(self.engine()))
+        self.lifecycle_service_with(OutboxWrites::Disabled)
+    }
+
+    fn lifecycle_service_with(&self, outbox_writes: OutboxWrites) -> PersonHogLifecycleService {
+        let engine = Arc::new(self.engine());
+        let leader = Arc::new(SimLeader::new(self.pool.clone(), self.tables.clone()));
+        PersonHogLifecycleService::new(
+            engine,
+            leader.clone(),
+            self.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+            common::changelog(),
+            outbox_writes,
+        )
     }
 
     /// (is_deleted, version, properties) of a person row.
@@ -155,7 +174,8 @@ fn outcomes(
 #[tokio::test]
 async fn delete_destroys_the_person_and_its_satellite_rows() {
     let ctx = TestContext::new().await;
-    let service = ctx.lifecycle_service();
+    let _drain_lock = ctx.hold_drain_lock().await;
+    let service = ctx.lifecycle_service_with(OutboxWrites::Enabled);
 
     let person_id = ctx.insert_person_with_distinct_id("victim-primary").await;
     sqlx::query(
@@ -187,11 +207,13 @@ async fn delete_destroys_the_person_and_its_satellite_rows() {
         vec![(person_id, DeletePersonOutcome::Deleted)]
     );
 
-    // The person: tombstoned at sealed + 1 (version 0 at seal time), scrubbed.
+    // The person: tombstoned at sealed + 1 (the fence sealed version 0),
+    // scrubbed, and the response reports the committed version.
     let (is_deleted, version, properties) = ctx.person_state(person_id).await;
     assert!(is_deleted);
-    assert_eq!(version, SEAL_VERSION_MARGIN + 1);
+    assert_eq!(version, 1);
     assert_eq!(properties, "{}");
+    assert_eq!(response.results[0].person_version, Some(version));
 
     // The mappings: tombstoned one version above their previous one.
     assert_eq!(ctx.pdi_state("victim-primary").await, (true, 1));
@@ -221,6 +243,33 @@ async fn delete_destroys_the_person_and_its_satellite_rows() {
         .collect();
     assert_eq!(moved_ids.len(), 2);
     assert!(moved_ids.contains(&"victim-primary") && moved_ids.contains(&"victim-extra"));
+
+    // One publish pass resolves the op's pointer to the tombstones at their
+    // tombstoned versions, flagged deleted and still owned by the victim's
+    // uuid, never as live rows.
+    let sink = RecordingSink::default();
+    ctx.publisher(sink.clone(), 100)
+        .drain_once()
+        .await
+        .expect("publish pass");
+    let victim_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(person_id)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    let mut published = sink.rows_for_team(ctx.team_id);
+    published.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
+    assert_eq!(
+        published,
+        [("victim-extra", 2), ("victim-primary", 1)].map(|(did, version)| DistinctIdRow {
+            person_id: victim_uuid,
+            team_id: ctx.team_id,
+            distinct_id: did.to_string(),
+            version,
+            is_deleted: 1,
+        })
+    );
+    assert!(ctx.outbox_rows().await.is_empty(), "the pointer is deleted");
 
     ctx.cleanup().await.expect("cleanup");
 }
@@ -297,7 +346,7 @@ async fn a_person_marked_by_another_live_op_is_skipped() {
     .await
     .expect("insert other op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked', true)",
     )
     .bind(other_op)
     .bind(ctx.team_id as i32)
@@ -366,8 +415,8 @@ async fn a_victim_destroyed_between_liveness_check_and_mark_settles_as_not_found
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked', true)",
     )
     .bind(op_id)
     .bind(ctx.team_id as i32)
@@ -527,5 +576,765 @@ async fn a_recreated_distinct_id_revives_above_the_death_version() {
     assert!(!is_deleted);
     assert_eq!(version, death_version + 1);
 
+    ctx.cleanup().await.expect("cleanup");
+}
+
+/// Fenced-mode walkthrough harness: the delete driver wired to a
+/// [`SimLeader`], driven through the engine directly so tests can stop at
+/// step boundaries and probe the leader's state in between.
+struct FencedHarness {
+    ctx: TestContext,
+    engine: Engine,
+    leader: Arc<SimLeader>,
+    driver: DeleteDriver,
+}
+
+impl FencedHarness {
+    async fn new() -> Self {
+        let ctx = TestContext::new().await;
+        let engine = ctx.engine();
+        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.clone()));
+        let driver = DeleteDriver::new(
+            leader.clone(),
+            ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+            common::changelog(),
+            OutboxWrites::Disabled,
+        );
+        Self {
+            ctx,
+            engine,
+            leader,
+            driver,
+        }
+    }
+
+    fn request(person_ids: &[i64]) -> serde_json::Value {
+        serde_json::json!({ "person_ids": person_ids })
+    }
+
+    async fn execute(&self, op_id: Uuid, person_ids: &[i64]) -> Result<OpRow, SagaError> {
+        self.engine
+            .execute(
+                &self.driver,
+                op_id,
+                self.ctx.team_id,
+                &Self::request(person_ids),
+            )
+            .await
+    }
+
+    async fn step(&self, op_id: Uuid) -> Result<OpRow, SagaError> {
+        self.engine
+            .step_once(&self.driver, op_id, self.ctx.team_id)
+            .await
+    }
+
+    fn outcome(row: &OpRow) -> DeleteOutcome {
+        serde_json::from_value(row.outcome.clone().expect("terminal outcome"))
+            .expect("outcome parses")
+    }
+}
+
+#[tokio::test]
+async fn fenced_delete_seals_the_exact_version_and_produces_the_death_document() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-victim-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    let op_id = Uuid::now_v7();
+    let row = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect("fenced delete completes");
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(outcome.results[0].outcome, "deleted");
+
+    // The fence sealed the stub's exact version (0), so the tombstone and
+    // the death document land at 1 — no margin.
+    let (is_deleted, version, _) = h.ctx.person_state(person_id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 1, "fenced seal must not add the pre-fence margin");
+    assert_eq!(outcome.results[0].person_version, Some(1));
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].person_id, person_id);
+    assert_eq!(docs[0].version, 1);
+
+    // The fence is gone, and it was installed before the release ran.
+    assert!(h.leader.fence_for(person_id).is_none());
+    let calls = h.leader.calls();
+    let fence_at = calls
+        .iter()
+        .position(|c| matches!(c, LeaderCall::Fence { .. }))
+        .expect("a fence call");
+    let release_at = calls
+        .iter()
+        .position(|c| matches!(c, LeaderCall::ReleaseCommitted { .. }))
+        .expect("a committed release call");
+    assert!(fence_at < release_at);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// The person ids every batch call of one kind carried, in call order.
+fn batch_calls(calls: &[LeaderCall], fence: bool) -> Vec<Vec<i64>> {
+    calls
+        .iter()
+        .filter_map(|call| match call {
+            LeaderCall::FenceBatch { person_ids } if fence => Some(person_ids.clone()),
+            LeaderCall::ReleaseBatch { person_ids } if !fence => Some(person_ids.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Sealing fences and completion releases the victims one call per
+/// partition: a leader refuses a batch that mixes partitions, so the saga
+/// must group by the leaders' own hash before it calls.
+#[tokio::test]
+async fn a_fenced_delete_fences_and_releases_one_batch_per_partition() {
+    let h = FencedHarness::new().await;
+    // Enough victims that the hash spreads them over more than one
+    // partition; the bound only guards against a pathological sequence.
+    let mut person_ids = Vec::new();
+    let mut expected: BTreeMap<u32, Vec<i64>> = BTreeMap::new();
+    while person_ids.len() < 4 || expected.len() < 2 {
+        assert!(
+            person_ids.len() < 32,
+            "victims never spread over two partitions"
+        );
+        let distinct_id = format!("batched-victim-{}-{}", person_ids.len(), Uuid::now_v7());
+        let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+        person_ids.push(person_id);
+        expected
+            .entry(partition_for_person(
+                h.ctx.team_id,
+                person_id,
+                common::NUM_PARTITIONS,
+            ))
+            .or_default()
+            .push(person_id);
+    }
+
+    let row = h
+        .execute(Uuid::now_v7(), &person_ids)
+        .await
+        .expect("fenced delete completes");
+    let outcome = FencedHarness::outcome(&row);
+    assert!(outcome.results.iter().all(|r| r.outcome == "deleted"));
+    assert_eq!(h.leader.death_documents().len(), person_ids.len());
+
+    let calls = h.leader.calls();
+    for (label, fence) in [("fence", true), ("release", false)] {
+        let mut batched: BTreeMap<u32, Vec<i64>> = BTreeMap::new();
+        for mut batch in batch_calls(&calls, fence) {
+            batch.sort_unstable();
+            let partition = partition_for_person(h.ctx.team_id, batch[0], common::NUM_PARTITIONS);
+            assert!(
+                batched.insert(partition, batch).is_none(),
+                "one {label} call per partition"
+            );
+        }
+        assert_eq!(
+            batched, expected,
+            "each {label} call carries its partition's victims"
+        );
+    }
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A router or leader that predates the batch RPCs answers UNIMPLEMENTED;
+/// the saga must still complete, fencing and releasing one person at a
+/// time.
+#[tokio::test]
+async fn a_fleet_without_batch_rpcs_falls_back_to_single_calls() {
+    let h = FencedHarness::new().await;
+    h.leader.disable_batch_rpcs();
+    let mut person_ids = Vec::new();
+    for i in 0..2 {
+        let distinct_id = format!("single-call-{i}-{}", Uuid::now_v7());
+        person_ids.push(h.ctx.create_person_via_stub(&distinct_id).await);
+    }
+
+    let row = h
+        .execute(Uuid::now_v7(), &person_ids)
+        .await
+        .expect("delete completes without the batch RPCs");
+    let outcome = FencedHarness::outcome(&row);
+    assert!(outcome.results.iter().all(|r| r.outcome == "deleted"));
+    assert_eq!(h.leader.death_documents().len(), person_ids.len());
+
+    let calls = h.leader.calls();
+    assert!(!calls.iter().any(|c| matches!(
+        c,
+        LeaderCall::FenceBatch { .. } | LeaderCall::ReleaseBatch { .. }
+    )));
+    let fences = calls
+        .iter()
+        .filter(|c| matches!(c, LeaderCall::Fence { .. }))
+        .count();
+    assert_eq!(fences, person_ids.len());
+    let releases = calls
+        .iter()
+        .filter(|c| matches!(c, LeaderCall::ReleaseCommitted { .. }))
+        .count();
+    assert_eq!(releases, person_ids.len());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_fenced_victim_rejects_writes_until_the_op_completes() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-frozen-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[person_id]),
+        )
+        .await
+        .expect("create op");
+    let row = h.step(op_id).await.expect("started -> marked");
+    assert_eq!(row.step, "marked");
+    let row = h.step(op_id).await.expect("marked -> sealed");
+    assert_eq!(row.step, "sealed");
+
+    // Sealed means fenced: an ordinary write is rejected with the leader's
+    // typed fence metadata until the op finishes.
+    let rejection = h
+        .leader
+        .admit_write(h.ctx.team_id, person_id)
+        .await
+        .expect_err("a sealed victim must reject writes");
+    assert!(rejection.metadata().contains_key(FENCED_METADATA_KEY));
+
+    let row = h.step(op_id).await.expect("sealed -> unmapped");
+    assert_eq!(row.step, "unmapped");
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+
+    // The fence is released; the person now answers destroyed, not fenced.
+    assert!(h.leader.fence_for(person_id).is_none());
+    let destroyed = h
+        .leader
+        .admit_write(h.ctx.team_id, person_id)
+        .await
+        .expect_err("a destroyed person rejects writes");
+    assert_eq!(destroyed.code(), tonic::Code::NotFound);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_direct_postgres_write_between_seal_and_unmap_cannot_outrank_the_tombstone() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-raced-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[person_id]),
+        )
+        .await
+        .expect("create op");
+    h.step(op_id).await.expect("started -> marked");
+    let row = h.step(op_id).await.expect("marked -> sealed");
+    assert_eq!(row.step, "sealed");
+
+    // The fence stops leader writes only: a writer on the Postgres path
+    // moves the row three versions past the seal (0) before the unmap.
+    sqlx::query("UPDATE posthog_person SET version = version + 3 WHERE team_id = $1 AND id = $2")
+        .bind(h.ctx.team_id as i32)
+        .bind(person_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("direct write");
+
+    h.step(op_id).await.expect("sealed -> unmapped");
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+
+    // The tombstone clears the slipped write, not just the seal, and the
+    // death document and the outcome carry that same version.
+    let (is_deleted, version, _) = h.ctx.person_state(person_id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 4, "tombstone must outrank the direct write");
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].version, 4);
+    assert_eq!(
+        FencedHarness::outcome(&row).results[0].person_version,
+        Some(4)
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn each_victim_of_a_batch_carries_its_own_tombstone_version() {
+    let h = FencedHarness::new().await;
+    let raced_id = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-raced-{}", Uuid::now_v7()))
+        .await;
+    let quiet_id = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-quiet-{}", Uuid::now_v7()))
+        .await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[raced_id, quiet_id]),
+        )
+        .await
+        .expect("create op");
+    h.step(op_id).await.expect("started -> marked");
+    h.step(op_id).await.expect("marked -> sealed");
+
+    sqlx::query("UPDATE posthog_person SET version = version + 3 WHERE team_id = $1 AND id = $2")
+        .bind(h.ctx.team_id as i32)
+        .bind(raced_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("direct write");
+
+    h.step(op_id).await.expect("sealed -> unmapped");
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+
+    let (_, raced_version, _) = h.ctx.person_state(raced_id).await;
+    let (_, quiet_version, _) = h.ctx.person_state(quiet_id).await;
+    assert_eq!(raced_version, 4);
+    assert_eq!(quiet_version, 1);
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 2);
+    let death_version = |person_id: i64| {
+        docs.iter()
+            .find(|doc| doc.person_id == person_id)
+            .expect("a death document per victim")
+            .version
+    };
+    assert_eq!(death_version(raced_id), 4);
+    assert_eq!(death_version(quiet_id), 1);
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(outcome.results[0].person_version, Some(4));
+    assert_eq!(outcome.results[1].person_version, Some(1));
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_op_unmapped_by_a_pre_tombstone_version_build_completes_at_the_seal() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("pre-tombstone-upgrade-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[person_id]),
+        )
+        .await
+        .expect("create op");
+    h.step(op_id).await.expect("started -> marked");
+    h.step(op_id).await.expect("marked -> sealed");
+    let row = h.step(op_id).await.expect("sealed -> unmapped");
+    assert_eq!(row.step, "unmapped");
+
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET sealed = sealed - 'tombstone_version' WHERE op_id = $1",
+    )
+    .bind(op_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("strip like a pre-tombstone-version build");
+
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(outcome.results[0].outcome, "deleted");
+    assert_eq!(
+        outcome.results[0].person_version, None,
+        "an old unmap recorded no version to report"
+    );
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].version, 1, "the leader falls back to sealed + 1");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_transient_fence_failure_leaves_the_op_retryable() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-retry-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    h.leader
+        .fail_next(Rpc::Fence, person_id, Status::unavailable("leader down"));
+    let op_id = Uuid::now_v7();
+    let err = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect_err("the fence failure surfaces");
+    assert!(matches!(err, SagaError::Leader(_)));
+
+    let row = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect("retry completes");
+    assert_eq!(FencedHarness::outcome(&row).results[0].outcome, "deleted");
+    assert_eq!(h.leader.death_documents().len(), 1);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_transient_release_failure_leaves_the_op_retryable() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-release-retry-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    h.leader
+        .fail_next(Rpc::Release, person_id, Status::unavailable("leader down"));
+    let op_id = Uuid::now_v7();
+    let err = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect_err("the release failure surfaces");
+    assert!(matches!(err, SagaError::Leader(_)));
+
+    // The op parked on unmapped with its sync-plane work done; the retry
+    // re-releases and the duplicate-absorbing leader still produces exactly
+    // one death document.
+    let row = h
+        .execute(op_id, &[person_id])
+        .await
+        .expect("retry completes");
+    assert_eq!(FencedHarness::outcome(&row).results[0].outcome, "deleted");
+    assert_eq!(h.leader.death_documents().len(), 1);
+    assert!(h.leader.fence_for(person_id).is_none());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_op_sealed_by_a_pre_fence_build_completes_without_release_calls() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("pre-fence-upgrade-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    // Recreate the state a pre-fence build leaves behind at a deploy
+    // boundary: victims sealed with the margin folded into the version and
+    // no created_at in the sealed jsonb. The new build must finish the op
+    // without inventing release calls for victims it never fenced.
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[person_id]),
+        )
+        .await
+        .expect("create op");
+    let row = h.step(op_id).await.expect("started -> marked");
+    assert_eq!(row.step, "marked");
+    sqlx::query(
+        r#"
+        UPDATE lifecycle_op_person
+        SET status = 'sealed', sealed = jsonb_build_object('version', 100)
+        WHERE op_id = $1 AND person_id = $2
+        "#,
+    )
+    .bind(op_id)
+    .bind(person_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("seal like a pre-fence build");
+    sqlx::query("UPDATE lifecycle_op SET step = 'sealed' WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("advance like a pre-fence build");
+
+    let row = h.step(op_id).await.expect("sealed -> unmapped");
+    assert_eq!(row.step, "unmapped");
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+    assert_eq!(FencedHarness::outcome(&row).results[0].outcome, "deleted");
+    assert!(
+        h.leader.calls().is_empty(),
+        "a margin-sealed op must not reach the leader"
+    );
+    let (is_deleted, version, _) = h.ctx.person_state(person_id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 101, "the old margin stays folded into the version");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_victim_destroyed_before_its_fence_settles_as_not_found() {
+    let h = FencedHarness::new().await;
+    let keep = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-keep-{}", Uuid::now_v7()))
+        .await;
+    let gone = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-gone-{}", Uuid::now_v7()))
+        .await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[keep, gone]),
+        )
+        .await
+        .expect("create op");
+    let row = h.step(op_id).await.expect("started -> marked");
+    assert_eq!(row.step, "marked");
+    // Destroy one victim behind its mark — the anomaly the seal absorbs by
+    // settling it as not_found instead of failing the whole op.
+    sqlx::query("UPDATE posthog_person SET is_deleted = true WHERE team_id = $1 AND id = $2")
+        .bind(h.ctx.team_id as i32)
+        .bind(gone)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("tombstone the victim");
+
+    let row = h.execute(op_id, &[keep, gone]).await.expect("op completes");
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(
+        outcome
+            .results
+            .iter()
+            .map(|r| (r.person_id, r.outcome.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(keep, "deleted"), (gone, "not_found")]
+    );
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1, "only the live victim gets a death document");
+    assert_eq!(docs[0].person_id, keep);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn full_flow_works_on_a_configured_person_table() {
+    // Runs create, resolve, and the whole delete saga against
+    // personhog_person_tmp — a leftover hardcoded posthog_person in any of
+    // the interpolated queries would pass silently on the default table.
+    let ctx = TestContext::new_with_tables(common::tmp_tables()).await;
+    let service = ctx.lifecycle_service();
+    let distinct_id = format!("tmp-table-{}", Uuid::now_v7());
+
+    ctx.park_tmp_person_sequence().await;
+    let person_id = ctx.create_person_via_stub(&distinct_id).await;
+
+    let key = (ctx.team_id, distinct_id.clone());
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(std::slice::from_ref(&key))
+        .await
+        .expect("resolve succeeds");
+    assert_eq!(resolved.get(&key).map(|p| p.id), Some(person_id));
+    let resolved_ids = ctx
+        .storage
+        .resolve_person_ids(std::slice::from_ref(&key))
+        .await
+        .expect("ids-only resolve succeeds");
+    assert_eq!(resolved_ids.get(&key), Some(&person_id));
+
+    // Distinct id expansion must read the configured mapping table too.
+    let mappings = ctx
+        .storage
+        .get_distinct_ids_for_persons(ctx.team_id, &[person_id], None)
+        .await
+        .expect("distinct id expansion succeeds");
+    assert_eq!(
+        mappings
+            .iter()
+            .map(|m| m.distinct_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![distinct_id.as_str()]
+    );
+
+    // A cohort row whose person_id collides numerically belongs to the real
+    // namespace; a delete on the validation set must not touch it.
+    sqlx::query("INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES (1, $1)")
+        .bind(person_id)
+        .execute(&ctx.pool)
+        .await
+        .expect("insert colliding cohort row");
+
+    // The same collision for the other two interpolated tables: a real
+    // person sharing the numeric id, its mapping row, and an override on
+    // each mirror. The saga must tombstone/clear only the tmp rows.
+    let real_distinct_id = format!("real-{distinct_id}");
+    ctx.seed_real_namespace_collision(person_id, &real_distinct_id)
+        .await;
+    sqlx::query(
+        r#"
+        INSERT INTO personhog_featureflaghashkeyoverride_tmp
+            (feature_flag_key, hash_key, person_id, team_id)
+        VALUES ('flag', 'tmp-hash', $1, $2)
+        "#,
+    )
+    .bind(person_id)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert tmp override");
+
+    let response = service
+        .delete_persons(Request::new(delete_request(
+            ctx.team_id,
+            vec![person_id],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("delete succeeds")
+        .into_inner();
+    assert_eq!(
+        outcomes(&response),
+        vec![(person_id, DeletePersonOutcome::Deleted)]
+    );
+
+    let (is_deleted, version): (bool, i64) = sqlx::query_as(
+        "SELECT is_deleted, version FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("tombstone row exists");
+    assert!(is_deleted);
+    // The fence sealed the stub's exact version (0), so the tombstone
+    // lands at 1 — no margin.
+    assert_eq!(version, 1);
+
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(std::slice::from_ref(&key))
+        .await
+        .expect("resolve after delete succeeds");
+    assert!(resolved.is_empty(), "tombstoned person must not resolve");
+    let resolved_ids = ctx
+        .storage
+        .resolve_person_ids(std::slice::from_ref(&key))
+        .await
+        .expect("ids-only resolve after delete succeeds");
+    assert!(
+        resolved_ids.is_empty(),
+        "a tombstoned mapping must not resolve"
+    );
+
+    // The tmp mapping row tombstoned; the colliding real one untouched.
+    let tmp_mapping_deleted: bool = sqlx::query_scalar(
+        "SELECT is_deleted FROM personhog_persondistinctid_tmp WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(&distinct_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("tmp mapping row exists");
+    assert!(
+        tmp_mapping_deleted,
+        "the configured mapping table must be tombstoned"
+    );
+    let real_mapping_deleted: bool = sqlx::query_scalar(
+        "SELECT is_deleted FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(&real_distinct_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("real mapping row exists");
+    assert!(
+        !real_mapping_deleted,
+        "a validation-set delete must not tombstone real-namespace mapping rows"
+    );
+
+    // The tmp override cleared; the real-namespace one survives.
+    let tmp_overrides: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM personhog_featureflaghashkeyoverride_tmp WHERE team_id = $1 AND person_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("count tmp overrides");
+    assert_eq!(
+        tmp_overrides, 0,
+        "the configured override table must be cleared"
+    );
+    let real_overrides: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("count real overrides");
+    assert_eq!(
+        real_overrides, 1,
+        "a validation-set delete must not clear real-namespace overrides"
+    );
+
+    // The colliding real person row is untouched.
+    let real_person_deleted: bool =
+        sqlx::query_scalar("SELECT is_deleted FROM posthog_person WHERE team_id = $1 AND id = $2")
+            .bind(ctx.team_id as i32)
+            .bind(person_id)
+            .fetch_one(&ctx.pool)
+            .await
+            .expect("real person row exists");
+    assert!(
+        !real_person_deleted,
+        "a validation-set delete must not tombstone real-namespace persons"
+    );
+
+    let colliding_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_cohortpeople WHERE person_id = $1")
+            .bind(person_id)
+            .fetch_one(&ctx.pool)
+            .await
+            .expect("count cohort rows");
+    assert_eq!(
+        colliding_rows, 1,
+        "a validation-set delete must not clear real-namespace cohort rows"
+    );
+    sqlx::query("DELETE FROM posthog_cohortpeople WHERE person_id = $1")
+        .bind(person_id)
+        .execute(&ctx.pool)
+        .await
+        .expect("remove colliding cohort row");
+
+    ctx.cleanup_real_namespace()
+        .await
+        .expect("cleanup real namespace");
     ctx.cleanup().await.expect("cleanup");
 }

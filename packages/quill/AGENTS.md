@@ -80,17 +80,15 @@ className={cn(baseClasses, conditional && 'extra-class', className)}
 Every component root sets `data-slot="component-name"`.
 This enables parent-based styling via `has-data-[slot=...]` and `*:data-[slot=...]`.
 
-### 5. `forwardRef` for render prop targets
+### 5. `forwardRef` on every element-rendering primitive
 
-Any component used as a `render={<Component />}` target in Base UI **must** use `React.forwardRef`.
-React 18 does not forward refs to function components — Base UI's render prop passes refs.
+Every primitive that renders a DOM element **must** use `React.forwardRef` and pass the ref to that element.
+React 18 drops a ref passed to a plain function component, and Base UI's `render` prop and trigger anchoring depend on that ref.
+Exceptions: components that render no element of their own (`Root`, `Portal`, `Sub`, `Provider`), and the `Resizable*` panels, which take the library's own `elementRef` prop.
 
-Components that need `forwardRef`:
-
-- `Button`, `Input`, `Chip`, `ChipClose`
-- `InputGroup`, `InputGroupInput`, `InputGroupButton`
-- `ComboboxTrigger`
-- Any component passed to Base UI's `render` prop
+When forwardRef wraps a props type from a private module of a dependency, annotate the const with `React.ForwardRefExoticComponent<...>` (see `QuestionnaireChoice`).
+Otherwise the emitted `.d.ts` imports that module by path, consumers cannot resolve it, and the props become `any`.
+The primitives build fails on such a path.
 
 ### 6. Composition hierarchy
 
@@ -129,7 +127,7 @@ ButtonGroup
 4. Define variants with CVA if the component has visual variants
 5. Accept `className` prop and merge with `cn()`
 6. Export from the component file (barrel export is in `index.ts`)
-7. Update the consumer guide in the same PR — `packages/primitives/AGENTS.md` (catalog row, "Choosing a component" cluster, composition pattern). Same rule applies to `packages/components/AGENTS.md` and `packages/charts/AGENTS.md` for their packages. A lint-staged warning fires if quill sources change without an AGENTS.md update
+7. Update the consumer guide in the same PR — `packages/primitives/AGENTS.md` (catalog row, "Choosing a component" cluster, composition pattern). Same rule applies to `packages/components/AGENTS.md`; charts keeps its `AGENTS.md` as a map and takes the update in a topic doc under `packages/charts/src/docs/`. A lint-staged warning fires if quill sources change without an update to the package's `AGENTS.md` or a topic doc under its `src/docs/`
 
 ### Styling rules
 

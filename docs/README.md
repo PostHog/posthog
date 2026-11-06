@@ -1,6 +1,6 @@
 # PostHog Documentation
 
-Developer-focused documentation alongside code. Update docs in the same PR as your code changes.
+Developer-focused documentation alongside code. Update existing docs in the same PR as your code changes. Add a new doc only when a person asks for it.
 
 ## Structure
 

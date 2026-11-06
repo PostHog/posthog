@@ -57,6 +57,7 @@ The MCP `execute-sql` tool goes through the same path (`posthog/api/query.py` ru
 **Fail closed:** if you forget to pass the user, all access-controlled system tables are removed (`_compute_system_table_access_decision` in `posthog/hogql/database/database.py` returns every scoped table as denied for `user=None`), and all warehouse tables/views are denied (`_is_warehouse_table_denied` / `_is_warehouse_view_denied` fail closed when `user_access_control is None`).
 This is deliberate: if someone forgets to pass the user, the query fails outright and makes the mistake obvious, instead of silently falling back to a permissive "default access" that would leak data.
 In practice the user is available anywhere system tables are queried; for user-initiated background work, see [contexts without a request user](#contexts-without-a-request-user).
+`Database.create_for_posthog_tables`, the cheaper build for Python-built queries over built-in tables, has no user at all and removes every scoped and entitlement-gated system table up front without the access-control lookups, so it fails closed the same way.
 
 ## 1. System tables
 
@@ -68,6 +69,10 @@ They're primarily used by the MCP `execute-sql` tool for retrieval.
 Each access-controlled system table declares an `access_scope` (e.g. `system.dashboards` → `"dashboard"`, `system.error_tracking_issues` → `"error_tracking"`).
 
 At schema build time, `_compute_system_table_access_decision()` checks `UserAccessControl.access_level_for_resource(access_scope)` for each scoped table and removes denied ones from the schema (`Database._apply_system_table_access()`).
+
+`system.data_deletion_requests` uses the dedicated `data_deletion` resource.
+The resource defaults to no access for project members, while organization admins retain their standard highest access.
+Admins can delegate resource-level access, but the table does not support per-request access rules.
 
 Removed tables are tracked in `Database._denied_tables`, so referencing one raises a clear error instead of pretending the table doesn't exist — that way the user knows the table is there and can request access from an admin if they need it:
 
@@ -84,6 +89,10 @@ For these, denied objects are filtered out of the results.
 
 At print time the printer appends a guard that excludes the user's denied object IDs by primary key — effectively `WHERE <id> NOT IN (<denied ids>)`.
 Child tables filter on the parent's FK — e.g. `system.dashboard_tiles` uses `access_control_id_field="dashboard_id"`.
+A table whose rows can also be denied by a rule on another object overrides `PostgresTable.blocked_object_ids`.
+`system.data_warehouse_tables` does this: it resolves each table through its source, as described in [how a table's access level resolves](#how-a-tables-access-level-resolves), so denying a source also hides its tables there.
+A child table drops the creator exemption by default, because its rows carry no creator of the parent.
+A child table that must keep it overrides `PostgresTable.creator_owned_object_ids`: `system.data_modeling_jobs` returns the views the reader created, so the creator of a denied view still sees its jobs.
 
 When rows are filtered, the response carries a warning: "Results may exclude {resources} you don't have access to".
 
@@ -97,7 +106,7 @@ Gated by the `hogql-warehouse-access-control` feature flag (checked in `Database
 
 ### Resource-level: the `warehouse_objects` umbrella
 
-`warehouse_table` and `warehouse_view` both inherit from the umbrella resource `warehouse_objects` (`RESOURCE_INHERITANCE_MAP` in `posthog/rbac/user_access_control.py`).
+`warehouse_table` and `warehouse_view` both inherit from the umbrella resource `warehouse_objects` (`RESOURCE_INHERITANCE_MAP` in `products/access_control/backend/facade/user_access_control.py`).
 Denying `warehouse_objects` for a user filters every warehouse table and view out of their schema at build time.
 
 ### Object-level: per-source, per-table, and per-view
@@ -112,7 +121,7 @@ The deny checks are `_is_warehouse_table_denied` and `_is_warehouse_view_denied`
 ### How a table's access level resolves
 
 A table can be part of a source, so rules can exist at both levels.
-`RESOURCE_FALLBACK_MAP` (`posthog/rbac/user_access_control.py`) resolves this by applying the most specific rule that exists:
+`RESOURCE_FALLBACK_MAP` (`products/access_control/backend/facade/user_access_control.py`) resolves this by applying the most specific rule that exists:
 
 1. This table
 2. Its source
@@ -149,12 +158,14 @@ Without a user, warehouse access control denies every warehouse table and view, 
    Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
    Warming without access control would more often end in a cache miss.
 
-3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Used by materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`). **Be very skeptical before adding a new bypass** — only do it when the job genuinely has no acting user and the output isn't served to a specific user with narrower access.
+3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, ducklake compilation (`posthog/ducklake/client.py`), and the web analytics team digest and team achievements sweep (`products/web_analytics/backend/weekly_digest.py`, `products/web_analytics/backend/achievements/evaluators.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
 
 ```python
-# Background materialization job — no user exists, bypass explicitly
+# Background materialization job: no user exists, so bypass explicitly.
 execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 ```
+
+Data Modeling materialized views are project-owned. Refreshes do not run as `created_by` and do not inherit account, ticket, or object-level access. Data Modeling passes `allowed_system_tables` to declassify approved system tables into warehouse data. The allowlist accepts exact table names and denies every other system table. Warehouse-view permissions protect the materialized result. Billing entitlements still apply, and only userless database builds can use the allowlist.
 
 4. **Public dashboards / notebooks / shared insights:** the viewer is anonymous, so queries run as `SharedLinkUser` (`posthog/shared_link_user.py`, built in `SharingViewerPageViewSet`).
    `Database.create_for` doesn't restrict any warehouse tables or views for a shared-link viewer; the access gate is at publish time instead.
@@ -166,10 +177,11 @@ execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 
 ## 3. Property access control
 
-Hides sensitive event and person properties (e.g. `email`) from query results.
+Hides sensitive event, person, and group properties (e.g. `email`) from query results.
 Rules live in the `PropertyAccessControl` model (`products/access_control/backend/models/property_access_control.py`).
 
 Property access control is a paid feature, available on the Scale and Enterprise plans: it needs the `PROPERTY_ACCESS_CONTROL` entitlement, and without it resolution short-circuits to no restrictions.
+Rules that target a role also need the `ROLE_BASED_ACCESS` entitlement. Without it the resolver loads no roles for the user, so role rules are skipped.
 
 ### Enforcement: masking, not errors
 
@@ -177,41 +189,120 @@ Unlike levels 1 and 2, restricted properties do not error.
 They're masked when the query is printed to ClickHouse SQL, so a restricted read is indistinguishable from a property that was never set (anti-enumeration):
 
 - **Explicit reads** (`properties.email`) are replaced with `NULL`, and the resolver refuses to back them with a materialized column — `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
-- **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeys(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
+- **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeysPool(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
+- **Unrestricted key reads** (`properties.$browser`, `JSONExtractString(properties, '$browser')`) read the stored String blob without `JSONDropKeysPool`, because dropping keys cannot change their value. A read keeps the mask when its key overlaps a restricted key by dot segment (`customer` against a restricted `customer.ssn`), or when the key is an integer position — `key_read_overlaps_restriction()` in `posthog/hogql/restricted_properties.py`.
+- **Narrowed exports.** A subquery whose `properties` column is only read by key exports a map of those keys instead of the blob — `posthog/hogql/transforms/exported_properties.py`. On the legacy table each map value extracts its key from the masked blob. On native event JSON the resolver declines a key that overlaps a restriction, so the subquery exports the masked document — `stored_key_json_text()` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+
+Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
+
+Native event JSON keeps parsing diagnostics in `$unparseable_properties`, which can embed raw property values as a string. If an event or person property is restricted, the shared restriction resolver also restricts that class's diagnostic marker. Blob reads omit it, and direct or JSON-extraction reads cannot retrieve it. Unrestricted readers retain diagnostic access.
+
+Native event JSON stores a flat dotted key such as `customer.ssn` under the path `customer%2Essn`, and a read of `customer%2Essn` returns the same value. Restricting a dotted event or person property therefore also restricts its `%2E` spelling.
+
+Native reads of a parent containing restricted children use the masked JSON document instead of a raw subcolumn. This also covers multi-key `JSONHas` calls with computed keys. Unrestricted siblings remain readable.
+A JSON function whose first key is computed per row reads the masked `properties` document, and the masked `temporary_properties` document on rows where the key names a moved property, so a restricted property stays unreadable through a computed key.
+
+Person property restrictions also apply inside event `$set` and `$set_once` containers, including native `%2E` key spellings. Restricted values read as `NULL` and are removed from blob reads; unrestricted siblings stay readable.
 
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
+
+### Coverage is per table, not per column name
+
+Both enforcement points ask `restricted_property_keys_for_table_type()` in `posthog/hogql/restricted_properties.py` which keys to mask, and it answers by matching the table's type.
+A table whose type it does not recognize gets an empty set, which reads as "nothing is restricted here" rather than as an error.
+
+Naming a column `properties` does not opt a table in.
+The printer checks the column name against `RESTRICTABLE_JSON_BLOB_COLUMNS` before it consults the dispatch, so a new table can pass that check on the name alone and still return its blob unmasked.
+A table that exposes person, event, or group properties has to be added to the dispatch when it is added to the catalog.
+
+`posthog/hogql/test/test_restricted_properties.py` enforces this.
+It restricts one distinctly named key per property class, walks the catalog, and asserts the exact keys the dispatch masks in every blob column it reaches, with the exempt blobs mapped to no keys at all.
+The expected mapping is written out in the test rather than derived from `RESTRICTABLE_JSON_BLOB_COLUMNS`, so it holds the invariant in both directions: a table added to the catalog without a branch arrives masking nothing, and a column dropped from that set leaves its blob out of the walk entirely.
+Because each class restricts its own key, a table dispatched as the wrong class, or a group blob dispatched to the wrong group index, comes back carrying another class's key instead of passing on a non-empty result.
+
+The exemptions are name collisions: `accounts.properties` and `pg_embeddings.properties` do not contain event, person, or group properties.
+`ai_events.properties` uses the same event-property rules as `events.properties`.
+The hidden `events_with_flag_calls` table, which the flag-call union reads in place of `events`, uses them too.
+Covering a table means moving it out of the exemptions and into the expected mapping, so neither list can keep a stale entry.
+
+### Typed columns that mirror a property
+
+Masking rewrites `properties.<key>` reads and strips keys from a JSON blob. It does not reach a physical column that holds a copy of the same value.
+Several catalog tables expose such columns because reading them scans far less data than digging the value out of the blob: `events` exposes `$session_id`, `$window_id`, and `$group_0`..`$group_4`; `flag_evaluations` exposes `flag_key`, `response`, `session_id`, `request_id`, and `$group_0`..`$group_4`.
+The web analytics dimensional tables `web_stats_dimensional_preaggregated` and `web_bounces_dimensional_preaggregated` copy event properties into dimension columns, such as `pathname` from `$pathname` and `country_code` from `$geoip_country_code`, and copy session properties that the sessions table builds from event properties, such as `utm_source` from `utm_source` and `entry_pathname` from `$current_url`.
+
+`events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
+`flag_evaluations`, `ai_events`, and web analytics dimensional mirror columns are masked through `mirrored_properties_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask. The hidden `goe_N.key` on `flag_evaluations` reads the stored `$group_N` column through an expression field, and it masks too.
+For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
+One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
+The hidden length fields `input_state_length` and `output_state_length` follow the rule of their state property, so a masked state also hides whether it exists.
+The same rule applies when a filter or an aggregate reads the column.
+A mirror of a dotted property masks when the property or any parent segment is restricted, so restricting `metadata` masks `mat_metadata_backend`, the mirror of `metadata.backend`.
+Nested keys in an allowed AI payload are not separate event properties: a restriction on the event property `content` does not restrict `input.content`.
+A dimensional session-level column follows the rule of the event property the sessions table reads, so restricting `utm_source` masks `utm_source` there. `entry_pathname` and `end_pathname` also follow `$pathname`, which the SDK derives from the same URL. The `sessions` table itself does not mask these columns, because HogQL does not enforce session property restrictions on any table.
+That resolver rewrites a restricted mirror column to the same `Constant(value=None, type=StringType(nullable=True))` the source property lowers to, before the AST reaches the printer — so the mirror column and its source property are one AST node by the time comparisons and nullability are decided, not two independently masked spellings that could drift apart.
+Covering `events`' remaining mirror columns, or a future catalog table's, means adding it to `_FLAG_EVALUATIONS_MIRRORED_COLUMNS`'s sibling mapping (or a new one `mirrored_properties_for_column` dispatches to) rather than a print-time patch.
 
 ### No user: default rules apply
 
 When no user is present, only the team **default** rules apply instead of failing every query — see `get_restricted_properties_for_team()`.
 There is the asymmetry with the warehouse access control, which bypasses entirely for shared links rather than applying a default; that may be aligned later.
 
+### AI previews and summaries
+
+Interactive AI reads retain the requesting user's property permissions. Online trace and session evaluations read full events
+as project workflows, using an explicit property-access bypass and separate query cache keys. Generation evaluations keep
+using the original Kafka event payload. Report result queries also run as project workflows.
+
+Evaluation editors are trusted to configure project workflows with full inputs, even when their own property rules hide
+some of those inputs. Evaluation RBAC controls authoring and access to stored reports; it is separate from AI Observability
+RBAC. Source-property restrictions do not propagate to generated outputs. Configure separate property rules for evaluation
+reasoning, report event content, and any sensitive outcomes. Event queries apply those rules to the generated properties,
+while background report result queries explicitly bypass them. Stored report narratives and report delivery do not inherit
+event-property rules, so configure report access, recipients, and channels for the intended audience. Inbox report summaries
+are suppressed when the project has an event-property denial or a denial of access to the evaluation, including member and role rules.
+See [evaluation access configuration](../../docs/internal/ai-observability-judge-inputs.md#run-history-and-reports).
+
+Summary caches use the caller's current property restrictions, including cached titles and summaries read by PostHog AI.
+When the caller has event-property restrictions, summaries generated from client-supplied data refetch the source with the caller's permissions.
+For client-supplied events, omitted lookup dates use a window from one day before to one day after the event's `timestamp`.
+Explicit `date_from` and `date_to` values take precedence; events without a valid timestamp keep the default lookup dates.
+A refetch that finds no matching event or trace returns 404 without generating a summary from the supplied data.
+
 ## Query cache partitioning
+
+`products.access_control.backend.facade.property_access` defines the shared restriction ordering and fingerprint.
+Query, experiment-session, and summary caches use that ordering while preserving their existing serialized keys.
 
 **The critical invariant:** if a query reads access-controlled tables, its cache key must include the user's restrictions.
 Otherwise a denied user gets served an allowed user's cached rows.
 
 The cache key is derived from `get_cache_payload()`:
 
-- `QueryRunner.get_cache_payload()` adds `restricted_properties` (sorted `(name, type)` pairs) when the user has property restrictions.
+- `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, and a property-enforcement version when the user has property restrictions.
+  Bump that version when tightening enforcement so a cached result cannot bypass the new masking rules.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
 
 Two things keep cache hit rates high:
 
 1. **Feature gate:** if the organization doesn't have `AvailableFeature.ACCESS_CONTROL`, no resource/object restrictions exist, so nothing is added and the cache isn't partitioned by user at all.
-2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads, so warehouse scopes are added to the payload only when the query references warehouse tables or views — a plain **events or persons query shares one cache entry across all users**
+2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads. Tables whose visibility depends on another scoped table add that dependency too. For example, `system.customer_tasks` adds `account` because its row predicate reads `system.accounts`. A plain **events or persons query shares one cache entry across all users**.
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
 
+Hidden backing tables also contribute their parent scopes through `_TRANSITIVE_SYSTEM_TABLE_SCOPES`, even when they have no `access_scope` of their own.
+Their parent predicates enforce row permissions, including creator exemptions; see [HogQL system table cache permissions](../../docs/internal/hogql-system-table-cache.md) before adding a separate junction-table guard.
+
 ## One preloaded `UserAccessControl` everywhere
 
-`UserAccessControl` (`posthog/rbac/user_access_control.py`) bulk-fetches every access control row relevant to the user on the team in a single query (`_cached_access_controls`, covering team defaults, the user's membership, and the user's roles), then resolves all checks in memory (`access_level_for_resource`, `check_access_level_for_object`, `blocked_resource_ids_by_scope`, ...).
+`UserAccessControl` (`products/access_control/backend/facade/user_access_control.py`) bulk-fetches every access control row relevant to the user on the team in a single query (`_cached_access_controls`, covering team defaults, the user's membership, and the user's roles), then resolves all checks in memory (`access_level_for_resource`, `check_access_level_for_object`, `blocked_resource_ids_by_scope`, ...).
 
 The same instance is reused across:
 
 - **Schema filtering:** passed into `Database.create_for()`, warmed by `_compute_system_table_access_decision()`, stored as `database.user_access_control`.
 - **Cache fingerprint:** `QueryRunnerWithHogQLContext.user_access_control` returns `self.database.user_access_control`, so the fingerprint and the schema strip resolve access from the same preloaded rows.
 - **Print-time row guards:** `build_access_control_guard()` reads `blocked_resource_ids_by_scope` off the same instance.
-- **API-level (viewset) access control:** `TeamAndOrgViewSetMixin.user_access_control` (`posthog/api/routing.py`) creates one instance per request, and dashboard rendering passes it down into each tile's query runner (`products/product_analytics/backend/api/insight.py`), so N insights share one access-control fetch.
+- **API-level (viewset) access control:** `TeamAndOrgViewSetMixin.user_access_control` (`posthog/api/routing.py`) creates one instance per request, and dashboard rendering passes it down into each tile's query runner (`products/product_analytics/backend/presentation/insight.py`), so N insights share one access-control fetch.
 
 When both access-control types are active, a query run makes just one query to `AccessControl` and one to `PropertyAccessControl`.

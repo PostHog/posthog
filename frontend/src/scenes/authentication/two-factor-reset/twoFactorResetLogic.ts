@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { urls } from 'scenes/urls'
 
 export interface ValidatedTokenResponse {
@@ -142,6 +142,7 @@ export const twoFactorResetLogic = kea<twoFactorResetLogicType>([
             {
                 validateResetToken: async ({ uuid, token }: { uuid: string; token: string }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.get<ValidatedTokenResponse>(`api/reset_2fa/${uuid}/?token=${token}`)
                         return response
                     } catch (e: any) {
@@ -162,6 +163,7 @@ export const twoFactorResetLogic = kea<twoFactorResetLogicType>([
             null as ResetResponse | null,
             {
                 executeReset: async ({ uuid, token }: { uuid: string; token: string }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.create<ResetResponse>(`api/reset_2fa/${uuid}/`, { token })
                     return response
                 },

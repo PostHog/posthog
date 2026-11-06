@@ -10,7 +10,7 @@ from posthog.tasks.alerts.trends import query_excludes_incomplete_periods
 from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, lookback_intervals_for
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _trailing_date_range_override(interval: IntervalType | None, periods: int) -> dict:
@@ -43,7 +43,12 @@ class FunnelsExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         funnels_query = FunnelsQuery.model_validate(query)
         viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
@@ -76,6 +81,7 @@ class FunnelsExtractor:
             insight,
             team=alert.team,
             execution_mode=execution_mode,
+            cache_age_seconds=cache_age_seconds,
             user=alert.created_by,
             filters_override=filters_override,
             analytics_props={"source": EventSource.ALERT},

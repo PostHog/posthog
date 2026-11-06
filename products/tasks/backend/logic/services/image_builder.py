@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import logging
 
-from products.tasks.backend.constants import vm_sandbox_allowed_origins
+from products.tasks.backend.constants import (
+    get_vm_sandbox_flag_payload,
+    vm_sandbox_allowed_origin_products,
+    vm_sandbox_default_base_origin_products,
+    vm_sandbox_origin_rollout_percentages,
+)
+from products.tasks.backend.facade.profiles import TaskRunOptions
 from products.tasks.backend.logic.services.image_spec import (
     SANDBOX_IMAGE_SPEC_PATH,
     SandboxImageSpec,
@@ -10,21 +16,30 @@ from products.tasks.backend.logic.services.image_spec import (
     parse_image_spec_yaml,
 )
 from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
+from products.tasks.backend.task_profiles import IMAGE_BUILDER
 
 logger = logging.getLogger(__name__)
 
 
-def is_custom_images_enabled(*, distinct_id: str, organization_id: str) -> bool:
+def is_custom_images_enabled(*, distinct_id: str, organization_id: str, origin_product: str | None = None) -> bool:
     """Custom images require the Modal VM runtime flag with `user_created` in its origin allowlist."""
     try:
-        allowed = vm_sandbox_allowed_origins(distinct_id=distinct_id, organization_id=organization_id)
-        return Task.OriginProduct.USER_CREATED.value in allowed
+        payload = get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
+        allowed = vm_sandbox_allowed_origin_products(payload)
+        if Task.OriginProduct.USER_CREATED.value not in allowed:
+            return False
+        return (
+            origin_product is None
+            or origin_product in allowed
+            or origin_product in vm_sandbox_default_base_origin_products(payload)
+            or vm_sandbox_origin_rollout_percentages(payload).get(origin_product, 0) >= 100
+        )
     except Exception as e:
         logger.warning("custom_images_flag_check_failed", extra={"error": str(e)})
         return False
 
 
-IMAGE_BUILDER_MODEL = "@cf/zai-org/glm-5.2"
+IMAGE_BUILDER_MODEL = "zai-org/glm-5.3-flash"
 IMAGE_BUILDER_REASONING_EFFORT = "high"
 
 IMAGE_BUILDER_PROMPT = """You are an expert at building sandbox base images for PostHog cloud tasks.
@@ -32,7 +47,7 @@ IMAGE_BUILDER_PROMPT = """You are an expert at building sandbox base images for 
 The user wants to create a custom base image named "{image_name}" for their cloud task sandboxes. Your job is to converse with them, figure out what they need installed or configured, and maintain a declarative image spec that captures it.
 
 CONTEXT:
-- You are running inside the exact VM sandbox base that custom images layer on top of (Ubuntu 24.04, Node 24, uv, gh CLI, Docker-in-Docker via `start-dockerd`). Anything you can do here, the built image can bake in.
+- You are running inside the exact VM sandbox base that custom images layer on top of (Ubuntu 24.04, Node 26, uv, gh CLI, Docker-in-Docker via `start-dockerd`). Anything you can do here, the built image can bake in.
 - The custom image is built by replaying your spec on top of this base image, then published. It never replaces the base — agent tooling and git remain present.
 - The spec lives at {spec_path}. Keep it up to date at all times: after every change the user agrees to, write the full spec file.
 
@@ -40,22 +55,25 @@ SPEC FORMAT (YAML):
 apt_packages:  # Debian package names, installed via apt-get
   - postgresql-client
 run_commands:  # shell commands executed in order at image BUILD time
-  - curl -fsSL https://example.com/install.sh | bash
+  - >-
+    curl -fsSL https://example.com/install.sh | bash
 repo_setup_commands:  # only when a repository is linked: run inside a fresh checkout of it at BUILD time
-  - pnpm install --frozen-lockfile
+  - >-
+    pnpm install --frozen-lockfile
 env:           # environment variables baked into the image
   MY_TOOL_HOME: /opt/my-tool
 
 RULES:
 - Verify before you promise: actually run installs/commands here in the sandbox to confirm they work, then record the working steps in the spec.
 - Build-time commands must be non-interactive and idempotent. No `sudo` needed — builds run as root.
-- Every run_commands / repo_setup_commands entry must be a SINGLE line: each becomes one Dockerfile RUN instruction, so multi-line strings (backslash continuations, heredocs) break the build. Chain steps with `&&`.
+- Write every run_commands / repo_setup_commands entry as a YAML folded block scalar (`>-`) containing a SINGLE logical line. Each becomes one Dockerfile RUN instruction, so multi-line commands (backslash continuations, heredocs) break the build. Chain steps with `&&`.
 - Prefer apt_packages over run_commands when a Debian package exists.
 - Keep the spec minimal: only what the user asked for, no speculative extras.
 - Never put secrets, tokens, or credentials in the spec — it is scanned and rejected if it exfiltrates data or weakens sandbox security.
 - Download-and-execute steps must be pinned and verifiable: fetch install scripts and binaries from a tagged release or commit hash (never a mutable branch) and verify a checksum when the vendor publishes one — unpinned `curl | sh` fails the security scan.
 - Services (databases, daemons) cannot run "in" an image; you can install them and note that they start at task time.
 - If the user points you at a repository, you may clone it here to verify their app runs, but do NOT bake repository code into the spec — only its runtime dependencies.
+- After writing the spec, validate its YAML syntax with `uv run --no-project --with PyYAML python -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('{spec_path}').read_text())"`. Fix every syntax error before telling the user to save and build.
 - After each spec update, show the user the current spec and briefly confirm what changed.
 - When the user is happy, tell them to press "Save & build" (available right here in this conversation, and in the Environments settings) to scan, build, and publish the image.
 
@@ -111,15 +129,15 @@ def ensure_image_builder_task(image: SandboxCustomImage, user_id: int) -> Task:
         team=image.team,
         title=f"Custom image: {image.name}",
         description=f"Image-builder session for custom sandbox image '{image.name}'",
-        origin_product=Task.OriginProduct.IMAGE_BUILDER,
+        profile=IMAGE_BUILDER,
         user_id=user_id,
         repository=image.repository or None,
+        options=TaskRunOptions(
+            adapter="claude", model=IMAGE_BUILDER_MODEL, reasoning_effort=IMAGE_BUILDER_REASONING_EFFORT
+        ),
         create_pr=False,
         mode="interactive",
         interaction_origin="desktop",
-        runtime_adapter="claude",
-        model=IMAGE_BUILDER_MODEL,
-        reasoning_effort=IMAGE_BUILDER_REASONING_EFFORT,
         pending_user_message=build_image_builder_prompt(image),
         custom_image_builder_id=str(image.id),
     )
@@ -130,7 +148,7 @@ def ensure_image_builder_task(image: SandboxCustomImage, user_id: int) -> Task:
 
 def read_spec_from_builder_sandbox(image: SandboxCustomImage) -> SandboxImageSpec:
     """Read and validate the spec file from the builder task's live sandbox."""
-    from products.tasks.backend.logic.services.sandbox import Sandbox
+    from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 
     if image.builder_task_id is None:
         raise SandboxImageSpecError("This image has no builder session; provide a spec directly instead")
@@ -144,7 +162,7 @@ def read_spec_from_builder_sandbox(image: SandboxCustomImage) -> SandboxImageSpe
         raise SandboxImageSpecError("The builder session has no sandbox yet; send it a message first")
 
     try:
-        sandbox = Sandbox.get_by_id(sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
         result = sandbox.execute(f"cat {SANDBOX_IMAGE_SPEC_PATH}", timeout_seconds=30)
     except Exception as e:
         logger.warning(

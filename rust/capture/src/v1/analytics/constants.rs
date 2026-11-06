@@ -18,6 +18,24 @@ pub const CAPTURE_V1_PATH: &str = "/i/v1/analytics/events";
 /// Trailing-slash variant registered so both URL forms resolve to the same handler.
 pub(super) const CAPTURE_V1_PATH_TRAILING: &str = "/i/v1/analytics/events/";
 
+/// Primary route path for the v1 endpoint on the AI lane. Served only by
+/// `CaptureMode::Ai`; `crate::router` owns the mode gating and
+/// [`super::router::ai_routes`] the rationale.
+pub const CAPTURE_V1_AI_PATH: &str = "/i/v1/ai/events";
+
+/// Trailing-slash variant registered so both URL forms resolve to the same handler.
+pub(super) const CAPTURE_V1_AI_PATH_TRAILING: &str = "/i/v1/ai/events/";
+
+/// Every path the v1 batch handler serves. `pin_static_path` resolves a
+/// request's `MatchedPath` against this list to the `&'static str` label the
+/// request's metrics and warnings carry.
+pub(super) const CAPTURE_V1_PATHS: &[&str] = &[
+    CAPTURE_V1_PATH,
+    CAPTURE_V1_PATH_TRAILING,
+    CAPTURE_V1_AI_PATH,
+    CAPTURE_V1_AI_PATH_TRAILING,
+];
+
 // ---------------------------------------------------------------------------
 // Metrics keys
 // ---------------------------------------------------------------------------
@@ -52,18 +70,30 @@ pub(super) const DETAIL_EVENT_RESTRICTION_DROP: &str = "event_restriction_drop";
 /// were not flagged `historical_migration: true`.
 pub(super) const DETAIL_NON_HISTORICAL_DROP: &str = "non_historical_import_drop";
 
-/// Detail tag for events dropped due to uncoercible options fields.
+/// Detail tag for events dropped by an AI-mode deployment because they are not
+/// on the AI lane. Same tag as the `misrouted_event` ingestion warning it emits.
+pub(super) const DETAIL_MISROUTED_EVENT: &str = "misrouted_event";
+
+/// Detail tag for events dropped because an expected option's value is unreadable.
 pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";
+
+/// Detail tag for AI-lane events dropped because the project is over its
+/// byte budget.
+pub(super) const DETAIL_AI_BYTE_RATE_LIMITED: &str = "ai_byte_rate_limited";
+
+/// Detail tag for AI-lane events dropped for exceeding the deployment's
+/// per-event size ceiling.
+pub(super) const DETAIL_AI_EVENT_TOO_BIG: &str = "ai_event_too_big";
 
 // ---------------------------------------------------------------------------
 // Validation limits
 // ---------------------------------------------------------------------------
 
 /// Maximum allowed length for an event name; longer names are rejected.
-pub(super) const CAPTURE_V1_MAX_EVENT_NAME_LENGTH: usize = 200;
+pub(crate) const CAPTURE_V1_MAX_EVENT_NAME_LENGTH: usize = 200;
 
 /// Maximum allowed length for a distinct_id value; longer IDs are rejected.
-pub(super) const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
+pub(crate) const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
 
 // ---------------------------------------------------------------------------
 // Illegal distinct_id values
@@ -71,7 +101,7 @@ pub(super) const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
 
 /// Known-bad distinct_id values that indicate a bug or misconfiguration in the
 /// sending SDK. Ported from the Node.js ingestion pipeline
-/// (nodejs/src/worker/ingestion/persons/person-merge-service.ts) with
+/// (nodejs/src/common/persons/person-utils.ts) with
 /// additions from the new #ingestion-reports feed.
 ///
 /// All comparisons are case-insensitive after trimming whitespace, which is a
@@ -104,8 +134,8 @@ pub(super) const ILLEGAL_DISTINCT_IDS: &[&str] = &[
 // Timestamp normalization
 // ---------------------------------------------------------------------------
 
-/// Events whose skew-adjusted timestamp is more than 23 hours in the future
-/// (in milliseconds) are clamped to server `now`.
+/// Events whose timestamp, after any skew correction, is more than 23 hours in
+/// the future (in milliseconds) are clamped to server `now`.
 pub(super) const FUTURE_EVENT_HOURS_CUTOFF_MS: i64 = 23 * 3600 * 1000;
 
 /// Counter for adjustments applied to accepted events (label: reason).
@@ -120,6 +150,6 @@ pub(super) const CAPTURE_V1_EVENTS_RESTRICTED: &str = "capture_v1_events_restric
 /// Counter for per-request batch outcome mix (labels: outcome, path).
 pub(super) const CAPTURE_V1_BATCH_OUTCOMES: &str = "capture_v1_batch_outcomes";
 
-/// Histogram for end-to-end processing time (parsing through sink publish).
+/// Histogram for end-to-end processing time (parsing through publish).
 pub(super) const CAPTURE_V1_PROCESSING_DURATION_SECONDS: &str =
     "capture_v1_processing_duration_seconds";

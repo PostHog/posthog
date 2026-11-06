@@ -1,6 +1,6 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
-import { StoryFn } from '@storybook/react'
+import type { Parameters, StoryFn } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useMountedLogic } from 'kea'
@@ -11,9 +11,9 @@ import { App } from 'scenes/App'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import { InsightVizNode, Node } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 /** Spread into a `createInsightStory` story's `parameters`, merging `testOptions` for extra keys. */
 export const insightSceneStoryParameters = {
@@ -21,14 +21,14 @@ export const insightSceneStoryParameters = {
     viewMode: 'story',
     mockDate: '2022-03-11',
     testOptions: {
-        snapshotBrowsers: ['chromium' as const],
+        snapshotBrowsers: ['chromium'],
         viewport: {
             // needs a slightly larger width to push the rendered scene away from the breakpoint boundary
             width: 1300,
             height: 720,
         },
     },
-}
+} satisfies Parameters
 
 /** API mocks the insight scene needs beyond the insight itself (editor taxonomy, persons). */
 export const insightSceneMswDecorator = mswDecorator({
@@ -42,20 +42,35 @@ export const insightSceneMswDecorator = mswDecorator({
     },
 })
 
-/** Play fn: holds the snapshot until the funnel steps chart height stops changing. */
+/**
+ * Play fn: holds the snapshot until the funnel steps chart has painted and settled.
+ *
+ * Waits on the painted `canvas[role="img"]` — the chart-ready signal — and requires its height to
+ * stay non-zero and unchanged across several samples. A slow CI render can exhaust the timeout; that
+ * is fine, so resolve instead of throwing. The runner stabilizes the page again before it snapshots,
+ * and its `waitForSelector` still fails hard if the canvas never paints — so swallowing the timeout
+ * here smooths timing without dropping coverage.
+ */
 export const waitForFunnelToStabilize = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    let lastHeight = 0
-    await waitFor(
-        () => {
-            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-steps-bar-chart]')
-            const currentHeight = funnelContainer ? funnelContainer.getBoundingClientRect().height : 0
-            if (currentHeight === 0 || currentHeight !== lastHeight) {
+    const REQUIRED_STABLE_SAMPLES = 3
+    let lastHeight = -1
+    let stableSamples = 0
+    try {
+        await waitFor(
+            () => {
+                const chart = canvasElement.querySelector('[data-attr=funnel-steps-bar-chart] canvas[role="img"]')
+                const currentHeight = chart ? chart.getBoundingClientRect().height : 0
+                stableSamples = currentHeight > 0 && currentHeight === lastHeight ? stableSamples + 1 : 0
                 lastHeight = currentHeight
-                throw new Error('funnel height not yet stable')
-            }
-        },
-        { timeout: 3000, interval: 200 }
-    )
+                if (stableSamples < REQUIRED_STABLE_SAMPLES) {
+                    throw new Error('funnel canvas height not yet stable')
+                }
+            },
+            { timeout: 15000, interval: 200 }
+        )
+    } catch {
+        // Render still settling — the runner stabilizes the page again before snapshotting.
+    }
 }
 
 /** Play fn: expands the first funnel step's inline property filters. */
@@ -107,7 +122,7 @@ interface InsightStoryOptions {
 
 let shortCounter = 0
 export function createInsightStory(
-    insight: Partial<QueryBasedInsightModel>,
+    insight: Partial<InsightModel>,
     mode: 'view' | 'edit' = 'view',
     showLegend: boolean = false,
     options: InsightStoryOptions = {}

@@ -27,6 +27,17 @@ import click
 from hogli.manifest import REPO_ROOT, get_manifest
 
 from . import hints
+from .cargo_targets import (
+    cargo_target_locked,
+    configured_cargo_targets,
+    idle_cargo_target,
+    looks_like_cargo_target,
+    shared_cargo_targets,
+    unused_cargo_units,
+    unused_legacy_cargo_target,
+)
+from .disk_usage import measure_disk_usage
+from .processes import process_cwds
 
 MAX_SAMPLE_PATHS = 8
 
@@ -37,6 +48,8 @@ MAX_SAMPLE_PATHS = 8
 # budget so churn alone can't balloon the directory.
 FLOX_LOG_MAX_AGE_DAYS = 7
 FLOX_LOG_MAX_TOTAL_BYTES = 512 * 1024 * 1024  # 512 MiB of recent logs is plenty for debugging
+
+STALE_RUST_TARGET_DAYS = 7
 
 PYTHON_CACHE_PATTERNS = ("__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache")
 NODE_ARTIFACT_PATTERNS = (
@@ -110,6 +123,7 @@ class CleanupCategory:
     default_confirm: bool = True
     include_in_total: bool = True
     skip_if_empty: bool = True
+    opt_in: bool = False
     dry_run_message: str | None = None
     post_cleanup_message: str | None = None
 
@@ -133,10 +147,29 @@ class CleanupResult:
     "--area",
     multiple=True,
     type=click.Choice(
-        ["flox-logs", "docker", "python", "dagster", "node-artifacts", "rust", "pnpm-store", "git"],
+        [
+            "flox-logs",
+            "docker",
+            "docker-volumes",
+            "python",
+            "staticfiles",
+            "dagster",
+            "node-artifacts",
+            "cargo-units",
+            "rust",
+            "legacy-cargo-target",
+            "sccache",
+            "uv-cache",
+            "pnpm-store",
+            "nix-store",
+            "git",
+        ],
         case_sensitive=False,
     ),
-    help="Specific cleanup area(s) to run. Can be specified multiple times. Without this, all areas run.",
+    help=(
+        "Specific cleanup area(s) to run. Can be specified multiple times. "
+        "Without this, every area except docker-volumes runs."
+    ),
 )
 def doctor_disk(
     dry_run: bool,
@@ -146,17 +179,23 @@ def doctor_disk(
     """Clean up disk space by pruning caches, build outputs, and containers.
 
     This command is tailored to the technologies used in the repository:
-    - Flox environments (Python dependencies)
+    - Flox environments (Python dependencies) and the Nix store behind them
     - Docker Compose services
-    - Django + pytest + mypy/ruff caches
+    - Django + pytest + mypy/ruff caches, and collectstatic output
     - Dagster background job storage
     - pnpm/Vite/Tailwind/Storybook/Playwright build artifacts
-    - Rust workspaces built with Cargo
-    - pnpm-managed node_modules across the workspace
+    - Rust workspaces built with Cargo, plus the sccache compilation cache
+    - Cargo build units in shared and local target dirs that no recent build needs
+    - The old shared Cargo target at ~/.cargo/target
+    - The uv and pnpm package caches shared across every worktree
 
-    By default, runs all cleanup categories interactively. Use flags to target
-    specific categories. Use --dry-run to preview what would be removed and
-    --yes to skip prompts.
+    Several of these caches live outside the repository because the Flox env
+    points the tools at them, so the biggest wins are not under the repo root.
+
+    By default, runs every cleanup category except docker-volumes, which only
+    runs when named with --area because pruning volumes drops local database
+    data. Use --dry-run to preview what would be removed and --yes to skip
+    prompts.
     """
 
     click.echo("🔍 PostHog Disk Space Cleanup\n")
@@ -183,17 +222,33 @@ def doctor_disk(
         ),
         CleanupCategory(
             id="docker",
-            title="🐳 Docker system (images, containers, volumes)",
+            title="🐳 Docker images, containers and build cache",
             description=[
-                "Runs 'docker system prune -a --volumes' to reclaim unused Docker resources.",
-                "PostHog's docker-compose stacks rely on Docker heavily during development.",
+                "Runs 'docker system prune -a' to drop every image no container uses.",
+                "Stale images from old branches are usually the largest reclaim on the machine.",
+                "Volumes are left alone here, so local database data survives.",
             ],
             estimate=_estimate_docker_usage,
             cleanup=_cleanup_docker,
-            confirmation_prompt="Clean up Docker system (prune unused resources)?",
-            include_in_total=False,
+            confirmation_prompt="Prune unused Docker images, containers and build cache?",
             skip_if_empty=False,
-            dry_run_message="Would run: docker system prune -a --volumes -f",
+            dry_run_message="Would run: docker system prune -a -f",
+        ),
+        CleanupCategory(
+            id="docker_volumes",
+            title="🐳 Docker volumes (destructive)",
+            description=[
+                "Runs 'docker volume prune -a' to remove volumes no container uses.",
+                "This drops your local ClickHouse, Postgres and Kafka data once the",
+                "stack's containers are gone. You re-run migrations and reseed afterwards.",
+            ],
+            estimate=_estimate_docker_volumes,
+            cleanup=_cleanup_docker_volumes,
+            confirmation_prompt="Delete unused Docker volumes (local database data is lost)?",
+            default_confirm=False,
+            skip_if_empty=False,
+            opt_in=True,
+            dry_run_message="Would run: docker volume prune -a -f",
         ),
         CleanupCategory(
             id="python",
@@ -204,6 +259,18 @@ def doctor_disk(
             estimate=_estimate_python_caches,
             cleanup=_cleanup_items,
             confirmation_prompt="Clean up Python caches?",
+        ),
+        CleanupCategory(
+            id="staticfiles",
+            title="🗂️  Django collectstatic output (staticfiles/)",
+            description=[
+                "Removes the STATIC_ROOT tree that 'manage.py collectstatic' writes.",
+                "Each collect adds hashed copies of every asset, so it only grows.",
+                "Regenerate with: python manage.py collectstatic",
+            ],
+            estimate=_estimate_staticfiles,
+            cleanup=_cleanup_items,
+            confirmation_prompt="Remove collectstatic output?",
         ),
         CleanupCategory(
             id="dagster",
@@ -226,11 +293,26 @@ def doctor_disk(
             confirmation_prompt="Clean up JavaScript build caches and artifacts?",
         ),
         CleanupCategory(
+            id="cargo_units",
+            title="🦀 Cargo build units that no recent build needs",
+            description=[
+                f"Removes the units of a Cargo target dir that no unit compiled in the last {STALE_RUST_TARGET_DAYS} days needs,",
+                "directly or through other units, and incremental caches not written since then.",
+                "Covers CARGO_TARGET_DIR, build.target-dir in ~/.cargo/config.toml, ~/.cargo/target and this checkout.",
+                "Cargo writes nothing when a build finds every unit fresh, so a project that only ran such",
+                "builds in that time looks unused, and its next build recompiles what was removed.",
+            ],
+            estimate=_estimate_unused_cargo_units,
+            cleanup=_cleanup_unused_cargo_units,
+            confirmation_prompt="Remove the Cargo build units that no recent build needs?",
+        ),
+        CleanupCategory(
             id="rust",
             title="🦀 Rust Cargo targets",
             description=[
                 "Runs 'cargo clean' in all Rust workspaces to remove build artifacts.",
-                "Feature flag debug builds can accumulate ~400MB each.",
+                "Each worktree builds into its own rust/target, so this cleans only the current worktree.",
+                "A CARGO_TARGET_DIR set in your shell is cleaned too.",
             ],
             estimate=_estimate_rust_targets,
             cleanup=_cleanup_rust,
@@ -238,6 +320,44 @@ def doctor_disk(
             include_in_total=False,
             skip_if_empty=False,
             dry_run_message="Would run: cargo clean in all Rust workspaces",
+        ),
+        CleanupCategory(
+            id="legacy_cargo_target",
+            title="🦀 Old shared Cargo target (~/.cargo/target)",
+            description=[
+                "Cargo built here while the Flox env set CARGO_TARGET_DIR to this directory.",
+                f"Deleted only when CARGO_TARGET_DIR is not set and no build used it in {STALE_RUST_TARGET_DAYS} days.",
+            ],
+            estimate=_estimate_legacy_cargo_target,
+            cleanup=_cleanup_legacy_cargo_target,
+            confirmation_prompt="Delete the old shared Cargo target?",
+            default_confirm=False,
+        ),
+        CleanupCategory(
+            id="sccache",
+            title="⚡ sccache compilation cache",
+            description=[
+                "The Flox env sets RUSTC_WRAPPER=sccache, so every Rust build fills this cache.",
+                "It is bounded by its own max size, so clear it only when you need the space back.",
+                "The next Rust build is a cold one after this.",
+            ],
+            estimate=_estimate_sccache,
+            cleanup=_cleanup_sccache,
+            confirmation_prompt="Clear the sccache compilation cache?",
+            default_confirm=False,
+        ),
+        CleanupCategory(
+            id="uv_cache",
+            title="🐍 uv package cache",
+            description=[
+                "Runs 'uv cache prune' to drop cache entries no environment links to.",
+                "Wheels your venvs still use are kept, so no reinstall follows.",
+            ],
+            estimate=_estimate_uv_cache,
+            cleanup=_cleanup_uv_cache,
+            confirmation_prompt="Prune unused entries from the uv cache?",
+            skip_if_empty=False,
+            dry_run_message="Would run: uv cache prune",
         ),
         CleanupCategory(
             id="pnpm_store",
@@ -254,19 +374,33 @@ def doctor_disk(
             dry_run_message="Would run: pnpm store prune",
         ),
         CleanupCategory(
+            id="nix_store",
+            title="❄️  Nix store (Flox dependencies)",
+            description=[
+                "Runs 'nix-store --gc' to delete store paths no live Flox generation references.",
+                "Every env rebuild leaves the old generation behind, so most of /nix goes stale.",
+                "Rolling back to an older generation re-downloads it afterwards.",
+            ],
+            estimate=_estimate_nix_store,
+            cleanup=_cleanup_nix_store,
+            confirmation_prompt="Collect garbage in the Nix store?",
+            default_confirm=False,
+            dry_run_message="Would run: nix-store --gc",
+        ),
+        CleanupCategory(
             id="git",
             title="🧹 Git repository (.git)",
             description=[
                 "Prunes stale remote branches, expires reflogs, and repacks objects.",
-                "Combines: git remote prune + reflog expire + gc --aggressive.",
+                "Combines: git remote prune + reflog expire + repack (gc --aggressive on a full clone).",
                 "Can reclaim 25-40% of .git size (1-1.5GB in large repos).",
             ],
             estimate=_estimate_git,
             cleanup=_cleanup_git,
-            confirmation_prompt="Run Git cleanup (prune + gc)?",
+            confirmation_prompt="Run Git cleanup (prune + repack)?",
             include_in_total=False,
             skip_if_empty=False,
-            dry_run_message="Would run: git remote prune + reflog expire (30 days) + gc --aggressive",
+            dry_run_message="Would run: git remote prune + reflog expire (30 days) + repack (gc --aggressive on a full clone)",
         ),
     ]
 
@@ -276,7 +410,7 @@ def doctor_disk(
         enabled_ids = {area_name.replace("-", "_") for area_name in area}
         categories = [cat for cat in all_categories if cat.id in enabled_ids]
     else:
-        categories = all_categories
+        categories = [cat for cat in all_categories if not cat.opt_in]
 
     results: list[CleanupResult] = []
     for category in categories:
@@ -543,6 +677,10 @@ def _estimate_rust_targets(repo_root: Path) -> CleanupEstimate:
         f"   Found {len(workspace_roots)} Cargo workspace(s) to clean.",
     ]
 
+    external = _cargo_target_dir()
+    if external is not None:
+        details.append(f"   CARGO_TARGET_DIR is {external}, shared by every checkout that builds with it set.")
+
     if items:
         details.append(f"   Total target directory size: {_format_size(total)}")
         details.extend(_describe_items(items, repo_root, "   Target directories:"))
@@ -571,6 +709,38 @@ def _estimate_pnpm_store(repo_root: Path) -> CleanupEstimate:
     ]
 
     return CleanupEstimate(total_size=0.0, items=[], details=details)
+
+
+# `git repack -a -d` can delete commits in a partial clone. It walks refs with
+# --exclude-promisor-objects, and that walk stops at each commit in a promisor pack.
+# The repack then deletes the commits behind that point that are in an ordinary pack.
+# Git expects to fetch them again, but `git fetch` does not, so it fails with
+# "Could not read <sha>". Git's incremental-repack maintenance task moves fetched
+# commits into ordinary packs. --keep-unreachable writes those commits into the new
+# pack instead of deleting them.
+_GIT_REPACK_ARGS = ["repack", "-a", "-d", "-l", "--keep-unreachable", "--threads=0"]
+
+
+def _promisor_remote(repo_root: Path) -> str | None:
+    """The remote a partial clone fetches missing objects from, or None for a full clone.
+
+    Git defines a partial clone by this remote. The `.promisor` scan in `_git_health`
+    stops at its pack cap, so it can miss the marker.
+    """
+    config = _run_output(
+        ["git", "-C", str(repo_root), "config", "--get-regexp", r"^remote\..*\.promisor$|^extensions\.partialclone$"]
+    )
+    for line in (config or "").splitlines():
+        key, _, value = line.partition(" ")
+        if key == "extensions.partialclone":
+            return value
+        if value != "false":
+            return key.removeprefix("remote.").removesuffix(".promisor")
+    return None
+
+
+def _is_partial_clone(repo_root: Path) -> bool:
+    return _promisor_remote(repo_root) is not None
 
 
 def _estimate_git(repo_root: Path) -> CleanupEstimate:
@@ -606,40 +776,437 @@ def _estimate_git(repo_root: Path) -> CleanupEstimate:
         len(list((git_dir / "objects" / "pack").glob("*.pack"))) if (git_dir / "objects" / "pack").exists() else 0
     )
 
+    repack = "repack" if _is_partial_clone(repo_root) else "gc --aggressive"
     details = [
         f"   Current .git size: {_format_size(git_size)}",
         f"   Pack files: {pack_count}",
         "   Estimated reclaimable: ~30% (25-40% typical)",
-        "   Operations: remote prune + reflog expire + gc --aggressive",
+        f"   Operations: remote prune + reflog expire + {repack}",
     ]
 
     return CleanupEstimate(total_size=0.0, items=[], details=details)
 
 
+_DOCKER_SIZE_UNITS = {"b": 1, "kb": 10**3, "mb": 10**6, "gb": 10**9, "tb": 10**12, "pb": 10**15}
+_DOCKER_SIZE_PATTERN = re.compile(r"([0-9]*\.?[0-9]+)\s*([kmgtp]?b)", re.IGNORECASE)
+
+# `docker system prune -a --volumes` deletes the stopped stack containers first, which
+# leaves the ClickHouse and Postgres volumes unreferenced, and then deletes those too.
+# Images and build cache are the bulk of the reclaim anyway, so volumes get their own
+# opt-in category rather than riding along with the routine cleanup.
+_DOCKER_PRUNABLE_TYPES = ("Images", "Containers", "Build Cache")
+_DOCKER_VOLUME_TYPE = "Local Volumes"
+
+# A wedged daemon answers neither `info` nor `df`, and both run before we print anything,
+# so without a bound the whole command looks hung. The prunes themselves stay unbounded.
+_DOCKER_PROBE_TIMEOUT = 10
+
+
+def _parse_docker_size(value: str) -> float:
+    """Convert a `docker system df` size such as `26.5GB` to bytes (decimal units)."""
+
+    match = _DOCKER_SIZE_PATTERN.search(value or "")
+    if not match:
+        return 0.0
+    amount, unit = match.groups()
+    try:
+        return float(amount) * _DOCKER_SIZE_UNITS.get(unit.lower(), 1)
+    except ValueError:
+        return 0.0
+
+
+def _docker_df_rows() -> list[dict[str, str]]:
+    """Return one dict per `docker system df` row, or an empty list when unavailable."""
+
+    try:
+        result = subprocess.run(
+            ["docker", "system", "df", "--format", "{{json .}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_DOCKER_PROBE_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+
+    rows: list[dict[str, str]] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            rows.append({str(key): str(value) for key, value in parsed.items()})
+    return rows
+
+
+def _docker_reclaimable(rows: Sequence[dict[str, str]], types: Sequence[str]) -> float:
+    return sum(_parse_docker_size(row.get("Reclaimable", "")) for row in rows if row.get("Type") in types)
+
+
+def _docker_total_size(rows: Sequence[dict[str, str]]) -> float:
+    return sum(_parse_docker_size(row.get("Size", "")) for row in rows)
+
+
+def _docker_running() -> bool:
+    try:
+        subprocess.run(["docker", "info"], capture_output=True, check=True, timeout=_DOCKER_PROBE_TIMEOUT)
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+    return True
+
+
+def _docker_unavailable() -> CleanupEstimate:
+    return CleanupEstimate(
+        total_size=0.0,
+        items=[],
+        details=["   Docker not available or not running; skipping."],
+        available=False,
+    )
+
+
 def _estimate_docker_usage(repo_root: Path) -> CleanupEstimate:
     """Summarise Docker disk usage via `docker system df`. Repo root unused (compat)."""
 
-    try:
-        subprocess.run(["docker", "info"], capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return CleanupEstimate(
-            total_size=0.0,
-            items=[],
-            details=["   Docker not available or not running; skipping."],
-            available=False,
-        )
+    if not _docker_running():
+        return _docker_unavailable()
 
-    df_result = subprocess.run(["docker", "system", "df"], capture_output=True, text=True, check=False)
+    rows = _docker_df_rows()
 
     details = ["   Current Docker disk usage:"]
-    if df_result.returncode == 0 and df_result.stdout.strip():
-        details.extend([f"     {line}" for line in df_result.stdout.strip().splitlines()])
+    if rows:
+        for row in rows:
+            details.append(
+                f"     {row.get('Type', '?'):<14} {row.get('Size', '?'):>10} total, "
+                f"{row.get('Reclaimable', '0B')} reclaimable"
+            )
     else:
         details.append("     (Unable to retrieve docker system df output)")
 
-    details.append("   Command to run: docker system prune -a --volumes -f")
+    details.append("   Command to run: docker system prune -a -f")
+    details.append("   Volumes are left alone; add --area docker-volumes to prune those as well.")
+
+    return CleanupEstimate(
+        total_size=_docker_reclaimable(rows, _DOCKER_PRUNABLE_TYPES),
+        items=[],
+        details=details,
+    )
+
+
+def _estimate_docker_volumes(repo_root: Path) -> CleanupEstimate:
+    """Report how much unreferenced Docker volume data exists. Repo root unused (compat)."""
+
+    if not _docker_running():
+        return _docker_unavailable()
+
+    reclaimable = _docker_reclaimable(_docker_df_rows(), (_DOCKER_VOLUME_TYPE,))
+
+    details = [
+        f"   Unreferenced volume data: {_format_size(reclaimable)}",
+        "   Command to run: docker volume prune -a -f",
+        "   Afterwards: 'hogli up' recreates the volumes, then re-run migrations and reseed.",
+    ]
+
+    return CleanupEstimate(total_size=reclaimable, items=[], details=details)
+
+
+def _estimate_staticfiles(repo_root: Path) -> CleanupEstimate:
+    """Measure the Django STATIC_ROOT tree that collectstatic writes."""
+
+    static_root = repo_root / "staticfiles"
+    if not static_root.is_dir():
+        return CleanupEstimate(total_size=0.0, items=[], details=["   No staticfiles directory found."])
+
+    size, _ = _get_dir_size(static_root)
+    if size <= 0:
+        return CleanupEstimate(total_size=0.0, items=[], details=["   staticfiles directory is empty."])
+
+    details = [
+        f"   staticfiles/ holds {_format_size(size)} of collected assets.",
+        "   Regenerate with: python manage.py collectstatic",
+    ]
+    return CleanupEstimate(
+        total_size=size,
+        items=[CleanupItem(static_root, size, is_dir=True)],
+        details=details,
+    )
+
+
+def _sccache_cache_dir() -> Path | None:
+    """Locate the sccache cache directory without starting the sccache server."""
+
+    configured = os.environ.get("SCCACHE_DIR")
+    if configured:
+        return Path(configured).expanduser()
+
+    for candidate in (
+        Path.home() / "Library" / "Caches" / "Mozilla.sccache",
+        Path.home() / ".cache" / "sccache",
+    ):
+        if candidate.is_dir():
+            return candidate
+
+    return None
+
+
+def _holds_more_than_a_cache(path: Path) -> bool:
+    """True when deleting *path* would take the home directory or the checkout with it.
+
+    `SCCACHE_DIR` is the one directory this command deletes that an environment variable
+    names outright, so a value one level too high turns a cache clear into `rm -rf` over
+    unrelated work.
+    """
+
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError):
+        return True
+
+    if resolved == Path(resolved.anchor):
+        return True
+
+    for protected in (Path.home().resolve(), REPO_ROOT.resolve()):
+        if resolved == protected or resolved in protected.parents:
+            return True
+
+    return False
+
+
+def _estimate_sccache(repo_root: Path) -> CleanupEstimate:
+    """Measure the sccache cache that the Flox env wires into every Rust build."""
+
+    cache_dir = _sccache_cache_dir()
+    if cache_dir is None or not cache_dir.is_dir():
+        return CleanupEstimate(total_size=0.0, items=[], details=["   No sccache cache directory found."])
+
+    if _holds_more_than_a_cache(cache_dir):
+        return CleanupEstimate(
+            total_size=0.0,
+            items=[],
+            details=[
+                f"   SCCACHE_DIR points at {cache_dir}, which holds more than a cache.",
+                "   Refusing to delete it. Point SCCACHE_DIR at a directory of its own.",
+            ],
+            available=False,
+        )
+
+    size, _ = _get_dir_size(cache_dir)
+    if size <= 0:
+        return CleanupEstimate(total_size=0.0, items=[], details=[f"   {cache_dir} is empty."])
+
+    details = [
+        f"   Cache location: {cache_dir}",
+        f"   Current size: {_format_size(size)}",
+        "   Lower SCCACHE_CACHE_SIZE instead if you want it to stay smaller by itself.",
+    ]
+    return CleanupEstimate(
+        total_size=size,
+        items=[CleanupItem(cache_dir, size, is_dir=True)],
+        details=details,
+    )
+
+
+def _cleanup_sccache(estimate: CleanupEstimate, _: Path) -> CleanupStats:
+    """Stop the sccache server, then delete its cache directory."""
+
+    # The cache directory outlives the binary, so the estimate can find one to delete on a
+    # machine where sccache is no longer installed.
+    if shutil.which("sccache") is not None:
+        subprocess.run(["sccache", "--stop-server"], capture_output=True, check=False)
+
+    freed = _delete_items(estimate.items)
+    return CleanupStats(freed=freed, deleted_anything=freed > 0)
+
+
+def _uv_cache_dir() -> Path | None:
+    result = subprocess.run(["uv", "cache", "dir"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return None
+    location = result.stdout.strip()
+    return Path(location) if location else None
+
+
+def _estimate_uv_cache(repo_root: Path) -> CleanupEstimate:
+    """Report the uv cache size. The prune itself decides what is removable."""
+
+    try:
+        subprocess.run(["uv", "--version"], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return CleanupEstimate(total_size=0.0, items=[], details=["   uv not available; skipping."], available=False)
+
+    details: list[str] = []
+    cache_dir = _uv_cache_dir()
+    if cache_dir is not None and cache_dir.is_dir():
+        size, _ = _get_dir_size(cache_dir)
+        details.append(f"   Cache location: {cache_dir} ({_format_size(size)})")
+
+    details.append("   Runs: uv cache prune")
+    details.append("   Every worktree shares this cache, so each lockfile change adds to it.")
 
     return CleanupEstimate(total_size=0.0, items=[], details=details)
+
+
+def _cleanup_uv_cache(_: CleanupEstimate, __: Path) -> CleanupStats:
+    """Run `uv cache prune` and report the measured difference in cache size."""
+
+    click.echo()
+    cache_dir = _uv_cache_dir()
+    before = _get_dir_size(cache_dir)[0] if cache_dir is not None else 0.0
+
+    result = subprocess.run(["uv", "cache", "prune"], check=False)
+    if result.returncode != 0:
+        click.echo("   ⚠️  uv cache prune failed")
+        return CleanupStats(deleted_anything=False)
+
+    after = _get_dir_size(cache_dir)[0] if cache_dir is not None else 0.0
+    click.echo("   ✓ uv cache pruned")
+    return CleanupStats(freed=max(before - after, 0.0), deleted_anything=True)
+
+
+# Flox writes a new environment generation on every rebuild and leaves the previous one in
+# the store, held by a gcroot under the per-process cache directory. Those roots dangle
+# once the process directory is gone, so most of the store sits unreachable but on disk.
+_NIX_QUERY_CHUNK = 500
+_NIX_INVALID_PATH_ERROR = "is not valid"
+
+# Both probes run before the command prints anything, and either waits behind another
+# process holding the store lock. The collection itself stays unbounded; it earns its time.
+_NIX_PROBE_TIMEOUT = 120
+_NIX_FREED_PATTERN = re.compile(r"([0-9]*\.?[0-9]+)\s*(B|KiB|MiB|GiB|TiB)\s+freed", re.IGNORECASE)
+_NIX_FREED_UNITS = {"b": 1, "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4}
+
+
+@dataclass(frozen=True)
+class NixStoreSize:
+    """Bytes held by a set of store paths, and whether nix sized all of them."""
+
+    total: float
+    complete: bool
+
+
+def _nix_dead_paths() -> list[str] | None:
+    """List the store paths no live generation references, or None when nix could not answer."""
+
+    try:
+        result = subprocess.run(
+            ["nix-store", "--gc", "--print-dead"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_NIX_PROBE_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return [line.strip() for line in result.stdout.splitlines() if line.startswith("/nix/store/")]
+
+
+def _nix_paths_size(paths: Sequence[str]) -> NixStoreSize:
+    total = 0.0
+    complete = True
+    for start in range(0, len(paths), _NIX_QUERY_CHUNK):
+        chunk = _nix_chunk_size(paths[start : start + _NIX_QUERY_CHUNK])
+        total += chunk.total
+        complete = complete and chunk.complete
+    return NixStoreSize(total=total, complete=complete)
+
+
+def _nix_chunk_size(chunk: Sequence[str]) -> NixStoreSize:
+    """Sum the store sizes of one batch, stepping over paths nix no longer considers valid.
+
+    `nix-store -q --size` answers in argument order and then aborts on the first invalid
+    path, so a single stale entry would otherwise cost us the whole batch. The sizes it
+    already printed stay good, and the path after them is the one to skip. Any other
+    failure ends the batch, because retrying it per path only repeats it.
+    """
+
+    total = 0.0
+    remaining = list(chunk)
+
+    while remaining:
+        try:
+            result = subprocess.run(
+                ["nix-store", "-q", "--size", *remaining],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_NIX_PROBE_TIMEOUT,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return NixStoreSize(total=total, complete=False)
+        answered = result.stdout.split()
+        for token in answered:
+            try:
+                total += float(token)
+            except ValueError:
+                continue
+        if result.returncode == 0:
+            break
+        if _NIX_INVALID_PATH_ERROR not in result.stderr:
+            return NixStoreSize(total=total, complete=False)
+        remaining = remaining[len(answered) + 1 :]
+
+    return NixStoreSize(total=total, complete=True)
+
+
+def _parse_nix_freed(text: str) -> float:
+    match = _NIX_FREED_PATTERN.search(text or "")
+    if not match:
+        return 0.0
+    amount, unit = match.groups()
+    try:
+        return float(amount) * _NIX_FREED_UNITS.get(unit.lower(), 1)
+    except ValueError:
+        return 0.0
+
+
+def _estimate_nix_store(repo_root: Path) -> CleanupEstimate:
+    """Size the store paths no live Flox generation references. Repo root unused (compat)."""
+
+    if shutil.which("nix-store") is None:
+        return CleanupEstimate(total_size=0.0, items=[], details=["   Nix not available; skipping."], available=False)
+
+    click.echo("   Scanning the Nix store for unreachable paths...")
+    dead = _nix_dead_paths()
+    if dead is None:
+        return CleanupEstimate(
+            total_size=0.0,
+            items=[],
+            details=["   Could not read the Nix store. Retry when no other process holds the store lock."],
+            available=False,
+        )
+    if not dead:
+        return CleanupEstimate(total_size=0.0, items=[], details=["   No unreachable store paths."])
+
+    size = _nix_paths_size(dead)
+    measured = "about" if size.complete else "at least"
+    details = [f"   {len(dead)} unreachable store path(s), {measured} {_format_size(size.total)}."]
+    if not size.complete:
+        details.append("   Some paths could not be measured, so the collection frees more than that.")
+    details.append("   Command to run: nix-store --gc")
+    return CleanupEstimate(total_size=size.total, items=[], details=details)
+
+
+def _cleanup_nix_store(estimate: CleanupEstimate, _: Path) -> CleanupStats:
+    """Run the Nix garbage collector and report what it freed."""
+
+    click.echo()
+    click.echo("   Running nix-store --gc (may take a few minutes)...")
+    result = subprocess.run(["nix-store", "--gc"], capture_output=True, text=True, check=False)
+
+    if result.returncode != 0:
+        click.echo("   ⚠️  Nix garbage collection failed")
+        return CleanupStats(deleted_anything=False)
+
+    freed = _parse_nix_freed(result.stderr) or _parse_nix_freed(result.stdout) or estimate.total_size
+    click.echo("   ✓ Nix store collected")
+    return CleanupStats(freed=freed, deleted_anything=True)
 
 
 def _cleanup_items(estimate: CleanupEstimate, _: Path) -> CleanupStats:
@@ -650,7 +1217,7 @@ def _cleanup_items(estimate: CleanupEstimate, _: Path) -> CleanupStats:
 
 
 def _cleanup_git(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
-    """Execute git cleanup: prune remotes, expire reflogs, and run gc."""
+    """Execute git cleanup: prune remotes, expire reflogs, and repack."""
 
     click.echo()
     success = True
@@ -667,11 +1234,16 @@ def _cleanup_git(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
     if result.returncode != 0:
         success = False
 
-    # Step 3: Run gc --aggressive (this can take 1-2 minutes)
-    # Git will show its own progress output
-    # Note: omit --prune=now to use git's safe 2-week default
-    click.echo("   Running git gc --aggressive (may take 1-2 minutes)...")
-    result = subprocess.run(["git", "gc", "--aggressive"], cwd=repo_root, check=False)
+    # Step 3: Repack
+    if _is_partial_clone(repo_root):
+        # Some git versions, 2.50 among them, make `git gc` delete the same commits as
+        # `repack -a -d` when their pack is older than two weeks. See _GIT_REPACK_ARGS.
+        click.echo("   Running git repack (may take a few minutes)...")
+        result = subprocess.run(["git", *_GIT_REPACK_ARGS], cwd=repo_root, check=False)
+    else:
+        # Note: omit --prune=now to use git's safe 2-week default
+        click.echo("   Running git gc --aggressive (may take 1-2 minutes)...")
+        result = subprocess.run(["git", "gc", "--aggressive"], cwd=repo_root, check=False)
     if result.returncode != 0:
         success = False
 
@@ -697,16 +1269,31 @@ def _cleanup_pnpm_store(_: CleanupEstimate, __: Path) -> CleanupStats:
 
 
 def _cleanup_docker(_: CleanupEstimate, __: Path) -> CleanupStats:
-    """Execute docker system prune command."""
+    """Prune unused images, containers and build cache, leaving volumes in place."""
+
+    return _run_docker_prune(["docker", "system", "prune", "-a", "-f"], "Docker cleanup")
+
+
+def _cleanup_docker_volumes(_: CleanupEstimate, __: Path) -> CleanupStats:
+    """Delete every Docker volume no container references."""
+
+    return _run_docker_prune(["docker", "volume", "prune", "-a", "-f"], "Docker volume cleanup")
+
+
+def _run_docker_prune(command: Sequence[str], label: str) -> CleanupStats:
+    """Run a docker prune, measuring freed space from `docker system df` either side."""
 
     click.echo()
-    result = subprocess.run(["docker", "system", "prune", "-a", "--volumes", "-f"], check=False)
-    if result.returncode == 0:
-        click.echo("   ✓ Docker cleanup completed")
-        return CleanupStats(deleted_anything=True)
+    before = _docker_total_size(_docker_df_rows())
+    result = subprocess.run(list(command), check=False)
 
-    click.echo("   ⚠️  Docker cleanup failed")
-    return CleanupStats(deleted_anything=False)
+    if result.returncode != 0:
+        click.echo(f"   ⚠️  {label} failed")
+        return CleanupStats(deleted_anything=False)
+
+    after = _docker_total_size(_docker_df_rows())
+    click.echo(f"   ✓ {label} completed")
+    return CleanupStats(freed=max(before - after, 0.0), deleted_anything=True)
 
 
 def _cleanup_rust(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
@@ -815,11 +1402,30 @@ def _collect_paths_from_patterns(repo_root: Path, patterns: Sequence[str]) -> li
     return items
 
 
+def _cargo_target_dir() -> Path | None:
+    """The target directory the shell points Cargo at with CARGO_TARGET_DIR, if set."""
+
+    configured = os.environ.get("CARGO_TARGET_DIR")
+    return Path(configured).expanduser() if configured else None
+
+
 def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
-    """Collect Cargo target directories anywhere in the repository."""
+    """Collect Cargo target directories in the repository and at CARGO_TARGET_DIR."""
 
     items: list[CleanupItem] = []
     seen: set[Path] = set()
+
+    external = _cargo_target_dir()
+    if external is not None and external.is_dir():
+        try:
+            resolved = external.resolve()
+        except (FileNotFoundError, PermissionError, RuntimeError):
+            resolved = None
+        if resolved is not None:
+            size, _ = _get_dir_size(external)
+            if size > 0:
+                seen.add(resolved)
+                items.append(CleanupItem(external, size, is_dir=True))
 
     for target_dir in repo_root.glob("**/target"):
         if any(part in {".git", "node_modules"} for part in target_dir.parts):
@@ -846,6 +1452,125 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
         items.append(CleanupItem(target_dir, size, is_dir=True))
 
     return items
+
+
+def _sweepable_cargo_targets(repo_root: Path) -> list[Path]:
+    """Resolved Cargo targets outside every checkout, plus configured and local targets that their checkout's git ignores."""
+
+    outside_checkouts = {shared.path for shared in shared_cargo_targets()}
+    candidates = list(outside_checkouts)
+    candidates += [
+        configured.path for configured in configured_cargo_targets() if configured.path not in outside_checkouts
+    ]
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z", "--", "Cargo.toml", ":(glob)**/Cargo.toml"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            errors="surrogateescape",
+            timeout=60,
+            check=False,
+        )
+        manifests = listed.stdout.split("\0") if listed.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError):
+        manifests = []
+    candidates += [(repo_root / manifest).parent / "target" for manifest in manifests if manifest]
+
+    targets: dict[Path, None] = {}
+    for target in candidates:
+        try:
+            resolved = target.resolve(strict=True)
+        except (OSError, RuntimeError):
+            continue
+        if not looks_like_cargo_target(resolved):
+            continue
+        if target in outside_checkouts or _ignored_by_its_checkout(resolved):
+            targets.setdefault(resolved, None)
+    return list(targets)
+
+
+def _ignored_by_its_checkout(path: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", "--", path.name],
+            cwd=path.parent,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _unused_units_by_target(repo_root: Path) -> tuple[dict[Path, list[Path]], list[str]]:
+    built_before_epoch = time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60
+    unused_by_target: dict[Path, list[Path]] = {}
+    skipped: list[str] = []
+    for target in _sweepable_cargo_targets(repo_root):
+        if not idle_cargo_target(target):
+            skipped.append(f"   {target}: skipped, because a cargo, rustc or cargo-nextest process may be using it.")
+            continue
+        unused = unused_cargo_units(target, built_before_epoch)
+        if unused is None:
+            skipped.append(f"   {target}: skipped, because a Cargo fingerprint could not be read.")
+        elif unused:
+            unused_by_target[target] = unused
+    return unused_by_target, skipped
+
+
+def _estimate_unused_cargo_units(repo_root: Path) -> CleanupEstimate:
+    unused_by_target, details = _unused_units_by_target(repo_root)
+    items: list[CleanupItem] = []
+    for target, unused in unused_by_target.items():
+        target_items = [
+            CleanupItem(path, float(measure_disk_usage([path]).freeable_bytes), is_dir=path.is_dir()) for path in unused
+        ]
+        details.append(
+            f"   {target}: {len(target_items)} unit file(s) and cache(s), "
+            f"{_format_size(sum(item.size for item in target_items))}"
+        )
+        items.extend(target_items)
+    if not items and not details:
+        details.append("   Nothing to remove.")
+    return CleanupEstimate(total_size=sum(item.size for item in items), items=items, details=details)
+
+
+def _cleanup_unused_cargo_units(estimate: CleanupEstimate, repo_root: Path) -> CleanupStats:
+    # Holding Cargo's build lock makes a build that starts now wait, and the rescan under it drops units a build used during the prompt.
+    estimated = {item.path: item for item in estimate.items}
+    built_before_epoch = time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60
+    freed = 0.0
+    for target in _sweepable_cargo_targets(repo_root):
+        with cargo_target_locked(target) as locked:
+            if not locked or not idle_cargo_target(target):
+                click.echo(f"   {target}: a build is running, so it is kept.")
+                continue
+            unused = unused_cargo_units(target, built_before_epoch) or []
+            freed += _delete_items([estimated[path] for path in unused if path in estimated])
+    return CleanupStats(freed=freed, deleted_anything=freed > 0)
+
+
+def _estimate_legacy_cargo_target(_repo_root: Path) -> CleanupEstimate:
+    pointer = f"   For the rust/target of other worktrees, run: hogli worktrees:clean --before {STALE_RUST_TARGET_DAYS}d --mode deps"
+    target = unused_legacy_cargo_target(time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60)
+    if target is None:
+        return CleanupEstimate(total_size=0.0, items=[], details=["   Nothing to delete.", pointer])
+
+    size, _ = _get_dir_size(target)
+    return CleanupEstimate(
+        total_size=size,
+        items=[CleanupItem(target, size, is_dir=True)],
+        details=[f"   {target} ({_format_size(size)})", pointer],
+    )
+
+
+def _cleanup_legacy_cargo_target(estimate: CleanupEstimate, repo_root: Path) -> CleanupStats:
+    if unused_legacy_cargo_target(time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60) is None:
+        click.echo("   A build used it while the prompt waited, so it is kept.")
+        return CleanupStats()
+    return _cleanup_items(estimate, repo_root)
 
 
 def _find_cargo_workspaces(repo_root: Path) -> list[Path]:
@@ -1155,7 +1880,7 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
             candidates.append((entry, False))
             cwd_pids.append(pid)
 
-    cwd_by_pid = _get_process_cwds(cwd_pids)
+    cwd_by_pid = process_cwds(cwd_pids)
 
     processes: list[DevProcess] = []
     for entry, repo_match in candidates:
@@ -1328,41 +2053,6 @@ def _has_known_executable(args: str) -> bool:
     known = ("python", "node", "celery", "granian", "uvicorn", "dagster", "cargo", "air", "tsx", "esbuild", "pnpm")
     first_word = args.split()[0].rsplit("/", 1)[-1] if args else ""
     return first_word in known
-
-
-def _get_process_cwds(pids: Sequence[int]) -> dict[int, str]:
-    """Map each pid to its working directory via a single lsof call.
-
-    ``-a`` ANDs the ``-p`` (pid set) and ``-d cwd`` (fd) selectors; without it
-    lsof ORs them and reports *every* process's cwd — slow (a full-system scan
-    per pid) and wrong (attributing the first process's cwd to the queried pid).
-    ``-Fpn`` emits pid/name fields so each cwd attributes back to its pid; with
-    ``-d cwd`` each process yields exactly one name line.
-    """
-    if not pids:
-        return {}
-
-    try:
-        result = subprocess.run(
-            ["lsof", "-a", "-p", ",".join(str(pid) for pid in pids), "-d", "cwd", "-Fpn"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        return {}
-
-    # lsof exits non-zero when any queried pid has vanished, but still emits valid
-    # records for the survivors — parse whatever stdout we got.
-    cwds: dict[int, str] = {}
-    current: int | None = None
-    for line in result.stdout.splitlines():
-        tag, value = line[:1], line[1:]
-        if tag == "p":
-            current = int(value) if value.isdigit() else None
-        elif tag == "n" and current is not None:
-            cwds[current] = value
-    return cwds
 
 
 def _extract_process_name(args: str) -> str:
@@ -2181,6 +2871,17 @@ def _check_disk(repo_root: Path) -> CheckResult:
     flox_est = _estimate_flox_logs(repo_root)
     total += flox_est.total_size
 
+    # collectstatic output — one known directory, capped so a huge tree exits early
+    static_size, static_exceeded = _get_dir_size(repo_root / "staticfiles", cap=budget - total)
+    total += static_size
+    if static_exceeded:
+        return CheckResult(
+            name="Disk usage",
+            status=CheckStatus.WARNING,
+            summary=f">{_format_size(budget)} reclaimable",
+            remediation="run `hogli doctor:disk`",
+        )
+
     # Python caches — depth-limited instead of repo_root.glob("**/{pattern}")
     _SKIP_PARTS = {".git", "node_modules", ".venv", "venv"}
     seen: set[Path] = set()
@@ -2258,6 +2959,139 @@ def _check_zombies(repo_root: Path) -> CheckResult:
         status=CheckStatus.OK,
         summary="0 orphaned",
     )
+
+
+# A blob:none clone writes a new promisor pack on each on-demand blob fetch.
+# Nothing consolidates them, because `gc.autoPackLimit` does not count promisor
+# packs and a partial clone runs without the `incremental-repack` maintenance task
+# (see `_incremental_repack_enabled`).
+# Pack lookup cost grows with the pack count, which makes `git fetch` and
+# `git status` slow.
+#
+# The threshold is a budget, not a measurement. Set it where a person notices the
+# cost. A lower value warns while the repo is still fast, and people then ignore
+# the line.
+_GIT_PACK_WARNING_THRESHOLD = 1000
+
+# `git maintenance run` reads an existing lock as "another run is in progress".
+# It then exits 0 and prints nothing. A run killed by sleep or reboot leaves a lock
+# behind, which disables every scheduled maintenance task until a person deletes it.
+_GIT_MAINTENANCE_LOCK_STALE_SECONDS = 6 * 60 * 60
+
+
+def _git_common_dir(repo_root: Path) -> Path | None:
+    """Resolve the shared .git directory without spawning git.
+
+    In a worktree ``.git`` is a file pointing at ``<common>/worktrees/<name>``.
+    Packs, the commit-graph and the maintenance lock all live in the common dir.
+    """
+    dot_git = repo_root / ".git"
+    if dot_git.is_dir():
+        return dot_git
+    if not dot_git.is_file():
+        return None
+    try:
+        line = dot_git.read_text().strip()
+    except OSError:
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    worktree_dir = Path(line.split(":", 1)[1].strip())
+    # Git writes this pointer relative to the worktree in some layouts.
+    if not worktree_dir.is_absolute():
+        worktree_dir = repo_root / worktree_dir
+    try:
+        worktree_dir = worktree_dir.resolve(strict=True)
+    except OSError:
+        return None  # Dangling pointer. Treat the tree as no repo at all.
+    # <common>/worktrees/<name> -> <common>
+    if worktree_dir.parent.name == "worktrees":
+        return worktree_dir.parent.parent
+    return worktree_dir
+
+
+@dataclass(frozen=True)
+class GitHealth:
+    pack_count: int
+    packs_capped: bool
+    has_promisor: bool
+    stale_lock: Path | None
+    missing_commit_graph: bool
+
+
+def _git_health(common_dir: Path, pack_cap: int) -> GitHealth:
+    """Read git housekeeping state with a bounded amount of work.
+
+    The scan stops counting packs past ``pack_cap``, so a neglected clone costs the
+    same as a healthy one.
+    """
+    pack_dir = common_dir / "objects" / "pack"
+    pack_count = 0
+    has_promisor = False
+    capped = False
+    try:
+        with os.scandir(pack_dir) as entries:
+            for entry in entries:
+                if entry.name.endswith(".pack"):
+                    pack_count += 1
+                    if pack_count > pack_cap:
+                        capped = True
+                        break
+                elif not has_promisor and entry.name.endswith(".promisor"):
+                    has_promisor = True
+    except OSError:
+        pass
+
+    stale_lock = None
+    lock_path = common_dir / "objects" / "maintenance.lock"
+    try:
+        age = time.time() - lock_path.stat().st_mtime
+        if age > _GIT_MAINTENANCE_LOCK_STALE_SECONDS:
+            stale_lock = lock_path
+    except OSError:
+        pass
+
+    info_dir = common_dir / "objects" / "info"
+    missing_commit_graph = (
+        not (info_dir / "commit-graph").exists() and not (info_dir / "commit-graphs" / "commit-graph-chain").exists()
+    )
+
+    return GitHealth(
+        pack_count=pack_count,
+        packs_capped=capped,
+        has_promisor=has_promisor,
+        stale_lock=stale_lock,
+        missing_commit_graph=missing_commit_graph,
+    )
+
+
+def _check_git_health(repo_root: Path) -> CheckResult:
+    """Fast git housekeeping probe. Reads directory entries only, never runs git."""
+    common_dir = _git_common_dir(repo_root)
+    if common_dir is None:
+        return CheckResult(name="Git housekeeping", status=CheckStatus.OK, summary="not a git checkout")
+
+    health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
+    packs_high = health.pack_count > _GIT_PACK_WARNING_THRESHOLD
+    problems = []
+    if health.stale_lock:
+        problems.append("scheduled maintenance disabled by a stale lock")
+    if packs_high:
+        count = f"{health.pack_count}+" if health.packs_capped else str(health.pack_count)
+        problems.append(f"{count} pack files")
+    if health.missing_commit_graph:
+        problems.append("no commit-graph")
+
+    if problems:
+        # The default path repacks in the background but never writes the graph, so
+        # every case that involves a missing graph has to name the command that does.
+        return CheckResult(
+            name="Git housekeeping",
+            status=CheckStatus.WARNING,
+            summary=", ".join(problems),
+            remediation="run `hogli doctor:git --fix`" if health.missing_commit_graph else "run `hogli doctor:git`",
+        )
+    return CheckResult(name="Git housekeeping", status=CheckStatus.OK, summary="clean")
 
 
 def _check_docker() -> CheckResult:
@@ -2378,6 +3212,7 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
     checks: list[Callable[[], CheckResult]] = [
         lambda: _check_disk(repo_root),
         lambda: _check_zombies(repo_root),
+        lambda: _check_git_health(repo_root),
         _check_docker,
         _check_migrations,
         _check_ports,
@@ -2399,6 +3234,318 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
                 )
 
     return [r for r in results if r is not None]
+
+
+# pgrep compiles this as a POSIX extended regular expression, which has no lazy
+# quantifiers, so it must stay portable. Keep it loose on purpose: it is a cheap
+# prefilter over the process table, and _process_belongs_to_repo decides. Encoding
+# repository identity in the pattern is what made earlier versions wrong, because
+# `git` takes global options before the subcommand and paths may contain spaces.
+_GIT_HOUSEKEEPING_PGREP_PATTERN = r"git .*(gc|repack|maintenance|pack-objects)"
+
+
+def _names_path(haystack: str, path: str) -> bool:
+    """Whether text names a path, and not a sibling that merely starts the same way.
+
+    A plain substring test reads `/work/posthog-copy` as `/work/posthog`, and a
+    trailing boundary alone still reads `/tmp/work/posthog` as `/work/posthog`.
+    An option value such as `--git-dir=<path>` puts an equals sign before the path.
+    """
+    return re.search(r"(?<![^\s='\"])" + re.escape(path) + r"(?=$|[\s/'\"])", haystack) is not None
+
+
+def _is_within(candidate: Path, root: Path) -> bool:
+    """Path containment by component, so `posthog-copy` is not inside `posthog`."""
+    return candidate == root or candidate.is_relative_to(root)
+
+
+def _process_cwd(pid: str) -> Path | None:
+    """The working directory of another process, or None when it cannot be read.
+
+    Linux exposes it directly. macOS needs lsof, which is not guaranteed to exist.
+    """
+    try:
+        return Path(f"/proc/{pid}/cwd").resolve(strict=True)
+    except OSError:
+        pass
+    if not shutil.which("lsof"):
+        return None
+    try:
+        out = subprocess.run(
+            ["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=5
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return next((Path(line[1:]) for line in out.splitlines() if line.startswith("n")), None)
+
+
+def _common_dir_of(cwd: Path) -> Path | None:
+    """The object store a directory belongs to, which is shared across linked worktrees."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(cwd), "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return (cwd / result.stdout.strip()).resolve(strict=True)
+    except OSError:
+        return None
+
+
+def _process_belongs_to_repo(pid: str, repo: str, common_dir: Path) -> bool:
+    """Whether one git process works on this object store.
+
+    Comparing object stores rather than paths catches a sibling linked worktree, which
+    shares the store without naming the owning checkout anywhere.
+    """
+    try:
+        cmdline = subprocess.run(["ps", "-p", pid, "-o", "command="], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return True  # Cannot tell, so claim it and do nothing.
+    if _names_path(cmdline.stdout, repo) or _names_path(cmdline.stdout, str(common_dir)):
+        return True
+    cwd = _process_cwd(pid)
+    if cwd is None:
+        # An unreadable working directory must not disable the repair. Every
+        # invocation this code starts names the path, so an unknown one is not ours.
+        return False
+    return _is_within(cwd, Path(repo)) or _common_dir_of(cwd) == common_dir
+
+
+def _git_housekeeping_running(main_worktree: Path, common_dir: Path) -> bool:
+    """True while git already packs this repository.
+
+    The pattern alone is machine wide, so an unrelated checkout running `git gc` would
+    otherwise make this repository look busy, and the repair would skip itself.
+    """
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", _GIT_HOUSEKEEPING_PGREP_PATTERN],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True  # Cannot tell, so assume yes and do nothing.
+    if result.returncode > 1:
+        # pgrep exits 1 for no match and 2 or more for its own errors, such as a
+        # pattern its regex engine rejects. Reading that as "nothing is running"
+        # silently disables the guard, so say so instead.
+        click.secho(f"Could not scan for running git processes: {result.stderr.strip()}", fg="yellow", err=True)
+        return True
+    if result.returncode != 0:
+        return False
+    repo = str(main_worktree)
+    return any(_process_belongs_to_repo(pid, repo, common_dir) for pid in result.stdout.split())
+
+
+def _git_main_worktree(repo_root: Path, common_dir: Path) -> Path:
+    """The checkout that owns the object store, which is what maintenance registers.
+
+    Preferring the owner over ``repo_root`` keeps a machine with many linked worktrees
+    from registering each one against the same object store. A separate git directory
+    (``git init --separate-git-dir``) has no work tree above it, so fall back.
+    """
+    return common_dir.parent if common_dir.name == ".git" else repo_root
+
+
+def _git_maintenance_registered(main_worktree: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "--get-all", "maintenance.repo"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True  # Cannot tell, so do not touch the user's global config.
+    registered = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return str(main_worktree) in registered or str(main_worktree.resolve()) in registered
+
+
+_INCREMENTAL_REPACK_KEY = "maintenance.incremental-repack.enabled"
+
+
+def _incremental_repack_enabled(main_worktree: Path) -> bool:
+    """Whether git maintenance can run the task that moves fetched commits out of promisor packs.
+
+    `_GIT_REPACK_ARGS` explains how that loses commits.
+    """
+    cmd = ["git", "-C", str(main_worktree), "config", "--type=bool", "--get", _INCREMENTAL_REPACK_KEY]
+    return _run_output(cmd) != "false"
+
+
+def _spawn_background_repack(main_worktree: Path, common_dir: Path) -> None:
+    """Start the repack detached, at background priority.
+
+    A repack takes minutes, and `hogli start` must not wait for it. Git never does
+    this itself on a partial clone, for the reason given at
+    `_GIT_PACK_WARNING_THRESHOLD`.
+    """
+    cmd = ["git", "-C", str(main_worktree), *_GIT_REPACK_ARGS]
+    # taskpolicy -b puts the repack in the background QoS band, which throttles its
+    # IO as well as its CPU. Without it the repack competes with the dev stack.
+    if shutil.which("taskpolicy"):
+        cmd = ["taskpolicy", "-b", *cmd]
+    else:
+        cmd = ["nice", "-n", "19", *cmd]
+    log = (common_dir / "hogli-repack.log").open("a")
+    subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
+
+
+def _run_git(main_worktree: Path, args: list[str], label: str) -> bool:
+    """Run one git repair step and report a failure.
+
+    git writes its own diagnostics to stderr, so this adds only the step name.
+    """
+    result = subprocess.run(["git", "-C", str(main_worktree), *args], check=False)
+    if result.returncode != 0:
+        click.secho(f"{label} failed with exit code {result.returncode}.", fg="red", err=True)
+        return False
+    return True
+
+
+def _write_commit_graph(main_worktree: Path) -> bool:
+    """Fetch missing commits again, then write the graph.
+
+    `commit-graph write --reachable` stops at the first commit it cannot read, and a
+    partial clone does not lazy-fetch during that walk, so one absent commit leaves
+    the repo with no commit-graph at all.
+    """
+    # An existing commit-graph can still list a deleted commit, and rev-list then
+    # reads the commit from the graph and does not report it.
+    missing = subprocess.run(
+        ["git", "-C", str(main_worktree), "-c", "core.commitGraph=false", "rev-list", "--all", "--missing=print"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GIT_NO_LAZY_FETCH": "1"},
+        check=False,
+    )
+    oids = [line[1:] for line in missing.stdout.splitlines() if line.startswith("?")]
+    if oids:
+        click.echo(f"  fetching {len(oids)} missing commits...")
+        # A normal fetch does not send an ancestor of a commit the repo already has.
+        # A lazy fetch can refuse a commit that the commit-graph lists, and a full clone
+        # has no lazy fetch. --refetch skips negotiation and gets all of them in one pack.
+        # After --refetch, git forces an auto gc and incremental-repack, which are the
+        # repacks that lose commits.
+        refetch = [
+            "-c",
+            "core.commitGraph=false",
+            "fetch",
+            "--refetch",
+            "--no-auto-maintenance",
+            "--no-write-fetch-head",
+            _promisor_remote(main_worktree) or "origin",
+            *oids,
+        ]
+        if not _run_git(main_worktree, refetch, "refetch of missing commits"):
+            return False
+    click.echo("  writing commit-graph...")
+    return _run_git(
+        main_worktree, ["commit-graph", "write", "--reachable", "--split", "--no-progress"], "commit-graph write"
+    )
+
+
+@click.command(
+    name="doctor:git",
+    help="Keep git housekeeping healthy so fetch and status stay fast",
+)
+@click.option("--fix", is_flag=True, help="Repack in the foreground and wait for it, instead of in the background")
+def doctor_git(fix: bool) -> None:
+    """Repair git housekeeping, and run the slow part in the background.
+
+    This runs on every ``hogli start``, so each step is instant or detached.
+    ``--fix`` runs the repack in the foreground instead.
+    """
+    common_dir = _git_common_dir(REPO_ROOT)
+    if common_dir is None:
+        click.echo("Not a git checkout, nothing to check.")
+        return
+
+    main_worktree = _git_main_worktree(REPO_ROOT, common_dir)
+    health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
+    packs_high = health.pack_count > _GIT_PACK_WARNING_THRESHOLD
+    # Run the process scan only when a result depends on it.
+    # --fix writes the same files scheduled maintenance does, so it needs the scan too.
+    needs_scan = bool(health.stale_lock) or packs_high or fix
+    busy = _git_housekeeping_running(main_worktree, common_dir) if needs_scan else False
+    acted = False
+
+    if health.stale_lock and not busy:
+        try:
+            health.stale_lock.unlink()
+            click.secho("Removed a stale git maintenance lock.", fg="yellow")
+            click.echo("Scheduled git maintenance was disabled for as long as it was there.")
+            acted = True
+        except FileNotFoundError:
+            pass  # Another process removed it first.
+        except OSError as e:
+            # Reporting clean here would hide a lock that still disables every
+            # scheduled task, which is the failure this check exists to remove.
+            click.secho(f"Could not remove the stale git maintenance lock: {e}", fg="red", err=True)
+            click.echo(f"Scheduled git maintenance stays disabled until {health.stale_lock} is gone.")
+            acted = True
+
+    # A fresh clone has no registration, so none of git's own scheduled tasks run
+    # and it never gets a commit-graph.
+    if not _git_maintenance_registered(main_worktree):
+        if _run_ok(["git", "-C", str(main_worktree), "maintenance", "start"], timeout=30):
+            click.secho("Registered this repo for scheduled git maintenance.", fg="yellow")
+            acted = True
+        else:
+            click.echo("Could not register scheduled git maintenance. Run `git maintenance start` yourself.")
+
+    if _is_partial_clone(main_worktree) and _incremental_repack_enabled(main_worktree):
+        if _run_ok(["git", "-C", str(main_worktree), "config", _INCREMENTAL_REPACK_KEY, "false"]):
+            click.secho("Turned off git's incremental-repack maintenance task.", fg="yellow")
+            click.echo("On a partial clone it can lead to lost commits and a failing `git fetch`.")
+        else:
+            click.echo(
+                "Could not turn off git's incremental-repack maintenance task. "
+                f"Run `git config {_INCREMENTAL_REPACK_KEY} false` yourself."
+            )
+        acted = True
+
+    count = f"{health.pack_count}+" if health.packs_capped else str(health.pack_count)
+
+    if fix:
+        if busy:
+            click.echo("Git is already packing this repository. Try again when it finishes.")
+            return
+        ok = True
+        if packs_high:
+            click.echo(f"{count} pack files. Repacking in the foreground, which takes minutes.")
+            ok = _run_git(main_worktree, _GIT_REPACK_ARGS, "repack")
+        ok = ok and _write_commit_graph(main_worktree)
+        if ok and health.pack_count:
+            ok = _run_git(main_worktree, ["multi-pack-index", "write", "--no-progress"], "multi-pack-index write")
+        if not ok:
+            click.secho("Repair stopped. The repository still needs work.", fg="red", err=True)
+            raise SystemExit(1)
+        click.secho("Done.", fg="green")
+        hints.record_check_run("doctor:git")
+        return
+
+    if packs_high and busy:
+        click.echo(f"{count} pack files. Git is already packing in the background.")
+    elif packs_high:
+        _spawn_background_repack(main_worktree, common_dir)
+        click.secho(f"{count} pack files. Repacking in the background.", fg="yellow")
+        if health.has_promisor:
+            click.echo("This is a partial clone, so every on-demand blob fetch adds another pack.")
+        click.echo("It runs at background priority and takes minutes. Carry on working.")
+        acted = True
+    elif not acted:
+        click.echo(f"Git housekeeping is clean ({count} pack files).")
+
+    hints.record_check_run("doctor:git")
 
 
 @click.command(name="doctor", help="Quick health check for your dev environment")

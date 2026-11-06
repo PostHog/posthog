@@ -22,7 +22,10 @@ function createMockRedis(): MockRedis {
     const store = new Map<string, string>()
     return {
         get: vi.fn(async (key: string) => store.get(key) ?? null),
-        set: vi.fn(async (key: string, value: string) => {
+        set: vi.fn(async (key: string, value: string, ...args: (string | number)[]) => {
+            if (args.includes('NX') && store.has(key)) {
+                return null
+            }
             store.set(key, value)
             return 'OK'
         }),
@@ -43,6 +46,8 @@ function createMockRedis(): MockRedis {
             return ['0', matching] as [string, string[]]
         }),
         ...makeRedisRateLimitStubs(),
+        // Override the trivial stub with a spy so TTL-renewal calls are assertable.
+        expire: vi.fn(async () => 1),
         _store: store,
     }
 }
@@ -80,6 +85,17 @@ describe('RedisCache', () => {
     })
 
     describe('set', () => {
+        it('keeps the first value when competing requests initialize the same key', async () => {
+            const first = await cache.setIfAbsent('projectId', '123')
+            const second = await cache.setIfAbsent('projectId', '456')
+
+            expect({ first, second, projectId: await cache.get('projectId') }).toEqual({
+                first: true,
+                second: false,
+                projectId: '123',
+            })
+        })
+
         it('should store JSON-serialized values with scoped key', async () => {
             await cache.set('region', 'eu')
             expect(mockRedis.set).toHaveBeenCalledWith(
@@ -151,6 +167,16 @@ describe('RedisCache', () => {
             await cache.setMany({})
 
             expect(await cache.get('mcpClientName')).toBe('claude-code')
+        })
+    })
+
+    describe('refreshTtl', () => {
+        it('renews the TTL on the given keys using the cache TTL', async () => {
+            const sessionCache = new RedisCache<TestState>('sess', mockRedis, 'session', 3600)
+            await sessionCache.refreshTtl(['projectId', 'orgId'])
+
+            expect(mockRedis.expire).toHaveBeenCalledWith('mcp:session:sess:projectId', 3600)
+            expect(mockRedis.expire).toHaveBeenCalledWith('mcp:session:sess:orgId', 3600)
         })
     })
 

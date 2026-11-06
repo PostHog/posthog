@@ -2,7 +2,7 @@ import json
 import random
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import MagicMock, patch
@@ -40,6 +40,27 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
     def test_no_exception_for_unmatched_playlist(self, mock_capture_exception: MagicMock):
         count_recordings_that_match_playlist_filters(12345)
         assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}there_is_no_short_id") is None
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthoganalytics.capture_exception")
+    def test_skips_exposure_playlists_without_counting_or_erroring(self, mock_capture_exception: MagicMock):
+        # The task runs userless and the exposure filter refuses userless callers, so counting
+        # can only fail. The skip must fire before any query runs, whether or not the
+        # experiment still exists, and must not feed the error cooldown.
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="exposed sessions",
+            filters={
+                "date_from": "-30d",
+                "filter_test_accounts": False,
+                "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+                "experiment_exposure": {"experiment_id": 999999},
+            },
+        )
+
+        count_recordings_that_match_playlist_filters(playlist.id)
+
+        assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}") is None
         mock_capture_exception.assert_not_called()
 
     @patch("posthoganalytics.capture_exception")
@@ -262,7 +283,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
     def test_sorts_nulls_first_and_then_least_recently_counted(
         self, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             playlist1 = SessionRecordingPlaylist.objects.create(
                 team=self.team,
                 name="test1",

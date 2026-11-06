@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-/** A task-level repository/folder pick made in a composer's repository dialog. */
+/** A task-level repository/folder pick made in a composer's repository menu or dialog. */
 export interface TaskRepositoryDraft {
   repositories: string[];
   githubIntegration: number | null;

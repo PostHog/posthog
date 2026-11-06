@@ -2,10 +2,14 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Cohorts',
+    activityDescribers: {
+        [ActivityScope.COHORT]: () =>
+            import('scenes/cohorts/activityDescriptions').then((module) => module.cohortActivityDescriber),
+    },
     scenes: {
         CohortsStaffTools: {
             import: () => import('./frontend/staff/CohortsStaffToolsScene'),
@@ -14,22 +18,27 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
+        '/feature-flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     },
     urls: {
         cohort: (id: string | number): string => `/cohorts/${id}`,
         cohorts: (): string => '/cohorts',
         cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
         cohortsStaffTools: (cohortId?: number): string =>
-            `/feature_flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
+            `/feature-flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     },
     fileSystemTypes: {
         cohort: {
             name: 'Cohort',
             iconType: 'cohort' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-cohorts-light)',
+                'var(--color-product-cohorts-dark)',
+            ] as FileSystemIconColor,
             href: (ref: string) => urls.cohort(ref),
+            listHref: () => urls.cohorts(),
+            listSearchParam: 'search',
             filterKey: 'cohort',
-            iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
         },
     },
     treeItemsNew: [
@@ -38,7 +47,10 @@ export const manifest: ProductManifest = {
             type: 'cohort',
             href: urls.cohort('new'),
             iconType: 'cohort' as FileSystemIconType,
-            iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-cohorts-light)',
+                'var(--color-product-cohorts-dark)',
+            ] as FileSystemIconColor,
             sceneKeys: ['Cohorts', 'Cohort'],
         },
     ],

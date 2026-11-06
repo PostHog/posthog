@@ -5,18 +5,19 @@ import { useCallback, useMemo } from 'react'
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
+import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
+import { dayjs } from 'lib/dayjs'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -24,16 +25,19 @@ import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, type IntervalType } from '~/types'
 
-import { chartStyleCurve } from '../../shared/chartStyleAdapter'
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
-import { AnnotationsLayer } from '../shared/AnnotationsLayer'
-import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
-import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
+import { canHandleTrendsChartClick, handleTrendsChartClick } from '../shared/handleTrendsChartClick'
+import { withHighlightedSeries } from '../shared/highlightedSeries'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
@@ -46,6 +50,31 @@ interface TrendsLineChartProps {
 }
 
 const handleChartError = makeChartErrorHandler('trends-line-chart')
+
+// A completed comparison ("previous") period can span more buckets than the still-in-progress
+// current period — e.g. a full "yesterday" against "today" so far at hour granularity. The x-axis
+// is keyed off the current period's days, so the extra previous-period points would fall outside
+// the domain and get clipped. Extend the domain forward by the interval so the previous series
+// spans the full width; the current series keeps its shorter, dashed tail.
+export function extendLabelsToLongestSeries(
+    labels: string[],
+    interval: IntervalType | null | undefined,
+    results: IndexedTrendResult[]
+): string[] {
+    const maxLength = results.reduce((max, r) => Math.max(max, r.data?.length ?? 0), 0)
+    if (!labels.length || labels.length >= maxLength) {
+        return labels
+    }
+    const hasTime = labels[0].includes(' ')
+    const format = hasTime ? 'YYYY-MM-DD HH:mm:ss' : 'YYYY-MM-DD'
+    const extended = [...labels]
+    let cursor = dayjs(labels[labels.length - 1])
+    while (extended.length < maxLength) {
+        cursor = cursor.add(1, (interval ?? 'day') as dayjs.ManipulateType)
+        extended.push(cursor.format(format))
+    }
+    return extended
+}
 
 export function TrendsLineChart({
     context,
@@ -76,6 +105,7 @@ export function TrendsLineChart({
         isStickiness,
         labelGroupType,
         hasPersonsModal,
+        actionNames,
         querySource,
         incompletenessOffsetFromEnd,
         showMovingAverage,
@@ -84,20 +114,43 @@ export function TrendsLineChart({
         showValuesOnSeries,
         showConfidenceIntervals,
         confidenceLevel,
+        isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
+    )
+
+    const seriesIdentification = useMemo(
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
+    )
+
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
+                isSingleSeriesDefinition,
+                seriesIdentification,
             }),
-        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [
+            querySource,
+            actionNames,
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
+            isSingleSeriesDefinition,
+            seriesIdentification,
+        ]
     )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
@@ -110,7 +163,12 @@ export function TrendsLineChart({
     // tooltip formatters already render display text from them. Stickiness x values are
     // interval counts rather than dates, so it keeps its (already unique) labels.
     const days = currentPeriodResult?.days
-    const labels = (!isStickiness && days?.length ? days : currentPeriodResult?.labels) ?? []
+    const useDayLabels = !isStickiness && !!days?.length
+    const labels = useDayLabels
+        ? extendLabelsToLongestSeries(days as string[], interval, indexedResults ?? [])
+        : (currentPeriodResult?.labels ?? [])
+    // Keep the tick formatter's day context in step with the (possibly extended) domain.
+    const allDays = useDayLabels ? labels : (currentPeriodResult?.days ?? [])
 
     const hasData = hasTrendsChartData(indexedResults)
 
@@ -126,21 +184,7 @@ export function TrendsLineChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const indexByResult = useMemo(() => {
-        const m = new Map<IndexedTrendResult, number>()
-        ;(indexedResults ?? []).forEach((r, i) => m.set(r, i))
-        return m
-    }, [indexedResults])
-
-    const getYAxisId = useCallback(
-        (r: IndexedTrendResult) => {
-            const idx = indexByResult.get(r) ?? 0
-            return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
-        },
-        [indexByResult, showMultipleYAxes]
-    )
-
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    const canHandleClick = canHandleTrendsChartClick({ context, hasPersonsModal, querySource })
     // The persons modal is intentionally unavailable for multi-series formulas (there's no
     // single series of actors behind a computed ratio). On dashboard/card tiles a click
     // instead opens the underlying insight, since there's nowhere else for the click to go.
@@ -191,6 +235,17 @@ export function TrendsLineChart({
             }
         },
         [canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
+    )
+
+    // Set even when only navigation is possible, so the dashboard menu does not replay the right
+    // click as a left click, which would open the insight.
+    const onPointContextMenu = useCallback(
+        (clickData: PointClickData) => {
+            if (canHandleClick) {
+                handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            }
+        },
+        [canHandleClick, clickDeps]
     )
 
     const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
@@ -245,6 +300,12 @@ export function TrendsLineChart({
         ]
     )
 
+    const isSeriesHighlighted = context?.isSeriesHighlighted
+    const getColor = useMemo(
+        () => withHighlightedSeries(getTrendsColor, indexedResults ?? [], isSeriesHighlighted),
+        [getTrendsColor, indexedResults, isSeriesHighlighted]
+    )
+
     const series = useMemo(
         () =>
             buildTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -252,12 +313,12 @@ export function TrendsLineChart({
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 incompletenessOffsetFromEnd,
                 isStickiness,
-                getColor: getTrendsColor,
+                getColor,
                 // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
                 // of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta,
             }),
         [
             indexedResults,
@@ -265,11 +326,19 @@ export function TrendsLineChart({
             showMultipleYAxes,
             incompletenessOffsetFromEnd,
             isStickiness,
-            getTrendsColor,
+            getColor,
             getLabel,
+            buildMeta,
         ]
     )
 
+    // Anomaly markers must read the same axis their series is scaled against.
+    const getYAxisId = useCallback(
+        (r: IndexedTrendResult) => series.find((s) => s.key === String(r.id))?.yAxisId ?? DEFAULT_Y_AXIS_ID,
+        [series]
+    )
+
+    const hideAxes = context?.hideAxes
     const config = useChartConfig(
         () =>
             buildTrendsLineTimeSeriesConfig<IndexedTrendResult>({
@@ -281,9 +350,13 @@ export function TrendsLineChart({
                 yAxisScaleType,
                 interval,
                 timezone,
-                allDays: currentPeriodResult?.days ?? [],
+                allDays,
+                hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
+                yAxisStartAtZero: trendsFilter?.yAxisStartAtZero,
+                yAxisMin: trendsFilter?.yAxisMin,
+                yAxisMax: trendsFilter?.yAxisMax,
                 goalLines,
                 incompletenessOffsetFromEnd,
                 getHidden: getTrendsHidden,
@@ -309,7 +382,8 @@ export function TrendsLineChart({
             yAxisScaleType,
             interval,
             timezone,
-            currentPeriodResult?.days,
+            allDays,
+            hideAxes,
             goalLines,
             incompletenessOffsetFromEnd,
             getTrendsHidden,
@@ -346,6 +420,9 @@ export function TrendsLineChart({
             config={config}
             tooltip={renderTooltip}
             onPointClick={canHandlePointInteraction ? onPointClick : undefined}
+            onPointContextMenu={
+                context?.dashboardResultMenu && canHandlePointInteraction ? onPointContextMenu : undefined
+            }
             onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"
@@ -362,6 +439,7 @@ export function TrendsLineChart({
                 />
             ) : null}
             {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
+            {context?.chartOverlay}
         </TimeSeriesLineChart>
     )
 }

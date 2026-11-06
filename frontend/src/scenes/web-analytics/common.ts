@@ -2,10 +2,14 @@ import { BreakPointFunction } from 'kea'
 
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/guards'
+import { hogql } from 'lib/utils/hogql'
 
+import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { hogqlQuery } from '~/queries/query'
 import {
     BreakdownFilter,
@@ -16,12 +20,11 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
-import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types'
+import { InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
-/** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
+/** Matches BREAKDOWN_NULL_DISPLAY in products/web_analytics/backend/hogql_queries/stats_table.py */
 export const BREAKDOWN_NULL_DISPLAY = '(none)'
-/** Matches BREAKDOWN_REFERRER_PREFIX in posthog/hogql_queries/web_analytics/stats_table.py */
+/** Matches BREAKDOWN_REFERRER_PREFIX in products/web_analytics/backend/hogql_queries/stats_table.py */
 export const BREAKDOWN_REFERRER_PREFIX = 'referrer:'
 
 export interface WebTileLayout {
@@ -98,6 +101,15 @@ export enum TileId {
     BOT_AI_REFERRALS = 'BOT_AI_REFERRALS',
     BOT_AI_ENGAGEMENT = 'BOT_AI_ENGAGEMENT',
     BOT_CRAWLERS = 'BOT_CRAWLERS',
+
+    AI_REFERRALS_TREND = 'AI_REFERRALS_TREND',
+    AI_REFERRALS_BY_ENGINE = 'AI_REFERRALS_BY_ENGINE',
+    AI_LANDING_PAGES = 'AI_LANDING_PAGES',
+    AI_CRAWLERS_TREND = 'AI_CRAWLERS_TREND',
+    AI_CRAWLERS = 'AI_CRAWLERS',
+    AI_CRAWLED_PAGES = 'AI_CRAWLED_PAGES',
+
+    PAGE_PERFORMANCE_TABLE = 'PAGE_PERFORMANCE_TABLE',
 }
 
 export enum ProductTab {
@@ -109,7 +121,14 @@ export enum ProductTab {
     HEALTH = 'health',
     LIVE = 'live',
     BOT_ANALYTICS = 'bots',
+    PAGE_PERFORMANCE = 'page-performance',
+    AGENTS = 'agents',
+    CONTENT_AUTOPILOT = 'content-autopilot',
 }
+
+// One flag gates the whole AI visibility page: prompt tracking, bots and content autopilot.
+export const isContentAutopilotEnabled = (featureFlags: FeatureFlagsSet): boolean =>
+    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]
 
 export type DeviceType = 'Desktop' | 'Mobile'
 
@@ -181,6 +200,15 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.BOT_AI_REFERRALS]: 5,
     [TileId.BOT_AI_ENGAGEMENT]: 6,
     [TileId.BOT_CRAWLERS]: 7,
+
+    [TileId.AI_REFERRALS_TREND]: 3,
+    [TileId.AI_REFERRALS_BY_ENGINE]: 4,
+    [TileId.AI_LANDING_PAGES]: 5,
+    [TileId.AI_CRAWLERS_TREND]: 7,
+    [TileId.AI_CRAWLERS]: 8,
+    [TileId.AI_CRAWLED_PAGES]: 9,
+
+    [TileId.PAGE_PERFORMANCE_TABLE]: 1,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -253,6 +281,13 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.BOT_AI_REFERRALS]: 'AI referral traffic',
     [TileId.BOT_AI_ENGAGEMENT]: 'AI referral engagement',
     [TileId.BOT_CRAWLERS]: 'Crawlers',
+    [TileId.AI_REFERRALS_TREND]: 'AI referrals over time',
+    [TileId.AI_REFERRALS_BY_ENGINE]: 'AI referrals by engine',
+    [TileId.AI_LANDING_PAGES]: 'Landing pages from AI',
+    [TileId.AI_CRAWLERS_TREND]: 'AI crawler activity over time',
+    [TileId.AI_CRAWLERS]: 'AI crawlers',
+    [TileId.AI_CRAWLED_PAGES]: 'Pages AI crawlers read',
+    [TileId.PAGE_PERFORMANCE_TABLE]: 'Pages by search & AI',
 }
 
 export interface BaseTile {
@@ -343,6 +378,7 @@ export enum SourceTab {
 
 export enum DeviceTab {
     BROWSER = 'BROWSER',
+    IN_APP_BROWSER = 'IN_APP_BROWSER',
     OS = 'OS',
     DEVICE_TYPE = 'DEVICE_TYPE',
     VIEWPORT = 'VIEWPORT',
@@ -396,6 +432,7 @@ export const GEOGRAPHY_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, Geograp
 export const DEVICE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, DeviceTab>> = {
     [WebStatsBreakdown.DeviceType]: DeviceTab.BROWSER,
     [WebStatsBreakdown.Browser]: DeviceTab.OS,
+    [WebStatsBreakdown.InAppBrowser]: DeviceTab.OS,
     [WebStatsBreakdown.OS]: DeviceTab.VIEWPORT,
 }
 
@@ -437,6 +474,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$entry_utm_term', type: PropertyFilterType.Session }
         case WebStatsBreakdown.Browser:
             return { key: '$browser', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InAppBrowser:
+            return { key: '$webview_app', type: PropertyFilterType.Event }
         case WebStatsBreakdown.OS:
             return { key: '$os', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Viewport:
@@ -488,7 +527,7 @@ export const getWebAnalyticsBreakdownFilter = (breakdown: WebStatsBreakdown): Br
 
 export const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']
 
-export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = 'web-analytics'
+export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = pageCollectionId('web-analytics')
 
 export const INITIAL_WEB_ANALYTICS_FILTER = [] as WebAnalyticsPropertyFilters
 export const INITIAL_DATE_FROM = '-7d' as string | null
@@ -504,6 +543,46 @@ export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
 
 export const MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
     productKey: ProductKey.MARKETING_ANALYTICS,
+}
+
+const tagQueryNode = <T extends QuerySchema>(node: T, presetId: string): T => {
+    // Only extend tags that are already there. Nodes without them were left untagged on purpose,
+    // and creating one would change what the query log attributes to web analytics. Tags can sit
+    // on the wrapper, the source, or both (WebVitalsQuery tags the wrapper), so the node's own
+    // tags are stamped before recursing rather than instead of it.
+    const tags = (node as { tags?: QueryLogTags }).tags
+    const tagged = tags ? { ...node, tags: { ...tags, presetId } } : node
+    const source = (tagged as { source?: QuerySchema }).source
+    if (source) {
+        return { ...tagged, source: tagQueryNode(source, presetId) }
+    }
+    return tagged
+}
+
+/**
+ * Stamp the applied filter preset's short id onto every tile query, so the warming job can find the
+ * shapes a preset actually produces. `tags` is stripped from both the query cache key and the
+ * warmer's shape key, so this never fragments either.
+ */
+export const withPresetTag = (tiles: WebAnalyticsTile[], presetId: string | null): WebAnalyticsTile[] => {
+    if (!presetId) {
+        return tiles
+    }
+    return tiles.map((tile): WebAnalyticsTile => {
+        switch (tile.kind) {
+            case 'query':
+            case 'error_tracking':
+                return { ...tile, query: tagQueryNode(tile.query, presetId) }
+            case 'tabs':
+                return { ...tile, tabs: tile.tabs.map((tab) => ({ ...tab, query: tagQueryNode(tab.query, presetId) })) }
+            case 'section':
+                return { ...tile, tiles: withPresetTag(tile.tiles, presetId) }
+            case 'replay':
+                return tile
+            default:
+                throw new UnexpectedNeverError(tile)
+        }
+    })
 }
 
 export const checkCustomEventConversionGoalHasSessionIdsHelper = async (
@@ -539,6 +618,36 @@ export const sessionPropertiesToPathClean = new Set([
     '$end_current_url',
 ])
 export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])
+
+/** Operators that compare raw paths, mapped to the operators that clean both sides before they compare. */
+export const cleanedPathOperators: Partial<Record<PropertyOperator, PropertyOperator>> = {
+    [PropertyOperator.Exact]: PropertyOperator.IsCleanedPathExact,
+    [PropertyOperator.IsNot]: PropertyOperator.IsCleanedPathNotExact,
+}
+
+/**
+ * Pick the operator for an exact match on a breakdown value. With path cleaning on, the value is a
+ * cleaned path such as `/user/:id`, which no raw property equals. `IsCleanedPathExact` cleans the
+ * stored property too, so the comparison happens on cleaned paths on both sides.
+ */
+export const exactMatchOperatorFor = (
+    key: string,
+    type: PropertyFilterType,
+    doPathCleaning: boolean | undefined
+): PropertyOperator => {
+    if (!doPathCleaning) {
+        return PropertyOperator.Exact
+    }
+
+    const cleanableProperties =
+        type === PropertyFilterType.Session
+            ? sessionPropertiesToPathClean
+            : type === PropertyFilterType.Person
+              ? personPropertiesToPathClean
+              : eventPropertiesToPathClean
+
+    return cleanableProperties.has(key) ? PropertyOperator.IsCleanedPathExact : PropertyOperator.Exact
+}
 
 // Utility function to map SQL/internal column names to UI-friendly display names
 export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreakdown): string => {
@@ -595,6 +704,8 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
                 return 'UTM Content'
             case WebStatsBreakdown.Browser:
                 return 'Browser'
+            case WebStatsBreakdown.InAppBrowser:
+                return 'In-app browser'
             case WebStatsBreakdown.OS:
                 return 'OS'
             case WebStatsBreakdown.Viewport:

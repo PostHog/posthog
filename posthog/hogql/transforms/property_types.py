@@ -1,21 +1,23 @@
+import dataclasses
 from datetime import datetime
 from typing import Literal, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtual_feature_flag_key
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.events import (
-    EVENTS_TABLE_TYPES,
-    EventsGroupSubTable,
-    EventsPersonSubTable,
-    EventsTable,
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
+from posthog.hogql.database.schema.events_with_flag_calls import (
+    EVENT_ROW_TABLES,
+    EventsWithFlagCallsTable,
+    union_table_of,
 )
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
@@ -23,8 +25,8 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
-from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
+from posthog.dataclasses import frozen
 
 _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractString": ("String", ""),
@@ -113,11 +115,11 @@ class PropertyFinder(TraversingVisitor):
                             if self.group_properties.get(global_group_id) is None:
                                 self.group_properties[global_group_id] = set()
                             self.group_properties[global_group_id].add(property_name)
-                if isinstance(resolved_table, EventsPersonSubTable):
+                if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
-                elif isinstance(resolved_table, EventsTable):
+                elif isinstance(resolved_table, EVENT_ROW_TABLES):
                     self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
@@ -128,6 +130,24 @@ class PropertyFinder(TraversingVisitor):
             self.found_timestamps = True
 
 
+@frozen
+class ToTimeZoneParts:
+    bare_field: ast.Expr
+    timezone: str
+    other_side: ast.Expr
+    swapped: bool
+
+
+_PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
+
+# ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
+# toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
+# ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
+# Numeric-typed property in one of these, we must not auto-convert the property
+# to Float, the raw String value has to flow through for the parser to work.
+STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
+
+
 class PropertySwapper(CloningVisitor):
     _RANGE_OPS: set[str] = {
         ast.CompareOperationOp.Gt,
@@ -135,13 +155,6 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
     }
-
-    # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
-    # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
-    # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
-    # Numeric-typed property in one of these, we must not auto-convert the property
-    # to Float, the raw String value has to flow through for the parser to work.
-    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"}
 
     # ClickHouse array-membership functions whose first argument must be an array. Users write these
     # against exception properties (e.g. hasAny(properties.$exception_values, [...])), but those
@@ -158,7 +171,10 @@ class PropertySwapper(CloningVisitor):
         group_properties: dict[str, dict[str, str | None]],
         context: HogQLContext,
         setTimeZones: bool,
+        before_lazy_tables: bool = False,
     ):
+        """`before_lazy_tables` marks the pass that runs before lazy tables resolve. Of the event and person
+        properties, that pass converts only the reads of a union scan, and the pass after it converts the rest."""
         super().__init__(clear_types=False)
         self.timezone = timezone
         self.event_properties = event_properties
@@ -169,6 +185,24 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self.before_lazy_tables = before_lazy_tables
+        self._union_scan_depth = 0
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
+        if not (
+            isinstance(node.type, ast.SelectQueryAliasType)
+            and isinstance(node.type.lazy_table, EventsWithFlagCallsTable)
+        ):
+            return super().visit_join_expr(node)
+        # Only the table is the union. The constraint and the joins after it read other tables.
+        self._union_scan_depth += 1
+        try:
+            table = self.visit(node.table)
+        finally:
+            self._union_scan_depth -= 1
+        joined = super().visit_join_expr(dataclasses.replace(node, table=None))
+        joined.table = table
+        return joined
 
     def visit_select_query(self, node: ast.SelectQuery):
         # We need to track when we're inside WHERE/PREWHERE so that the
@@ -231,7 +265,7 @@ class PropertySwapper(CloningVisitor):
         )
 
     def visit_call(self, node: ast.Call):
-        rewritten = self._try_rewrite_json_extract_to_mat_column(node)
+        rewritten = self._rewrite_json_property_call(node)
         if rewritten is not None:
             return rewritten
 
@@ -239,7 +273,7 @@ class PropertySwapper(CloningVisitor):
         # string. Re-evaluated per call, so nested non-parsing calls (e.g.
         # toFloatOrZero(toString(prop))) correctly reset the flag.
         saved_suppress = self._suppress_numeric_conversion
-        self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
+        self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS
 
         self._inside_call_depth += 1
         try:
@@ -278,7 +312,7 @@ class PropertySwapper(CloningVisitor):
         table_type = type.field_type.table_type
         if not isinstance(table_type, ast.BaseTableType):
             return False
-        return isinstance(table_type.resolve_database_table(self.context), EventsTable)
+        return isinstance(table_type.resolve_database_table(self.context), EVENT_ROW_TABLES)
 
     @staticmethod
     def _extract_string_array(field: ast.Expr) -> ast.Call:
@@ -295,19 +329,21 @@ class PropertySwapper(CloningVisitor):
             ),
         )
 
-    def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Expr | None:
-        """Rewrite safe direct JSON property extraction to avoid reading the raw JSON blob.
+    def _rewrite_json_property_call(self, node: ast.Call) -> ast.Expr | None:
+        """A JSON function on `properties` with a constant first key reads that key instead of the whole document.
 
-        When users write raw JSONExtractString(properties, '$foo') in HogQL, ClickHouse otherwise decompresses the full
-        properties JSON blob. Under the native JSON events schema, scalar extracts with constant string paths become
-        direct JSON subcolumn reads plus an explicit cast. Under the legacy schema, simple extracts still rewrite through
-        property access only when that can resolve to an equivalent materialized column.
+        On the native events table `properties` is a JSON column, so a JSON function over it needs the document rebuilt
+        as text from every subcolumn, once per row. With a constant first key, only that key's value is serialized and
+        the function runs on it, for the same answer at a fraction of the cost. The ClickHouse property resolver later
+        removes even that serialization for string, float and Bool extraction (`_rewrite_scalar_json_extract`).
 
-        Complex typed JSONExtract(...) values are left alone because ClickHouse's native JSON subcolumn access exposes
-        leaf values reliably, but not every object/array path round-trips as a standalone subcolumn value.
+        The read is marked `as_json`, so the metadata pass leaves it unconverted and the JSON function determines
+        conversion and defaults. `JSONHas` keeps the whole document: a key holding JSON null and a missing key read the
+        same from a subcolumn, but `JSONHas` tells them apart. Legacy calls rewrite only when an equivalent materialized
+        column exists.
         """
         property_path = self._simple_json_extract_property_path(node)
-        if node.name not in ("JSONExtract", "JSONExtractRaw", *_JSON_EXTRACT_SCALAR_CASTS):
+        if node.name not in JSON_KEY_PATH_FUNCTIONS or node.name == "JSONHas":
             return None
         if not node.args:
             return None
@@ -316,6 +352,15 @@ class PropertySwapper(CloningVisitor):
         field_arg = node.args[0]
         if isinstance(field_arg, ast.Alias):
             field_arg = field_arg.expr
+        if (
+            self.context.uses_new_events_schema()
+            and isinstance(field_arg, ast.Call)
+            and field_arg.name == "toString"
+            and len(field_arg.args) == 1
+        ):
+            field_arg = field_arg.args[0]
+            if isinstance(field_arg, ast.Alias):
+                field_arg = field_arg.expr
         if not isinstance(field_arg, ast.Field):
             return None
 
@@ -340,6 +385,19 @@ class PropertySwapper(CloningVisitor):
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
+        # events_json holds no `$feature/<key>` subcolumns: the rebuilt document, or the resolver's map read, serves
+        # these keys with the boolean or string type the SDK sent.
+        if (
+            self.context.uses_new_events_schema()
+            and table_name == "events"
+            and database_field.name == "properties"
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+            and is_virtual_feature_flag_key(node.args[1].value)
+        ):
+            return None
+
         if (
             self.context.uses_new_events_schema()
             and table_name == "events"
@@ -349,11 +407,12 @@ class PropertySwapper(CloningVisitor):
                 "person_properties",
             )
         ):
-            if property_path is None:
-                if self._json_extract_has_runtime_path(node):
-                    raise QueryError("JSONExtract over native event properties requires a constant first key")
+            first_key = self._json_extract_first_key(node)
+            if first_key is None:
+                # A key computed per row can name any property, so the call keeps the whole document. The native
+                # document stores `$feature/<key>` in the `$feature_flags` map, so a key naming a flag reads as missing.
                 return None
-            return self._json_extract_subcolumn_expr(node, field_arg, field_type, property_path)
+            return self._json_extract_subcolumn_expr(node, field_arg, field_type, first_key)
 
         if property_path is None:
             return None
@@ -383,14 +442,14 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _simple_json_extract_property_path(node: ast.Call) -> list[str | int] | None:
-        if node.name == "JSONExtract":
+        if node.name in JSON_TYPED_PATH_FUNCTIONS:
             if len(node.args) < 3:
                 return None
             type_arg = node.args[-1]
             if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
                 return None
             path_args = node.args[1:-1]
-        elif node.name in _JSON_EXTRACT_SCALAR_CASTS or node.name == "JSONExtractRaw":
+        elif node.name in JSON_KEY_PATH_FUNCTIONS:
             path_args = node.args[1:]
         else:
             return None
@@ -406,23 +465,20 @@ class PropertySwapper(CloningVisitor):
         return property_path
 
     @staticmethod
-    def _json_extract_has_runtime_path(node: ast.Call) -> bool:
-        if node.name == "JSONExtract":
-            path_args = node.args[1:-1]
-        elif node.name in _JSON_EXTRACT_SCALAR_CASTS or node.name == "JSONExtractRaw":
-            path_args = node.args[1:]
-        else:
-            return False
-        return any(not isinstance(arg, ast.Constant) for arg in path_args)
+    def _json_extract_first_key(node: ast.Call) -> str | int | None:
+        path_args = node.args[1:-1] if node.name in JSON_TYPED_PATH_FUNCTIONS else node.args[1:]
+        if not path_args or not isinstance(path_args[0], ast.Constant):
+            return None
+        first_key = path_args[0].value
+        return first_key if isinstance(first_key, str | int) else None
 
     def _json_extract_subcolumn_expr(
         self,
         node: ast.Call,
         field_arg: ast.Field,
         field_type: ast.FieldType,
-        property_path: list[str | int],
+        first_key: str | int,
     ) -> ast.Expr | None:
-        first_key = property_path[0]
         if not isinstance(first_key, str):
             return ast.Call(
                 start=node.start,
@@ -449,23 +505,19 @@ class PropertySwapper(CloningVisitor):
                 order_by=node.order_by,
                 filter_expr=node.filter_expr,
             )
-        property_field = ast.Field(
+        property_value = ast.Field(
             start=node.start,
             end=node.end,
             chain=[*field_arg.chain, first_key],
-            type=ast.PropertyType(chain=[first_key], field_type=field_type),
+            # The function parses this value as JSON, so the read is marked `as_json` and the metadata pass leaves a
+            # typed key unconverted.
+            type=ast.PropertyType(chain=[first_key], field_type=field_type, as_json=True),
         )
-        subcolumns = (
-            EVENTS_PROPERTIES_JSON_SUBCOLUMNS if field_type.name == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+        property_document: ast.Expr = ast.Call(
+            name="toJSONString",
+            args=[property_value],
+            type=ast.StringType(nullable=True),
         )
-        declared_type = subcolumns.get(first_key)
-        property_document: ast.Expr = property_field
-        if len(property_path) == 1 or declared_type not in ("String", "Nullable(String)"):
-            property_document = ast.Call(
-                name="toJSONString",
-                args=[property_field],
-                type=ast.StringType(nullable=True),
-            )
         property_document = ast.Call(
             name="ifNull",
             args=[
@@ -475,9 +527,7 @@ class PropertySwapper(CloningVisitor):
             type=ast.StringType(nullable=False),
         )
 
-        # Keep ClickHouse's JSONExtract implementation as the source of truth for coercion and
-        # default-value semantics. Only replace the full document with the first requested
-        # property's serialized value, then apply any remaining path components unchanged.
+        # Keep remaining indices on the JSON function: integer indices can address both arrays and object members.
         return ast.Call(
             start=node.start,
             end=node.end,
@@ -548,30 +598,28 @@ class PropertySwapper(CloningVisitor):
         We only do this for top-level range comparisons (not inside function
         calls like if(), coalesce()) via the _inside_call_depth guard.
         """
-        bare_field, tz, constant, swapped = self._extract_toTimeZone_parts(node)
-        if bare_field is None or tz is None or constant is None:
+        parts = self._extract_toTimeZone_parts(node)
+        if parts is None:
             return None
 
-        tz_constant = self._ensure_constant_has_timezone(constant, tz)
+        tz_constant = self._anchor_to_timezone(parts.other_side, parts.timezone)
 
-        if swapped:
-            return ast.CompareOperation(left=tz_constant, right=bare_field, op=node.op)
+        if parts.swapped:
+            return ast.CompareOperation(left=tz_constant, right=parts.bare_field, op=node.op)
         else:
-            return ast.CompareOperation(left=bare_field, right=tz_constant, op=node.op)
+            return ast.CompareOperation(left=parts.bare_field, right=tz_constant, op=node.op)
 
     @staticmethod
-    def _extract_toTimeZone_parts(
-        node: ast.CompareOperation,
-    ) -> tuple[ast.Expr | None, str | None, ast.Expr | None, bool]:
-        """Extract (bare_field, timezone, constant, swapped) from a comparison
+    def _extract_toTimeZone_parts(node: ast.CompareOperation) -> ToTimeZoneParts | None:
+        """Extract the bare field, timezone, other side and side from a comparison
         where one side is toTimeZone(field, tz).
 
-        Returns (None, None, None, False) if the pattern doesn't match.
+        Returns None if the pattern doesn't match.
         swapped=True means the toTimeZone was on the right side.
         """
         for left_is_tz in (True, False):
             tz_side = node.left if left_is_tz else node.right
-            const_side = node.right if left_is_tz else node.left
+            other_side = node.right if left_is_tz else node.left
 
             inner = tz_side
             if isinstance(inner, ast.Alias):
@@ -579,39 +627,34 @@ class PropertySwapper(CloningVisitor):
             if isinstance(inner, ast.Call) and inner.name == "toTimeZone" and len(inner.args) == 2:
                 tz_arg = inner.args[1]
                 if isinstance(tz_arg, ast.Constant) and isinstance(tz_arg.value, str):
-                    return inner.args[0], tz_arg.value, const_side, not left_is_tz
+                    return ToTimeZoneParts(
+                        bare_field=inner.args[0],
+                        timezone=tz_arg.value,
+                        other_side=other_side,
+                        swapped=not left_is_tz,
+                    )
 
-        return None, None, None, False
+        return None
 
     @staticmethod
-    def _ensure_constant_has_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
-        """Wrap a constant expression with toDateTime64(..., 6, tz) if it doesn't
-        already carry timezone information.
-
-        Constants that are already wrapped in toDateTime64/toDateTime with a tz
-        argument are left unchanged. Bare string/datetime constants get wrapped.
-        """
+    def _anchor_to_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
         inner = expr
         if isinstance(inner, ast.Alias):
             inner = inner.expr
 
-        # Already has timezone: toDateTime64('...', 6, 'tz') or toDateTime('...', 'tz')
         if isinstance(inner, ast.Call):
-            if inner.name == "toDateTime64" and len(inner.args) == 3:
-                return expr
-            if inner.name == "toDateTime" and len(inner.args) == 2:
+            if inner.name in ("toDateTime", "toDateTime64"):
                 return expr
             # Recurse into wrapper functions like assumeNotNull(toDateTime(...))
             if inner.name in ("assumeNotNull",) and len(inner.args) == 1:
-                wrapped_arg = PropertySwapper._ensure_constant_has_timezone(inner.args[0], tz)
+                wrapped_arg = PropertySwapper._anchor_to_timezone(inner.args[0], tz)
                 if wrapped_arg is not inner.args[0]:
-                    new_call = ast.Call(name=inner.name, args=[wrapped_arg])
-                    if isinstance(expr, ast.Alias):
-                        return ast.Alias(alias=expr.alias, expr=new_call)
-                    return new_call
+                    new_call = ast.Call(
+                        name=inner.name, args=[wrapped_arg], type=PropertySwapper._datetime_call_type(inner.name, False)
+                    )
+                    return PropertySwapper._replace_keeping_alias(expr, new_call)
                 return expr
 
-        # Bare constant — wrap with toDateTime64 carrying the timezone.
         # Skip if the value is already a timezone-aware datetime: the printer
         # converts it to the team timezone and emits toDateTime64('...', 6, tz)
         # regardless of the constant's original tzinfo (see escape_sql.py:249).
@@ -622,17 +665,33 @@ class PropertySwapper(CloningVisitor):
             if (zoned := parse_zoned_datetime_string(inner.value)) is not None:
                 inner.value = zoned
                 return expr
-            new_call = ast.Call(
-                name="toDateTime64",
-                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
-            )
-            if isinstance(expr, ast.Alias):
-                return ast.Alias(alias=expr.alias, expr=new_call)
-            return new_call
 
-        # For anything else (arithmetic, other calls), leave as-is.
-        # These typically already produce timezone-aware values.
-        return expr
+        new_call = ast.Call(
+            name="toDateTime64",
+            args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
+            type=PropertySwapper._datetime_call_type("toDateTime64", PropertySwapper._is_nullable_bound(inner)),
+        )
+        return PropertySwapper._replace_keeping_alias(expr, new_call)
+
+    @staticmethod
+    def _replace_keeping_alias(expr: ast.Expr, replacement: ast.Expr) -> ast.Expr:
+        if isinstance(expr, ast.Alias):
+            return ast.Alias(alias=expr.alias, expr=replacement, hidden=expr.hidden)
+        return replacement
+
+    @staticmethod
+    def _datetime_call_type(name: str, nullable: bool) -> ast.CallType:
+        return ast.CallType(name=name, arg_types=[], return_type=ast.DateTimeType(nullable=nullable))
+
+    @staticmethod
+    def _is_nullable_bound(expr: ast.Expr) -> bool:
+        if isinstance(expr, ast.Constant):
+            return expr.value is None
+        if isinstance(expr.type, ast.CallType):
+            return expr.type.return_type.nullable
+        if isinstance(expr.type, ast.ConstantType):
+            return expr.type.nullable
+        return True
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
@@ -663,52 +722,72 @@ class PropertySwapper(CloningVisitor):
                 return self._field_type_to_property_call(node, prop_type)
 
         type = node.type
-        if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
+        if isinstance(type, ast.PropertyType) and type.as_json:
+            # The read is consumed as JSON text, so it keeps the stored value whatever the property's type.
+            return node
+        if isinstance(type, ast.PropertyType):
+            definition = self._property_definition(type)
+            if definition is not None:
+                return self._convert_string_property_to_type(node, *definition)
+        return node
+
+    def _property_definition(self, type: ast.PropertyType) -> tuple[Literal["event", "person", "group"], str] | None:
+        """The metadata entry that applies to this property read, as its kind and key, or None when none does."""
+        if type.field_type.name == "properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if (
                 isinstance(type.field_type.table_type, ast.VirtualTableType)
                 and type.field_type.table_type.field == "poe"
             ):
                 if property_name in self.person_properties:
-                    return self._convert_string_property_to_type(node, "person", property_name)
+                    return ("person", property_name)
             elif isinstance(type.field_type.table_type, ast.BaseTableType):
                 table_type = type.field_type.table_type
                 resolved_table = table_type.resolve_database_table(self.context)
                 if isinstance(resolved_table, (PersonsTable, RawPersonsTable)):
                     if property_name in self.person_properties:
-                        return self._convert_string_property_to_type(node, "person", property_name)
+                        return ("person", property_name)
                 if isinstance(resolved_table, GroupsTable):
                     if isinstance(table_type, ast.LazyJoinType):
                         if table_type.field.startswith("group_"):
                             group_id = int(table_type.field.split("_")[1])
                             if f"{group_id}_{property_name}" in self.group_properties:
-                                return self._convert_string_property_to_type(
-                                    node, "group", f"{group_id}_{property_name}"
-                                )
+                                return ("group", f"{group_id}_{property_name}")
                     elif isinstance(table_type, ast.LazyTableType):
                         global_group_id: Optional[int] = (
                             self.context.globals.get("group_id") if self.context.globals else None
                         )
                         if isinstance(global_group_id, int):
                             if f"{global_group_id}_{property_name}" in self.group_properties:
-                                return self._convert_string_property_to_type(
-                                    node, "group", f"{global_group_id}_{property_name}"
-                                )
-                if isinstance(resolved_table, EventsPersonSubTable):
+                                return ("group", f"{global_group_id}_{property_name}")
+                if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
                     if property_name in self.person_properties:
-                        return self._convert_string_property_to_type(node, "person", property_name)
-                elif isinstance(resolved_table, EventsTable):
+                        return ("person", property_name)
+                elif isinstance(resolved_table, EVENT_ROW_TABLES):
                     if property_name in self.event_properties:
-                        return self._convert_string_property_to_type(node, "event", property_name)
-        if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
+                        return ("event", property_name)
+        if type.field_type.name == "person_properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
                 resolved_table = type.field_type.table_type.resolve_database_table(self.context)
-                if isinstance(resolved_table, EVENTS_TABLE_TYPES):
+                if isinstance(resolved_table, _PERSON_PROPERTIES_TABLES):
                     if property_name in self.person_properties:
-                        return self._convert_string_property_to_type(node, "person", property_name)
+                        return ("person", property_name)
+        return None
 
-        return node
+    def converts(self, type: ast.PropertyType) -> bool:
+        """Whether this pass replaces the property read with a typed conversion, so a caller that serializes the read
+        itself knows whether the stored value or the converted value is what a direct read yields."""
+        definition = self._property_definition(type)
+        if definition is None:
+            return False
+        kind, property_name = definition
+        properties_by_type = {
+            "event": self.event_properties,
+            "person": self.person_properties,
+            "group": self.group_properties,
+        }
+        return properties_by_type[kind].get(property_name, {}).get("type") in ("Numeric", "Boolean", "DateTime")
 
     def _convert_string_property_to_type(
         self,
@@ -721,6 +800,8 @@ class PropertySwapper(CloningVisitor):
             "person": self.person_properties,
             "group": self.group_properties,
         }
+        if property_type != "group" and not self._converts_event_or_person_property(node):
+            return node
         prop_info = properties_by_type[property_type].get(property_name, {})
         field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
 
@@ -737,6 +818,16 @@ class PropertySwapper(CloningVisitor):
         # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as
         # the JSON fallback.
         return self._field_type_to_property_call(node, field_type)
+
+    def _converts_event_or_person_property(self, node: ast.Field) -> bool:
+        # Lazy tables move a union scan's property reads into branches, away from a call such as toFloatOrZero that
+        # needs the raw value. The pass before lazy tables converts each read at its call, so the branches stay raw.
+        if self._union_scan_depth > 0:
+            return False
+        if not self.before_lazy_tables:
+            return True
+        assert isinstance(node.type, ast.PropertyType)
+        return union_table_of(node.type.field_type.table_type) is not None
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":

@@ -3,7 +3,7 @@
 `SignalScoutConfig.enabled` only ever moves by hand, so a scout nobody is getting value from
 keeps spending sandbox runs on its cadence indefinitely. This module is the missing stop: once a
 day (`tasks.pause_inactive_signal_scouts`, deliberately not the 30-minute coordinator tick, which
-is kept short-lived and bounded) it decides whether each enabled scout is still earning its runs.
+is kept bounded) it decides whether each enabled scout is still earning its runs.
 
 The sweep judges **consumption, not emission**. Emitting a report is not evidence anyone wanted
 it; a scout that files report after report nobody acts on is the expensive failure mode (a full
@@ -37,7 +37,8 @@ attribution on status transitions.
 The `ignored` verdict only applies when there is fair evidence to judge: the scout must hold at
 least one touched report older than `ESTABLISHED_REPORT_AGE` (a report nobody has seen yet is
 not a report nobody wanted), and Slack-routed scouts are exempt from it entirely because their
-output is consumed in Slack where no evidence flows back. A scout with output but no judgeable
+output is consumed in Slack where no evidence flows back. A scout that keeps its reports out of
+the inbox is exempt for the same reason. A scout with output but no judgeable
 report evidence (findings-only, Slack-routed, or all reports too fresh) is left alone.
 
 The sweep speaks the scout lifecycle vocabulary rather than keeping fields of its own. Every
@@ -48,8 +49,10 @@ warning becomes `ignored` when report evidence establishes, and an `ignored` war
 to `no_output` when its evidence ages out, so a pause never lands on stale grounds), and
 whose `evaluated_at` check makes a racing human edit win over a sweep decision made on stale
 reads. There is no half-open probe on this axis: an inactivity pause never runs again on its
-own; a human re-enable is the only exit, and the update serializer marks that re-enable
-`auto_pause_exempt` so the sweep never overrules it.
+own; a human re-enable is the only exit. A resume re-anchors `in_cold_start_grace`, so the
+sweep waits a full fresh window and re-derives its verdict before judging the scout again;
+permanent immunity is the explicit `auto_pause_exempt` flag's job, never a side effect of the
+resume.
 """
 
 from __future__ import annotations
@@ -71,7 +74,9 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalScoutConfig,
     SignalScoutRun,
+    scout_lists_reports_in_inbox,
 )
+from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.slack_delivery import get_scout_slack_destination
 
 logger = structlog.get_logger(__name__)
@@ -127,6 +132,8 @@ _ENGAGEMENT_ARTEFACT_TYPES: frozenset[str] = SignalReportArtefact.LOG_ARTEFACT_T
 _ENGAGED_REPORT_STATUSES: frozenset[str] = frozenset(
     {
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.MONITORING,
+        SignalReport.Status.CLOSED,
         SignalReport.Status.DELETED,
     }
 )
@@ -224,10 +231,13 @@ def _apply_verdict(config: SignalScoutConfig, assessment: TeamAssessment, outcom
     if name not in assessment.judgeable:
         return
 
-    # A Slack-routed scout's output is consumed in Slack, where no evidence flows back, so the
-    # `ignored` verdict cannot be trusted for it. Its silence still warns below.
-    slack_routed = get_scout_slack_destination(config.output_destinations) is not None
-    if name in assessment.judged_on_reports and not slack_routed:
+    # A Slack-routed scout's output is consumed in Slack, and a scout kept out of the inbox is read
+    # elsewhere too, so no evidence flows back and the `ignored` verdict cannot be trusted for it.
+    # Its silence still warns below.
+    consumed_outside_inbox = get_scout_slack_destination(
+        config.output_destinations
+    ) is not None or not scout_lists_reports_in_inbox(config.output_destinations)
+    if name in assessment.judged_on_reports and not consumed_outside_inbox:
         _apply_ignored_verdict(config, outcome, now, had_output=name in assessment.emitted, sweep_warned=sweep_warned)
         return
 
@@ -349,6 +359,7 @@ def _assess_team(team_id: int, skill_names: list[str], now: datetime) -> TeamAss
             skill_name__in=skill_names,
             created_at__gte=now - TOUCHED_REPORT_LOOKBACK,
         )
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         .values_list("skill_name", "created_at", "emitted_finding_ids", "emitted_report_ids", "edited_report_ids")
     )
 
@@ -405,11 +416,12 @@ def _engaged_report_ids(team_id: int, report_ids: set[str], window_start: dateti
         ).values_list("id", flat=True)
     }
     # The light-interaction feed (`viewed` endpoint, thumbs rating): every row is a person by
-    # construction, and every action type counts — reading is how digest-style reports are
+    # construction. Bulk read-state changes are excluded: reading is how digest-style reports are
     # consumed, so a recent open is as much a rescue as a note.
     engaged |= {
         str(report_id)
         for report_id in SignalReportAction.objects.for_team(team_id)
+        .exclude(type=SignalReportAction.ActionType.READ)
         .filter(
             report_id__in=report_ids,
             last_at__gte=window_start,

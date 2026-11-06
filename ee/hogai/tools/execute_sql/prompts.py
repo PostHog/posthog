@@ -4,8 +4,10 @@ Use this tool to generate a HogQL query, which is PostHog's variant of SQL that 
 # Important HogQL differences versus other SQL dialects
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
-- toFloat64OrNull() and toFloat64() are not supported, if you use them, the query will fail. Use toFloat() instead.
+- Width-suffixed conversion functions (toInt64, toInt32, toFloat64, toUInt8, etc., including their OrNull/OrZero variants like toInt32OrNull, toFloat64OrZero) are not supported, if you use them, the query will fail. Use the unsuffixed form instead: toInt(), toFloat(), toUInt() and their OrNull/OrZero variants (toIntOrNull, toFloatOrZero, toUIntOrNull, ...).
 - Conversion functions with 'OrZero' or 'OrNull' suffix (like toDateOrNull, toIntOrNull) require String arguments. If you have a DateTime/numeric value, use the direct conversion instead (toDate, toInt) or convert to string first with toString(). Example: use toDate(timestamp) NOT toDateOrNull(toTimeZone(timestamp, 'UTC')).
+- toDate() takes exactly one argument. It does not accept a timezone argument like ClickHouse's toDate(value, timezone). Convert to the desired timezone first with toTimeZone(), then wrap in toDate(). Example: toDate(toTimeZone(timestamp, 'US/Pacific')) NOT toDate(timestamp, 'US/Pacific').
+- The ClickHouse `SETTINGS` clause is not supported in HogQL and will always cause an "Unsupported: SelectStmt.settingsClause()" error. Do not append `SETTINGS ...` to a query, even to tune things like `max_execution_time` or `join_algorithm`.
 - LAG()/LEAD() are not supported. Instead, use lagInFrame()/leadInFrame().
   Caution: lagInFrame/leadInFrame behavior differs from the standard SQL LAG/LEAD window function.
   The HogQL window functions lagInFrame/leadInFrame respect the window frame. To get behavior identical to LAG/LEAD, use `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`.
@@ -40,6 +42,14 @@ For LLM events ($ai_generation, $ai_trace, $ai_span, $ai_embedding, etc.) the he
 Metadata (token counts, costs, model, $ai_trace_id, latency, error flags) stays on `events` and is safe to query there. `posthog.ai_events` is `ORDER BY (team_id, trace_id, timestamp)`, so anchor on `trace_id`, never scan by timestamp. Rows are dropped after the retention period (30 days by default), so an empty result means the content aged out, not that nothing happened.
 - Single trace: `SELECT input, output_choices FROM posthog.ai_events WHERE trace_id = '<id>' ORDER BY timestamp`
 - Batch: filter the timestamp-indexed `events` table for trace IDs first, then fetch content from `posthog.ai_events` anchored on `trace_id`.
+
+# Feature flag calls
+`$feature_flag_called` records a flag evaluation. `$feature_flag` holds the flag key, and `$feature_flag_response` holds the result: `true`, `false`, or a variant key.
+Some organizations keep these calls only in `posthog.flag_evaluations`, for 90 days, and no longer in `events`.
+- Read flag calls from `events` in a scan whose WHERE clause filters `event` to `$feature_flag_called` alone. That works for every organization, because PostHog reads such a scan from `posthog.flag_evaluations` when the organization keeps its calls there.
+- A scan that filters `event` to flag calls and other events together, such as `event IN ('$feature_flag_called', '$pageview')`, or that has no `event` filter, can find no flag calls for those organizations and raise no error. Give the flag calls their own scan, for example their own branch of a `UNION ALL`.
+- An error that says the organization's `$feature_flag_called` events are only in `posthog.flag_evaluations` means that table exists. Select named columns instead of `*`, or query `posthog.flag_evaluations` directly. Its `flag_key` and `response` columns hold the flag key and the result.
+- Those organizations can have no definition of `$feature_flag_called` or its properties. A missing definition is not evidence that nothing calls a flag. Count the calls with SQL.
 
 # Linked tables
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
@@ -86,9 +96,9 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
   - To remove all editor filters while preserving the placeholder, pass an empty `filters` object (`{}`).
   - Do not replace the placeholder with explicit `timestamp` clauses when the user's request can be represented in `filters.dateRange`.
   - Supported filter placeholders are `{filters}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`, and the column-bound form `{filters(expr AS key, ...)}`.
-  - Plain `{filters}` can be used only in SELECT queries that select from PostHog event-like tables: `events`, `ai_events`, `sessions`, `logs`, log attributes, traces, or `groups`.
-  - Date filters map to `timestamp` for events/logs/traces, `$start_timestamp` for sessions, and `created_at` for groups.
-  - `filters` can include `dateRange` (`date_from`, `date_to`), `filterTestAccounts`, and `properties`. Property filters apply to event scope on event/log/trace queries, group scope on `groups`, and session scope on `sessions` unless the query also includes `events`.
+  - Plain `{filters}` can be used only in SELECT queries that select from PostHog event-like tables: `events`, `ai_events`, `sessions`, `logs`, log attributes, traces, `groups`, or `persons`.
+  - Date filters map to `timestamp` for events/logs/traces, `$start_timestamp` for sessions, and `created_at` for groups and persons.
+  - `filters` can include `dateRange` (`date_from`, `date_to`), `filterTestAccounts`, and `properties`. Property filters apply to event scope on event/log/trace queries, group scope on `groups`, person scope on queries selecting only `persons`, and session scope on `sessions` unless the query also includes `events`.
   - For any other table, view, or join (including data warehouse/source tables), use the column-bound form, for example `{filters(created_at AS timestamp, account_id AS 'account_id')}`:
     - The reserved key `timestamp` receives the date range. Any other key (a string alias like `'plan'` or `'$group_0'`) receives the property filters on that key, with full operator semantics.
     - `null AS key` opts the query out of filtering on that key. An active filter with no binding raises an error, so bind or explicitly opt out of every filter key in use.

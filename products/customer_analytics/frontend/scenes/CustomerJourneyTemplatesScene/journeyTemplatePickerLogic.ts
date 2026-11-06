@@ -7,8 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightType, QueryBasedInsightModel } from '~/types'
+import { InsightType, InsightModel } from '~/types'
 
 import type { AnyEntityNode, Node } from '../../../../../frontend/src/queries/schema/schema-general'
 import { customerAnalyticsConfigLogic } from '../../customerAnalyticsConfigLogic'
@@ -20,7 +19,7 @@ export interface journeyTemplatePickerLogicValues {
     paymentEvent: AnyEntityNode // customerAnalyticsConfigLogic
     signupEvent: AnyEntityNode // customerAnalyticsConfigLogic
     signupPageviewEvent: AnyEntityNode // customerAnalyticsConfigLogic
-    funnels: QueryBasedInsightModel[]
+    funnels: InsightModel[]
     funnelsLoading: boolean
     isFreeToPaidAvailable: boolean
     isSignupConversionAvailable: boolean
@@ -47,12 +46,12 @@ export interface journeyTemplatePickerLogicActions {
         errorObject?: any
     }
     loadFunnelsSuccess: (
-        funnels: QueryBasedInsightModel<Node<Record<string, any>>>[],
+        funnels: InsightModel<Node<Record<string, any>>>[],
         payload?: {
             value: true
         }
     ) => {
-        funnels: QueryBasedInsightModel<Node<Record<string, any>>>[]
+        funnels: InsightModel<Node<Record<string, any>>>[]
         payload?: {
             value: true
         }
@@ -118,7 +117,7 @@ export const journeyTemplatePickerLogic = kea<journeyTemplatePickerLogicType>([
 
     lazyLoaders(({ values }) => ({
         funnels: {
-            __default: [] as QueryBasedInsightModel[],
+            __default: [] as InsightModel[],
             loadFunnels: async (_, breakpoint) => {
                 await breakpoint(300)
                 const response = await api.insights.list({
@@ -126,7 +125,7 @@ export const journeyTemplatePickerLogic = kea<journeyTemplatePickerLogicType>([
                     insight: InsightType.FUNNELS,
                     ...(values.searchTerm ? { search: values.searchTerm } : {}),
                 })
-                return response.results.map((insight) => getQueryBasedInsightModel(insight))
+                return response.results
             },
         },
     })),

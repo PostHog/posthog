@@ -2,10 +2,18 @@ from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
+from posthog.event_usage import EventSource
 from posthog.models import Team, User
+from posthog.taxonomy.dynamic_properties import PropertyScope, dynamic_property_patterns, format_dynamic_property_lines
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
-from ee.hogai.utils.helpers import format_events_yaml, get_event_description
+from ee.hogai.chat_agent.taxonomy.entities import resolve_entity_name
+from ee.hogai.utils.helpers import format_events_yaml, get_event_description, get_event_owner
+
+ENTITY_FIELD_DESCRIPTION = (
+    "The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. "
+    "The plural form of any of these is accepted too."
+)
 
 
 class ReadEvents(BaseModel):
@@ -17,7 +25,7 @@ class ReadEvents(BaseModel):
 
 
 class ReadEventProperties(BaseModel):
-    """Returns the description (if one is set) and properties list for a provided event. Before calling this tool, ensure the event exists by reading events."""
+    """Returns the description and owner (if set) and properties list for a provided event. Before calling this tool, ensure the event exists by reading events."""
 
     kind: Literal["event_properties"] = "event_properties"
     event_name: str = Field(description="The name of the event that you want to retrieve properties for.")
@@ -27,7 +35,7 @@ class ReadEntityProperties(BaseModel):
     """Returns the properties list for a provided entity."""
 
     kind: Literal["entity_properties"] = "entity_properties"
-    entity: str = Field(description="The type of the entity that you want to retrieve properties for.")
+    entity: str = Field(description=ENTITY_FIELD_DESCRIPTION)
     # Keep entity as string to allow for dynamic entity types.
 
 
@@ -42,7 +50,7 @@ class ReadEntitySamplePropertyValues(BaseModel):
     """For a provided entity and a property, returns a list of maximum 25 sample values that the combination has."""
 
     kind: Literal["entity_property_values"] = "entity_property_values"
-    entity: str = Field(description="The type of the entity that you want to retrieve properties for.")
+    entity: str = Field(description=ENTITY_FIELD_DESCRIPTION)
     # Keep entity as string to allow for dynamic entity types.
     property_name: str = Field(description="Verified property name of an entity.")
 
@@ -78,23 +86,34 @@ class ReadTaxonomyToolArgs(BaseModel):
     query: ReadTaxonomyQuery = Field(..., discriminator="kind")
 
 
-DYNAMIC_PERSON_PROPERTIES_HINT = """
-NOTE: Some person properties follow dynamic naming patterns and will NOT appear in the list above.
-If the user's question involves surveys, feature flags, early access features, or product tours, construct the property name using these patterns:
-- $survey_dismissed/{survey_id}, $survey_responded/{survey_id} — Boolean, survey dismiss/response tracking
-- $feature_enrollment/{flag_key} — Boolean, early access feature enrollment
-- $feature_interaction/{feature_key} — Boolean, feature interaction tracking
-- $product_tour_dismissed/{tour_id}, $product_tour_shown/{tour_id}, $product_tour_completed/{tour_id} — Boolean, product tour lifecycle
-""".strip()
+def _dynamic_properties_hint(scope: PropertyScope) -> str:
+    """List the dynamic property names of one scope, so the agent can build one it cannot look up.
 
-DYNAMIC_EVENT_PROPERTIES_HINT = """
-NOTE: Some event properties follow dynamic naming patterns and will NOT appear in the list above.
-If the user's question involves feature flags, construct the property name using this pattern:
-- $feature/{flag_key} — the feature flag value for a specific flag
-""".strip()
+    Generated from `DYNAMIC_PROPERTY_PATTERNS` rather than written out, because the HogQL taxonomy
+    check reads the same list. A name documented here but missing there gets reported back to the
+    caller as unknown, which reads as a broken taxonomy.
+    """
+    return "\n".join(
+        [
+            f"NOTE: Some {scope} properties follow dynamic naming patterns and will NOT appear in the list above.",
+            "Each name below ends in an id or a key, so construct it yourself when the user's question needs it:",
+            format_dynamic_property_lines(dynamic_property_patterns(scope)),
+        ]
+    )
 
 
-def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolkit, team: Team, user: User) -> str:
+DYNAMIC_PERSON_PROPERTIES_HINT = _dynamic_properties_hint("person")
+
+DYNAMIC_EVENT_PROPERTIES_HINT = _dynamic_properties_hint("event")
+
+
+def execute_taxonomy_query(
+    query: ReadTaxonomyQuery,
+    toolkit: TaxonomyAgentToolkit,
+    team: Team,
+    user: User,
+    event_source: EventSource = EventSource.POSTHOG_AI,
+) -> str:
     """
     Execute a taxonomy query and return the result.
 
@@ -102,11 +121,13 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
     """
     match query:
         case ReadEvents():
-            return format_events_yaml([], team, user, limit=query.limit, offset=query.offset)
+            return format_events_yaml([], team, user, limit=query.limit, offset=query.offset, event_source=event_source)
         case ReadEventProperties():
             result = toolkit.retrieve_event_or_action_properties(query.event_name)
             description = get_event_description(team, query.event_name)
             prefix = f"Description of `{query.event_name}`: {description}\n\n" if description else ""
+            if owner := get_event_owner(team, query.event_name):
+                prefix += f"Owner of `{query.event_name}`: {owner}\n\n"
             return f"{prefix}{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
         case ReadEventSamplePropertyValues():
             return toolkit.retrieve_event_or_action_property_values(query.event_name, query.property_name)
@@ -117,7 +138,7 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
             return toolkit.retrieve_event_or_action_property_values(query.action_id, query.property_name)
         case ReadEntityProperties():
             result = toolkit.retrieve_entity_properties(query.entity)
-            if query.entity == "person":
+            if resolve_entity_name(query.entity, ["person"]) == "person":
                 return f"{result}\n\n{DYNAMIC_PERSON_PROPERTIES_HINT}"
             return result
         case ReadEntitySamplePropertyValues():

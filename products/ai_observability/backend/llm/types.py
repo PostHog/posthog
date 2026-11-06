@@ -3,6 +3,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
+
+ReasoningLevel = Literal["minimal", "low", "medium", "high"]
+
 
 @dataclass
 class Usage:
@@ -13,7 +17,16 @@ class Usage:
     cache_write_tokens: int = 0
 
 
-@dataclass
+@frozen
+class OutputSchema:
+    """A JSON schema the model's reply must match, passed through from the caller unchanged."""
+
+    schema: dict[str, Any]
+    name: str = "response"
+    strict: bool = True
+
+
+@dataclass(frozen=False)
 class CompletionRequest:
     """Request for LLM completion"""
 
@@ -26,9 +39,12 @@ class CompletionRequest:
     seed: int | None = None
     max_tokens: int | None = None
     tools: list[dict[str, Any]] | None = None
+    # Pydantic class for the non-streaming internal callers (see `complete()`), a plain
+    # schema for the playground's streaming path. Each adapter honors one in its own method.
     response_format: type[BaseModel] | None = None
+    output_schema: OutputSchema | None = None
     thinking: bool = False
-    reasoning_level: str | None = None
+    reasoning_level: ReasoningLevel | None = None
 
 
 @dataclass
@@ -55,7 +71,7 @@ class StreamChunk:
         return f"data: {json.dumps({'type': self.type, **self.data})}\n\n"
 
 
-@dataclass
+@dataclass(frozen=False)
 class AnalyticsContext:
     """Context for PostHog analytics tracking"""
 
@@ -64,3 +80,4 @@ class AnalyticsContext:
     properties: dict[str, Any] | None = None
     groups: dict[str, Any] | None = None
     capture: bool = True
+    privacy_mode: bool = False

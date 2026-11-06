@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { getContext } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -9,12 +9,17 @@ import {
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { Mocks } from '~/mocks/utils'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
@@ -29,6 +34,17 @@ window.POSTHOG_APP_CONTEXT = {
     current_team: { id: MOCK_TEAM_ID },
     current_project: { id: MOCK_TEAM_ID },
 } as unknown as AppContext
+
+// The disposables plugin pauses and resumes on `visibilitychange`, reading `document.hidden`, so a
+// test that backgrounds the tab has to move the property before dispatching the event.
+const setTabHidden = (hidden: boolean): void => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    document.dispatchEvent(new Event('visibilitychange'))
+}
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+}
 
 describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
@@ -91,6 +107,183 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
         return logicWithProps
     }
+
+    it.each([
+        [TaxonomicFilterGroupType.EmailAddresses, 'sample', true, false],
+        [TaxonomicFilterGroupType.EmailAddresses, 'sample@', true, true],
+        [TaxonomicFilterGroupType.EmailAddresses, 'example.com', true, true],
+        [TaxonomicFilterGroupType.EmailAddresses, 'a@', true, false],
+        [TaxonomicFilterGroupType.PageviewUrls, 'overview', true, false],
+        [TaxonomicFilterGroupType.PageviewUrls, '/overview', true, true],
+        [TaxonomicFilterGroupType.PageviewUrls, 'example.com', true, true],
+        [TaxonomicFilterGroupType.PageviewEvents, 'overview', true, false],
+        [TaxonomicFilterGroupType.PageviewEvents, 'https://example.com', true, true],
+        [TaxonomicFilterGroupType.EmailAddresses, 'sample', false, true],
+        [TaxonomicFilterGroupType.PageviewUrls, 'overview', false, true],
+        [TaxonomicFilterGroupType.PageviewEvents, 'overview', false, true],
+    ])('gates %s search %s with flag=%s and fetch=%s', async (groupType, query, enabled, shouldFetch) => {
+        const searches: string[] = []
+        const valuesResponse = ({
+            request,
+        }: {
+            request: Request
+        }): [number, { results: { name: string }[]; count: number }] => {
+            const value = new URL(request.url).searchParams.get('value') ?? ''
+            searches.push(value)
+            return [200, { results: [{ name: value }], count: 1 }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/persons/values/': valuesResponse,
+                '/api/projects/:team/events/values/': valuesResponse,
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: enabled })
+        const list = logicWith({ listGroupType: groupType, taxonomicGroupTypes: [groupType] })
+        await expectLogic(list, () => list.actions.setSearchQuery(query)).toDispatchActions(['loadRemoteItemsSuccess'])
+        expect(searches).toEqual(shouldFetch ? [query] : [])
+        expect(list.values.remoteItems.results).toEqual(shouldFetch ? [{ name: query }] : [])
+        if (!shouldFetch) {
+            expect(posthog.capture).not.toHaveBeenCalledWith('taxonomic filter empty result', expect.anything())
+        }
+    })
+
+    it('cancels a pending value search when the next query is gated', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/persons/values/': () => new Promise(() => {}),
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: true })
+        jest.useFakeTimers()
+        let list: ReturnType<typeof infiniteListLogic.build> | undefined
+        try {
+            list = logicWith({
+                listGroupType: TaxonomicFilterGroupType.EmailAddresses,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+            })
+            list.actions.setSearchQuery('sample@')
+            await jest.advanceTimersByTimeAsync(600)
+            const previousController = list.cache.abortController
+            expect(previousController).not.toBeNull()
+            expect(previousController?.signal.aborted).toBe(false)
+
+            list.actions.setSearchQuery('sample')
+            await jest.advanceTimersByTimeAsync(600)
+            expect(previousController?.signal.aborted).toBe(true)
+            expect(list.cache.abortController).toBeNull()
+            expect(list.values.remoteItems).toMatchObject({ searchQuery: 'sample', results: [] })
+
+            await jest.advanceTimersByTimeAsync(31000)
+            expect(list.values.showErrorState).toBe(false)
+            expect(list.values.remoteItems).toMatchObject({ searchQuery: 'sample', results: [] })
+        } finally {
+            list?.unmount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: false,
+            })
+            featureFlagLogic.unmount()
+            jest.useRealTimers()
+        }
+    })
+
+    it('shows loading while the dashboard list loads', async () => {
+        let completeDashboardLoad!: () => void
+        const dashboardLoad = new Promise<void>((resolve) => {
+            completeDashboardLoad = resolve
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team/dashboards/': async () => {
+                    await dashboardLoad
+                    return [200, { count: 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+
+        dashboardsModel.mount()
+        const dashboardsList = logicWith({
+            listGroupType: TaxonomicFilterGroupType.Dashboards,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Dashboards],
+        })
+
+        expect(dashboardsList.values.showLoadingState).toBe(true)
+        expect(dashboardsList.values.showEmptyState).toBe(false)
+
+        completeDashboardLoad()
+        await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+    })
+
+    it.each([
+        { state: 'initial request pending', initialCompleted: false, previousSearchPending: false, clear: false },
+        { state: 'initial request completed', initialCompleted: true, previousSearchPending: false, clear: false },
+        { state: 'previous search pending', initialCompleted: true, previousSearchPending: true, clear: false },
+        { state: 'clearing during initial load', initialCompleted: false, previousSearchPending: false, clear: true },
+    ])('debounces each query change with $state', async ({ initialCompleted, previousSearchPending, clear }) => {
+        const searches: string[] = []
+        let completeInitial!: () => void
+        const initialResponse = new Promise<void>((resolve) => {
+            completeInitial = resolve
+        })
+        let completePreviousSearch!: () => void
+        const previousSearchResponse = new Promise<void>((resolve) => {
+            completePreviousSearch = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions': async ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
+                    searches.push(search)
+                    if (!search) {
+                        await initialResponse
+                    }
+                    if (search === 'prior') {
+                        await previousSearchResponse
+                    }
+                    return [200, { results: [{ name: search || 'initial_event' }], count: 1 }]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        const searchLogic = logicWith({})
+        try {
+            await jest.advanceTimersByTimeAsync(1)
+            expect(searches).toEqual([''])
+            if (initialCompleted) {
+                completeInitial()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(searchLogic.values.remoteItems.first).toBeFalsy()
+            }
+            if (previousSearchPending) {
+                searchLogic.actions.setSearchQuery('prior')
+                await jest.advanceTimersByTimeAsync(500)
+                expect(searches).toEqual(['', 'prior'])
+            }
+            const beforeTyping = [...searches]
+            const queries = clear ? ['e', 'em', 'e', ''] : ['e', 'em', 'ema', 'emai', 'email']
+            const finalQuery = queries[queries.length - 1]
+            for (const query of queries) {
+                searchLogic.actions.setSearchQuery(query)
+                await jest.advanceTimersByTimeAsync(100)
+            }
+            expect(searchLogic.values.searchQuery).toBe(finalQuery)
+            expect(searches).toEqual(beforeTyping)
+            await jest.advanceTimersByTimeAsync(399)
+            expect(searches).toEqual(beforeTyping)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(searches).toEqual([...beforeTyping, finalQuery])
+            completeInitial()
+            completePreviousSearch()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(searchLogic.values.remoteItems.searchQuery).toBe(finalQuery)
+        } finally {
+            completeInitial()
+            completePreviousSearch()
+            jest.useRealTimers()
+        }
+    })
 
     describe('index', () => {
         it('defaults to 0 when whether the first item should be selected is not specified', async () => {
@@ -451,6 +644,81 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('page URL search in a picker that collapses URLs to a contains row', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team/events/values': [200, [{ name: 'https://example.com/pricing' }]],
+                },
+            })
+        })
+
+        it.each([
+            { kind: 'a plain word', query: 'pricing', offeredInAllTab: false },
+            { kind: 'a path', query: '/pricing', offeredInAllTab: true },
+            { kind: 'a domain', query: 'example.com', offeredInAllTab: true },
+        ])(
+            'offers the URL contains row for $kind on the URL tab, and in the All tab only when it looks like a URL',
+            async ({ query, offeredInAllTab }) => {
+                const urlLogic = logicWith({
+                    listGroupType: TaxonomicFilterGroupType.PageviewUrls,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
+                    collapseUrlsToContainsRow: true,
+                })
+
+                await expectLogic(urlLogic, () => {
+                    urlLogic.actions.setSearchQuery(query)
+                }).toDispatchActions(['setSearchQuery', 'loadRemoteItemsSuccess'])
+
+                expect(urlLogic.values.items.results).toHaveLength(1)
+                expect(urlLogic.values.topMatchesForQuery).toHaveLength(offeredInAllTab ? 1 : 0)
+            }
+        )
+    })
+
+    describe('unmounting clears the shared api cache', () => {
+        it('does not keep serving a cached response after the list unmounts', async () => {
+            let requestCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (url.searchParams.get('search') === 'cached_event') {
+                            requestCount += 1
+                        }
+                        return [200, { results: [{ ...mockEventDefinitions[0], name: 'cached_event' }], count: 1 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const firstLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'cacheList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            firstLogic.mount()
+            await expectLogic(firstLogic, () => {
+                firstLogic.actions.setSearchQuery('cached_event')
+            }).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect(requestCount).toBe(1)
+
+            firstLogic.unmount()
+
+            const secondLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'cacheList2',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            secondLogic.mount()
+            await expectLogic(secondLogic, () => {
+                secondLogic.actions.setSearchQuery('cached_event')
+            }).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect(requestCount).toBe(2)
+        })
+    })
+
     describe('switching tabs reconciles a stale remote list', () => {
         let staleLogic: ReturnType<typeof infiniteListLogic.build>
         let surveyRequestCount: number
@@ -567,6 +835,7 @@ describe('infiniteListLogic', () => {
                     // hunting for a tracking bug instead of retrying.
                     showEmptyState: false,
                     showErrorState: true,
+                    remoteFetchForbidden: false,
                 })
 
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
@@ -574,6 +843,119 @@ describe('infiniteListLogic', () => {
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
+                forbidden: false,
+            })
+        })
+
+        it.each([
+            { code: 'permission_denied', forbidden: true },
+            { code: 'feature_flag_required', forbidden: false },
+        ])('marks a 403 with code $code as forbidden: $forbidden', async ({ code, forbidden }) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/feature_flags': () => [403, { detail: 'denied', code }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const forbiddenLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'forbiddenList',
+                listGroupType: TaxonomicFilterGroupType.FeatureFlags,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+                showNumericalPropsOnly: false,
+            })
+            forbiddenLogic.mount()
+            await expectLogic(forbiddenLogic, () => {
+                forbiddenLogic.actions.setSearchQuery('my-flag')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showErrorState: true,
+                    remoteFetchForbidden: forbidden,
+                })
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.FeatureFlags,
+                forbidden,
+            })
+        })
+
+        it('captures a fetch failure on the initial empty-query load too', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const failingLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'failingEmptyList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            failingLogic.mount()
+            // `showErrorState` is not asserted: with an empty query the picker can fall back to a
+            // recent or pinned row, so a failed fetch does not always show as an error in the UI.
+            await expectLogic(failingLogic)
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.Events,
+                searchQuery: '',
+            })
+        })
+
+        it('captures a fetch failure from a list that feeds the open "All" tab', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            // The shape of every property filter picker: an aggregate "All" tab in front of the
+            // groups it aggregates. No list is the active tab when the picker opens.
+            const groupTypes = [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.SuggestedFilters,
+            ]
+            const filterLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'allTabFailure',
+                taxonomicGroupTypes: groupTypes,
+            })
+            filterLogic.mount()
+            let eventsList!: ReturnType<typeof infiniteListLogic.build>
+            for (const groupType of groupTypes) {
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'allTabFailure',
+                    listGroupType: groupType,
+                    taxonomicGroupTypes: groupTypes,
+                    showNumericalPropsOnly: false,
+                })
+                listLogic.mount()
+                if (groupType === TaxonomicFilterGroupType.Events) {
+                    eventsList = listLogic
+                }
+            }
+            expect(filterLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            await expectLogic(eventsList)
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.Events,
+                searchQuery: '',
             })
         })
 
@@ -661,11 +1043,14 @@ describe('infiniteListLogic', () => {
             }
         })
 
-        it('clears the error state when a retry succeeds', async () => {
+        it.each([null, 'page_opened'])('clears the error state on retry after selecting %p', async (selectedEvent) => {
             let attempts = 0
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': () => {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        if (!new URL(request.url).searchParams.get('search')) {
+                            return [200, { results: [{ name: 'page_opened', id: 'uuid-2' }], count: 1 }]
+                        }
                         attempts += 1
                         return attempts === 1
                             ? [500, { detail: 'server error' }]
@@ -679,25 +1064,88 @@ describe('infiniteListLogic', () => {
                 listGroupType: TaxonomicFilterGroupType.Events,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
                 showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                groupType: TaxonomicFilterGroupType.Events,
+                value: selectedEvent,
             })
             retryingLogic.mount()
+            if (selectedEvent) {
+                await expectLogic(retryingLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+                expect(retryingLogic.values.results).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ name: selectedEvent })])
+                )
+            }
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.setSearchQuery('user_signed_up')
             })
                 .toDispatchActions(['loadRemoteItemsFailure'])
                 .toFinishAllListeners()
-                .toMatchValues({ showErrorState: true })
+                .toMatchValues({
+                    showErrorState: true,
+                    showEmptyState: false,
+                    showNonCapturedEventOption: false,
+                    results: [],
+                    value: selectedEvent,
+                })
 
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.retryRemoteItems()
+                expect(retryingLogic.values.results).toEqual([])
+                expect(retryingLogic.values.showNonCapturedEventOption).toBe(false)
             })
                 .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     showErrorState: false,
                     showEmptyState: false,
+                    value: selectedEvent,
                 })
             expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
+        })
+
+        it('backgrounding the tab neither cancels the request nor fails a search that succeeded', async () => {
+            let respond: ((response: [number, Record<string, any>]) => void) | undefined
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () =>
+                        new Promise<[number, Record<string, any>]>((resolve) => {
+                            respond = resolve
+                        }),
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const backgroundedLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'backgroundedList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                backgroundedLogic.mount()
+                backgroundedLogic.actions.setSearchQuery('user_signed_up')
+
+                // Past the debounce, so the request is in flight rather than still queued.
+                await jest.advanceTimersByTimeAsync(600)
+                expect(backgroundedLogic.values.showLoadingState).toBe(true)
+
+                setTabHidden(true)
+                expect(backgroundedLogic.cache.abortController.signal.aborted).toBe(false)
+
+                setTabHidden(false)
+                respond?.([200, { results: [{ name: 'user_signed_up', id: 'uuid-1' }], count: 1 }])
+                await jest.advanceTimersByTimeAsync(1)
+
+                // Well past the watchdog. Coming back to the tab must not arm a second watchdog
+                // against the request that already answered, or a successful search decays into
+                // "couldn't load results".
+                await jest.advanceTimersByTimeAsync(31000)
+                expect(backgroundedLogic.values.showErrorState).toBe(false)
+                expect(backgroundedLogic.values.totalResultCount).toBeGreaterThan(0)
+            } finally {
+                jest.useRealTimers()
+                setTabHidden(false)
+            }
         })
     })
 
@@ -864,6 +1312,80 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('events a picker excludes', () => {
+        const HIDDEN_EVENT = '$feature_flag_called'
+
+        // The Pinned and Recent tabs filter against the caller's record rather than the Events
+        // group's own list, so the hidden names have to reach that record for a pin saved before
+        // the event was hidden to drop.
+        it('folds the hidden names into the record the Recent and Pinned tabs read', () => {
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'hidden-events',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            expect(listLogic.values.excludedPropertiesWithHiddenEvents?.[TaxonomicFilterGroupType.Events]).toContain(
+                HIDDEN_EVENT
+            )
+        })
+    })
+
+    // Transformation filters exclude `$exception` while allowing uncaptured events, so an excluded
+    // name must never be offered as "not seen yet".
+    describe('the "not seen yet" option and excluded names', () => {
+        const EXCLUDED_EVENT = '$exception'
+
+        it.each([
+            [EXCLUDED_EVENT, false],
+            ['checkout_started', true],
+        ])('searching %p offers the option: %p', async (query, expected) => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `excluded-events-${query}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: [EXCLUDED_EVENT] },
+            })
+            listLogic.mount()
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery(query)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ showNonCapturedEventOption: expected })
+        })
+    })
+
+    // A hidden event is excluded by its label and case variants, not just its raw name, so a picker
+    // that allows uncaptured events must not offer any of those forms as "not seen yet" — that would
+    // commit a name no event carries and hide the explanation of the event's absence.
+    describe('the "not seen yet" option and hidden events', () => {
+        it.each([['$feature_flag_called'], ['$FEATURE_FLAG_CALLED'], ['Feature flag called']])(
+            'does not offer the option when searching %p',
+            async (query) => {
+                setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: `hidden-not-seen-${query}`,
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                    allowNonCapturedEvents: true,
+                })
+                listLogic.mount()
+
+                await expectLogic(listLogic, () => {
+                    listLogic.actions.setSearchQuery(query)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ showNonCapturedEventOption: false })
+            }
+        )
+    })
+
     describe('data warehouse pin lifecycle', () => {
         beforeEach(() => {
             const databaseLogic = databaseTableListLogic()
@@ -1022,6 +1544,77 @@ describe('infiniteListLogic', () => {
             logic.mount()
         })
 
+        it('shows a scoped search failure even when the full count succeeds', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (url.searchParams.get('search') === 'device') {
+                            return url.searchParams.has('filter_by_event_names')
+                                ? [500, { detail: 'server error' }]
+                                : [200, { results: [{ name: '$device_type' }], count: 9 }]
+                        }
+                        return [200, { results: [{ name: '$browser' }], count: 1 }]
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(logic, () => logic.actions.setSearchQuery('device'))
+                    .toDispatchActions(['loadRemoteItemsFailure'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        expandedCount: 9,
+                        isExpandable: false,
+                        results: [],
+                        showErrorState: true,
+                        showEmptyState: false,
+                    })
+            } finally {
+                resumeKeaLoadersErrors()
+            }
+        })
+
+        it.each([200, 500])('reveals scoped results before the full count returns %s', async (status) => {
+            let resolveCount!: (response: [number, { count: number; results: { name: string }[] }]) => void
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (
+                            url.searchParams.get('search') === 'browser' &&
+                            !url.searchParams.has('filter_by_event_names')
+                        ) {
+                            return new Promise((resolve) => {
+                                resolveCount = resolve
+                            })
+                        }
+                        return [200, { results: [{ name: '$browser', id: 'browser' }], count: 1 }]
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.setSearchQuery('browser'))
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ searchQuery: 'browser', count: 1 }),
+                    isLoading: false,
+                    isExpandable: false,
+                    expandedCountResultLoading: true,
+                })
+            const visibleResults = logic.values.results
+            const selectedIndex = logic.values.index
+            await expectLogic(logic, () => resolveCount([status, { count: 9, results: [{ name: '$browser' }] }]))
+                .toDispatchActions(['loadExpandedCountSuccess'])
+                .toMatchValues({
+                    isLoading: false,
+                    isExpandable: status === 200,
+                    expandedCount: status === 200 ? 9 : 0,
+                    results: visibleResults,
+                    index: selectedIndex,
+                })
+        })
+
         it('setting search query filters events', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('browser')
@@ -1038,7 +1631,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 2,
                     remoteItems: partial({
                         count: 1,
-                        expandedCount: 2,
                         results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
@@ -1058,7 +1650,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1082,7 +1673,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1108,7 +1698,6 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({
                         count: 1,
-                        expandedCount: 2,
                         results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
@@ -1132,7 +1721,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1285,6 +1873,7 @@ describe('infiniteListLogic', () => {
             if (expectFire) {
                 expect(emptyCalls).toHaveLength(1)
                 expect(emptyCalls[0][1]).toMatchObject({
+                    scope: 'category',
                     groupType: listGroupType,
                     searchQuery: 'mcp tool call',
                 })
@@ -1388,11 +1977,20 @@ describe('infiniteListLogic', () => {
                 ...props,
             })
 
-        it('floats the selected value above the group list when idle, without displacing a leading catch-all row', async () => {
-            logic = logicWith({ value: 'search term', groupType: TaxonomicFilterGroupType.Events })
+        it.each([
+            ['keeps the catch-all item first by default', undefined, ['All events', 'search term'], 'All events'],
+            ['puts the selected series first when requested', true, ['search term', 'All events'], 'search term'],
+        ])('%s', async (_description, promoteSelectedItemToFirstPosition, expectedNames, expectedSelectedName) => {
+            logic = logicWith({
+                value: 'search term',
+                groupType: TaxonomicFilterGroupType.Events,
+                promoteSelectedItemToFirstPosition,
+            })
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
-            expect((logic.values.results[0] as { name?: string })?.name).toBe('All events')
-            expect((logic.values.results[1] as { name?: string })?.name).toBe('search term')
+            expect(logic.values.results.slice(0, 2).map((item) => (item as { name?: string })?.name)).toEqual(
+                expectedNames
+            )
+            expect((logic.values.selectedItem as { name?: string } | undefined)?.name).toBe(expectedSelectedName)
         })
 
         it('statically inserts the committed selection while its row is not yet loaded', async () => {
@@ -1737,6 +2335,34 @@ describe('infiniteListLogic', () => {
                 .map((i) => (i as { name: string }).name)
             expect(names).not.toContain('message')
             expect(names).toContain('level')
+        })
+
+        it('hides a pinned value that is excluded for its source group', () => {
+            // A pin outlives the picker it was made in, so without this the Pinned tab is a second
+            // door to selecting a value the exclusion forbids.
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', '$exception', {
+                name: '$exception',
+            })
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', 'checkout_started', {
+                name: 'checkout_started',
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'pinned-excluded-test',
+                listGroupType: TaxonomicFilterGroupType.PinnedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PinnedFilters],
+                showNumericalPropsOnly: false,
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$exception'] },
+            })
+            listLogic.mount()
+
+            const names = listLogic.values.contextFilteredPinnedItems
+                .filter((i) => 'name' in i)
+                .map((i) => (i as { name: string }).name)
+            expect(names).not.toContain('$exception')
+            expect(names).toContain('checkout_started')
         })
 
         it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {

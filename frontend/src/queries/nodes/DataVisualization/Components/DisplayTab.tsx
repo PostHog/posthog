@@ -1,316 +1,113 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonCollapse,
-    LemonInput,
-    LemonLabel,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonSwitch,
-} from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
 
+import { ChartOptionSections } from 'lib/components/ChartOptions/ChartOptionSections'
+import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { GoalLinesList } from 'lib/components/GoalLinesList'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
-
-const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
-    { value: 'labels', label: 'Labels' },
-    { value: 'values', label: 'Values' },
-    { value: 'none', label: 'Nothing' },
-]
-
-const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: string }[] = [
-    { value: 'absolute', label: 'Absolute' },
-    { value: 'percentage', label: 'Percentage' },
-]
-
-const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
-    { value: 'smooth', label: 'Smooth' },
-    { value: 'linear', label: 'Straight' },
-]
+import { DisplayTabPanel, DisplayTabPanels } from './DisplayTabPanels'
+import { QuillDisplayTab } from './QuillDisplayTab'
+import { sqlDisplayOptions } from './sqlDisplayOptions'
 
 export const DisplayTab = (): JSX.Element => {
     const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
-    const { goalLines, chartSettings } = useValues(displayLogic)
-    const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
+    const { goalLines, chartSettings, query } = useValues(displayLogic)
+    const { addGoalLine, updateGoalLine, removeGoalLine } = useActions(displayLogic)
+    const { tabs } = useDisplayOptions(sqlDisplayOptions)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
-    const isLineChart =
-        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
+    const isBIVisualization = query.kind === 'BIVisualizationNode'
+    const supportsGoalLines =
+        effectiveVisualizationType !== ChartDisplayType.Metric &&
+        effectiveVisualizationType !== ChartDisplayType.ScatterPlot &&
+        effectiveVisualizationType !== ChartDisplayType.BoxPlot &&
+        !PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
 
-    const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
-        const labelPlaceholder = name === 'leftYAxisSettings' ? 'Left Y-axis label' : 'Right Y-axis label'
+    // Each axis gets its own panel: together they hold too many settings for one.
+    const panels: DisplayTabPanel[] = tabs.flatMap((tab): DisplayTabPanel[] =>
+        tab.key === 'axes'
+            ? tab.sections.map((section) => ({
+                  key: section.key,
+                  header: section.title,
+                  content: <ChartOptionSections sections={[{ ...section, title: undefined }]} />,
+              }))
+            : [
+                  {
+                      key: tab.key,
+                      header: tab.label,
+                      content: (
+                          <ChartOptionSections
+                              sections={
+                                  tab.sections.length === 1 ? [{ ...tab.sections[0], title: undefined }] : tab.sections
+                              }
+                          />
+                      ),
+                  },
+              ]
+    )
+    const goalLinesTitle = isBIVisualization ? 'Reference lines' : 'Goal lines'
+    const goalLinesContent = (
+        <>
+            <GoalLinesList
+                allowCalculations={isBIVisualization}
+                calculationDisabledReason={
+                    isStackedBarChart && chartSettings.stackBars100
+                        ? 'Calculated lines are hidden on 100% stacked charts. Use a constant or turn off percentage stacking.'
+                        : undefined
+                }
+                goalLines={goalLines}
+                removeGoalLine={removeGoalLine}
+                updateGoalLine={updateGoalLine}
+            />
+            <LemonButton onClick={addGoalLine} icon={<IconPlusSmall />} fullWidth>
+                {isBIVisualization ? 'Add reference line' : 'Add goal line'}
+            </LemonButton>
+            {isBIVisualization && (
+                <p className="text-xs text-secondary mb-0">
+                    Calculations use returned marks on the left axis after aggregation and table calculations. Per
+                    series adds a line for each color group or measure. Result limits apply.
+                    {isStackedBarChart && chartSettings.stackBars100 && (
+                        <span> Calculated lines are hidden on 100% stacked charts.</span>
+                    )}
+                </p>
+            )}
+        </>
+    )
 
+    if (todayRailNav) {
         return (
-            <>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Axis label</LemonLabel>
-                    <LemonInput
-                        data-attr={`data-visualization-${name === 'leftYAxisSettings' ? 'left' : 'right'}-y-axis-label-input`}
-                        value={chartSettings[name]?.label ?? ''}
-                        placeholder={labelPlaceholder}
-                        onChange={(value) => {
-                            updateChartSettings({ [name]: { label: value } })
-                        }}
-                    />
-                </div>
-                <div className="flex gap-2 items-center justify-between">
-                    <span className="font-medium">Scale</span>
-                    <LemonSelect
-                        size="xsmall"
-                        value={chartSettings[name]?.scale ?? 'linear'}
-                        options={[
-                            { value: 'linear', label: 'Linear' },
-                            { value: 'logarithmic', label: 'Logarithmic' },
-                        ]}
-                        onChange={(value) => {
-                            updateChartSettings({ [name]: { scale: value } })
-                        }}
-                    />
-                </div>
-                <LemonSwitch
-                    className="flex-1 w-full"
-                    label="Show tick labels"
-                    checked={chartSettings[name]?.showTicks ?? true}
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { showTicks: value } })
-                    }}
-                />
-
-                <LemonSwitch
-                    className="flex-1 w-full"
-                    label="Begin at zero"
-                    checked={chartSettings[name]?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { startAtZero: value } })
-                    }}
-                />
-                <LemonSwitch
-                    className="flex-1 w-full"
-                    label="Show grid lines"
-                    checked={chartSettings[name]?.showGridLines ?? true}
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { showGridLines: value } })
-                    }}
-                />
-            </>
+            <QuillDisplayTab
+                tabs={tabs}
+                goalLines={
+                    supportsGoalLines
+                        ? { title: goalLinesTitle, count: goalLines.length, content: goalLinesContent }
+                        : null
+                }
+            />
         )
     }
 
-    return (
-        <div className="flex flex-col w-full">
-            <LemonCollapse
-                embedded
-                defaultActiveKeys={['general']}
-                multiple
-                panels={[
-                    {
-                        key: 'general',
-                        header: 'General',
-                        className: 'p-2 flex flex-col gap-2',
-                        content: (
-                            <>
-                                <LemonSwitch
-                                    className="flex-1 w-full"
-                                    label="Show legend"
-                                    checked={chartSettings.showLegend ?? false}
-                                    onChange={(value) => {
-                                        updateChartSettings({ showLegend: value })
-                                    }}
-                                />
-                                {isPieChart ? (
-                                    <>
-                                        <div className="flex flex-col gap-1">
-                                            <LemonLabel>Show on slices</LemonLabel>
-                                            <LemonSegmentedButton
-                                                className="w-full"
-                                                value={chartSettings.pie?.sliceContent ?? 'values'}
-                                                onChange={(value) =>
-                                                    updateChartSettings({ pie: { sliceContent: value } })
-                                                }
-                                                options={PIE_SLICE_CONTENT_OPTIONS}
-                                                fullWidth
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            <LemonLabel>Show values as</LemonLabel>
-                                            <LemonSegmentedButton
-                                                className="w-full"
-                                                value={chartSettings.pie?.valueDisplay ?? 'absolute'}
-                                                onChange={(value) =>
-                                                    updateChartSettings({ pie: { valueDisplay: value } })
-                                                }
-                                                options={PIE_VALUE_DISPLAY_OPTIONS}
-                                                fullWidth
-                                            />
-                                        </div>
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show total below chart"
-                                            checked={
-                                                chartSettings.pie?.showTotal ??
-                                                (chartSettings.pie?.sliceContent ?? 'values') === 'values'
-                                            }
-                                            onChange={(value) => {
-                                                updateChartSettings({ pie: { showTotal: value } })
-                                            }}
-                                        />
-                                    </>
-                                ) : (
-                                    <>
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show total row"
-                                            checked={chartSettings.showTotalRow ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showTotalRow: value })
-                                            }}
-                                        />
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show nulls as zero"
-                                            checked={chartSettings.showNullsAsZero ?? false}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showNullsAsZero: value })
-                                            }}
-                                        />
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show values on series"
-                                            checked={chartSettings.showValuesOnSeries ?? false}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showValuesOnSeries: value })
-                                            }}
-                                        />
-                                        {isLineChart && (
-                                            <div className="flex flex-col gap-1">
-                                                <LemonLabel>Line style</LemonLabel>
-                                                <LemonSegmentedButton
-                                                    className="w-full"
-                                                    data-attr="data-visualization-line-style"
-                                                    value={chartSettings.chartStyle?.curve ?? 'smooth'}
-                                                    onChange={(value) =>
-                                                        updateChartSettings({ chartStyle: { curve: value } })
-                                                    }
-                                                    options={LINE_STYLE_OPTIONS}
-                                                    fullWidth
-                                                />
-                                            </div>
-                                        )}
-                                        <div className="flex flex-col gap-1">
-                                            <LemonLabel>X-axis label</LemonLabel>
-                                            <LemonInput
-                                                data-attr="data-visualization-x-axis-label-input"
-                                                value={chartSettings.xAxisLabel ?? ''}
-                                                placeholder="X-axis label"
-                                                onChange={(value) => {
-                                                    updateChartSettings({ xAxisLabel: value })
-                                                }}
-                                            />
-                                        </div>
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show X-axis tick labels"
-                                            checked={chartSettings.showXAxisTicks ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showXAxisTicks: value })
-                                            }}
-                                        />
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show X-axis border"
-                                            checked={chartSettings.showXAxisBorder ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showXAxisBorder: value })
-                                            }}
-                                        />
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show Y-axis border"
-                                            checked={chartSettings.showYAxisBorder ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showYAxisBorder: value })
-                                            }}
-                                        />
-                                    </>
-                                )}
-                            </>
-                        ),
-                    },
-                    !isPieChart
-                        ? {
-                              key: 'left-y-axis',
-                              header: 'Left Y-axis',
-                              className: 'p-2 flex flex-col gap-2',
-                              content: renderYAxisSettings('leftYAxisSettings'),
-                          }
-                        : null,
-                    !isPieChart
-                        ? {
-                              key: 'right-y-axis',
-                              header: 'Right Y-axis',
-                              className: 'p-2 flex flex-col gap-2',
-                              content: renderYAxisSettings('rightYAxisSettings'),
-                          }
-                        : null,
-                    isStackedBarChart
-                        ? {
-                              key: 'stacked-bar-chart',
-                              header: 'Stack bars',
-                              className: 'p-2 flex flex-col gap-2',
-                              content: (
-                                  <LemonSwitch
-                                      className="flex-1"
-                                      label="Stack bars 100%"
-                                      checked={chartSettings.stackBars100 ?? false}
-                                      onChange={(value) => {
-                                          updateChartSettings({ stackBars100: value })
-                                      }}
-                                  />
-                              ),
-                          }
-                        : null,
-                    !isPieChart
-                        ? {
-                              key: 'goals',
-                              header: (
-                                  <div className="flex items-center gap-1 flex-1">
-                                      <span className="flex-1">Goals</span>
-                                      {goalLines.length > 0 && (
-                                          <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
-                                      )}
-                                  </div>
-                              ),
-                              className: 'p-2',
-                              content: (
-                                  <>
-                                      <GoalLinesList
-                                          goalLines={goalLines}
-                                          removeGoalLine={removeGoalLine}
-                                          updateGoalLine={updateGoalLine}
-                                      />
-                                      <LemonButton
-                                          className="mt-1"
-                                          onClick={addGoalLine}
-                                          icon={<IconPlusSmall />}
-                                          fullWidth
-                                      >
-                                          Add goal line
-                                      </LemonButton>
-                                  </>
-                              ),
-                          }
-                        : null,
-                ]}
-            />
-        </div>
-    )
+    if (supportsGoalLines) {
+        panels.push({
+            key: 'goals',
+            header: (
+                <div className="flex items-center gap-1 flex-1">
+                    <span className="flex-1">{goalLinesTitle}</span>
+                    {goalLines.length > 0 && <LemonBadge.Number status="muted" size="small" count={goalLines.length} />}
+                </div>
+            ),
+            content: goalLinesContent,
+        })
+    }
+
+    return <DisplayTabPanels defaultOpenKeys={['general']} panels={panels} />
 }

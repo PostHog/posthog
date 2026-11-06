@@ -10,38 +10,62 @@
 // `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
 // viewer); read `currentRunStatus` / `isTerminalRunStatus` off it for a status badge with no UI.
 export { runStreamLogic, isTerminalRunStatus, INITIAL_PERMISSION_MODE } from '../logics/runStreamLogic'
+export { prefetchRunStream } from '../logics/runPrefetch'
 export type { RunStreamLogicProps, RunSseStatus, RunStatus } from '../logics/runStreamLogic'
 
 // --- Interaction facade (follow-up / queue) ---
 export { runInteractionLogic } from '../logics/runInteractionLogic'
+export { messageRatingsLogic } from '../logics/messageRatingsLogic'
+export type { MessageRating, MessageRatingOrNull } from '../logics/messageRatingsLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
 // --- Thinking-message helpers ---
-export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from '../utils/thinkingMessages'
+export {
+    getThinkingMessageFromResponse,
+    getRandomThinkingMessage,
+    getWebSearchResultsByToolUseId,
+    THINKING_MESSAGES,
+} from '../utils/thinkingMessages'
+export type { WebSearchResultsByToolUseId } from '../utils/thinkingMessages'
 
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
+export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
+// The server-resolved default model/effort for this user in this project (their own preference over
+// the project default). A host that launches a run on the user's behalf reads it to tell whether a
+// stored default will apply, because a model sent with the run overrides one.
+export { taskRunDefaultsLogic } from '../logics/taskRunDefaultsLogic'
 
-// --- Attached-context store + injection hook (headless) ---
-// Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
-// trusted/untrusted context blocks. `useAttachedContext` registers a provider for the lifetime of a mount.
-export { attachedContextLogic } from '../logics/attachedContextLogic'
+export { tasksLogic } from '../logics/tasksLogic'
+
+// --- Chat skin ---
+// Here, not in ./primitives, because surfaces that load eagerly (the composer on the AI-first homepage) read it.
+export { useThreadSkin, ThreadSkinOverrideContext } from '../hooks/useThreadSkin'
+export type { ThreadSkin } from '../components/quill/quillThreadContext'
+
+// --- Attached-context injection hook (headless) ---
+// `useAttachedContext` registers a provider in the shell's context store for the lifetime of a mount.
 export { useAttachedContext } from '../hooks/useAttachedContext'
 export type { UseAttachedContextOptions } from '../hooks/useAttachedContext'
-export { attachedContextItemKey } from '../types/contextTypes'
 // Contextual welcome headlines: a host registers headlines matching what the user is looking at,
 // and the composer's empty state picks from them instead of the generic defaults.
 export { welcomeOverrideLogic } from '../logics/welcomeOverrideLogic'
 export { useWelcomeOverride } from '../hooks/useWelcomeOverride'
 export type { UseWelcomeOverrideOptions } from '../hooks/useWelcomeOverride'
+// Contextual composer overrides (suggestions, repo picker), the sibling of the welcome headline override above.
+export { composerOverrideLogic } from '../logics/composerOverrideLogic'
+export type { ComposerOverride } from '../logics/composerOverrideLogic'
+export { useComposerOverride } from '../hooks/useComposerOverride'
+export type { UseComposerOverrideOptions } from '../hooks/useComposerOverride'
 // The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
 // run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
-export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../utils/posthogContextBlock'
+export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 
 // --- User-picked context (the composer's @-affordance, headless half) ---
-// `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;
-// the `AttachedContextBar` component (Tier 2 `api/primitives`) is its prepackaged UI.
-export { contextPickerLogic, taxonomicItemToAttachedContext, PICKER_PROVIDER_ID } from '../logics/contextPickerLogic'
+// `contextPickerLogic` turns a selection into a pick, and `chatContextLogic` combines picks with the rest of a
+// chat's context; the `AttachedContextBar` component (Tier 2 `api/primitives`) is the prepackaged UI.
+export { chatContextLogic, chatSendItems } from '../logics/chatContextLogic'
+export { contextPickerLogic, taxonomicItemToAttachedContext } from '../logics/contextPickerLogic'
 export type { PickableTaxonomicItem } from '../logics/contextPickerLogic'
 
 // --- Tool-stream event bus + subscription hook (headless) ---
@@ -52,6 +76,8 @@ export { toolStreamEventsLogic } from '../logics/toolStreamEventsLogic'
 export type { ToolStreamSubscription } from '../logics/toolStreamEventsLogic'
 export { useToolStreamListener } from '../hooks/useToolStream'
 export type { UseToolStreamListenerOptions } from '../hooks/useToolStream'
+export { resolveToolCall } from '../utils/toolResolver'
+export { getToolOutputRecord } from '../utils/getToolOutputRecord'
 
 // --- Foreground stream registry + MCP tool apply-back (headless) ---
 // `foregroundStreamLogic` marks the single stream rendered in the side panel the user is watching; a
@@ -63,14 +89,16 @@ export { useForegroundStream } from '../hooks/useForegroundStream'
 export { useMcpToolApplyBack } from '../hooks/useMcpToolApplyBack'
 export type { ApplyOn, McpToolApplyContext, UseMcpToolApplyBackOptions } from '../hooks/useMcpToolApplyBack'
 
-// --- Panel view state (headless) ---
-// Panel-level view state (active run vs. history vs. composer) for hosts that render chrome — e.g. a
-// header back button — outside the lazy panel chunk (Tier 1 `api/runner`).
-export { runnerPanelLogic } from '../logics/runnerPanelLogic'
-export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPanelLogic'
-
 // --- Composer seed hand-off (headless) ---
 // A one-shot store that lets a host seed a not-yet-mounted composer with an initial prompt (optionally
 // auto-submitting it); the paired `taskTrackerSceneLogic` consumes it on mount or when it arrives.
 export { composerSeedLogic } from '../logics/composerSeedLogic'
+export { composerAttachmentsLogic } from '../logics/composerAttachmentsLogic'
+export { ATTACHMENT_MAX_SIZE_BYTES } from '../utils/attachments'
 export type { ComposerSeed, ComposerSeedLogicProps } from '../logics/composerSeedLogic'
+
+// The staff debug-logs preference, for hosts that render their own overflow menu around it.
+export { debugLogsLogic } from '../logics/debugLogsLogic'
+
+// One task's record, with its archive (delete) loader, for hosts that act on a task outside the runner scene.
+export { taskLogic } from '../logics/taskLogic'

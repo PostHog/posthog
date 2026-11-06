@@ -1,15 +1,36 @@
 from .assignment import TicketAssignment
 from .constants import Channel, ChannelDetail, Priority, RuleType, Status
+from .delivery import (
+    ConversationDelivery,
+    ConversationDeliveryChannel,
+    ConversationDeliveryPart,
+    DeliverySnapshotTooLargeError,
+)
+from .email_channel_setup import EmailChannelSetup, EmailChannelSetupProvider
 from .email_message_mapping import EmailMessageMapping
 from .email_outbox_message import EmailOutboxMessage
+from .email_thread import (
+    EMAIL_THREAD_COMMENT_SCOPE,
+    EmailThread,
+    EmailThreadAccountLink,
+    EmailThreadAccountMatchSource,
+    EmailThreadMessage,
+    EmailThreadMessageDirection,
+    EmailThreadParticipant,
+    EmailThreadParticipantKind,
+)
 from .github_comment_mapping import GithubCommentMapping
+from .inbound_event import ConversationInboundEvent, ConversationInboundEventSource, InboundPayloadTooLargeError
+from .purged_ticket_thread import PurgedTicketThread
 from .restore_token import ConversationRestoreToken
 from .signing_secret import SigningSecret
-from .team_conversations_email_config import EmailChannel
+from .team_conversations_email_config import EmailChannel, EmailChannelConnectionStatus, EmailChannelKind
 from .team_conversations_slack_config import TeamConversationsSlackConfig
 from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannelSync
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
+from .team_conversations_ticket_config import TeamConversationsTicketConfig
 from .ticket import Ticket
+from .ticket_macro import TicketMacro
 from .ticket_view import TicketView
 from .ticket_view_favorite import TicketViewFavorite
 from .zendesk_import_job import ZendeskImportJob
@@ -17,20 +38,42 @@ from .zendesk_import_job import ZendeskImportJob
 __all__ = [
     "Channel",
     "ChannelDetail",
+    "ConversationDelivery",
+    "ConversationDeliveryChannel",
+    "ConversationDeliveryPart",
+    "ConversationInboundEvent",
+    "ConversationInboundEventSource",
     "ConversationRestoreToken",
+    "DeliverySnapshotTooLargeError",
     "EmailChannel",
+    "EmailChannelConnectionStatus",
+    "EmailChannelKind",
+    "EmailChannelSetup",
+    "EmailChannelSetupProvider",
     "EmailMessageMapping",
     "EmailOutboxMessage",
+    "EMAIL_THREAD_COMMENT_SCOPE",
+    "EmailThread",
+    "EmailThreadAccountLink",
+    "EmailThreadAccountMatchSource",
+    "EmailThreadMessage",
+    "EmailThreadMessageDirection",
+    "EmailThreadParticipant",
+    "EmailThreadParticipantKind",
     "GithubCommentMapping",
+    "InboundPayloadTooLargeError",
     "Priority",
+    "PurgedTicketThread",
     "RuleType",
     "SigningSecret",
     "Status",
     "TeamConversationsSlackConfig",
     "TeamConversationsTeamsChannelSync",
     "TeamConversationsTeamsConfig",
+    "TeamConversationsTicketConfig",
     "Ticket",
     "TicketAssignment",
+    "TicketMacro",
     "TicketView",
     "TicketViewFavorite",
     "ZendeskImportJob",

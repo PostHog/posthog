@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
@@ -17,7 +17,7 @@ VALID_ISSUE_ID = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
 VALID_ROLE_ID = "01936e80-5e69-7e70-b837-871f5cdad28b"
 
 
-class TestPendingUpdateUnionBuilder(BaseTest):
+class TestPendingUpdateUnionBuilder(SimpleTestCase):
     def _sanitized_row(self, **overrides: Any) -> dict[str, Any]:
         base: dict[str, Any] = {
             "fingerprint": "fp-1",
@@ -25,6 +25,7 @@ class TestPendingUpdateUnionBuilder(BaseTest):
             "issue_name": "MyError",
             "issue_description": "something broke",
             "issue_status": "active",
+            "issue_severity": "high",
             "assigned_user_id": 42,
             "assigned_role_id": VALID_ROLE_ID,
             "first_seen": "2026-01-15 10:30:00.000000",
@@ -39,6 +40,11 @@ class TestPendingUpdateUnionBuilder(BaseTest):
         assert isinstance(select, ast.SelectQuery)
         aliases = [expr.alias for expr in select.select if isinstance(expr, ast.Alias)]
         self.assertEqual(aliases, _ISSUE_STATE_COLUMNS)
+        severity = next(
+            expr for expr in select.select if isinstance(expr, ast.Alias) and expr.alias == "issue_severity"
+        )
+        assert isinstance(severity.expr, ast.Constant)
+        self.assertEqual(severity.expr.value, "high")
 
     def test_build_union_returns_base_plus_branches(self) -> None:
         pending_updates = [self._sanitized_row(fingerprint="fp-1"), self._sanitized_row(fingerprint="fp-2")]

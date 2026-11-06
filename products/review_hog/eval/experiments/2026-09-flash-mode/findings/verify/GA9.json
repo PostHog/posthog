@@ -1,0 +1,27 @@
+{
+    "letter": "GA",
+    "id": "GA9",
+    "cluster": 18,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/backend/facade/api.py:112-125: has_reviewable_repo_config does filter on enabled, connected_by_user_id and a non-blank installation_id, and it has no provider filter. That part of the finding is accurate. The consumer at products/stamphog/backend/tasks/tasks.py:1143 filters provider=\"github\". But no code path can create a row with any other provider. models.py:29 defaults provider to \"github\". The only sync write sets provider=\"github\" (tasks.py:668). serializers.py:62 makes provider read_only, so the API cannot set it either. models.py:26 says GitHub is the only implemented provider.",
+            "refutation": "This finding is not a real defect. Every StamphogRepoConfig row has provider=\"github\": that is the model default (models.py:29), the sync flow writes it explicitly (tasks.py:668), and the serializer makes the field read-only (serializers.py:62). So the gate and the runtime lookup in process_inbox_pr_review (tasks.py:1143) always agree. The finding itself says the result is the same today. The failure needs a second provider that does not exist. That is a speculative future case with no way to trigger it now, so it is a consistency preference, not a bug."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The filter really is missing. products/stamphog/backend/facade/api.py:120-125 filters on enabled, connected_by_user_id__isnull=False and a non-blank installation_id, and does not filter on provider. But nothing can create the row this check would wrongly count, a non-GitHub config with a non-blank installation_id:\n- **Plain API create:** installation_id is read-only in the serializer (products/stamphog/backend/presentation/serializers.py:94-99). A manual create with provider=\"gitlab\" always gets a blank installation_id, which the `.exclude(installation_id=\"\")` in the check rules out.\n- **Sync flow:** it is the only path that writes installation_id, and it hardcodes provider=\"github\" in get_or_create (views.py:307-309).\n- **Adopting an existing row:** `_adopt_preexisting_config` only looks up provider=\"github\" rows (views.py:85-90), so it never puts an installation_id on another provider's row.\n- **Webhook installation paths:** they filter or create with provider=\"github\" (tasks.py:624-670, 708, 773-795).\n- **Other lookups:** the claim that every other repo-config query filters on provider is wrong. `get_repo_config` (facade/api.py:106-108) has no provider filter either.\n- **Consumer:** `process_inbox_pr_review`'s lookup (tasks.py:1143) uses the same enabled, connected-user and non-blank-installation filters plus provider=\"github\". Every row that passes the facade check also passes this lookup.",
+            "refutation": "The defect cannot happen with this code. Only the GitHub sync and adoption paths set installation_id, and both force provider=\"github\". No other code path gives a non-GitHub row a non-blank installation_id, so `has_reviewable_repo_config` returns the same result as a provider-filtered query. The finding only matters if a second provider is added later. That change would add its own sync flow and would need to revisit this check anyway. So the finding is a guess about future code, not a real bug."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "In products/stamphog/backend/facade/api.py:112-125, `has_reviewable_repo_config` does not filter on `provider`. That is true, but it cannot produce a wrong answer in any production setup. The check needs a non-blank `installation_id` and a non-null `connected_by_user_id`. Only GitHub-hardcoded paths can set either field:\n- presentation/serializers.py:94-99 makes `installation_id` read-only. views.py:195-199 confirms that a manual create keeps a blank installation, even when a client passes `provider=\"gitlab\"`.\n- The sync flow creates rows with `provider=\"github\"` hardcoded (views.py:307-315).\n- The adoption fallback only looks up `provider=\"github\"` rows (views.py:85-89), so a manual non-GitHub row is never bound.\n- The installation webhook add path creates rows with `provider=\"github\"` (tasks.py:666-674).\n- `connected_by_user_id` is only re-stamped on rows that came back from the GitHub sync (views.py:461-465).\n- models.py:26-29 says GitHub is the only implemented provider.\nSo a row that passes the check with a provider other than GitHub cannot exist.",
+            "refutation": "Every code path that writes a non-blank installation_id or a connected_by_user_id hardcodes or filters provider=\"github\" (views.py:88, 307-315; tasks.py:649, 666-674). A manual create with a different provider always keeps installation_id blank, because the serializer makes that field read-only, so `.exclude(installation_id=\"\")` already removes those rows. The claimed defect depends on a second provider that does not exist yet. It is a speculative future concern, not a trigger that can happen today."
+        }
+    ]
+}

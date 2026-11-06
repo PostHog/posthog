@@ -29,7 +29,9 @@ Key routing details:
 - `/decide` adds an `X-Original-Endpoint: decide` header so the Rust service can adjust response format
 - A **dedicated subdomain** (`us-d.i.posthog.com` / `eu-d.i.posthog.com`) routes only to `decide` + `feature-flags` with no Django fallback
 - All flag routes have a **5-second timeout** and 2 retries on `reset`/`cancelled`
-- Canary rollouts are supported via Argo Rollouts adjusting weights on the HTTPProxy resources
+- A PR canary (`/pr-canary` on an approved PR) adds a weighted `feature-flags-pr-canary` entry to the `/flags` and `/decide` routes
+- The same canary adds `X-PostHog-Fleet: canary` and `X-PostHog-Fleet: stable` header routes, so a request can pick a fleet
+- The canary weight comes from the state file in the charts repo, not from Argo Rollouts
 
 ### Fleet split
 
@@ -111,7 +113,7 @@ All flag routes accept trailing slashes.
 The POST handler follows this pipeline:
 
 1. **Rate limiting**: IP-based check (DDoS defense), then token-based check (per-project limits)
-2. **Body decoding**: JSON, base64, or gzip-compressed bodies
+2. **Body decoding**: JSON, base64, or gzip-compressed bodies. A body with arrays or objects nested more than 128 levels deep gets a 400.
 3. **Authentication**: Extracts API token from body, query params, or headers
 4. **Team lookup**: HyperCache (Redis -> S3) with PostgreSQL fallback (configurable via `SKIP_PG_TEAM_FALLBACK`)
 5. **Flag definitions fetch**: HyperCache (Redis -> S3) with PostgreSQL fallback
@@ -146,7 +148,7 @@ Billing quota enforcement matches Django's `/api/feature_flag/local_evaluation` 
 
 - **Quota check**: Uses `FeatureFlagsLimiter.is_limited(token)` to verify the team hasn't exceeded their feature flag request quota. Returns HTTP 402 with a JSON body (`{"type": "quota_limited", "code": "payment_required", ...}`) when the quota is exceeded.
 - **Non-billable flag filtering**: Usage tracking skips requests where the response contains only non-billable flags — i.e., flags with keys starting with `survey-targeting-` or `product-tour-targeting-`. The shared `is_billable_flag_key()` predicate (in `flag_analytics.rs`) is used by both this endpoint and the `/flags` billing handler.
-- **304 responses skip billing**: Usage is recorded after the ETag/304 path, so conditional responses that return `304 Not Modified` are not counted toward billing. This matches Django's behavior.
+- **304 responses bill 1 unit**: A conditional response that returns `304 Not Modified` is recorded on its own counter and billed at the `/flags` rate, a tenth of a full response. See [Conditional requests (ETag)](billing.md#conditional-requests-etag) for the billable-flag memo and what goes unbilled.
 
 ## Request and response types
 
@@ -169,6 +171,23 @@ pub struct FlagRequest {
     pub evaluation_runtime: Option<EvaluationRuntime>,
 }
 ```
+
+#### GeoIP enrichment of `person_properties`
+
+Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.
+
+The lookup also fills `$geoip_subdivision_1_code`, `$geoip_subdivision_1_name`, `$geoip_subdivision_2_code` and `$geoip_subdivision_2_name`.
+
+GeoIP only fills gaps. A `$geoip_*` key present in the request body is left alone, and a JSON null counts as absent, since callers clear a property with `$unset`, so a null is a gap to fill.
+This matters for server-side evaluation: the IP we geolocate is whoever made the HTTP request, so a call from a backend or an SSR render resolves the server's own location, not the end user's.
+A caller that resolved geo itself (from `CF-IPCountry`, `X-Forwarded-For`, or similar) is the authority for those keys.
+
+Two signals size how often that precedence matters:
+
+- `flags_geoip_properties_differ_from_lookup_total` counts requests that supplied a `$geoip_*` value disagreeing with the lookup, i.e. requests that would evaluate differently if the lookup won.
+- The canonical log line carries the same fact as `geoip_properties_differ_from_lookup`. The counter has no labels, so query the log line in Loki to attribute a spike to a team or SDK.
+
+Both are removable once the precedence change has settled.
 
 ### `FlagsResponse` (v2 response)
 
@@ -222,6 +241,10 @@ All values come from environment variables via the `envconfig` crate. Defined in
 | `ENABLE_METRICS`  | `false`          | Expose `/metrics` endpoint                        |
 | `SERVICE_MODE`    | `all`            | Fleet mode: `flags`, `definitions`, or `all`      |
 
+### Property matching rollout
+
+Exact property matching is selected per team through `TeamFeatureFlagsConfig.property_matching_version`. Version `1` preserves legacy boolean coercion, while version `2` uses exact scalar and array equality. Team metadata and local-evaluation responses expose the selected version.
+
 ### PostgreSQL
 
 | Variable                                  | Default                                             | Purpose                               |
@@ -231,21 +254,21 @@ All values come from environment variables via the `envconfig` crate. Defined in
 | `PERSONS_WRITE_DATABASE_URL`              | (empty, aliases to main)                            | Persons database primary              |
 | `PERSONS_READ_DATABASE_URL`               | (empty, aliases to main)                            | Persons database replica              |
 | `MAX_PG_CONNECTIONS`                      | `10`                                                | Max connections per pool              |
-| `ACQUIRE_TIMEOUT_SECS`                    | `5`                                                 | Connection acquisition timeout        |
+| `ACQUIRE_TIMEOUT_SECS`                    | `1`                                                 | Connection acquisition timeout        |
 | `IDLE_TIMEOUT_SECS`                       | `300`                                               | Close idle connections after this     |
 | `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS` | `2000`                                              | Statement timeout for flag/team reads |
-| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | `3000`                                              | Statement timeout for person lookups  |
-| `WRITER_STATEMENT_TIMEOUT_MS`             | `3000`                                              | Statement timeout for writes          |
+| `PERSONS_READER_STATEMENT_TIMEOUT_MS`     | `1000`                                              | Statement timeout for person lookups  |
+| `WRITER_STATEMENT_TIMEOUT_MS`             | `2000`                                              | Statement timeout for writes          |
 
 ### Behavioral cohorts
 
-| Variable                               | Default  | Purpose                                                                                                                                                                           |
-| -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, no pool is created and a NoOp provider resolves every realtime cohort lookup to non-membership |
-| `REALTIME_COHORT_EVALUATION_TEAM_IDS`  | `none`   | Rollout gate for realtime cohort evaluation: `none`, `all`, or specific team IDs / ranges (e.g. `1,5,300:400`)                                                                    |
-| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                                                                           |
-| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                                                                            |
-| `REALTIME_COHORT_LOOKUP_TIMEOUT_MS`    | `1000`   | Upper bound on one membership lookup (pool acquire + query), matching the pool's 1s statement timeout; on timeout the lookup degrades to non-membership                           |
+| Variable                               | Default  | Purpose                                                                                                                                                                                         |
+| -------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, no pool is created and a NoOp provider resolves every realtime cohort lookup to non-membership               |
+| `REALTIME_COHORT_EVALUATION_TEAM_IDS`  | `none`   | Rollout gate for realtime cohort evaluation: `none`, `all`, or specific team IDs / ranges (e.g. `1,5,300:400`). Teams whose `cohort_realtime_team_access` row is at `serving` are evaluated too |
+| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                                                                                         |
+| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                                                                                          |
+| `REALTIME_COHORT_LOOKUP_TIMEOUT_MS`    | `1000`   | Upper bound on one membership lookup (pool acquire + query), matching the pool's 1s statement timeout; on timeout the lookup degrades to non-membership                                         |
 
 The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement timeout) since it only performs simple key lookups against the `cohort_membership` table.
 Realtime cohort evaluation degrades gracefully at every layer, always treating people as non-members rather than failing flag evaluation:
@@ -255,32 +278,37 @@ Cache and query health are observable via the `flags_cohort_membership_cache_*` 
 
 ### Redis
 
-| Variable                      | Default                     | Purpose                                  |
-| ----------------------------- | --------------------------- | ---------------------------------------- |
-| `REDIS_URL`                   | `redis://localhost:6379/`   | Shared Redis primary                     |
-| `REDIS_READER_URL`            | (falls back to `REDIS_URL`) | Shared Redis replica                     |
-| `FLAGS_REDIS_URL`             | (empty)                     | Dedicated flags Redis primary            |
-| `FLAGS_REDIS_READER_URL`      | (empty)                     | Dedicated flags Redis replica            |
-| `FLAGS_REDIS_ENABLED`         | `false`                     | Read from dedicated flags Redis          |
-| `REDIS_RESPONSE_TIMEOUT_MS`   | `100`                       | Redis response timeout (capped at 30s)   |
-| `REDIS_CONNECTION_TIMEOUT_MS` | `5000`                      | Redis connection timeout (capped at 60s) |
+| Variable                                     | Default                     | Purpose                                                                                                                                                                                 |
+| -------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REDIS_URL`                                  | `redis://localhost:6379/`   | Shared Redis primary                                                                                                                                                                    |
+| `REDIS_READER_URL`                           | (falls back to `REDIS_URL`) | Shared Redis replica                                                                                                                                                                    |
+| `FLAGS_REDIS_URL`                            | (empty)                     | Dedicated flags Redis primary                                                                                                                                                           |
+| `FLAGS_REDIS_READER_URL`                     | (empty)                     | Dedicated flags Redis replica                                                                                                                                                           |
+| `FLAGS_REDIS_ENABLED`                        | `false`                     | Inert. Nothing reads it, so setting it moves no read path                                                                                                                               |
+| `FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED`   | `false`                     | Serve the `/flags/definitions` payload and its ETag from the dedicated flags Redis instead of the shared one. See [dedicated flags Redis](hypercache-system.md#dedicated-flags-redis)   |
+| `FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED` | `false`                     | Rebuild definitions after an S3 hit and a confirmed Redis miss. Requires `FLAG_DEFINITIONS_SELF_HEAL_ENABLED=true`. See [the rebuild queue](hypercache-system.md#dedicated-flags-redis) |
+| `REDIS_RESPONSE_TIMEOUT_MS`                  | `100`                       | Redis response timeout (capped at 30s)                                                                                                                                                  |
+| `REDIS_CONNECTION_TIMEOUT_MS`                | `5000`                      | Redis connection timeout (capped at 60s)                                                                                                                                                |
 
 ### S3 / HyperCache
 
-| Variable                             | Default     | Purpose                                                                                                                                                                                    |
-| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                             |
-| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                 |
-| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                           |
-| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair) |
+| Variable                             | Default     | Purpose                                                                                                                                                                                             |
+| ------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                                      |
+| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                          |
+| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                                    |
+| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair)          |
+| `HYPERCACHE_S3_TIMEOUT_MS`           | `3000`      | Upper bound on one S3 read, for every HyperCache reader. Keep it below `REQUEST_TIMEOUT_MS`, so a slow read leaves time for the fallback. Startup replaces `0` or a value above `10000` with `3000` |
 
 ### Team lookup
 
-| Variable                          | Default | Purpose                                                                                                                                                          |
-| --------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SKIP_PG_TEAM_FALLBACK`           | `false` | When enabled, skip PostgreSQL fallback for team token lookups. HyperCache (Redis/S3) is treated as the source of truth — a cache miss means the token is invalid |
-| `TEAM_NEGATIVE_CACHE_TTL_SECONDS` | `30`    | TTL (seconds) for negative cache entries for invalid team tokens                                                                                                 |
-| `TEAM_NEGATIVE_CACHE_CAPACITY`    | `10000` | Max entries in the negative cache for invalid team tokens                                                                                                        |
+| Variable                          | Default | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SKIP_PG_TEAM_FALLBACK`           | `false` | When enabled, skip PostgreSQL fallback for team token lookups. HyperCache (Redis/S3) is treated as the source of truth — a cache miss means the token is invalid                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `ACCEPT_TEAM_SECRET_TOKENS`       | `true`  | When `false`, `phs_` bearer tokens authenticate only through `ProjectSecretAPIKey` rows — the legacy `Team.secret_api_token` lookup is skipped (PostHog/posthog#66179). A token already in the auth cache keeps authenticating the way it did before a flip until its entry expires, up to `AUTH_TOKEN_CACHE_TTL_SECONDS` later                                                                                                                                                                                                                                                        |
+| `LEGACY_TOKEN_MIRROR_SHADOW`      | `true`  | Transitional (PostHog/posthog#66179): after a successful legacy-token auth, a background query checks that the token's PSAK mirror row resolves to the same team, and emits `flags_legacy_token_mirror_shadow_total{result}`. A sustained zero `missing`/`team_mismatch` rate, with `match` nonzero, gates flipping `ACCEPT_TEAM_SECRET_TOKENS` off; `revoked` means leak revocation removed the row on purpose, so that token must not be backfilled. Runs only while legacy auth is on and only on auth-cache misses, with a hard concurrency cap (excess checks count as `skipped`) |
+| `TEAM_NEGATIVE_CACHE_TTL_SECONDS` | `30`    | TTL (seconds) for negative cache entries for invalid team tokens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `TEAM_NEGATIVE_CACHE_CAPACITY`    | `10000` | Max entries in the negative cache for invalid team tokens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 When `SKIP_PG_TEAM_FALLBACK` is enabled, HyperCache misses return a token validation error instead of querying PostgreSQL. This eliminates database pressure from requests with invalid tokens. Transient errors (Redis/S3 timeouts) bypass the fallback entirely and are not negative-cached.
 

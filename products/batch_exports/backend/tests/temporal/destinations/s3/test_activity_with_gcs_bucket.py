@@ -9,18 +9,22 @@ from temporalio.testing._activity import ActivityEnvironment
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportSchema,
+)
+from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
-    SUPPORTED_COMPRESSIONS,
-    S3InsertInputs,
-    s3_default_fields,
 )
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import S3InsertInputs, s3_default_fields
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    SPLIT_FILE_FORMAT_COMPRESSIONS,
+    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_S3_MODELS,
     assert_clickhouse_records_in_s3,
-    has_valid_gcs_credentials,
     run_activity,
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import (
@@ -30,12 +34,9 @@ from products.batch_exports.backend.tests.temporal.utils.s3 import (
 )
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials("GCS_TEST_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        not has_valid_gcs_credentials(),
-        reason="GCS credentials (AWS keys) not set in environment or missing GCS_TEST_BUCKET variable",
-    ),
 ]
 
 
@@ -53,9 +54,8 @@ async def gcs_client(bucket_name, s3_key_prefix):
         await delete_all_from_s3(s3_client, bucket_name, key_prefix=s3_key_prefix)
 
 
-@pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
+@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 async def test_insert_into_s3_activity_puts_data_into_gcs(
     clickhouse_client,
     bucket_name,
@@ -66,9 +66,10 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     ateam,
+    gcs_integration,
 ):
     """Test that the insert_into_s3_activity_from_stage function ends up with data into GCS.
 
@@ -84,17 +85,13 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
     that they appear in the expected GCS bucket and key.
     """
 
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
-
     prefix = str(uuid.uuid4())
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     batch_export_id = str(uuid.uuid4())
 
@@ -105,13 +102,10 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
         team_id=ateam.pk,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        endpoint_url="https://storage.googleapis.com",
+        integration_id=gcs_integration.id,
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=batch_export_id,
         destination_default_fields=s3_default_fields(),
@@ -127,16 +121,16 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
         records_exported == len(events_to_export_created)
         or records_exported == len(persons_to_export_created)
         or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
+        or (isinstance(model, AnyBatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
     )
 
     assert isinstance(bytes_exported, int)
     assert bytes_exported > 0
 
     sort_key = "uuid"
-    if isinstance(model, BatchExportModel) and model.name == "persons":
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons":
         sort_key = "person_id"
-    elif isinstance(model, BatchExportModel) and model.name == "sessions":
+    elif isinstance(model, AnyBatchExportModel) and model.name == "sessions":
         sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
@@ -157,9 +151,8 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
     )
 
 
-@pytest.mark.parametrize("compression", [*COMPRESSION_EXTENSIONS.keys(), None], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
+@pytest.mark.parametrize(("file_format", "compression"), SPLIT_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("max_file_size_mb", [None, 6])
 async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
     clickhouse_client,
@@ -172,8 +165,9 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     ateam,
+    gcs_integration,
 ):
     """Test that the insert_into_s3_activity_from_stage function splits up large files into
     multiple parts based on the max file size configuration.
@@ -182,12 +176,6 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
 
     This test needs to generate a lot of data to ensure that the file is large enough to be split up.
     """
-
-    if file_format == "JSONLines" and compression is not None:
-        pytest.skip("Compressing large JSONLines files takes too long to run; skipping for now")
-
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
     prefix = str(uuid.uuid4())
 
@@ -224,14 +212,11 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
         team_id=ateam.pk,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        endpoint_url="https://storage.googleapis.com",
+        integration_id=gcs_integration.id,
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
         max_file_size_mb=max_file_size_mb,
-        batch_export_schema=None,
         batch_export_model=model,
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=s3_default_fields(),

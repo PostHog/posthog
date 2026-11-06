@@ -3,13 +3,16 @@ import hashlib
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from oauth2_provider.settings import oauth2_settings
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel, OAuthGrant
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 
 class TestDynamicClientRegistration(APIBaseTest):
@@ -41,7 +44,19 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertIsNone(app.organization)
         self.assertIsNone(app.user)
 
-    def test_register_full_client(self):
+    def test_register_without_signing_key_answers_server_error_naming_the_setting(self):
+        with patch.object(oauth2_settings, "OIDC_RSA_PRIVATE_KEY", ""):
+            response = self.client.post(
+                "/oauth/register/", {"redirect_uris": ["https://example.com/callback"]}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.json()["error"], "server_error")
+        self.assertIn("OIDC_RSA_PRIVATE_KEY", response.json()["error_description"])
+        self.assertFalse(OAuthApplication.objects.filter(is_dcr_client=True).exists())
+
+    @mock_anti_ssrf_dns_lookup()
+    def test_register_full_client(self, _resolve):
         response = self.client.post(
             "/oauth/register/",
             {
@@ -50,6 +65,7 @@ class TestDynamicClientRegistration(APIBaseTest):
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
                 "token_endpoint_auth_method": "none",
+                "logo_uri": "https://example.com/logo.png",
             },
             format="json",
         )
@@ -58,10 +74,29 @@ class TestDynamicClientRegistration(APIBaseTest):
         data = response.json()
         self.assertEqual(data["client_name"], "Test MCP Client")
         self.assertEqual(len(data["redirect_uris"]), 2)
+        self.assertEqual(data["logo_uri"], "https://example.com/logo.png")
 
         # Verify name stored
         app = OAuthApplication.objects.get(client_id=data["client_id"])
         self.assertEqual(app.name, "Test MCP Client")
+        self.assertEqual(app.logo_uri, "https://example.com/logo.png")
+
+    def test_register_drops_an_unusable_logo_without_failing(self):
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "redirect_uris": ["https://example.com/callback"],
+                "logo_uri": "http://example.com/logo.png",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        data = response.json()
+        self.assertNotIn("logo_uri", data)
+
+        app = OAuthApplication.objects.get(client_id=data["client_id"])
+        self.assertIsNone(app.logo_uri)
 
     def test_register_localhost_http_allowed(self):
         response = self.client.post(
@@ -253,7 +288,6 @@ class TestDynamicClientRegistration(APIBaseTest):
 
     def test_rate_limiting_enforced(self):
         """DCR endpoint should enforce rate limiting."""
-        from unittest.mock import patch
 
         # Mock the throttle to have a very low limit
         with patch("posthog.api.oauth.dcr.DCRBurstThrottle.rate", "2/minute"):
@@ -408,6 +442,13 @@ class TestDynamicClientRegistration(APIBaseTest):
             ),
             ("strips_internal", "experiment:read signal_scout_internal:write", ["experiment:read"], "experiment:read"),
             (
+                "oidc_only_keeps_identity_ceiling",
+                "openid profile email",
+                ["openid", "profile", "email"],
+                "openid profile email",
+            ),
+            ("oidc_next_to_resource_is_dropped", "openid experiment:read", ["experiment:read"], "experiment:read"),
+            (
                 "strips_hidden",
                 "experiment:read wizard_session:write",
                 ["experiment:read"],
@@ -515,6 +556,14 @@ class TestDynamicClientRegistration(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
         self.assertIn("code=", redirect_to)
+
+    def test_sign_in_only_dcr_client_gets_no_resource_scope_at_authorize(self):
+        client_id = self._register_dcr_client(scope="openid profile email")
+        response = self._authorize_consent_post(client_id, "openid profile email experiment:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0]
+        granted = set(OAuthGrant.objects.get(code=code).scope.split())
+        self.assertEqual(granted, {"openid", "profile", "email"})
 
     def test_no_scope_dcr_client_does_not_obtain_privileged_scope_at_authorize(self):
         """The broad default excludes PRIVILEGED_SCOPES, so a no-ceiling DCR

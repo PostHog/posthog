@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.tasks.backend.temporal.client import (
@@ -26,11 +29,18 @@ def test_relay_enqueue_constructs_workflow_input(mock_connect: MagicMock) -> Non
     assert workflow_input.run_id == "run-1"
 
 
+@pytest.mark.parametrize("rpc_timeout", [None, timedelta(seconds=0.25)])
 @patch("products.tasks.backend.temporal.client.sync_connect")
-def test_followup_signal_sends_expected_args(mock_connect: MagicMock) -> None:
+def test_followup_signal_sends_expected_args(mock_connect: MagicMock, rpc_timeout: timedelta | None) -> None:
     handle = MagicMock(signal=AsyncMock())
     mock_connect.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
 
-    signal_task_followup_message("wf-1", "hi", ["artifact-1"], message_id="msg-1", actor_user_id=7)
+    signal_task_followup_message(
+        "wf-1", "hi", ["artifact-1"], message_id="msg-1", actor_user_id=7, rpc_timeout=rpc_timeout
+    )
 
-    handle.signal.assert_awaited_once_with("send_followup_message", args=["hi", ["artifact-1"], "msg-1", 7, None])
+    handle.signal.assert_awaited_once_with(
+        "send_followup_message",
+        args=["hi", ["artifact-1"], "msg-1", 7, None],
+        **({"rpc_timeout": rpc_timeout} if rpc_timeout is not None else {}),
+    )

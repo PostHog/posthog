@@ -1,7 +1,11 @@
+import uuid
+
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
 
 
 class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -23,9 +27,9 @@ class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     # constraint takes a SHARE ROW EXCLUSIVE lock on the parent, which stalls under write traffic. Team
     # scoping is enforced at the app level by TeamScopedRootMixin, and these are derived rows, so we don't
     # need DB-level referential integrity here. The table FK targets a non-hot table, so it keeps its constraint.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable", on_delete=models.CASCADE, related_name="column_statistics"
@@ -45,8 +49,14 @@ class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     computed_at = models.DateTimeField(null=True)
     # Delta table version the stats were computed against; provenance + lets us spot staleness.
     computed_for_delta_version = models.BigIntegerField(null=True)
-    # How the stats were produced. "delta_log" today; reserved for a future scan/sample basis.
+    # How the stats were produced. "delta_log" (a full Add-action scan) or "incremental" (folded commits
+    # on top of a prior scan); reserved values for a future scan/sample basis too.
     stats_basis = models.CharField(max_length=32, default="delta_log")
+    # When the last full Add-action scan wrote this row. Unlike `computed_at`, an incremental fold
+    # leaves this alone, so it anchors how long the folded numbers have gone uncorrected by a full
+    # scan. Null on rows written before this field existed; treat null the same as `computed_at`
+    # (every row was a full scan before incremental folding existed).
+    full_scan_at = models.DateTimeField(null=True)
 
     __repr__ = sane_repr("table_id", "column_name", "computed_at")
 
@@ -54,3 +64,16 @@ class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
         constraints = [
             models.UniqueConstraint(fields=["table", "column_name"], name="unique_table_column_statistics"),
         ]
+
+
+def clear_masked_column_bounds(team_id: int, table_id: uuid.UUID | None, masked_columns: list[str] | None) -> None:
+    """Drop the stored min and max of masked columns. They hold plaintext from before the mask."""
+    masked = {fold_column_name(column) for column in masked_columns or []}
+    if not masked or table_id is None:
+        return
+    statistics = WarehouseColumnStatistics.objects.for_team(team_id).filter(table_id=table_id, has_min_max=True)
+    stale = [
+        stat_id for stat_id, name in statistics.values_list("id", "column_name") if fold_column_name(name) in masked
+    ]
+    if stale:
+        statistics.filter(id__in=stale).update(min_value=None, max_value=None, has_min_max=False)

@@ -162,7 +162,7 @@ def detect_first_team_production_event_job():
 
 @dagster.schedule(
     job=detect_first_team_production_event_job,
-    cron_schedule="0 4 * * *",
+    cron_schedule="27 4 * * *",
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )

@@ -9,14 +9,14 @@
 set -euo pipefail
 
 # ── Colors & symbols ────────────────────────────────────────────────
-readonly C_RESET='\033[0m'
-readonly C_DIM='\033[2m'
-readonly C_GREEN='\033[32m'
-readonly C_YELLOW='\033[33m'
-readonly C_RED='\033[31m'
-readonly C_CYAN='\033[1;36m'
-readonly C_ITALIC='\033[3m'
-readonly C_BOLD='\033[1m'
+readonly C_RESET=$'\033[0m'
+readonly C_DIM=$'\033[2m'
+readonly C_GREEN=$'\033[32m'
+readonly C_YELLOW=$'\033[33m'
+readonly C_RED=$'\033[31m'
+readonly C_CYAN=$'\033[1;36m'
+readonly C_ITALIC=$'\033[3m'
+readonly C_BOLD=$'\033[1m'
 readonly SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 _ACTIVATION_TMPFILES=()
@@ -55,12 +55,8 @@ _save_failure_log() {
 }
 
 # ── Step runner ─────────────────────────────────────────────────────
-# Runs a command with a spinner and live output preview.
+# Runs a command and shows its progress with wait_bg_step.
 # Usage: run_step "Label" command [args...]
-#   - Shows a braille spinner with elapsed time while the command runs.
-#   - Below the spinner line, the last line of command output scrolls in-place.
-#   - On completion, collapses to a single "✓ Label  Ns" or "✗ Label  Ns" line.
-#   - Non-interactive: falls back to a simple "... Label" / "✓ Label" pair.
 run_step() {
   local label="$1"
   shift
@@ -72,70 +68,78 @@ run_step() {
   local start_time
   start_time=$(date +%s)
 
-  # Non-interactive fallback
+  "$@" > "$tmpfile" 2>&1 &
+  wait_bg_step "$label" $! "$start_time" "$tmpfile"
+}
+
+# Waits for a step running as a background process and reports its outcome.
+# Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
+#   - Shows a braille spinner with elapsed time while the process runs.
+#   - Below the spinner line, the last line of its log scrolls in-place.
+#   - On completion, collapses to a single "✓ Label  Ns" or "✗ Label  Ns" line.
+#   - Non-interactive: prints "... Label" while it runs, then the status line.
+wait_bg_step() {
+  local label="$1"
+  local pid="$2"
+  local start_time="$3"
+  local tmpfile="$4"
+
+  # A non-interactive shell starts background jobs with SIGINT ignored, so
+  # Ctrl+C would otherwise leave the step running after activation exits.
+  trap 'kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true; echo; exit 130' INT
+
   if [[ ! -t 1 ]]; then
     echo -ne "  ... ${label}"
-    if "$@" > "$tmpfile" 2>&1; then
-      echo -e "\r  ${C_GREEN}✓${C_RESET} ${label}"
-    else
-      echo -e "\r  ${C_RED}✗${C_RESET} ${label}  (failed)"
-      _save_failure_log "$label" "$tmpfile"
-      return 1
-    fi
-    return 0
-  fi
+  else
+    local frame=0
+    local had_output=false
 
-  # Run command in background
-  "$@" > "$tmpfile" 2>&1 &
-  local pid=$!
+    # Spinner loop
+    while kill -0 "$pid" 2>/dev/null; do
+      local elapsed=$(( $(date +%s) - start_time ))
+      local ch="${SPINNER_FRAMES[$(( frame % ${#SPINNER_FRAMES[@]} ))]}"
 
-  local frame=0
-  local had_output=false
+      # Read last line of output
+      local last_line=""
+      if [[ -s "$tmpfile" ]]; then
+        last_line=$(tail -n 1 "$tmpfile" 2>/dev/null)
+        last_line="${last_line//$'\r'/}"
+        last_line="${last_line:0:70}"
+      fi
 
-  # Spinner loop
-  while kill -0 "$pid" 2>/dev/null; do
-    local elapsed=$(( $(date +%s) - start_time ))
-    local ch="${SPINNER_FRAMES[$(( frame % ${#SPINNER_FRAMES[@]} ))]}"
+      # Redraw: clear previous output line if we had one
+      if [[ "$had_output" == true ]]; then
+        echo -ne "\033[A\033[2K"  # up one, clear line
+      fi
+      # Clear spinner line and redraw
+      printf "\r\033[2K  ${C_YELLOW}%s${C_RESET} %-42s %3ds" "$ch" "$label" "$elapsed"
 
-    # Read last non-empty line from output
-    local last_line=""
-    if [[ -s "$tmpfile" ]]; then
-      last_line=$(tail -n 1 "$tmpfile" 2>/dev/null | tr -d '\r' | cut -c1-70)
-    fi
+      # Show output preview below spinner
+      if [[ -n "$last_line" ]]; then
+        printf "\n\033[2K    ${C_DIM}%s${C_RESET}" "$last_line"
+        had_output=true
+      else
+        had_output=false
+      fi
 
-    # Redraw: clear previous output line if we had one
+      frame=$(( frame + 1 ))
+      sleep 0.08
+    done
+
+    # Clear output preview line, then move back up to the spinner line
     if [[ "$had_output" == true ]]; then
-      echo -ne "\033[A\033[2K"  # up one, clear line
+      echo -ne "\r\033[2K\033[A"
     fi
-    # Clear spinner line and redraw
-    printf "\r\033[2K  ${C_YELLOW}%s${C_RESET} %-42s %3ds" "$ch" "$label" "$elapsed"
-
-    # Show output preview below spinner
-    if [[ -n "$last_line" ]]; then
-      printf "\n    ${C_DIM}%s${C_RESET}" "$last_line"
-      had_output=true
-    else
-      had_output=false
-    fi
-
-    frame=$(( frame + 1 ))
-    sleep 0.08
-  done
+  fi
 
   local exit_code=0
   wait "$pid" 2>/dev/null || exit_code=$?
+  trap - INT
   local elapsed=$(( $(date +%s) - start_time ))
-
-  # Clear output preview line
-  if [[ "$had_output" == true ]]; then
-    echo -ne "\033[A\033[2K"
-  fi
 
   # Final status line
   if [[ $exit_code -eq 0 ]]; then
     printf "\r\033[2K  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-    # Clear the line below (old output preview may linger)
-    if [[ "$had_output" == true ]]; then printf "\033[2K"; fi
   else
     printf "\r\033[2K  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
     # Save failure log and show last few lines of output on failure
@@ -169,29 +173,6 @@ _read_ami_stamp() {
   tr -d '[:space:]' < "$file" 2>/dev/null || true
 }
 
-# Waits for a step that was started earlier as a background subshell and
-# reports its outcome. Mirrors run_step's final status line without a
-# spinner -- the work has usually completed by the time wait is called.
-# Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
-wait_bg_step() {
-  local label="$1"
-  local pid="$2"
-  local start_time="$3"
-  local tmpfile="$4"
-
-  local exit_code=0
-  wait "$pid" 2>/dev/null || exit_code=$?
-  local elapsed=$(( $(date +%s) - start_time ))
-
-  if [[ $exit_code -eq 0 ]]; then
-    printf "  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-  else
-    printf "  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-    _save_failure_log "$label" "$tmpfile"
-    return $exit_code
-  fi
-}
-
 # Inline step (instant, no spinner)
 done_step() {
   local label="$1"
@@ -212,18 +193,37 @@ fi
 
 # ── Go toolchain isolation ─────────────────────────────────────────
 # User shells often export GOROOT/GOCACHE for Homebrew, asdf, or other local Go
-# installs. Keep flox builds on the pinned Go toolchain and cache compiled
-# packages inside the flox environment so host Go upgrades cannot poison builds.
+# installs. Keep flox builds on the pinned Go toolchain and in caches this repo
+# owns so host Go upgrades cannot poison builds. Go keys both caches by toolchain
+# and module version, so every worktree shares them.
 unset GOROOT
 export GOTOOLCHAIN=local
-export GOPATH="$FLOX_ENV_CACHE/go"
-export GOCACHE="$FLOX_ENV_CACHE/go-build"
+export GOPATH="$HOME/.cache/posthog/go"
+export GOCACHE="$HOME/.cache/posthog/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
+# Old per-checkout caches hold six-figure file counts, so delete them off the activation path.
+# A shell opened before this change may still build from them, so wait until no go runs.
+# Module caches made without -modcacherw are read-only.
+for old_go_cache in "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build"; do
+  if [[ -d "$old_go_cache" ]] && ! pgrep -x go >/dev/null 2>&1 && mv "$old_go_cache" "$old_go_cache.old" 2>/dev/null; then
+    (chmod -R u+w "$old_go_cache.old"; rm -rf "$old_go_cache.old") >/dev/null 2>&1 &
+    disown
+  fi
+done
+# Go creates the module cache read-only by default, so `rm -rf` on the shared
+# cache would need a chmod first.
+export GOFLAGS=-modcacherw
 
 # uv-managed venv location (mirrors the [profile] scripts; not in [vars], which
 # can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
 export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
 
+# In `flox activate -- <cmd>` mode, Flox does not source [profile], so the uv venv
+# is not on PATH. Add it here so non-interactive commands can find hogli and
+# Python tooling.
+if [[ "$_interactive" != true ]] && [[ ":$PATH:" != *":$UV_PROJECT_ENVIRONMENT/bin:"* ]]; then
+  export PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+fi
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r
@@ -272,39 +272,62 @@ echo -e "\n${C_CYAN}PostHog dev${C_RESET} ${C_DIM}── ${_branch}${C_RESET}\n"
 
 _activation_start=$(date +%s)
 
-# ── Steps 1, 1b, 2 (kicked off in parallel, with AMI cache-skip) ───
+# ── Steps 1, 1b, 2 (kicked off in parallel; uv and pnpm have an AMI cache-skip) ───
 # uv sync, pnpm install, and `make phrocs build` are independent -- none
-# of them reads or writes the other's outputs. Kick the two non-spinner
-# ones off in the background BEFORE foregrounding uv sync, so the wall
+# of them reads or writes the other's outputs. Kick the other two
+# off in the background BEFORE foregrounding uv sync, so the wall
 # clock is bounded by the slowest single step instead of the sum. uv sync
 # stays foregrounded because the completion + man-page steps that follow
-# depend on the venv it populates, and because its run_step spinner remains
-# the user-visible progress indicator for activate.
+# depend on the venv it populates. wait_bg_step shows a spinner for each
+# background step that is still running when activation reaches it.
 #
-# Each step also checks an AMI-bake stamp file (sha256 of the source-of-
-# truth input recorded at bake time): when the on-disk hash matches the
-# baked hash, the workspace is in the same state as the bake and the
-# subprocess would be a no-op, so we skip it entirely. On laptops or
-# pre-stamp workspaces the stamps are missing and the checks fall back
-# to running normally -- no regression.
+# uv sync and pnpm install also check an AMI-bake stamp file (sha256 of the
+# lockfile recorded at bake time): when the on-disk hash matches the baked
+# hash, the workspace is in the same state as the bake and the subprocess
+# would be a no-op, so we skip it entirely. On laptops or pre-stamp
+# workspaces the stamps are missing and the checks fall back to running
+# normally -- no regression.
+#
+# The phrocs build gets no stamp. Its Makefile already compares source and
+# binary timestamps, so `make` is a no-op when nothing changed. A stamp on
+# the built binary would never expire: a devbox pulls master at boot while
+# the binary stays the baked one, so the hash matches forever and the box
+# keeps running a phrocs that predates the config hogli generates.
 _PNPM_LOCK="$FLOX_ENV_PROJECT/pnpm-lock.yaml"
 _UV_LOCK="$FLOX_ENV_PROJECT/uv.lock"
-_PHROCS_BIN="$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs"
 
 _PNPM_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-pnpm-stamp)
 _UV_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-uv-stamp)
-_PHROCS_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-phrocs-stamp)
 
 _PNPM_CURRENT=$(_sha256_file "$_PNPM_LOCK")
 _UV_CURRENT=$(_sha256_file "$_UV_LOCK")
-_PHROCS_CURRENT=$(_sha256_file "$_PHROCS_BIN")
 
+# A stamp says the lockfile matches the bake, not that this checkout has the
+# outputs. A fresh worktree matches every stamp and has neither, so require the
+# local tree too or activation skips the install and leaves the worktree empty.
+# These probe for what a real install leaves behind rather than a bare directory,
+# since both tools create the parent early and populate it afterwards.
 _PNPM_SKIP=0
-[[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" ]] && _PNPM_SKIP=1
+[[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" && -d "$FLOX_ENV_PROJECT/node_modules/.pnpm" ]] && _PNPM_SKIP=1
 _UV_SKIP=0
-[[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" ]] && _UV_SKIP=1
-_PHROCS_SKIP=0
-[[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
+[[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" && -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] && _UV_SKIP=1
+
+# Seed repo-local git settings here, because package.json's postinstall runs inside
+# the sandbox below, which write-denies .git/config. The postinstall still tries
+# blame.ignoreRevsFile for clones that never activate flox (.claude/hooks/setup-cloud.sh
+# and friends); under the sandbox that attempt no-ops and this one is what lands.
+# Idempotent — the --get short-circuits once the value is set.
+git -C "$FLOX_ENV_PROJECT" config --get blame.ignoreRevsFile >/dev/null 2>&1 ||
+  git -C "$FLOX_ENV_PROJECT" config blame.ignoreRevsFile .git-blame-ignore-revs >/dev/null 2>&1 ||
+  true
+# Same for husky's core.hooksPath, which `prepare` sets during the sandboxed pnpm
+# install below. husky checks only whether git spawned, not how it exited, so the
+# denied write leaves a fresh clone with no hooks and an install that claims success.
+# --local, not --get: a global core.hooksPath would satisfy a merged --get and skip
+# the seed, leaving the repo pointed at the developer's global hooks dir instead.
+git -C "$FLOX_ENV_PROJECT" config --local --get core.hooksPath >/dev/null 2>&1 ||
+  git -C "$FLOX_ENV_PROJECT" config core.hooksPath .husky >/dev/null 2>&1 ||
+  true
 
 # Sandbox the automatic installs below by default on macOS (opt out with
 # POSTHOG_DEV_SANDBOX=0). .env.local isn't loaded at flox-activate time, so check
@@ -327,6 +350,11 @@ if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
   if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
     ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
+  elif [[ "$(uname -s)" == "Linux" ]]; then
+    # LDFLAGS links against flox's libs, which need the nix glibc. On a host with an
+    # older glibc, the host linker then rejects librdkafka's example programs, which
+    # node-rdkafka builds but never uses. Scoped to this install so other builds keep strict linking.
+    ( LDFLAGS="${LDFLAGS:-} -Wl,--allow-shlib-undefined" pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
   else
     ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
   fi
@@ -334,13 +362,11 @@ if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _BG_PNPM_START=$(date +%s)
 fi
 
-if [[ "$_PHROCS_SKIP" -eq 0 ]]; then
-  _BG_PHROCS_LOG=$(mktemp)
-  _ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
-  ( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
-  _BG_PHROCS_PID=$!
-  _BG_PHROCS_START=$(date +%s)
-fi
+_BG_PHROCS_LOG=$(mktemp)
+_ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
+( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
+_BG_PHROCS_PID=$!
+_BG_PHROCS_START=$(date +%s)
 
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
 if [[ "$_UV_SKIP" -eq 1 ]]; then
@@ -356,33 +382,48 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
 fi
 
+# ── Stale worktree cleanup ──────────────────────────────────────────
+# Agent tools create worktrees faster than anyone removes them.
+# POSTHOG_WORKTREES_AUTOCLEAN=0 opts out. hogli writes the lock file on each real run.
+if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
+  && [[ -z "$(find "$HOME/.config/posthog/worktrees-clean.lock" -size +0c -mmin -1440 2>/dev/null)" ]]; then
+  "$UV_PROJECT_ENVIRONMENT/bin/python" -P -m hogli worktrees:clean --unattended >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
+  disown
+fi
+
 # Install shell completions for hogli
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
 mkdir -p "$HOGLI_COMPLETION_DIR"
-if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+# The completions list only the commands in hogli.yaml, so they change only when that file,
+# the manifest loader, or their generator changes.
+if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]] && {
+  [[ ! -s "$HOGLI_COMPLETION_DIR/hogli.bash" || ! -s "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/hogli.yaml" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/tools/hogli/src/hogli/manifest.py" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/tools/hogli/src/hogli/completion.py" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]]
+}; then
   "$UV_PROJECT_ENVIRONMENT/bin/python" \
     -m hogli.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
   "$UV_PROJECT_ENVIRONMENT/bin/python" \
     -m hogli.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
 fi
 
-# Generate hogli man page into the active environment so `man hogli` works.
+# Generate hogli man page into the active environment so `man hogli` works. The page also
+# documents commands defined in Python, so it is regenerated in the background each time
+# instead of making activation wait for it.
 HOGLI_MANPAGE_DIR="$UV_PROJECT_ENVIRONMENT/share/man/man1"
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   (
     mkdir -p "$HOGLI_MANPAGE_DIR"
     "$UV_PROJECT_ENVIRONMENT/bin/python" \
       "$FLOX_ENV_PROJECT/tools/hogli/scripts/generate_man_page.py" \
-      --output "$HOGLI_MANPAGE_DIR/hogli.1" >/dev/null 2>&1
-  ) || true
+      --output "$HOGLI_MANPAGE_DIR/hogli.1"
+  ) >/dev/null 2>&1 &
+  disown
 fi
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
-if [[ "$_PHROCS_SKIP" -eq 1 ]]; then
-  done_step "Build phrocs (cached)"
-else
-  wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
-fi
+wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
 if [[ -f "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
 fi
@@ -448,8 +489,55 @@ elif [[ -n "$_flox_rustc_ver" ]]; then
   done_step "Rust toolchain (rustc ${_flox_rustc_ver})"
 fi
 
-# Share a single Cargo target dir so worktrees skip redundant linking
-export CARGO_TARGET_DIR="$HOME/.cargo/target"
+# ── macOS SDK check for lld (aarch64-darwin only) ──────────────────
+# rust/.cargo/config.toml links Rust via lld here. Newer macOS SDKs add an
+# arm64e.x1 slice to their libSystem/libc/libm .tbd stubs. lld cannot parse
+# that slice, so it discards the whole stub and every Rust link fails with
+# undefined libc symbols. An SDK can lack an arm64-macos slice and still link,
+# because lld links arm64 output against an arm64e-macos slice.
+# Pin SDKROOT to the newest SDK lld can still read.
+if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && command -v lld >/dev/null 2>&1; then
+  _sdk_lld_can_link() {
+    local tbd="$1/usr/lib/libSystem.tbd" targets
+    [[ -r "$tbd" ]] || return 1
+    targets=$(awk '/^targets:/{f=1} f{print} f&&/]/{exit}' "$tbd")
+    grep -qE '(^|[][[:space:],])arm64e?-macos([][:space:],]|$)' <<<"$targets" &&
+      ! grep -qF 'arm64e.x1' <<<"$targets"
+  }
+
+  _active_sdk=$(xcrun --show-sdk-path 2>/dev/null)
+  if [[ -n "$_active_sdk" ]] && ! _sdk_lld_can_link "$_active_sdk"; then
+    _sdk_dirs=(/Library/Developer/CommandLineTools/SDKs)
+    _xcode_dev_dir=$(xcode-select -p 2>/dev/null)
+    [[ -n "$_xcode_dev_dir" ]] && _sdk_dirs+=("$_xcode_dev_dir/Platforms/MacOSX.platform/Developer/SDKs")
+
+    _lld_sdk=""
+    while IFS=$'\t' read -r _ _candidate; do
+      if _sdk_lld_can_link "$_candidate"; then
+        _lld_sdk="$_candidate"
+        break
+      fi
+    done < <(
+      for _dir in "${_sdk_dirs[@]}"; do
+        [[ -d "$_dir" ]] || continue
+        for _sdk in "$_dir"/MacOSX*.sdk; do
+          [[ -d "$_sdk" && ! -L "$_sdk" ]] || continue
+          printf '%s\t%s\n' "$(basename "$_sdk")" "$_sdk"
+        done
+      done | sort -Vr -k1,1
+    )
+
+    if [[ -n "$_lld_sdk" ]]; then
+      export SDKROOT="$_lld_sdk"
+      done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk"), the newest one lld can link against)${C_RESET}"
+    else
+      warn_step "No macOS SDK found that lld can link against. Rust builds will fail."
+      echo -e "    ${C_DIM}$(basename "$_active_sdk") has an arm64e.x1 slice that lld cannot parse, or no arm64 slice.${C_RESET}"
+      echo -e "    ${C_DIM}Fix: install an older SDK, or drop -fuse-ld=lld from rust/.cargo/config.toml.${C_RESET}"
+    fi
+  fi
+  unset -f _sdk_lld_can_link
+fi
 
 # ── Summary ─────────────────────────────────────────────────────────
 _activation_end=$(date +%s)

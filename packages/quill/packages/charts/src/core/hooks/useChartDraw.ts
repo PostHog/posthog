@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
+import { markPaintDone, markPaintPending } from '../paint-state'
 import type {
     ChartDimensions,
     ChartDrawArgs,
@@ -19,8 +20,8 @@ interface UseChartDrawOptions {
     overlayCtx: CanvasRenderingContext2D | null
     dimensions: ChartDimensions | null
     scales: ChartScales | null
-    series: ResolvedSeries[]
-    labels: string[]
+    series?: ResolvedSeries[]
+    labels?: string[]
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
@@ -31,13 +32,17 @@ interface UseChartDrawOptions {
     hoverAnimationMs?: number
 }
 
+// Shared defaults: a fresh `[]` per render would repaint the static layer on every hover.
+const NO_SERIES: ResolvedSeries[] = []
+const NO_LABELS: string[] = []
+
 export function useChartDraw({
     ctx,
     overlayCtx,
     dimensions,
     scales,
-    series,
-    labels,
+    series = NO_SERIES,
+    labels = NO_LABELS,
     hoverIndex,
     hoverPosition,
     theme,
@@ -46,21 +51,18 @@ export function useChartDraw({
     drawHover,
     hoverAnimationMs = 0,
 }: UseChartDrawOptions): void {
-    // Cancel the prior RAF on effect re-run — relying on cleanup ordering alone leaves a
-    // window where a stale RAF can paint after the new setup runs.
-    const staticRafRef = useRef<number | null>(null)
-
     // hoverIndex is deliberately not a dep — a hover sweep shouldn't repaint the static layer.
     useEffect(() => {
-        if (staticRafRef.current != null) {
-            cancelAnimationFrame(staticRafRef.current)
-            staticRafRef.current = null
-        }
-        if (!ctx || !dimensions || !scales || theme.skipDraw) {
+        if (!ctx) {
             return
         }
-        staticRafRef.current = requestAnimationFrame(() => {
-            staticRafRef.current = null
+        // Nothing to paint is a settled state too, or a snapshot runner would wait on it.
+        if (!dimensions || !scales || theme.skipDraw) {
+            markPaintDone(ctx.canvas)
+            return
+        }
+        markPaintPending(ctx.canvas)
+        const raf = requestAnimationFrame(() => {
             clearAndPrepare(ctx, dimensions)
             try {
                 drawStatic({
@@ -77,15 +79,10 @@ export function useChartDraw({
                 })
             } finally {
                 ctx.restore()
+                markPaintDone(ctx.canvas)
             }
         })
-        return () => {
-            if (staticRafRef.current != null) {
-                cancelAnimationFrame(staticRafRef.current)
-                staticRafRef.current = null
-            }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        return () => cancelAnimationFrame(raf)
     }, [ctx, dimensions, scales, series, labels, theme, drawStatic])
 
     useHoverAnimation({

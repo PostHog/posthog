@@ -13,23 +13,16 @@
  * * `sessions` - Sessions
  * * `hogql` - Hogql
  */
-export type ModelEnumApi = (typeof ModelEnumApi)[keyof typeof ModelEnumApi]
+export type BatchExportModelEnumApi = (typeof BatchExportModelEnumApi)[keyof typeof BatchExportModelEnumApi]
 
-export const ModelEnumApi = {
+export const BatchExportModelEnumApi = {
     Events: 'events',
     Persons: 'persons',
     Sessions: 'sessions',
     Hogql: 'hogql',
 } as const
 
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
 /**
- * * `S3` - S3
  * * `AwsS3` - Aws S3
  * * `S3Compatible` - S3 Compatible
  * * `Snowflake` - Snowflake
@@ -47,7 +40,6 @@ export type BatchExportDestinationTypeEnumApi =
     (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
 
 export const BatchExportDestinationTypeEnumApi = {
-    S3: 'S3',
     AwsS3: 'AwsS3',
     S3Compatible: 'S3Compatible',
     Snowflake: 'Snowflake',
@@ -155,6 +147,8 @@ export interface AzureBlobDestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     type: AzureBlobDestinationConfigApiType
 }
 
@@ -246,6 +240,8 @@ export interface AwsS3DestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     /**
      * Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').
      * @nullable
@@ -299,6 +295,8 @@ export interface S3CompatibleDestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     /** Use virtual-hosted-style addressing rather than path-style. */
     use_virtual_style_addressing?: boolean
     type: S3CompatibleDestinationConfigApiType
@@ -314,9 +312,9 @@ export const SnowflakeDestinationConfigApiType = {
 /**
  * Typed configuration for a Snowflake batch-export destination.
  *
- * Account, user, authentication type and credentials may live in a linked Integration (when one is
- * provided) or inline in this config (legacy). Mirrors the non-credential fields of
- * `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ * Account, user, authentication type and credentials live in the linked Integration, never here.
+ * Mirrors the non-credential fields of `SnowflakeBatchExportInputs` in
+ * `products/batch_exports/backend/service.py`.
  */
 export interface SnowflakeDestinationConfigApi {
     /** Snowflake database to write to. */
@@ -335,6 +333,105 @@ export interface SnowflakeDestinationConfigApi {
     type: SnowflakeDestinationConfigApiType
 }
 
+/**
+ * * `varchar` - varchar
+ * * `super` - super
+ */
+export type PropertiesDataTypeEnumApi = (typeof PropertiesDataTypeEnumApi)[keyof typeof PropertiesDataTypeEnumApi]
+
+export const PropertiesDataTypeEnumApi = {
+    Varchar: 'varchar',
+    Super: 'super',
+} as const
+
+/**
+ * * `INSERT` - INSERT
+ * * `COPY` - COPY
+ */
+export type RedshiftExportModeEnumApi = (typeof RedshiftExportModeEnumApi)[keyof typeof RedshiftExportModeEnumApi]
+
+export const RedshiftExportModeEnumApi = {
+    Insert: 'INSERT',
+    Copy: 'COPY',
+} as const
+
+/**
+ * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
+ */
+export type RedshiftCopyInputsApiAuthorization =
+    | number
+    | string
+    | {
+          aws_access_key_id: string
+          aws_secret_access_key: string
+      }
+
+/**
+ * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
+ */
+export type RedshiftCopyInputsApiBucketCredentials =
+    | number
+    | {
+          aws_access_key_id: string
+          aws_secret_access_key: string
+      }
+
+/**
+ * S3 staging configuration for a Redshift batch export running in COPY mode.
+ */
+export interface RedshiftCopyInputsApi {
+    /** S3 bucket where files are staged before the Redshift COPY. */
+    s3_bucket: string
+    /** AWS region of the staging S3 bucket. */
+    region_name: string
+    /** Key prefix for staged files in the S3 bucket. */
+    s3_key_prefix: string
+    /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
+    authorization: RedshiftCopyInputsApiAuthorization
+    /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
+    bucket_credentials: RedshiftCopyInputsApiBucketCredentials
+}
+
+export type RedshiftDestinationConfigApiType =
+    (typeof RedshiftDestinationConfigApiType)[keyof typeof RedshiftDestinationConfigApiType]
+
+export const RedshiftDestinationConfigApiType = {
+    Redshift: 'Redshift',
+} as const
+
+/**
+ * Typed configuration for a Redshift batch-export destination.
+ *
+ * Connection credentials may live in a linked Integration (when one is provided) or inline in
+ * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+ * `products/batch_exports/backend/service.py`.
+ */
+export interface RedshiftDestinationConfigApi {
+    /** Redshift database name to connect to. */
+    database: string
+    /** Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves. */
+    host?: string
+    /** Redshift schema name containing the destination table. */
+    schema?: string
+    /** Redshift table name to write exported rows into. */
+    table_name?: string
+    /** Port the Redshift server listens on. */
+    port?: number
+    /** Data type used for JSON-like columns such as event properties.
+     *
+     * * `varchar` - varchar
+     * * `super` - super */
+    properties_data_type?: PropertiesDataTypeEnumApi
+    /** How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.
+     *
+     * * `INSERT` - INSERT
+     * * `COPY` - COPY */
+    mode?: RedshiftExportModeEnumApi
+    /** S3 staging configuration, required when mode is 'COPY'. */
+    copy_inputs?: RedshiftCopyInputsApi
+    type: RedshiftDestinationConfigApiType
+}
+
 export type BatchExportDestinationConfigApi =
     | DatabricksDestinationConfigApi
     | AzureBlobDestinationConfigApi
@@ -343,19 +440,19 @@ export type BatchExportDestinationConfigApi =
     | AwsS3DestinationConfigApi
     | S3CompatibleDestinationConfigApi
     | SnowflakeDestinationConfigApi
+    | RedshiftDestinationConfigApi
 
 /**
  * Serializer for an BatchExportDestination model.
  *
  * The `config` field is polymorphic and typed only for destinations that keep
  * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
- * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
- * typed OpenAPI schema. Secret fields are stripped from `config` on read.
+ * AwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape
+ * but without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
  */
 export interface BatchExportDestinationApi {
     /** A choice of supported BatchExportDestination types.
      *
-     * * `S3` - S3
      * * `AwsS3` - Aws S3
      * * `S3Compatible` - S3 Compatible
      * * `Snowflake` - Snowflake
@@ -369,7 +466,7 @@ export interface BatchExportDestinationApi {
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
     type: BatchExportDestinationTypeEnumApi
-    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
      * The integration for this destination.
@@ -377,7 +474,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.
+     * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.
      * @nullable
      */
     integration_id?: number | null
@@ -432,6 +529,8 @@ export const BatchExportRunStatusEnumApi = {
  */
 export interface BatchExportRunApi {
     readonly id: string
+    /** The end of the data interval. */
+    data_interval_end: string
     /** The status of this run.
      *
      * * `Cancelled` - Cancelled
@@ -469,8 +568,6 @@ export interface BatchExportRunApi {
      * @nullable
      */
     data_interval_start?: string | null
-    /** The end of the data interval. */
-    data_interval_end: string
     /**
      * An opaque cursor that may be used to resume.
      * @nullable
@@ -516,6 +613,277 @@ export interface BatchExportRunApi {
     backfill?: string | null
 }
 
+export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
+
+export const BounceRatePageViewModeApi = {
+    CountPageviews: 'count_pageviews',
+    UniqUrls: 'uniq_urls',
+    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
+} as const
+
+export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
+
+export const FilterLogicalOperatorApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
+
+export const CustomBotFieldApi = {
+    RawUserAgent: '$raw_user_agent',
+    Ip: '$ip',
+    Lib: '$lib',
+    Host: '$host',
+    Pathname: '$pathname',
+    CurrentUrl: '$current_url',
+    Browser: '$browser',
+    Os: '$os',
+    BrowserLanguage: '$browser_language',
+    ScreenWidth: '$screen_width',
+    ScreenHeight: '$screen_height',
+    GeoipCountryCode: '$geoip_country_code',
+    Referrer: '$referrer',
+    ReferringDomain: '$referring_domain',
+} as const
+
+export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
+
+export const CustomBotMatcherApi = {
+    Contains: 'contains',
+    Regex: 'regex',
+    Exact: 'exact',
+    Cidr: 'cidr',
+} as const
+
+export interface CustomBotConditionApi {
+    id: string
+    /** The event property this condition reads. */
+    key: CustomBotFieldApi
+    matcher: CustomBotMatcherApi
+    /** Matched against the property named by `key`. */
+    pattern: string
+}
+
+export interface CustomBotRuleApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomBotConditionApi[]
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+}
+
+export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
+
+export const CustomChannelFieldApi = {
+    UtmSource: 'utm_source',
+    UtmMedium: 'utm_medium',
+    UtmCampaign: 'utm_campaign',
+    ReferringDomain: 'referring_domain',
+    Url: 'url',
+    Pathname: 'pathname',
+    Hostname: 'hostname',
+} as const
+
+export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
+
+export const CustomChannelOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export interface CustomChannelConditionApi {
+    id: string
+    key: CustomChannelFieldApi
+    op: CustomChannelOperatorApi
+    value?: string | string[] | null
+}
+
+export interface CustomChannelRuleApi {
+    channel_type: string
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomChannelConditionApi[]
+}
+
+export interface DataWarehouseEventsModifierApi {
+    distinct_id_field: string
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
+
+export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
+
+export const InCohortViaApi = {
+    Auto: 'auto',
+    Leftjoin: 'leftjoin',
+    Subquery: 'subquery',
+    LeftjoinConjoined: 'leftjoin_conjoined',
+} as const
+
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
+export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
+
+export const MaterializationModeApi = {
+    Auto: 'auto',
+    LegacyNullAsString: 'legacy_null_as_string',
+    LegacyNullAsNull: 'legacy_null_as_null',
+    Disabled: 'disabled',
+} as const
+
+export type MaterializedColumnsOptimizationModeApi =
+    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
+
+export const MaterializedColumnsOptimizationModeApi = {
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
+
+export const ParserModeApi = {
+    CppOnly: 'cpp_only',
+    CppWithRustShadow: 'cpp_with_rust_shadow',
+    CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
+    RustWithCppShadow: 'rust_with_cpp_shadow',
+    RustOnly: 'rust_only',
+    RustPyOnly: 'rust_py_only',
+    RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
+} as const
+
+export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
+
+export const PersonsArgMaxVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+} as const
+
+export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
+
+export const PersonsJoinModeApi = {
+    Inner: 'inner',
+    Left: 'left',
+} as const
+
+export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
+
+export const PersonsOnEventsModeApi = {
+    Disabled: 'disabled',
+    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
+    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
+    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
+} as const
+
+export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
+
+export const PropertyGroupsModeApi = {
+    Enabled: 'enabled',
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
+
+export const SessionTableVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+    V3: 'v3',
+} as const
+
+export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
+
+export const SessionsV2JoinModeApi = {
+    String: 'string',
+    Uuid: 'uuid',
+} as const
+
+export interface HogQLQueryModifiersApi {
+    bounceRateDurationSeconds?: number | null
+    bounceRatePageViewMode?: BounceRatePageViewModeApi | null
+    convertToProjectTimezone?: boolean | null
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
+    customBotDefinitions?: CustomBotRuleApi[] | null
+    customChannelTypeRules?: CustomChannelRuleApi[] | null
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
+    debug?: boolean | null
+    /** If these are provided, the query will fail if these skip indexes are not used */
+    forceClickhouseDataSkippingIndexes?: string[] | null
+    formatCsvAllowDoubleQuotes?: boolean | null
+    inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
+    materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
+    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
+    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+    mergeFederatedAggregateJoins?: boolean | null
+    /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
+    negatedPersonFiltersNotIn?: boolean | null
+    optimizeJoinedFilters?: boolean | null
+    optimizeProjections?: boolean | null
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
+    personsArgMaxVersion?: PersonsArgMaxVersionApi | null
+    personsJoinMode?: PersonsJoinModeApi | null
+    personsOnEventsMode?: PersonsOnEventsModeApi | null
+    propertyGroupsMode?: PropertyGroupsModeApi | null
+    pushDownPredicates?: boolean | null
+    s3TableUseInvalidColumns?: boolean | null
+    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
+    sessionIdPushdown?: boolean | null
+    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
+    sessionPropertyPreAggregation?: boolean | null
+    sessionTableVersion?: SessionTableVersionApi | null
+    /** Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range. */
+    sessionTimestampBufferMinutes?: number | null
+    sessionsV2JoinMode?: SessionsV2JoinModeApi | null
+    timings?: boolean | null
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean | null
+    useMaterializedViews?: boolean | null
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
+    useNewEventsSchema?: boolean | null
+    usePreaggregatedIntermediateResults?: boolean | null
+    /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
+    usePreaggregatedTableTransforms?: boolean | null
+    useWebAnalyticsPreAggregatedTables?: boolean | null
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean | null
+}
+
+/**
+ * * `APPEND` - Append
+ * * `MERGE` - Merge
+ */
+export type IncrementalModeEnumApi = (typeof IncrementalModeEnumApi)[keyof typeof IncrementalModeEnumApi]
+
+export const IncrementalModeEnumApi = {
+    Append: 'APPEND',
+    Merge: 'MERGE',
+} as const
+
 /**
  * Serializer for a BatchExport model.
  */
@@ -525,13 +893,13 @@ export interface BatchExportApi {
     readonly team_id: number
     /** A human-readable name for this BatchExport. */
     name: string
-    /** Which model this BatchExport is exporting.
+    /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
      *
      * * `events` - Events
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: ModelEnumApi | BlankEnumApi | null
+    model?: BatchExportModelEnumApi
     /** Destination configuration (type, config, and optional integration). */
     destination: BatchExportDestinationApi
     /** How often the batch export should run.
@@ -565,8 +933,28 @@ export interface BatchExportApi {
     end_at?: string | null
     /** The 10 most recent runs of this batch export, ordered newest first. */
     readonly latest_runs: readonly BatchExportRunApi[]
-    /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-    hogql_query?: string
+    /**
+     * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'.
+     * @nullable
+     */
+    hogql_query?: string | null
+    /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
+    hogql_modifiers?: HogQLQueryModifiersApi | null
+    /**
+     * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'.
+     * @nullable
+     */
+    primary_key?: string[] | null
+    /**
+     * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+     * @nullable
+     */
+    version_key?: string[] | null
+    /** How this batch export handles incremental updates.
+     *
+     * * `APPEND` - Append
+     * * `MERGE` - Merge */
+    incremental_mode?: IncrementalModeEnumApi
     /** A schema of custom fields to select when exporting data. */
     readonly schema: unknown
     filters?: unknown
@@ -671,6 +1059,7 @@ export interface BatchExportApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -1274,7 +1663,7 @@ export const AwsS3DestinationRequestApiType = {
  */
 export interface AwsS3DestinationRequestApi {
     type: AwsS3DestinationRequestApiType
-    /** ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: AwsS3DestinationConfigApi
 }
@@ -1291,7 +1680,7 @@ export const S3CompatibleDestinationRequestApiType = {
  */
 export interface S3CompatibleDestinationRequestApi {
     type: S3CompatibleDestinationRequestApiType
-    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: S3CompatibleDestinationConfigApi
 }
@@ -1308,9 +1697,26 @@ export const SnowflakeDestinationRequestApiType = {
  */
 export interface SnowflakeDestinationRequestApi {
     type: SnowflakeDestinationRequestApiType
-    /** ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: SnowflakeDestinationConfigApi
+}
+
+export type RedshiftDestinationRequestApiType =
+    (typeof RedshiftDestinationRequestApiType)[keyof typeof RedshiftDestinationRequestApiType]
+
+export const RedshiftDestinationRequestApiType = {
+    Redshift: 'Redshift',
+} as const
+
+/**
+ * Request shape for creating or updating a Redshift batch-export destination.
+ */
+export interface RedshiftDestinationRequestApi {
+    type: RedshiftDestinationRequestApiType
+    /** ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one. */
+    integration_id: number
+    config: RedshiftDestinationConfigApi
 }
 
 export type BatchExportDestinationRequestApi =
@@ -1321,6 +1727,7 @@ export type BatchExportDestinationRequestApi =
     | AwsS3DestinationRequestApi
     | S3CompatibleDestinationRequestApi
     | SnowflakeDestinationRequestApi
+    | RedshiftDestinationRequestApi
 
 /**
  * Request body for create/partial_update on BatchExportViewSet.
@@ -1332,13 +1739,13 @@ export type BatchExportDestinationRequestApi =
 export interface BatchExportRequestApi {
     /** Human-readable name for the batch export. */
     name: string
-    /** Which data model to export (events, persons, sessions).
+    /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
      *
      * * `events` - Events
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: ModelEnumApi
+    model?: BatchExportModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination: BatchExportDestinationRequestApi
     /** How often the batch export should run.
@@ -1351,8 +1758,28 @@ export interface BatchExportRequestApi {
     interval: BatchExportIntervalEnumApi
     /** Whether the batch export is paused. */
     paused?: boolean
-    /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-    hogql_query?: string
+    /**
+     * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'.
+     * @nullable
+     */
+    hogql_query?: string | null
+    /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
+    hogql_modifiers?: HogQLQueryModifiersApi | null
+    /**
+     * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'
+     * @nullable
+     */
+    primary_key?: string[] | null
+    /**
+     * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+     * @nullable
+     */
+    version_key?: string[] | null
+    /** How this batch export handles incremental updates.
+     *
+     * * `APPEND` - Append
+     * * `MERGE` - Merge */
+    incremental_mode?: IncrementalModeEnumApi
     /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**
@@ -1468,6 +1895,7 @@ export interface BatchExportBackfillApi {
 }
 
 export interface PaginatedBatchExportBackfillListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -1476,6 +1904,7 @@ export interface PaginatedBatchExportBackfillListApi {
 }
 
 export interface PaginatedBatchExportRunListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -1493,13 +1922,13 @@ export interface PaginatedBatchExportRunListApi {
 export interface PatchedBatchExportRequestApi {
     /** Human-readable name for the batch export. */
     name?: string
-    /** Which data model to export (events, persons, sessions).
+    /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
      *
      * * `events` - Events
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: ModelEnumApi
+    model?: BatchExportModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination?: BatchExportDestinationRequestApi
     /** How often the batch export should run.
@@ -1512,8 +1941,28 @@ export interface PatchedBatchExportRequestApi {
     interval?: BatchExportIntervalEnumApi
     /** Whether the batch export is paused. */
     paused?: boolean
-    /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-    hogql_query?: string
+    /**
+     * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'.
+     * @nullable
+     */
+    hogql_query?: string | null
+    /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
+    hogql_modifiers?: HogQLQueryModifiersApi | null
+    /**
+     * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'
+     * @nullable
+     */
+    primary_key?: string[] | null
+    /**
+     * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+     * @nullable
+     */
+    version_key?: string[] | null
+    /** How this batch export handles incremental updates.
+     *
+     * * `APPEND` - Append
+     * * `MERGE` - Merge */
+    incremental_mode?: IncrementalModeEnumApi
     /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**
@@ -1535,6 +1984,11 @@ export interface PatchedBatchExportRequestApi {
      * @nullable
      */
     offset_hour?: number | null
+}
+
+export interface BatchExportUnpauseRequestApi {
+    /** Whether to backfill the runs that the batch export missed while it was paused. */
+    backfill?: boolean
 }
 
 /**
@@ -1585,7 +2039,7 @@ export interface FileDownloadDestinationFileConfigApi {
      * * `snappy` - snappy */
     compression?: CompressionEnumApi | null
     /**
-     * Split download into multiple files of at most this size in MB
+     * Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.
      * @minimum 0
      * @nullable
      */
@@ -1658,8 +2112,14 @@ export const FileDownloadHogQLRequestApiModel = {
 export interface FileDownloadHogQLRequestApi {
     file: FileDownloadDestinationFileConfigApi
     model: FileDownloadHogQLRequestApiModel
-    /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
     hogql_query: string
+    /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
+    hogql_modifiers?: HogQLQueryModifiersApi
+    /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
+    data_interval_start?: string
+    /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
+    data_interval_end?: string
 }
 
 export type CreateFileDownloadRequestApi =
@@ -1704,6 +2164,11 @@ export const RetrieveCompletedOutputApiStatus = {
 export interface RetrieveCompletedOutputApi {
     status: RetrieveCompletedOutputApiStatus
     files: string[]
+    /**
+     * Number of rows this run exported.
+     * @nullable
+     */
+    records_completed: number | null
 }
 
 export type RetrieveFailedOutputApiStatus =
@@ -1731,35 +2196,42 @@ export type RetrieveFileDownloadResponseApi =
     | RetrieveFailedOutputApi
 
 /**
- * * `events` - events
- * * `persons` - persons
- * * `sessions` - sessions
  * * `hogql` - hogql
  */
-export type FileDownloadBatchExportOnDemandModelEnumApi =
-    (typeof FileDownloadBatchExportOnDemandModelEnumApi)[keyof typeof FileDownloadBatchExportOnDemandModelEnumApi]
+export type FileDownloadHogQLModelEnumApi =
+    (typeof FileDownloadHogQLModelEnumApi)[keyof typeof FileDownloadHogQLModelEnumApi]
 
-export const FileDownloadBatchExportOnDemandModelEnumApi = {
-    Events: 'events',
-    Persons: 'persons',
-    Sessions: 'sessions',
+export const FileDownloadHogQLModelEnumApi = {
     Hogql: 'hogql',
 } as const
 
 /**
- * Request shape for a FileDownload batch export on demand.
+ * Request shape for counting the rows a file download batch export would produce.
  */
-export interface FileDownloadBatchExportOnDemandApi {
-    file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadBatchExportOnDemandModelEnumApi
-    include?: string[]
-    exclude?: string[]
-    /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
-    hogql_query?: string
-    /** Start of the data interval to export */
+export interface FileDownloadCountRowsRequestApi {
+    /** Model to count rows for. Only 'hogql' is supported.
+     *
+     * * `hogql` - hogql */
+    model: FileDownloadHogQLModelEnumApi
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+    hogql_query: string
+    /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
+    hogql_modifiers?: HogQLQueryModifiersApi
+    /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
     data_interval_start?: string
-    /** End of the data interval to export */
+    /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
     data_interval_end?: string
+}
+
+/**
+ * Typed output for view set `count_rows`.
+ */
+export interface FileDownloadCountRowsResponseApi {
+    /**
+     * Number of rows the query returns with the supplied interval bounds. Data arriving between counting and exporting can change the result.
+     * @minimum 0
+     */
+    count: number
 }
 
 /**
@@ -1790,16 +2262,6 @@ export type FileDownloadSessionsRequestModelEnumApi =
 
 export const FileDownloadSessionsRequestModelEnumApi = {
     Sessions: 'sessions',
-} as const
-
-/**
- * * `hogql` - hogql
- */
-export type FileDownloadHogQLRequestModelEnumApi =
-    (typeof FileDownloadHogQLRequestModelEnumApi)[keyof typeof FileDownloadHogQLRequestModelEnumApi]
-
-export const FileDownloadHogQLRequestModelEnumApi = {
-    Hogql: 'hogql',
 } as const
 
 /**
@@ -1914,9 +2376,20 @@ export const SnowflakeDestinationRequestTypeEnumApi = {
     Snowflake: 'Snowflake',
 } as const
 
+/**
+ * * `Redshift` - Redshift
+ */
+export type RedshiftDestinationRequestTypeEnumApi =
+    (typeof RedshiftDestinationRequestTypeEnumApi)[keyof typeof RedshiftDestinationRequestTypeEnumApi]
+
+export const RedshiftDestinationRequestTypeEnumApi = {
+    Redshift: 'Redshift',
+} as const
+
 export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1938,14 +2411,62 @@ export type BatchExportsBackfillsListParams = {
 
 export type BatchExportsRunsListParams = {
     /**
+     * Only return runs created at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Ignored when ordering by `data_interval_start`.
+     */
+    after?: string
+    /**
+     * Only return runs created at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Ignored when ordering by `data_interval_start`.
+     */
+    before?: string
+    /**
      * The pagination cursor value.
      */
     cursor?: string
     /**
+     * Only return runs whose data interval ends at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Only applies when ordering by `data_interval_start`.
+     */
+    end?: string
+    /**
      * Which field to use when ordering the results.
      */
     ordering?: string
+    /**
+     * Only return runs whose data interval starts at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Only applies when ordering by `data_interval_start`.
+     */
+    start?: string
+    /**
+     * Only return runs in these statuses. Repeat the parameter to pass more than one status.
+     */
+    status?: BatchExportsRunsListStatusItem[]
 }
+
+/**
+ * * `Cancelled` - Cancelled
+ * * `Completed` - Completed
+ * * `ContinuedAsNew` - Continued As New
+ * * `Failed` - Failed
+ * * `FailedRetryable` - Failed Retryable
+ * * `FailedBilling` - Failed Billing
+ * * `Terminated` - Terminated
+ * * `TimedOut` - Timedout
+ * * `Running` - Running
+ * * `Starting` - Starting
+ */
+export type BatchExportsRunsListStatusItem =
+    (typeof BatchExportsRunsListStatusItem)[keyof typeof BatchExportsRunsListStatusItem]
+
+export const BatchExportsRunsListStatusItem = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
 
 export type BatchExportsRunsLogsRetrieveParams = {
     /**
@@ -1972,6 +2493,11 @@ export type BatchExportsRunsLogsRetrieveParams = {
      * @maximum 500
      */
     limit?: number
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
@@ -2005,6 +2531,11 @@ export type BatchExportsLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -2014,6 +2545,7 @@ export type BatchExportsLogsRetrieveParams = {
 export type FileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2047,6 +2579,11 @@ export type FileDownloadBatchExportsLogsRetrieveParams = {
      * @maximum 500
      */
     limit?: number
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1

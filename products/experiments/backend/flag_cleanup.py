@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from products.feature_flags.backend.facade.sdk_calls import FLAG_SDK_CALLS
+
 if TYPE_CHECKING:
     from products.experiments.backend.models.experiment import Experiment
 
@@ -21,12 +23,6 @@ CONCLUSION_LABELS = {
     "stopped_early": "stopped early",
     "invalid": "invalid",
 }
-
-# PostHog SDK calls that read a flag, across languages — what the agent greps for.
-FLAG_SDK_CALLS = (
-    "isFeatureEnabled, getFeatureFlag, getFeatureFlagPayload, useFeatureFlag, useActiveFeatureFlags, "
-    "onFeatureFlags, posthog.isFeatureEnabled, posthog.getFeatureFlag, feature_enabled, get_feature_flag"
-)
 
 
 @dataclass(frozen=True)
@@ -133,16 +129,20 @@ def build_cleanup_prompt(experiment: Experiment, flag_key: str, plan: CleanupPla
             f'Search the repo for the flag key "{flag_key}" and for PostHog SDK calls that read flags, e.g.:',
             f"  {FLAG_SDK_CALLS}",
             "Cover every language used in the repo (JS/TS, Python, Go, Ruby, PHP, etc.).",
+            "If the search finds no references to the flag at all, stop: do not open a pull request.",
+            "Finish with a short note saying the codebase has no references to this flag, so the flag can simply be deleted in PostHog.",
             "",
             "## Rules",
             "- For the kept variant: keep that branch's body, delete the surrounding flag check and the other branches.",
             "- Boolean-style checks: keep the enabled path's body and drop the if-check (and any else branch).",
+            "- If the kept branch renders nothing or does nothing, delete it entirely, including any component or helper that nothing else uses once the branch is gone. Do not leave a no-op mounted.",
             "- Remove the now-dead code you create: orphaned branches, unused imports, unused helpers.",
             "- Code only. Do NOT change the flag in PostHog, and do NOT touch unrelated code.",
             "- If the correct path is genuinely ambiguous at a site, leave it unchanged and list it in the PR description for a human to review.",
             "",
             "## Output",
             f'Open a draft pull request titled "{title}". In the description, summarise what you removed and anything you left for manual review.',
+            'Describe the outcome accurately: when the baseline is kept because the experiment lost or was inconclusive, say the change was rolled back. Do not describe the kept variant as having "won".',
         ]
     )
     return title, description

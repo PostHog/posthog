@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from email.utils import parseaddr
@@ -6,16 +7,16 @@ from typing import Any
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 
-import requests
 import structlog
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
-from posthog.models.person.person import Person
-from posthog.models.person.util import get_persons_by_uuids
+from posthog.dataclasses import frozen
+from posthog.egress.google_workspace import google_workspace_request
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 from posthog.models.team import Team
-from posthog.personhog_client.caller_tag import personhog_caller_tag
 
+from products.customer_analytics.backend.logic.email_account_matching import match_accounts_for_emails
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
 
 logger = structlog.get_logger(__name__)
@@ -25,7 +26,11 @@ BACKFILL_DAYS = 365
 PAGE_SIZE = 250
 SYNC_TOKEN_CONFIG_KEY = "calendar_sync_token"
 SYNC_STARTED_AT_CONFIG_KEY = "calendar_sync_started_at"
+SYNC_RETRY_AT_CONFIG_KEY = "calendar_sync_retry_at"
 LAST_SYNCED_AT_CONFIG_KEY = "calendar_last_synced_at"
+SYNC_INTERVAL_CONFIG_KEY = "calendar_sync_interval_minutes"
+SYNC_ATTEMPTED_AT_CONFIG_KEY = "calendar_sync_attempted_at"
+ALLOWED_SYNC_INTERVALS = (5, 15, 30, 60)
 # Matches the sync activity's start_to_close timeout: past this, an unfinished run is dead.
 SYNC_STALE_AFTER = timedelta(minutes=30)
 
@@ -34,13 +39,6 @@ SELECT id, properties.email
 FROM persons
 WHERE lower(properties.email) IN {emails}
 ORDER BY is_identified DESC, created_at ASC, id ASC
-"""
-
-GROUP_KEY_BY_DISTINCT_ID_QUERY = """
-SELECT distinct_id, argMaxIf({group_col}, timestamp, {group_col} != '') AS group_key
-FROM events
-WHERE distinct_id IN {{distinct_ids}} AND timestamp > now() - INTERVAL 90 DAY
-GROUP BY distinct_id
 """
 
 
@@ -62,6 +60,55 @@ class CalendarSyncCounts:
     unmatched_emails: set[str] = field(default_factory=set)
 
 
+@frozen
+class CalendarBackfillPage:
+    next_page_token: str | None
+    counts: CalendarSyncCounts
+
+
+def get_calendar_sync_interval(config: Mapping[str, Any]) -> int:
+    value = config.get(SYNC_INTERVAL_CONFIG_KEY)
+    return value if type(value) is int and value in ALLOWED_SYNC_INTERVALS else 60
+
+
+def update_calendar_sync_config(
+    integration_id: int, team_id: int, updates: dict[str, object], removals: tuple[str, ...] = ()
+) -> None:
+    IntegrationManager.google_calendar.oauth.update(
+        team_id, integration_id, config_patch=updates, config_remove=removals
+    )
+
+
+def mark_calendar_sync_started(integration_id: int, team_id: int) -> None:
+    update_calendar_sync_config(
+        integration_id, team_id, {SYNC_STARTED_AT_CONFIG_KEY: timezone.now().isoformat()}, (SYNC_RETRY_AT_CONFIG_KEY,)
+    )
+
+
+def mark_calendar_sync_retrying(integration_id: int, team_id: int, retry_after: timedelta) -> None:
+    update_calendar_sync_config(
+        integration_id, team_id, {SYNC_RETRY_AT_CONFIG_KEY: (timezone.now() + retry_after).isoformat()}
+    )
+
+
+def mark_calendar_sync_failed(integration_id: int, team_id: int) -> None:
+    update_calendar_sync_config(
+        integration_id,
+        team_id,
+        {SYNC_ATTEMPTED_AT_CONFIG_KEY: timezone.now().isoformat()},
+        (SYNC_STARTED_AT_CONFIG_KEY,),
+    )
+
+
+def mark_calendar_sync_completed(integration_id: int, team_id: int) -> None:
+    update_calendar_sync_config(
+        integration_id,
+        team_id,
+        {LAST_SYNCED_AT_CONFIG_KEY: timezone.now().isoformat()},
+        (SYNC_RETRY_AT_CONFIG_KEY, SYNC_STARTED_AT_CONFIG_KEY, SYNC_ATTEMPTED_AT_CONFIG_KEY),
+    )
+
+
 def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSyncCounts:
     """Sync one connected Google Calendar into customer_analytics meetings.
 
@@ -69,30 +116,79 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
     incremental via the stored syncToken. A stale token (HTTP 410) drops the cursor
     and re-lists the whole window in the same run.
     """
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
-    team = integration.team
-    access_token = _get_fresh_access_token(integration)
-    connected_email = (integration.config or {}).get("email", "")
-    internal_domain = _domain_of(connected_email)
-
-    integration.config[SYNC_STARTED_AT_CONFIG_KEY] = timezone.now().isoformat()
-    integration.save(update_fields=["config"])
-
+    integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
+    team = Team.objects.get(id=integration.team_id)
     counts = CalendarSyncCounts()
-    sync_token = (integration.config or {}).get(SYNC_TOKEN_CONFIG_KEY)
     try:
-        next_sync_token = _sync_events(team, access_token, sync_token, internal_domain, counts)
-    except SyncTokenExpired:
-        next_sync_token = _sync_events(team, access_token, None, internal_domain, counts)
+        access_token = _get_fresh_access_token(integration)
+        connected_email = (integration.config or {}).get("email", "")
+        internal_domain = _domain_of(connected_email)
 
-    integration.config[SYNC_TOKEN_CONFIG_KEY] = next_sync_token
-    integration.config[LAST_SYNCED_AT_CONFIG_KEY] = timezone.now().isoformat()
-    integration.save(update_fields=["config"])
+        mark_calendar_sync_started(integration_id, team_id)
+        integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
+
+        sync_token = (integration.config or {}).get(SYNC_TOKEN_CONFIG_KEY)
+        try:
+            next_sync_token = _sync_events(
+                team, access_token, str(integration.integration_id), sync_token, internal_domain, counts
+            )
+        except SyncTokenExpired:
+            next_sync_token = _sync_events(
+                team, access_token, str(integration.integration_id), None, internal_domain, counts
+            )
+
+        update_calendar_sync_config(integration_id, team_id, {SYNC_TOKEN_CONFIG_KEY: next_sync_token})
+        mark_calendar_sync_completed(integration_id, team_id)
+    except Exception:
+        mark_calendar_sync_failed(integration_id, team_id)
+        raise
     return counts
 
 
+def sync_calendar_integration_backfill_page(
+    integration_id: int,
+    team_id: int,
+    *,
+    start_at: datetime,
+    end_at: datetime,
+    page_token: str | None,
+) -> CalendarBackfillPage:
+    if start_at >= end_at:
+        raise CalendarSyncError("Calendar backfill start must be before its end")
+
+    integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
+    access_token = _get_fresh_access_token(integration)
+    mark_calendar_sync_started(integration_id, team_id)
+    params: dict[str, Any] = {
+        "singleEvents": "true",
+        "showDeleted": "true",
+        "maxResults": PAGE_SIZE,
+        "timeMin": start_at.isoformat(),
+        "timeMax": end_at.isoformat(),
+    }
+    if page_token:
+        params["pageToken"] = page_token
+    payload = _get_events_page(access_token, str(integration.integration_id), params)
+    counts = CalendarSyncCounts(fetched=len(payload.get("items", [])))
+    _process_events(
+        Team.objects.get(id=integration.team_id),
+        payload.get("items", []),
+        _domain_of((integration.config or {}).get("email", "")),
+        counts,
+    )
+    return CalendarBackfillPage(
+        next_page_token=str(payload.get("nextPageToken") or "") or None,
+        counts=counts,
+    )
+
+
 def _sync_events(
-    team: Team, access_token: str, sync_token: str | None, internal_domain: str, counts: CalendarSyncCounts
+    team: Team,
+    access_token: str,
+    google_account_id: str,
+    sync_token: str | None,
+    internal_domain: str,
+    counts: CalendarSyncCounts,
 ) -> str:
     params: dict[str, Any] = {"singleEvents": "true", "showDeleted": "true", "maxResults": PAGE_SIZE}
     if sync_token:
@@ -104,15 +200,7 @@ def _sync_events(
     page_token: str | None = None
     while True:
         page_params = {**params, **({"pageToken": page_token} if page_token else {})}
-        response = requests.get(
-            EVENTS_URL, params=page_params, headers={"Authorization": f"Bearer {access_token}"}, timeout=30
-        )
-        if response.status_code == 410:
-            raise SyncTokenExpired
-        if response.status_code != 200:
-            raise CalendarSyncError(f"Google Calendar API returned {response.status_code}: {response.text[:200]}")
-
-        payload = response.json()
+        payload = _get_events_page(access_token, google_account_id, page_params)
         events = payload.get("items", [])
         counts.fetched += len(events)
         _process_events(team, events, internal_domain, counts)
@@ -122,6 +210,24 @@ def _sync_events(
             next_sync_token = payload.get("nextSyncToken", "")
             break
     return next_sync_token
+
+
+def _get_events_page(access_token: str, google_account_id: str, params: dict[str, Any]) -> dict[str, Any]:
+    response = google_workspace_request(
+        "GET",
+        EVENTS_URL,
+        access_token=access_token,
+        account_id=google_account_id,
+        source="customer_analytics_calendar_sync",
+        endpoint="/calendar/v3/calendars/primary/events",
+        params=params,
+        timeout=30,
+    )
+    if response.status_code == 410:
+        raise SyncTokenExpired
+    if response.status_code != 200:
+        raise CalendarSyncError(f"Google Calendar API returned {response.status_code}: {response.text[:200]}")
+    return response.json()
 
 
 def _process_events(team: Team, events: list[dict], internal_domain: str, counts: CalendarSyncCounts) -> None:
@@ -320,48 +426,7 @@ def rematch_account_meetings(team_id: int, account_id: str) -> int:
 
 
 def _match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Account]:
-    """Resolve attendee emails to accounts: pinned known_emails first, then person
-    group links, then the email_domains fallback."""
-    if not emails:
-        return {}
-
-    matched: dict[str, Account] = {}
-
-    for email in emails:
-        candidates = list(Account.objects.for_team(team.id).filter(_properties__known_emails__contains=[email])[:2])
-        if len(candidates) == 1:
-            matched[email] = candidates[0]
-        elif len(candidates) > 1:
-            logger.warning("calendar_sync_ambiguous_known_email", team_id=team.id, email=email)
-
-    group_type_index = team.customer_analytics_config.account_group_type_index
-    if group_type_index is not None:
-        unresolved = [email for email in emails if email not in matched]
-        email_to_group_key = _group_keys_via_persons(team, unresolved, group_type_index) if unresolved else {}
-        if email_to_group_key:
-            accounts = {
-                account.external_id: account
-                for account in Account.objects.for_team(team.id).filter(
-                    external_id__in=set(email_to_group_key.values())
-                )
-            }
-            for email, group_key in email_to_group_key.items():
-                if group_key in accounts:
-                    matched[email] = accounts[group_key]
-
-    for email in emails:
-        if email in matched:
-            continue
-        domain = _domain_of(email)
-        if not domain:
-            continue
-        candidates = list(Account.objects.for_team(team.id).filter(_properties__email_domains__contains=[domain])[:2])
-        if len(candidates) == 1:
-            matched[email] = candidates[0]
-        elif len(candidates) > 1:
-            logger.warning("calendar_sync_ambiguous_email_domain", team_id=team.id, domain=domain)
-
-    return matched
+    return {email: match.account for email, match in match_accounts_for_emails(team, emails).items()}
 
 
 def _person_uuids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
@@ -386,45 +451,7 @@ def _person_uuids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
     return email_to_uuid
 
 
-def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int) -> dict[str, str]:
-    # Deferred: hogql.query pulls the whole query-runner layer into module import.
-    from posthog.hogql import ast  # noqa: PLC0415
-    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
-
-    email_to_uuid = _person_uuids_by_email(team, emails)
-    if not email_to_uuid:
-        return {}
-
-    with personhog_caller_tag("customer_analytics/calendar-person-lookup"):
-        persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
-    persons_by_uuid: dict[str, Person] = {str(p.uuid): p for p in persons}
-
-    distinct_id_to_email: dict[str, str] = {}
-    for email, person_uuid in email_to_uuid.items():
-        person = persons_by_uuid.get(person_uuid)
-        for distinct_id in (person.distinct_ids or []) if person else []:
-            distinct_id_to_email[distinct_id] = email
-    if not distinct_id_to_email:
-        return {}
-
-    query = GROUP_KEY_BY_DISTINCT_ID_QUERY.format(group_col=f"`$group_{group_type_index}`")
-    with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.QUERY):
-        response = execute_hogql_query(
-            query,
-            placeholders={"distinct_ids": ast.Constant(value=sorted(distinct_id_to_email))},
-            team=team,
-            query_type="customer_analytics_calendar_group_lookup",
-        )
-
-    email_to_group_key: dict[str, str] = {}
-    for distinct_id, group_key in response.results or []:
-        matched_email = distinct_id_to_email.get(distinct_id)
-        if matched_email and group_key and matched_email not in email_to_group_key:
-            email_to_group_key[matched_email] = group_key
-    return email_to_group_key
-
-
-def _get_fresh_access_token(integration: Integration) -> str:
+def _get_fresh_access_token(integration: IntegrationRecord) -> str:
     oauth = OauthIntegration(integration)
     if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
         oauth.refresh_access_token()

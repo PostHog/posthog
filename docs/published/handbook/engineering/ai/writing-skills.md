@@ -39,6 +39,25 @@ hogli unsync:skill -- --name <skill-name>
 # 7. Merge to master – CI builds and distributes automatically
 ```
 
+## Where the skill lives
+
+Choose the location by the work the skill requires:
+
+- `products/<product>/skills/` contains skills that users can run through PostHog tools, APIs, or their own code. The build publishes these skills.
+- `.agents/skills/` contains skills that require a checkout of the PostHog repository to develop, test, or debug PostHog itself. These skills stay in the repository.
+
+Staff-only access does not determine placement.
+For example, `checking-deploy-timing` works through MCP without a checkout, so it stays in the published catalog.
+A skill that changes a customer's application also stays published; it does not require PostHog source code.
+
+If a skill mixes customer diagnosis with PostHog development, keep the diagnosis published and move the development guidance into an existing internal skill or reference.
+For example, `debugging-surveys` covers configuration and responses, while the internal `survey-sdk-audit` skill covers changes across the backend and SDKs.
+Published skills must not require internal skill files to complete their main workflow.
+
+`hogli init:skill` scaffolds published product skills.
+For internal guidance, extend an existing `.agents/skills/` entry where possible.
+Both locations use `SKILL.md` with `name` and `description` frontmatter, and `hogli lint:skills` checks both.
+
 ## Skills vs tools
 
 **Tools** are atomic capabilities – CRUD operations and simple actions exposed via the MCP server.
@@ -54,6 +73,21 @@ and describe the desired outcome for the customer.
 
 This separation matters because agents are good at composing simple tools
 but need guidance on _which_ tools to use, in _what order_, with _what constraints_.
+
+### Query selection guidance
+
+Query skills should choose methods from the requested calculation and output, not require typed queries or SQL for every task.
+Reuse matching approved metrics or saved queries when they define the requested measure.
+Default to typed runners for new product analytics and dashboard insights when their schemas support the requested calculation, including simple event counts, unique users, property sums, breakdowns, and time series.
+Use SQL for record inspection, custom calculations, joins, existing SQL, or requests for SQL.
+When both methods fit a new event-analytics query, use the typed runner. SQL examples and SQL discovery calls do not determine the final analysis method. Save supported dashboard analyses as native query nodes.
+Keep valid existing SQL when it fits the task. A task that needs SQL does not require a failed typed-query attempt first.
+Reassess when the task changes. Neither the previous tool call nor a request for a chart determines the next method.
+
+Tool descriptions should state capabilities and limits. Skill examples should show direct inputs for the method they teach.
+Keep SQL examples for SQL tasks rather than requiring agents to reconstruct typed inputs from generated SQL.
+
+Rendering guidance must account for the harness: direct tools and some exec hosts display query apps inline, while other exec hosts need the separate top-level `render-ui` tool. Skip duplicate rendering only when the harness or response indicates that the view is already displayed. Otherwise, if `render-ui` is available and its enum includes the query tool, render with the same tool name and validated input after the query succeeds. If no UI path is available, summarize or follow the harness's presentation instructions; do not change a supported typed query to SQL just to display a chart.
 
 ### When to write a skill
 
@@ -72,6 +106,20 @@ Additional signals that a skill is the right answer even when tool prompts are a
   SQL skills are the canonical example — a top-level workflow with optional schemas, query patterns, and function indexes loaded on demand. If your guidance has that shape, structure it as a skill with `references/`.
 
 Don't write a skill for something the agent already one-shots from generic knowledge. A few real examples from review: `creating-isolated-project` or `finding-experiments` were unnecessary — the agent can do it without help. `setting-up-reverse-proxy` was the right call — the agent failed at it, and the skill needed to ship code snippets it couldn't derive. The bar is PostHog-specific judgement that a smart generalist agent wouldn't have, not project setup it can already handle.
+
+### Docs or skill?
+
+A skill holds the steps an agent follows for one job: the order of tool calls, the checks to run before it reports done, and the decisions it must not make alone.
+Most of that is detail a person doing the same job would skip.
+
+Everything else goes in docs, because people need it too.
+That covers how a system works, how to set it up or run it, its options, and its gotchas.
+Put it in a README next to the code or in an existing page under `docs/`, and have the skill link to it with a line on when to read it.
+A published product skill links to the public page on posthog.com.
+If an engineer would look something up without an agent, it belongs in docs.
+
+The `working-with-charts` skill is the model.
+The chart API docs live in the package. The skill keeps how to pick a chart, a few rules for its data, and what to check before calling the work done, and links to the package docs for the rest.
 
 ### How many skills is too many?
 
@@ -94,7 +142,7 @@ and helps agents resolve tool names unambiguously.
 
 ## Skill structure
 
-Skills live in `products/*/skills/` and come in two forms.
+Published skills live in `products/*/skills/` and come in two forms.
 If your product hasn't moved to the `products/` folder yet,
 create a product folder and add skills there –
 skills are designed to work from within the products folder structure.
@@ -328,7 +376,7 @@ To add a new template function:
 ## Build pipeline
 
 The pipeline discovers, renders, and packages skills.
-Source of truth: [`products/posthog_ai/scripts/build_skills.py`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/scripts/build_skills.py).
+Source of truth: [`products/posthog_ai/scripts/build_skills/`](https://github.com/PostHog/posthog/tree/master/products/posthog_ai/scripts/build_skills/).
 
 ### Pipeline steps
 
@@ -370,21 +418,67 @@ and packaged into `dist/skills.zip` with deterministic timestamps for reproducib
 ## Distribution
 
 Distribution is automatic – once a skill lands on `master`,
-CI builds the `dist/skills.zip` artifact and publishes it to two downstream repositories:
+`ci-agent-skills.yml` builds `dist/skills.zip` and publishes it as the `agent-skills-latest` GitHub release.
+Two downstream repositories pull that release, together with context-mill's, in a daily sync at 12:00 UTC:
 
-- [`PostHog/skills`](https://github.com/PostHog/skills) –
-  the canonical distribution repo.
-  Each built skill is pushed as a standalone directory so it can be synced directly into
-  any agent that follows Anthropic's skills layout (Claude Code, Claude Desktop, etc.).
 - [`PostHog/ai-plugin`](https://github.com/PostHog/ai-plugin) –
-  the plugin distribution used by coding agents that consume PostHog capabilities
-  (PostHog Desktop, PostHog AI). The plugin bundles the skills alongside the MCP tool definitions
-  so agents get the "how" and the "what" together.
+  the PostHog plugin for AI clients.
+  It bundles the skills with the MCP server, so agents get the "how" and the "what" together.
+  Its README has the install steps for each supported client:
+  Claude Code, Claude Cowork, Cursor, Codex, Antigravity, Gemini CLI and Grok.
+  Point users there rather than copying install steps into other docs.
+- [`PostHog/skills`](https://github.com/PostHog/skills) –
+  a mirror with each built skill as a standalone directory,
+  for agents that load skills without a plugin.
+  It also hosts a Claude Code plugin marketplace for skills authored there.
 
-PostHog Desktop already consumes skills automatically, and PostHog AI consumes the same set.
-Because both repositories are updated from the same `dist/skills.zip` on every merge to `master`,
-you don't need to handle distribution yourself –
-merge your skill and it shows up in both places on the next CI run.
+PostHog Desktop and the Tasks sandbox pull `agent-skills-latest` themselves (see the table below).
+You don't need to handle distribution yourself:
+a merged skill reaches the plugin and the mirror after the next daily sync, and users get it when their client updates the plugin.
+
+### Context-mill skills override this repo's
+
+This repo is not the only source of shipped skills.
+[`PostHog/context-mill`](https://github.com/PostHog/context-mill) assembles the "omnibus" skills
+from posthog.com docs and publishes them as `skills-mcp-resources.zip`:
+`instrument-integration`, `instrument-product-analytics`, `instrument-feature-flags`,
+`instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs`, `instrument-metrics`, and `instrument-tracing`.
+These are the skills behind PostHog Desktop's setup buttons and the wizard.
+
+Every consumer below unzips `dist/skills.zip` first and then unzips context-mill on top,
+so **context-mill wins on any skill they both define**.
+A same-named skill added here would have its `SKILL.md` overwritten
+while its extra reference files survived as orphans in the other source's directory.
+The Desktop harness bundle is the exception: it packages context-mill alone,
+so a skill from this repo is absent there rather than overwritten.
+The MCP server's `learn` catalog overlays them at runtime:
+the context-mill resource refresh repacks the omnibus skills from the release it already downloads,
+and the skill catalog service merges that copy over `skills.zip` on its next poll,
+keeping the product skill when a name collides and serving no overlay on a pinned archive.
+`learn -s` scores an omnibus skill by its name, description, and `SKILL.md` only,
+because its references are docs snapshots that would crowd out workflow skills;
+`learn posthog:<skill> <path>` still reads any reference.
+
+| Consumer                              | Merge site                                                                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| MCP server `learn` catalog            | `services/mcp/src/hono/skill-catalog-service.ts` – overlays the copy `ContextMillResourceCache` publishes to Redis          |
+| PostHog Desktop build                 | `products/desktop/apps/code/vite-main-plugins.mts` (`copyPosthogPlugin`)                                                    |
+| PostHog Desktop runtime, every 30 min | `products/desktop/packages/workspace-server/src/services/posthog-plugin/update-skills-saga.ts`                              |
+| Desktop harness bundle                | `packages/agent/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |
+| Tasks sandbox base image              | `.github/workflows/cd-sandbox-base-image.yml`                                                                               |
+| `PostHog/skills` mirror               | that repo's `.github/workflows/sync-omnibus.yml`                                                                            |
+| `PostHog/ai-plugin` plugin            | that repo's `.github/workflows/sync-skills.yml`                                                                             |
+
+Note what is missing from that list: local builds.
+`LocalSkillsCache.ensure_built()` renders only `products/*/skills/` and wipes the dist dir first,
+so a locally built sandbox has no omnibus skills at all.
+An eval or manual run that depends on one has to overlay context-mill itself,
+or check for the skill and fail loudly – see `products/feature_flags/evals/eval_instrument_flags.py`.
+
+So before you write a skill, check the omnibus names above.
+If your job is one of them, change the context-mill source.
+Product teams take ownership of a skill tree there with a CODEOWNERS entry;
+several already have.
 
 ## Testing
 

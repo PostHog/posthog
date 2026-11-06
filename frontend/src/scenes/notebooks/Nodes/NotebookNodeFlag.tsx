@@ -1,18 +1,25 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconFlag, IconRocket } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { FeatureFlagLoadError } from 'scenes/feature-flags/FeatureFlagLoadError'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import {
+    FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
+    FeatureFlagNotebookWidgetAttributes,
+    withFeatureFlagNotebookMetadata,
+} from 'scenes/feature-flags/featureFlagNotebookWidgetViews'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
+
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
@@ -22,32 +29,31 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
+function FeatureFlagNotebookActions({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): null {
     const { id } = attributes
     const {
         featureFlag,
-        featureFlagLoading,
         recordingFilterForFlag,
-        featureFlagMissing,
         hasEarlyAccessFeatures,
         canCreateEarlyAccessFeature,
         hasSurveys,
+        newEarlyAccessFeatureLoading,
+        newSurveyLoading,
     } = useValues(featureFlagLogic({ id }))
     const { createEarlyAccessFeature, createSurvey } = useActions(featureFlagLogic({ id }))
-    const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { nextNode } = useValues(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
 
     const { shouldDisableInsertEarlyAccessFeature, shouldDisableInsertSurvey } = useValues(
         notebookNodeFlagLogic({ id, insertAfter })
     )
 
     useEffect(() => {
-        setTitlePlaceholder(featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag')
-
         setActions([
             {
                 icon: <IconSurveys />,
                 text: `${hasSurveys ? 'View' : 'Create'} survey`,
+                disabledReason: !hasSurveys && newSurveyLoading ? 'Creating survey' : undefined,
                 onClick: () => {
                     if (!hasSurveys) {
                         return createSurvey()
@@ -71,17 +77,23 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
             },
             {
                 icon: <IconRecording />,
-                text: 'View Replays',
+                text: 'View replays',
                 onClick: () => {
                     if (nextNode?.type.name !== NotebookNodeType.RecordingPlaylist) {
                         insertAfter(buildPlaylistContent(recordingFilterForFlag))
                     }
                 },
             },
-            canCreateEarlyAccessFeature
+            // canCreateEarlyAccessFeature is false for a non-v1 flag, so the notebook never offers Create.
+            // A non-v1 flag that already has an early access feature still gets the View action.
+            canCreateEarlyAccessFeature || (hasEarlyAccessFeatures && !isV1FeatureFlagConfig(featureFlag.filters))
                 ? {
                       text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
                       icon: <IconRocket />,
+                      disabledReason:
+                          !hasEarlyAccessFeatures && newEarlyAccessFeatureLoading
+                              ? 'Creating early access feature'
+                              : undefined,
                       onClick: () => {
                           if (!hasEarlyAccessFeatures) {
                               createEarlyAccessFeature()
@@ -98,61 +110,55 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                 : undefined,
         ])
         // oxlint-disable-next-line exhaustive-deps
-    }, [featureFlag])
+    }, [featureFlag, newEarlyAccessFeatureLoading, newSurveyLoading])
+
+    return null
+}
+
+const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element => {
+    const { id } = attributes
+    const { featureFlag, featureFlagMissing, featureFlagLoadFailed } = useValues(featureFlagLogic({ id }))
+    const { expanded } = useValues(notebookNodeLogic)
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
     }
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={id} />
+    }
 
     return (
-        <div>
+        <>
             <BindLogic logic={featureFlagLogic} props={{ id }}>
-                <div className="flex items-center gap-2 p-3">
-                    <IconFlag className="text-lg" />
-                    {featureFlagLoading ? (
-                        <LemonSkeleton className="h-6 flex-1" />
-                    ) : (
-                        <>
-                            <span className="flex-1 font-semibold truncate">{featureFlag.key}</span>
-                            <span
-                                className={clsx(
-                                    'text-white rounded px-1',
-                                    featureFlag.active ? 'bg-success' : 'bg-muted-alt'
-                                )}
-                            >
-                                {featureFlag.active ? 'Enabled' : 'Disabled'}
-                            </span>
-                        </>
-                    )}
-                </div>
-
                 {expanded ? (
-                    <>
-                        <LemonDivider className="my-0" />
-                        <div className="p-2">
+                    <div className="p-2">
+                        {isV1FeatureFlagConfig(featureFlag.filters) ? (
                             <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
-                        </div>
-                    </>
+                        ) : (
+                            <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
+                        )}
+                    </div>
                 ) : null}
             </BindLogic>
-        </div>
+        </>
     )
 }
 
-type NotebookNodeFlagAttributes = {
-    id: FeatureFlagLogicProps['id']
-}
-
-export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
+export const NotebookNodeFlag = createPostHogWidgetNode<FeatureFlagNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
     titlePlaceholder: 'Feature flag',
-    Component,
+    editableTitle: false,
+    Component: withFeatureFlagNotebookMetadata(Component),
+    ToolbarComponent: FeatureFlagNotebookActions,
     heightEstimate: '3rem',
     href: (attrs) => urls.featureFlag(attrs.id),
     resizeable: false,
     attributes: {
         id: {},
+        view: {},
     },
+    defaultView: getNotebookWidgetDefaultView('FeatureFlag'),
+    views: FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
 })
 
 export function buildFlagContent(id: FeatureFlagLogicProps['id']): JSONContent {

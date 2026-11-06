@@ -2,23 +2,35 @@ from __future__ import annotations
 
 import re
 import json
+import time
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 
 from asgiref.sync import sync_to_async
+from pydantic import JsonValue
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
+from products.tasks.backend.facade.api import upload_task_run_artifacts
+from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource
+from products.tasks.backend.logic.services.startup_failure import (
+    AgentStartupFailed,
+    SandboxRunFailed as SandboxRunFailed,
+    read_startup_failure,
+)
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -34,6 +46,7 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
+FINAL_POLL_READ_SECONDS = 5
 # Turn-relevant log silence required before salvaging a dropped-finalization turn, sized to one SSE
 # read window (SSE_READ_TIMEOUT_SECONDS): if the turn produced no real output for a whole read window,
 # a live stream would have. The poll loop measures this silence over turn-relevant lines only, because
@@ -42,7 +55,7 @@ MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
 # finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
 # rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
-# Signals scout passes 900s): a floor near the budget would salvage only turns that fell silent early
+# Signals scout passes 1800s): a floor near the budget would salvage only turns that fell silent early
 # and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
@@ -77,6 +90,12 @@ FAILED_PROGRESS_STATUS = "failed"
 # side-channels above.
 _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
 
+STRUCTURED_OUTPUT_TOOL_NAME = "StructuredOutput"
+_TOOL_CALL_UPDATES = frozenset({"tool_call", "tool_call_update"})
+
+# Pi reports the normal end of a turn as "stop". ACP adapters report the same state as "end_turn".
+_PI_END_TURN_STOP_REASON = "stop"
+
 
 @dataclass(frozen=True)
 class AgentError:
@@ -96,6 +115,10 @@ class CustomPromptSandboxContext:
     team_id: int
     user_id: int
     repository: str | None = None
+    repositories: tuple[str, ...] = ()
+    """Repositories (``organization/repository``) the sandbox clones, in order. The first is the
+    one a branch is checked out on. Empty keeps the sandbox repo-less; prefer this over
+    ``repository`` for new callers, which stays for the single-repo ones that predate it."""
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
     model: str | None = None
@@ -103,14 +126,34 @@ class CustomPromptSandboxContext:
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
     runtime_adapter: str | None = None
-    """The agent runtime that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
-    Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
-    so a model handed over with no runtime can't be routed and falls back to the server default.
-    ``None`` keeps the agent server's default runtime (only valid when ``model`` is also ``None``)."""
+    """The agent harness that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
+    Set it alongside a non-default ``model``: the agent server derives the provider from the
+    adapter, so a model handed over with no adapter can't be routed and falls back to the server
+    default. ``None`` keeps the agent server's default harness (only valid when ``model`` is also
+    ``None``)."""
+    runtime: str = "acp"
+    """The agent protocol driving the task's runs (``Task.Runtime``: ``"acp"`` or ``"pi"``)."""
     reasoning_effort: str | None = None
     """Reasoning-effort tier for ``model`` (e.g. ``"xhigh"``). Only meaningful alongside a pinned
     ``model`` + ``runtime_adapter``; ``None`` keeps the model's default effort. The supported tiers
     depend on the (runtime, model) pair — see ``get_reasoning_effort_error``."""
+    service_tier: str | None = None
+    """OpenAI service tier the run's turns request (``"default"`` | ``"priority"`` | ``"flex"``).
+    Codex-only: the claude adapter ignores it. ``None`` keeps the provider default. ``"flex"`` buys
+    a cheaper, slower queue, but codex omits any tier its model catalogue does not advertise, so a
+    tier the pinned model doesn't list is a no-op (codex logs it and sends the request untiered)."""
+    codex_max_subagents: int | None = None
+    """Codex sub-agents one session may run at once, not counting the main agent. Codex-only.
+    ``None`` keeps the Codex default of 3."""
+    codex_shared_prompt_cache: bool = False
+    """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
+    agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
+    sub-agents included."""
+    disable_skills: bool = False
+    disable_repo_hooks: bool = False
+    """Stop hooks from the cloned repo's ``.claude/settings*.json`` from running. A repo's Stop hook
+    can block the turn that must return the caller's JSON. The agent still reads the repo's CLAUDE.md.
+    Claude-only."""
     initial_permission_mode: str | None = None
     """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
     headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
@@ -122,15 +165,21 @@ class CustomPromptSandboxContext:
     sandbox_timeout_seconds: int | None = None
     """Override the sandbox's max lifetime (Modal TTL). Falls back to SANDBOX_TTL_SECONDS."""
     github_read_access: bool = False
-    """Inject a READ-ONLY GitHub token (``GH_TOKEN``/``GITHUB_TOKEN``) into a repo-less sandbox so
-    the agent can gather evidence via ``gh`` (commit history, PR metadata) without any write
-    capability. Only meaningful when ``repository`` is None — a task with a repository already gets
-    the full-permission credential path. Best-effort: if no team GitHub integration exists or the
-    mint fails, the sandbox starts without a token."""
+    """Downscope the sandbox's GitHub credential (``GH_TOKEN``/``GITHUB_TOKEN``) to a READ-ONLY
+    token, so the agent can read code and gather evidence via ``gh`` (commit history, PR metadata)
+    with no write capability. Independent of ``repositories``: the token carries
+    ``contents: read``, so a run that pins repositories still clones them and just cannot push.
+    Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
+    without a token."""
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
     prompt the surface really ships. ``None`` leaves the run originless, like a plain task."""
+    system_prompt: dict[str, str] | None = None
+    mcp_exclude_tools: tuple[str, ...] = ()
+    """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
+    Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
+    ``docs-search`` from a non-PostHog support draft."""
 
 
 class TurnPollTimeout(RuntimeError):
@@ -199,56 +248,247 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
-async def create_task_and_trigger(
+# Mirrored from RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in
+# packages/agent/packages/agent/src/adapters/error-classification.ts, which is the source of
+# truth. A category added there must be added here too, or a retryable failure reads as permanent.
+UPSTREAM_RETRYABLE_ERROR_CATEGORIES = frozenset(
+    {
+        "upstream_stream_terminated",
+        "upstream_connection_error",
+        "upstream_timeout",
+        "upstream_provider_failure",
+    }
+)
+
+
+class AgentTurnFailed(RuntimeError):
+    """The sandbox agent reported a terminal error for the turn.
+
+    Carries the agent's own classification of the failure, because the message alone collapses
+    causes that need opposite responses: a provider outage is worth retrying, a spend-limit stop
+    and a broken agent body are not. Callers branch on `category` (and `retryable_upstream`)
+    instead of matching the message text, and record it as an analytics dimension so a fleet's
+    failure rate splits by cause.
+
+    `category` is None when the agent build emitted no `errorCategory`.
+    """
+
+    def __init__(self, message: str, *, category: str | None, agent_message: str) -> None:
+        super().__init__(message)
+        self.category = category
+        self.agent_message = agent_message
+
+    @property
+    def retryable_upstream(self) -> bool:
+        return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
+
+
+class RepositoryContextUnavailable(SandboxRunFailed):
+    def __init__(self, error_type: str, message: str | None = None) -> None:
+        super().__init__(message or error_type, error_type=error_type)
+
+
+SESSION_FILE_ARTIFACT_TYPE = "context"
+
+
+def _with_session_files(
+    files: Sequence[SessionFile],
+    description: str,
+    team_id: int,
+    before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None,
+) -> Callable[[UUID], dict[str, JsonValue] | None]:
+    """Wrap `before_task_dispatch` so the run has its files before the workflow starts."""
+
+    def attach(run_id: UUID) -> dict[str, JsonValue] | None:
+        state = before_task_dispatch(run_id) if before_task_dispatch is not None else None
+        task_id = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).get()
+        artifact_ids: list[JsonValue] = [uuid4().hex for _ in files]
+        artifacts = [
+            {
+                "id": artifact_id,
+                "name": file.name,
+                "type": SESSION_FILE_ARTIFACT_TYPE,
+                "content_bytes": file.content.encode("utf-8"),
+                "content_type": "text/plain; charset=utf-8",
+            }
+            for artifact_id, file in zip(artifact_ids, files, strict=True)
+        ]
+        if upload_task_run_artifacts(run_id, task_id, team_id, artifacts=artifacts) is None:
+            raise RuntimeError(f"Could not attach session files to run {run_id}")
+        # The prompt goes as the pending message, because only that path sends the files with it.
+        pending: dict[str, JsonValue] = {
+            **(state or {}),
+            "pending_user_message": description,
+            "pending_user_artifact_ids": artifact_ids,
+        }
+        # Startup and the pending-message forwarder both deliver this prompt and dedupe on the id.
+        stamp_pending_user_message_id(pending)
+        return pending
+
+    return attach
+
+
+async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile | None = None,
     branch: str | None = None,
     step_name: str = "",
+    source: TaskSource | None = None,
     origin_product: Task.OriginProduct | None = None,
     signal_report_id: str | None = None,
-    ai_stage: str | None = None,
     internal: bool = False,
-    workflow_id_prefix: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
-):
+    ai_stage: str | None = None,
+    ai_agent_name: str | None = None,
+    workflow_id_prefix: str | None = None,
+    mcp_credential_owner_id: int | None = None,
+    mcp_gateway_server_ids: list[str] | None = None,
+    mcp_tool_allowlist: list[str] | None = None,
+    origin_key: str | None = None,
+    before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    analytics_query_context: list[dict[str, object]] | None = None,
+    files: Sequence[SessionFile] = (),
+    spend_signal_id: str | None = None,
+) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
-    # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
-    # None would clobber it. sandbox_environment_id already accepts None.
-    posthog_mcp_scopes: PosthogMcpScopes = (
-        context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
-    )
+    task_kwargs: dict[str, Any]
+    if profile is not None:
+        task_kwargs = {
+            "profile": profile,
+            "source": source,
+            "options": TaskRunOptions(
+                adapter=context.runtime_adapter,
+                model=context.model,
+                reasoning_effort=context.reasoning_effort,
+                output_schema=output_schema,
+                mcp_scopes=context.posthog_mcp_scopes,
+                permission_mode=context.initial_permission_mode,
+            ),
+        }
+    else:
+        task_kwargs = {
+            "origin_product": origin_product or Task.OriginProduct.USER_CREATED,
+            "signal_report_id": signal_report_id,
+            "internal": internal,
+            "mcp_builtin_agent_key": mcp_builtin_agent_key,
+            "posthog_mcp_scopes": context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full",
+            "model": context.model,
+            "runtime_adapter": context.runtime_adapter,
+            "reasoning_effort": context.reasoning_effort,
+            "initial_permission_mode": context.initial_permission_mode,
+            "output_schema": output_schema,
+        }
+    extra_run_state: dict[str, Any] = {}
+    if context.system_prompt is not None:
+        extra_run_state["systemPrompt"] = context.system_prompt
+    if context.mcp_exclude_tools:
+        extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
+    if output_schema:
+        extra_run_state["caller_ends_run"] = True
+    if context.codex_max_subagents is not None:
+        extra_run_state["codex_max_subagents"] = context.codex_max_subagents
+    if context.codex_shared_prompt_cache:
+        extra_run_state["codex_shared_prompt_cache"] = True
+    if context.disable_skills:
+        extra_run_state["disable_skills"] = True
+    if context.disable_repo_hooks:
+        extra_run_state["disable_repo_hooks"] = True
+    if analytics_query_context is not None:
+        queries = [query for query in analytics_query_context if query is not None]
+        if queries:
+            extra_run_state["analytics_query_context"] = queries
+    if files:
+        before_task_dispatch = _with_session_files(files, description, context.team_id, before_task_dispatch)
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product or Task.OriginProduct.USER_CREATED,
         user_id=context.user_id,
         repository=context.repository,
+        repositories=list(context.repositories) or None,
         create_pr=False,
         mode="background",
         branch=branch,
-        signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
-        posthog_mcp_scopes=posthog_mcp_scopes,
+        ai_agent_name=ai_agent_name,
         sandbox_environment_id=context.sandbox_environment_id,
-        model=context.model,
-        runtime_adapter=context.runtime_adapter,
-        reasoning_effort=context.reasoning_effort,
-        initial_permission_mode=context.initial_permission_mode,
-        internal=internal,
+        runtime=context.runtime,
+        pending_user_message=description if context.runtime == "pi" else None,
+        service_tier=context.service_tier,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
-        mcp_builtin_agent_key=mcp_builtin_agent_key,
+        mcp_credential_owner_id=mcp_credential_owner_id,
+        mcp_gateway_server_ids=mcp_gateway_server_ids,
+        mcp_tool_allowlist=mcp_tool_allowlist,
         interaction_origin=context.interaction_origin,
+        extra_run_state=extra_run_state,
+        origin_key=origin_key,
+        before_task_dispatch=before_task_dispatch,
+        **task_kwargs,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
-    if not task_run:
+    if task_run is None:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")
     return task, task_run
+
+
+async def create_task_and_trigger(
+    description: str,
+    context: CustomPromptSandboxContext,
+    *,
+    profile: TaskProfile | None = None,
+    branch: str | None = None,
+    step_name: str = "",
+    source: TaskSource | None = None,
+    origin_product: Task.OriginProduct | None = None,
+    signal_report_id: str | None = None,
+    internal: bool = False,
+    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    ai_stage: str | None = None,
+    ai_agent_name: str | None = None,
+    workflow_id_prefix: str | None = None,
+    mcp_credential_owner_id: int | None = None,
+    mcp_gateway_server_ids: list[str] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    analytics_query_context: list[dict[str, object]] | None = None,
+    spend_signal_id: str | None = None,
+) -> AgentTaskRunDTO:
+    task, task_run = await _create_task_and_trigger(
+        description,
+        context,
+        profile=profile,
+        branch=branch,
+        step_name=step_name,
+        source=source,
+        origin_product=origin_product,
+        signal_report_id=signal_report_id,
+        internal=internal,
+        mcp_builtin_agent_key=mcp_builtin_agent_key,
+        spend_signal_id=spend_signal_id,
+        ai_stage=ai_stage,
+        ai_agent_name=ai_agent_name,
+        workflow_id_prefix=workflow_id_prefix,
+        mcp_credential_owner_id=mcp_credential_owner_id,
+        mcp_gateway_server_ids=mcp_gateway_server_ids,
+        output_schema=output_schema,
+        analytics_query_context=analytics_query_context,
+    )
+
+    return AgentTaskRunDTO(
+        task_id=task.id,
+        run_id=task_run.id,
+        team_id=task.team_id,
+        # Dispatch can be deferred until commit, before the prefixed workflow ID is persisted.
+        workflow_id=TaskRun.get_workflow_id(task.id, task_run.id, workflow_id_prefix),
+    )
 
 
 async def _refresh_task_run(task_run_id) -> TaskRun:
@@ -281,6 +521,19 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
         return await sync_to_async(_read)()
 
 
+async def _saved_finish_report(task_run_id) -> str | None:
+    """The report a `finish` call saved. It can land before end_turn and outranks the log's commentary."""
+    return (await _refresh_task_run(task_run_id)).finish_report
+
+
+@frozen
+class TurnPollResult:
+    last_message: str
+    full_log: str | None
+    total_lines: int
+    printed_lines: int
+
+
 async def poll_for_turn(
     task_run,
     *,
@@ -290,7 +543,8 @@ async def poll_for_turn(
     output_fn: OutputFn = None,
     workflow_handle: WorkflowHandle | None = None,
     max_poll_seconds: int | None = None,
-) -> tuple[str, str | None, int, int]:
+    poll_deadline: float | None = None,
+) -> TurnPollResult:
     """Poll S3 logs until the agent finishes a turn.
 
     `max_poll_seconds` overrides the default poll budget for callers whose activity
@@ -298,8 +552,11 @@ async def poll_for_turn(
     runs once this budget is exhausted, so a caller must keep it below its own activity
     `start_to_close_timeout` or the salvage never gets a chance to fire (the Signals
     scout passes its 15-minute per-run budget for exactly this reason).
+    `poll_deadline` uses the monotonic clock so setup, I/O, and earlier turns cannot
+    extend the caller's shared time budget. Leave recovery time after this deadline.
     """
     poll_budget = MAX_POLL_SECONDS if max_poll_seconds is None else max_poll_seconds
+    started_at = time.monotonic()
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
@@ -316,22 +573,42 @@ async def poll_for_turn(
     # boundary (which would return a stale previous-turn response in multi-turn sessions).
     original_skip_lines = skip_lines
     while elapsed < poll_budget:
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
-        elapsed += POLL_INTERVAL_SECONDS
+        if poll_deadline is not None:
+            remaining = poll_deadline - time.monotonic()
+            if remaining > 0:
+                await asyncio.sleep(min(POLL_INTERVAL_SECONDS, remaining))
+            elapsed = int(time.monotonic() - started_at)
+        else:
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            elapsed += POLL_INTERVAL_SECONDS
         # Send heartbeat signals to the ProcessTaskWorkflow on each poll cycle to prevent
         # the workflow's inactivity timeout from firing while the agent is still working
-        if workflow_handle is not None:
+        if workflow_handle is not None and (poll_deadline is None or time.monotonic() < poll_deadline):
             try:
-                await workflow_handle.signal("heartbeat")
+                heartbeat = workflow_handle.signal("heartbeat")
+                if poll_deadline is None:
+                    await heartbeat
+                else:
+                    await asyncio.wait_for(heartbeat, timeout=max(0, poll_deadline - time.monotonic()))
             except Exception:
                 logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
             # Poll the logs.
-            finished, last_message, full_log, total_lines, empty_end_turn, refused = await sync_to_async(
+            read_logs = sync_to_async(
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
             )(task_run, skip_lines)
+            if poll_deadline is None:
+                log_state = await read_logs
+            else:
+                remaining = poll_deadline - time.monotonic()
+                log_state = await asyncio.wait_for(
+                    read_logs, timeout=remaining if remaining > 0 else FINAL_POLL_READ_SECONDS
+                )
+                elapsed = int(time.monotonic() - started_at)
+        except TimeoutError:
+            break
         except ObjectStorageError:
             consecutive_storage_errors += 1
             logger.warning(
@@ -350,9 +627,9 @@ async def poll_for_turn(
         # never clear, starving the dropped-finalization salvage of the silence window it needs. This
         # mirrors the side-channel discounting the tail check already does in
         # _ended_on_pending_finalization.
-        if total_lines > skip_lines:
-            new_lines = (full_log or "").strip().split("\n")[skip_lines:]
-            relevant_growth = (total_lines - skip_lines) - _transient_growth(new_lines)
+        if log_state.total_lines > skip_lines:
+            new_lines = (log_state.full_log or "").strip().split("\n")[skip_lines:]
+            relevant_growth = (log_state.total_lines - skip_lines) - _transient_growth(new_lines)
             if relevant_growth > 0:
                 turn_relevant_lines += relevant_growth
                 last_new_lines_at = elapsed
@@ -363,50 +640,63 @@ async def poll_for_turn(
                 "custom_prompt - poll_for_turn: no new S3 log lines for %ds, run=%s, total_lines=%d",
                 stale_seconds,
                 task_run.id,
-                total_lines,
+                log_state.total_lines,
             )
         # Detect how many lines were printed in this poll
-        printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+        printed_lines = _stream_new_lines(log_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         # Fail the turn immediately on a provider refusal — the EmptyAgentTurnError channel gives
         # it the in-session nudge retry, then the caller's activity retry, instead of a dead poll.
-        if refused:
+        if log_state.refused:
             logger.warning(
                 "custom_prompt - poll_for_turn: agent refused the turn (stopReason=refusal), run=%s total_lines=%d",
                 task_run.id,
-                total_lines,
+                log_state.total_lines,
             )
             raise EmptyAgentTurnError(
                 f"Agent refused the turn (stopReason=refusal) for run={task_run.id}",
-                total_lines=total_lines,
+                total_lines=log_state.total_lines,
                 printed_lines=printed_lines,
             )
-        if last_message:
-            latest_assistant_text = last_message
+        if log_state.last_message:
+            latest_assistant_text = log_state.last_message
         # If success
-        if finished and last_message:
-            return last_message, full_log, total_lines, printed_lines
+        if log_state.agent_finished and log_state.last_message:
+            return TurnPollResult(
+                last_message=await _saved_finish_report(task_run.id) or log_state.last_message,
+                full_log=log_state.full_log,
+                total_lines=log_state.total_lines,
+                printed_lines=printed_lines,
+            )
         # Surface empty end_turn to the multi-turn session, so it can retry
         # the prompt instead of us polling until MAX_POLL_SECONDS.
-        if empty_end_turn:
-            # If the agent emitted text in an earlier poll of this same turn, the turn
-            # is genuinely complete — end_turn just landed in a later slice.
-            if latest_assistant_text is not None:
-                return latest_assistant_text, full_log, total_lines, printed_lines
+        if log_state.empty_end_turn:
+            # A finish report, or text the agent emitted in an earlier poll of this same turn,
+            # means the turn is genuinely complete — end_turn just landed in a later slice.
+            turn_message = await _saved_finish_report(task_run.id) or latest_assistant_text
+            if turn_message is not None:
+                return TurnPollResult(
+                    last_message=turn_message,
+                    full_log=log_state.full_log,
+                    total_lines=log_state.total_lines,
+                    printed_lines=printed_lines,
+                )
             logger.warning(
                 "custom_prompt - poll_for_turn: empty end_turn detected (no agent_message), run=%s total_lines=%d",
                 task_run.id,
-                total_lines,
+                log_state.total_lines,
             )
             # Actual end_turn with no message, need to retry the step
             raise EmptyAgentTurnError(
                 f"Agent emitted end_turn with no agent_message for run={task_run.id}",
-                total_lines=total_lines,
+                total_lines=log_state.total_lines,
                 printed_lines=printed_lines,
             )
         # Keep the cursor monotonic — S3 eventual-consistency can briefly return fewer lines than the
         # prior poll; without the clamp we'd re-parse old lines. Doubles as the line-count high-water
         # mark handed to salvage: every line up to here was seen (and watched go quiet) during polling.
-        skip_lines = max(skip_lines, total_lines)
+        skip_lines = max(skip_lines, log_state.total_lines)
+        if poll_deadline is not None and time.monotonic() >= poll_deadline:
+            break
         refreshed = await _refresh_task_run(task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
@@ -421,12 +711,15 @@ async def poll_for_turn(
                 task_run.id,
                 elapsed,
                 elapsed - last_new_lines_at,
-                total_lines,
+                log_state.total_lines,
             )
             return await _drain_final_log(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
+                failure_error_type=(refreshed.state or {}).get("failure_error_type"),
+                startup_failure=read_startup_failure(refreshed.state),
+                finish_report=refreshed.finish_report,
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -435,6 +728,8 @@ async def poll_for_turn(
     # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
     # relay-detected crash) — drain it; otherwise try to salvage below.
     refreshed = await _refresh_task_run(task_run.id)
+    if poll_deadline is not None:
+        elapsed = int(time.monotonic() - started_at)
     if refreshed.status in {
         TaskRun.Status.COMPLETED,
         TaskRun.Status.FAILED,
@@ -450,6 +745,9 @@ async def poll_for_turn(
             task_run,
             refreshed_status=refreshed.status,
             error_message=refreshed.error_message,
+            failure_error_type=(refreshed.state or {}).get("failure_error_type"),
+            startup_failure=read_startup_failure(refreshed.state),
+            finish_report=refreshed.finish_report,
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -493,9 +791,33 @@ async def poll_for_turn(
     )
 
 
-async def _read_turn_log_with_retry(
-    task_run, *, skip_lines: int, context: str
-) -> tuple[bool, str | None, str | None, int, bool, bool]:
+async def poll_for_agent_task(
+    task_run: AgentTaskRunDTO,
+    *,
+    skip_lines: int = 0,
+    printed_lines: int = 0,
+    verbose: bool = False,
+    output_fn: OutputFn = None,
+    workflow_handle: WorkflowHandle | None = None,
+    max_poll_seconds: int | None = None,
+    poll_deadline: float | None = None,
+) -> TurnPollResult:
+    run = await sync_to_async(TaskRun.objects.get)(
+        id=task_run.run_id, task_id=task_run.task_id, team_id=task_run.team_id
+    )
+    return await poll_for_turn(
+        run,
+        skip_lines=skip_lines,
+        printed_lines=printed_lines,
+        verbose=verbose,
+        output_fn=output_fn,
+        workflow_handle=workflow_handle,
+        max_poll_seconds=max_poll_seconds,
+        poll_deadline=poll_deadline,
+    )
+
+
+async def _read_turn_log_with_retry(task_run, *, skip_lines: int, context: str) -> TurnLogState:
     """Read the turn log via _check_logs, retrying transient ObjectStorageError up to
     MAX_CONSECUTIVE_STORAGE_ERRORS times (one POLL_INTERVAL_SECONDS apart). Re-raises the error
     if every attempt fails, so a single S3 blip doesn't fail an otherwise-recoverable turn.
@@ -533,7 +855,7 @@ async def _salvage_dropped_finalization(
     stale_seconds: int,
     verbose: bool,
     output_fn: OutputFn,
-) -> tuple[str, str | None, int, int] | None:
+) -> TurnPollResult | None:
     """Recover a turn whose closing end_turn was dropped (final message + null-cost usage_update,
     then silence). Re-reads from the start-of-turn cursor so a chunked response is recovered in full.
 
@@ -547,20 +869,25 @@ async def _salvage_dropped_finalization(
 
     Declining falls back to the caller's timeout failure. A storage outage on the reread propagates
     (like the poll loop and terminal drain) rather than masquerading as a timeout."""
-    finished, last_message, full_log, total_lines, _, _ = await _read_turn_log_with_retry(
+    log_state = await _read_turn_log_with_retry(
         task_run, skip_lines=original_skip_lines, context="salvage_dropped_finalization"
     )
-    if finished and last_message is not None:
-        printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    if log_state.agent_finished and log_state.last_message is not None:
+        printed_lines = _stream_new_lines(log_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         logger.warning(
             "custom_prompt - salvage_dropped_finalization: end_turn recovered on reread at poll timeout "
             "(%ds) — completing, run=%s total_lines=%d",
             elapsed,
             task_run.id,
-            total_lines,
+            log_state.total_lines,
         )
-        return last_message, full_log, total_lines, printed_lines
-    if last_message is None or not _ended_on_pending_finalization(full_log):
+        return TurnPollResult(
+            last_message=log_state.last_message,
+            full_log=log_state.full_log,
+            total_lines=log_state.total_lines,
+            printed_lines=printed_lines,
+        )
+    if log_state.last_message is None or not _ended_on_pending_finalization(log_state.full_log):
         return None
     # The fingerprint also matches a mid-turn pause between chunks. The log is append-only, so the only
     # benign turn-relevant growth since polling is the finalization usage_update itself landing late
@@ -570,8 +897,8 @@ async def _salvage_dropped_finalization(
     # in this post-poll window; they carry no turn-state and must be discounted, or one arriving
     # alongside the late usage_update would push raw growth past the threshold and wrongly decline the
     # very dropped-finalization case this path recovers.
-    new_lines = (full_log or "").strip().split("\n")[max_total_lines_seen:]
-    relevant_growth = (total_lines - max_total_lines_seen) - _transient_growth(new_lines)
+    new_lines = (log_state.full_log or "").strip().split("\n")[max_total_lines_seen:]
+    relevant_growth = (log_state.total_lines - max_total_lines_seen) - _transient_growth(new_lines)
     if relevant_growth > 1:
         logger.warning(
             "custom_prompt - salvage_dropped_finalization: reread grew %d turn-relevant line(s) past "
@@ -581,16 +908,21 @@ async def _salvage_dropped_finalization(
             task_run.id,
         )
         return None
-    printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    printed_lines = _stream_new_lines(log_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
     logger.warning(
         "custom_prompt - salvage_dropped_finalization: end_turn missing, turn-accounting tail present, "
         "stale %ds at poll timeout (%ds) — salvaging last message, run=%s total_lines=%d",
         stale_seconds,
         elapsed,
         task_run.id,
-        total_lines,
+        log_state.total_lines,
     )
-    return last_message, full_log, total_lines, printed_lines
+    return TurnPollResult(
+        last_message=log_state.last_message,
+        full_log=log_state.full_log,
+        total_lines=log_state.total_lines,
+        printed_lines=printed_lines,
+    )
 
 
 async def _drain_final_log(
@@ -598,11 +930,14 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
+    failure_error_type: str | None = None,
+    startup_failure: AgentStartupFailure | None = None,
+    finish_report: str | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
     output_fn: OutputFn,
-) -> tuple[str, str | None, int, int]:
+) -> TurnPollResult:
     """
     Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
     before Temporal marked the run done, so we retry the read. Raises RuntimeError if no message is recoverable.
@@ -613,38 +948,63 @@ async def _drain_final_log(
     it. Scanning from start-of-turn recovers it without crossing into the previous turn (which would return a
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
+
+    A report the agent passed to `finish` wins over the log, because the run ends before the turn
+    that carries it, so the log can hold only the commentary that came before it.
     """
-    _, final_message, final_log, final_lines, final_empty_end_turn, _ = await _read_turn_log_with_retry(
-        task_run, skip_lines=original_skip_lines, context="drain_final_log"
-    )
-    printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
-    if final_message:
-        return final_message, final_log, final_lines, printed_lines
+    if refreshed_status == TaskRun.Status.FAILED and startup_failure is not None:
+        raise AgentStartupFailed(
+            failure=startup_failure,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+            error_type=failure_error_type,
+        )
+    final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
+    printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    last_message = finish_report or final_state.last_message
+    if last_message:
+        return TurnPollResult(
+            last_message=last_message,
+            full_log=final_state.full_log,
+            total_lines=final_state.total_lines,
+            printed_lines=printed_lines,
+        )
     # Prefer the agent's own classified error over the generic terminal-status message
     # (Temporal's "Activity task failed"). Only on FAILED — CANCELLED is a user action and
     # COMPLETED-with-no-message is the empty-turn path, neither of which we want to relabel.
     if refreshed_status == TaskRun.Status.FAILED:
-        agent_error = _extract_agent_error(final_log, skip_lines=original_skip_lines)
+        agent_error = _extract_agent_error(final_state.full_log, skip_lines=original_skip_lines)
         if agent_error is not None:
             cause_text = agent_error.describe()
             # Persist the real cause so the TaskRun stops showing "Activity task failed".
             await _persist_task_run_error_message(str(task_run.id), cause_text)
-            raise RuntimeError(
+            raise AgentTurnFailed(
                 f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} "
-                f"(cause: {cause_text})"
+                f"(cause: {cause_text})",
+                category=agent_error.category,
+                agent_message=agent_error.message,
             )
-    reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
+    reason = "end_turn with empty response" if final_state.empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    raise RuntimeError(
-        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
-    )
+    message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
+    if refreshed_status == TaskRun.Status.FAILED:
+        if failure_error_type in {
+            "RepositoryAccessError",
+            "RepositoryCloneError",
+            "GitHubAuthenticationError",
+            "GitHubIntegrationError",
+            "GitHubRateLimitedError",
+        }:
+            raise RepositoryContextUnavailable(failure_error_type, f"{message} ({failure_error_type})")
+        raise SandboxRunFailed(message, error_type=failure_error_type)
+    raise RuntimeError(message)
 
 
 def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentError | None:
     """Scan log lines for the agent's structured terminal-error notification.
 
     Returns the last `_posthog/error` entry carrying a non-empty message (with the
-    classified `error_category` when the agent build provides it), or None when no
+    classified `errorCategory` when the agent build provides it), or None when no
     such entry exists — e.g. an older agent build or a non-agent failure — in which
     case the caller falls back to the generic terminal-status message.
     """
@@ -669,7 +1029,7 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
         message = params.get("message")
         if not isinstance(message, str) or not message.strip():
             continue
-        raw_category = params.get("error_category")
+        raw_category = params.get("errorCategory") or params.get("error_category")
         category = raw_category.strip() if isinstance(raw_category, str) and raw_category.strip() else None
         found = AgentError(message=message.strip(), category=category)
     return found
@@ -727,23 +1087,112 @@ def _stream_new_lines(
     return max(printed_lines, len(lines))
 
 
-def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | None, int, bool, bool]:
+@frozen
+class TurnLogState:
+    agent_finished: bool
+    last_message: str | None
+    full_log: str | None
+    total_lines: int
+    empty_end_turn: bool
+    refused: bool
+
+
+def _is_subagent_update(update: dict[str, object]) -> bool:
+    # Older Codex adapters omit parent metadata on updates but namespace child tool IDs.
+    tool_call_id = update.get("toolCallId")
+    if isinstance(tool_call_id, str) and tool_call_id.startswith("subagent:"):
+        return True
+    meta = update.get("_meta")
+    if not isinstance(meta, dict):
+        return False
+    for channel in ("posthog", "claudeCode"):
+        metadata = meta.get(channel)
+        if isinstance(metadata, dict):
+            parent = metadata.get("parentToolCallId")
+            if isinstance(parent, str) and parent:
+                return True
+    return False
+
+
+def _pi_event(entry: dict) -> dict | None:
+    """The conversation event of a log entry that a Pi run wrote in its native format."""
+    event = entry.get("event") if entry.get("type") == "pi_event" else None
+    return event if isinstance(event, dict) else None
+
+
+def _pi_turn_text(lines: list[str]) -> str | None:
+    """The last assistant text of the Pi turn that ends `lines`.
+
+    Pi logs one line for each streamed text delta, so a turn's text can span several polls and
+    the lines of one poll can hold only its tail. This reads back through the whole log for that
+    reason. Each delta carries its own whitespace, so this joins them unstripped: `_extract_text`
+    strips each entry, which deletes the spaces between words.
+
+    Pi writes a compaction summary as one assistant chunk directly after the completed `compacting`
+    status, with the same timestamp. That chunk is context for the model and not the answer, so this
+    drops it. Text from before a compaction is the answer only when no text follows the compaction.
+    """
+    parts: list[str] = []
+    earliest_chunk_timestamp: object = None
+    turn_closed = False
+    for line in reversed(lines):
+        try:
+            event = _pi_event(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+        if event is None:
+            continue
+        event_type = event.get("type")
+        if event_type == "assistant_message_chunk":
+            content = event.get("content")
+            if isinstance(content, dict) and isinstance(content.get("text"), str):
+                parts.append(content["text"])
+                earliest_chunk_timestamp = event.get("timestamp")
+        elif event_type == "runtime_status" and event.get("status") == "compacting":
+            if parts and event.get("isComplete") and earliest_chunk_timestamp == event.get("timestamp"):
+                parts.pop()
+            if parts:
+                break
+        elif parts or event_type == "user_message" or (event_type == "turn_completed" and turn_closed):
+            break
+        elif event_type == "turn_completed":
+            turn_closed = True
+    return "".join(reversed(parts)).strip() or None
+
+
+def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     """
     Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
-    The final tuple element flags a provider refusal (stopReason "refusal") — a terminal turn
+    The end of a Pi turn is the exception: its text comes from the whole log (see `_pi_turn_text`).
+    `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
     state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
     log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
     if not log_content.strip():
-        return False, None, None, 0, False, False
+        return TurnLogState(
+            agent_finished=False,
+            last_message=None,
+            full_log=None,
+            total_lines=0,
+            empty_end_turn=False,
+            refused=False,
+        )
     all_lines = log_content.strip().split("\n")
     total_lines = len(all_lines)
     # Eventual consistency: if S3 returns fewer lines than expected, no new data
     if total_lines <= skip_lines:
-        return False, None, log_content, total_lines, False, False
+        return TurnLogState(
+            agent_finished=False,
+            last_message=None,
+            full_log=log_content,
+            total_lines=total_lines,
+            empty_end_turn=False,
+            refused=False,
+        )
     lines_to_parse = all_lines[skip_lines:]
     agent_finished = False
+    pi_turn_ended = False
     refused = False
     # Collect all parsed session updates so we can walk backwards at the end.
     parsed_updates: list[dict] = []
@@ -755,11 +1204,23 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
+        pi_event = _pi_event(entry)
+        if pi_event is not None:
+            if pi_event.get("type") == "turn_completed" and pi_event.get("stopReason") == _PI_END_TURN_STOP_REASON:
+                agent_finished = True
+                pi_turn_ended = True
+            continue
         notification = entry.get("notification")
         if not isinstance(notification, dict):
             continue
         result = notification.get("result")
         stop_reason = result.get("stopReason") if isinstance(result, dict) else None
+        if stop_reason == "cancelled" and isinstance(result, dict):
+            metadata = result.get("_meta")
+            if isinstance(metadata, dict) and metadata.get("interruptReason") == "budget_exhausted":
+                # Budget stops cannot retry or return partial output through the final-log drain.
+                message = "The agent run reached its model budget."
+                raise AgentTurnFailed(message, category="task_spend_limit", agent_message=message)
         if stop_reason == "end_turn":
             # A successful end_turn outranks a refusal in the same slice, in either order:
             # once the turn finished, failing it as refused would discard a good response.
@@ -773,6 +1234,10 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
         update = params.get("update") if isinstance(params, dict) else None
         if not isinstance(update, dict):
             continue
+        # Child activity can interleave with a parent's streamed answer without ending it.
+        # Child text must not become part of the response the caller validates either.
+        if _is_subagent_update(update):
+            continue
         parsed_updates.append(update)
     # Walk backwards from the end to find the final agent response.
     # First, skip non-agent entries (e.g. usage_update) to find the last
@@ -783,26 +1248,61 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
     found_agent_msg = False
     for update in reversed(parsed_updates):
         is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
-        if not found_agent_msg:
-            if is_agent_msg:
-                found_agent_msg = True
-            else:
-                continue
-        if found_agent_msg and not is_agent_msg:
-            break
+        if not is_agent_msg:
+            if found_agent_msg:
+                break
+            continue
+        found_agent_msg = True
         text = _extract_text(update)
         if text:
             trailing_parts.append(text)
     trailing_parts.reverse()
-    latest_text = "".join(trailing_parts) if trailing_parts else None
+    latest_text = "".join(trailing_parts) if trailing_parts else _structured_output_text(parsed_updates)
+    if pi_turn_ended:
+        latest_text = _pi_turn_text(all_lines)
     # A refused turn must not surface its partial text — the caller would mistake it for the
     # turn's real response.
     if refused:
-        return False, None, log_content, total_lines, False, True
+        return TurnLogState(
+            agent_finished=False,
+            last_message=None,
+            full_log=log_content,
+            total_lines=total_lines,
+            empty_end_turn=False,
+            refused=True,
+        )
     # If we found end_turn but no agent message in the new lines, flag it as an empty turn.
     if agent_finished and latest_text is None:
-        return False, None, log_content, total_lines, True, False
-    return agent_finished, latest_text, log_content, total_lines, False, False
+        return TurnLogState(
+            agent_finished=False,
+            last_message=None,
+            full_log=log_content,
+            total_lines=total_lines,
+            empty_end_turn=True,
+            refused=False,
+        )
+    return TurnLogState(
+        agent_finished=agent_finished,
+        last_message=latest_text,
+        full_log=log_content,
+        total_lines=total_lines,
+        empty_end_turn=False,
+        refused=False,
+    )
+
+
+def _structured_output_text(updates: list[dict]) -> str | None:
+    for update in reversed(updates):
+        if update.get("sessionUpdate") not in _TOOL_CALL_UPDATES:
+            continue
+        meta = update.get("_meta")
+        claude_meta = meta.get("claudeCode") if isinstance(meta, dict) else None
+        if not isinstance(claude_meta, dict) or claude_meta.get("toolName") != STRUCTURED_OUTPUT_TOOL_NAME:
+            continue
+        raw_input = update.get("rawInput")
+        if isinstance(raw_input, dict) and raw_input:
+            return json.dumps(raw_input)
+    return None
 
 
 def _is_failed_progress(notification: dict) -> bool:
@@ -900,55 +1400,119 @@ def _extract_text(update: dict) -> str | None:
     return None
 
 
-def extract_json_from_text(text: str | None, label: str) -> Any:
-    """Extract JSON from text that might contain markdown formatting or surrounding commentary."""
+class TruncatedAgentOutputError(ValueError):
+    """The end-turn text stops inside a JSON object, so no complete object can be read from it.
+
+    A `ValueError` subclass, because every caller already treats extraction failures as one.
+    """
+
+    def __init__(self, label: str):
+        super().__init__(
+            f"Output truncated in {label}: end-turn text stops inside a JSON object, "
+            "so only a fragment of the reply is present"
+        )
+
+
+def _open_object_depth(text: str) -> int:
+    """Count the `{` in `text` that never close, ignoring braces inside string literals."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth = max(depth - 1, 0)
+    return depth
+
+
+def _collect_json_values(text: str) -> tuple[list[Any], bool]:
+    """Read every JSON value `text` holds, in the order the extractor prefers them.
+
+    The second element reports a truncation: a decode that runs to the end of the text is a valid
+    object the reply was cut off inside. The scan stops there, so a fragment never joins the list.
+    """
+    values: list[Any] = []
+
+    # 1. ```json ... ``` fenced code blocks (non-greedy to stop at each closing fence)
+    # 2. ``` ... ``` generic code blocks that happen to contain JSON
+    for pattern in (r"```json\s*(.*?)\s*```", r"```\s*(.*?)\s*```"):
+        for match in re.finditer(pattern, text, re.DOTALL):
+            try:
+                values.append(json.loads(match.group(1).strip()))
+            except json.JSONDecodeError:
+                continue
+
+    # 3. Bare JSON objects in surrounding text — decode from each { from the left, stopping at the
+    # end of that object, so trailing commentary does not have to be balanced.
+    decoder = json.JSONDecoder()
+    start = 0
+    while (brace_pos := text.find("{", start)) != -1:
+        try:
+            value, end_pos = decoder.raw_decode(text, brace_pos)
+        except json.JSONDecodeError as e:
+            # Returning a nested object from a truncated reply would hand the caller a fragment, and
+            # the schema error that follows names a missing field instead of the truncation. A decode
+            # that fails well before the end is just a stray brace in prose, so skip past it. The decoder
+            # reports a string that runs off the end of the text at its opening quote, not at the end.
+            if e.pos >= len(text.rstrip()) or e.msg.startswith("Unterminated string"):
+                return values, True
+            start = brace_pos + 1
+            continue
+        values.append(value)
+        start = end_pos
+
+    # 4. The whole text as-is, which also covers valid top-level JSON that is not an object.
+    try:
+        values.append(json.loads(text.strip()))
+    except json.JSONDecodeError:
+        pass
+    return values, False
+
+
+def extract_json_from_text(text: str | None, label: str, required_keys: Collection[str] | None = None) -> Any:
+    """Extract JSON from text that might contain markdown formatting or surrounding commentary.
+
+    `required_keys` names the fields the caller needs. An agent turn often holds several JSON
+    objects — a tool call, a tool error envelope, a sample query — before the answer, so the last
+    object that carries every required key wins over the first object in the text.
+    """
     if text is None:
         raise ValueError(f"Text to extract JSON from ({label}) is None")
 
-    # 1. ```json ... ``` fenced code block (non-greedy to stop at first closing fence)
-    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    if match:
-        candidate = match.group(1).strip()
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
+    values, truncated = _collect_json_values(text)
+    if required_keys:
+        # The answer comes last, so a cut-off object at the end is the answer and an earlier match is not.
+        if truncated:
+            raise TruncatedAgentOutputError(label)
+        for value in reversed(values):
+            if isinstance(value, dict) and all(key in value for key in required_keys):
+                return value
+    elif values:
+        # Without keys the first value is the answer, so a cut-off object after it does not matter.
+        return values[0]
+    if truncated:
+        raise TruncatedAgentOutputError(label)
+    if values:
+        return values[0]
 
-    # 2. ``` ... ``` generic code block that happens to contain JSON
-    match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
-    if match:
-        candidate = match.group(1).strip()
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
-
-    # 3. Bare JSON object in surrounding text — try each { from the left paired with the last }
-    last_brace = text.rfind("}")
-    if last_brace != -1:
-        start = 0
-        while True:
-            brace_pos = text.find("{", start)
-            if brace_pos == -1 or brace_pos >= last_brace:
-                break
-            try:
-                return json.loads(text[brace_pos : last_brace + 1])
-            except json.JSONDecodeError:
-                start = brace_pos + 1
-
-    # 4. Last resort — try the whole text as-is, then surface a classified error so
-    # callers (and operators reading the failure) can tell empty / fenced / prose apart
-    # instead of seeing a bare "Expecting value: line 1 column 1 (char 0)".
+    # Last resort — surface a classified error so callers (and operators reading the failure) can
+    # tell empty / truncated / fenced / prose apart instead of seeing a bare
+    # "Expecting value: line 1 column 1 (char 0)".
     stripped = text.strip()
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError as e:
-        if not stripped:
-            raise ValueError(f"No JSON in {label}: end-turn text was empty or whitespace-only") from e
-        if "```" in text:
-            raise ValueError(
-                f"No valid JSON in {label}: text has a code fence but its contents did not parse as JSON"
-            ) from e
-        raise ValueError(
-            f"No JSON in {label}: end-turn text was prose with no JSON object (starts with {stripped[:60]!r})"
-        ) from e
+    if not stripped:
+        raise ValueError(f"No JSON in {label}: end-turn text was empty or whitespace-only")
+    if _open_object_depth(text) > 0:
+        raise TruncatedAgentOutputError(label)
+    if "```" in text:
+        raise ValueError(f"No valid JSON in {label}: text has a code fence but its contents did not parse as JSON")
+    raise ValueError(f"No JSON in {label}: end-turn text was prose with no JSON object (starts with {stripped[:60]!r})")

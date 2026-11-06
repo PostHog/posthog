@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -15,6 +17,7 @@ export const manifest: ProductManifest = {
                 'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
             iconType: 'replay_vision',
             layout: 'app-container',
+            docsHref: 'https://posthog.com/docs/replay-vision',
         },
         ReplayVisionScanner: {
             name: 'Replay vision scanner',
@@ -37,69 +40,46 @@ export const manifest: ProductManifest = {
             iconType: 'replay_vision',
             layout: 'app-container',
         },
-        ReplayVisionAction: {
-            name: 'Replay vision action',
-            import: () => import('./frontend/replay_scanners/VisionActionScene'),
-            projectBased: true,
-            iconType: 'replay_vision',
-            layout: 'app-container',
-        },
-        ReplayVisionActionEditor: {
-            name: 'Replay vision action editor',
-            import: () => import('./frontend/replay_scanners/ActionEditorScene'),
-            projectBased: true,
-            iconType: 'replay_vision',
-            layout: 'app-container',
-        },
-        ReplayVisionActionRun: {
-            name: 'Replay vision action run',
-            import: () => import('./frontend/replay_scanners/VisionActionRunScene'),
-            projectBased: true,
-            iconType: 'replay_vision',
-            layout: 'app-container',
-        },
     },
     routes: {
         '/replay-vision': ['ReplayVision', 'replayVision'],
         '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-        '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
-        '/replay-vision/actions/:actionId/edit': ['ReplayVisionActionEditor', 'replayVisionActionEdit'],
-        '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
-        '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
-        '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+        '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
+        '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
+        '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
         '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
         '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
-        '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
+        '/replay-vision/:id/budget': ['ReplayVisionScannerEditor', 'replayVisionScannerBudget'],
         '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
     redirects: {
-        '/replay-vision/templates': '/replay-vision/new/template',
+        // People guess the product sits under replay. Without this, `/replay/vision` matches
+        // `/replay/:id` and shows "Recording not found".
+        '/replay/vision': '/replay-vision',
+        // Bookmarks and docs still link to the goal step's old path.
+        '/replay-vision/:id/template': ({ id }, searchParams, hashParams) =>
+            combineUrl(`/replay-vision/${id}/goal`, searchParams, hashParams).url,
     },
     urls: {
         replayVision:
             /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
-        replayVisionTemplates: (): string => '/replay-vision/new/template',
-        replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+        replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
+        replayVisionNewScanner: (): string => '/replay-vision/new/goal',
+        replayVisionScannerGoal: (id: string): string => `/replay-vision/${id}/goal`,
+        replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
+        replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
         replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
         replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
-        replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
+        replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
         replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
-        replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
-        replayVisionActionRun: (actionId: string, runId: string): string =>
-            `/replay-vision/actions/${actionId}/runs/${runId}`,
-        replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
-            // The mode is chosen before opening the editor (summary vs alert), carried as a query param so
-            // the editor renders one focused form instead of a type toggle that rewrites half the fields.
-            `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
-        replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'Replay vision',
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             intents: [ProductKey.REPLAY_VISION],
             type: 'replay_vision',
             iconType: 'replay_vision' as FileSystemIconType,
@@ -108,6 +88,11 @@ export const manifest: ProductManifest = {
                 'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
             href: urls.replayVision(),
+            searchKeywords: ['scanners', 'observations'],
+            searchTabs: [
+                { name: 'Search', href: urls.replayVisionTab('search') },
+                { name: 'Usage', href: urls.replayVisionTab('usage') },
+            ],
             sceneKey: 'ReplayVision',
             sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },

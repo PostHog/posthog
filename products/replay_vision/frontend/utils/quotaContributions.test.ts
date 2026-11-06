@@ -1,5 +1,5 @@
 import type { VisionQuotaApi } from '../generated/api.schemas'
-import { type QuotaContribution, buildQuotaMeter } from './quotaContributions'
+import { type QuotaContribution, buildQuotaMeter, fleetContributions } from './quotaContributions'
 
 const HALF_PERIOD_QUOTA: VisionQuotaApi = {
     credit_limit: 1000,
@@ -9,10 +9,11 @@ const HALF_PERIOD_QUOTA: VisionQuotaApi = {
     free_monthly_credits: 0,
     projected_monthly_credits: 400,
     scanners_monthly_credits: 400,
+    scanners_period_credits: 200,
     backfills_committed_credits: 0,
-    // Half the period is left, so a monthly rate lands at half value and a one-off lands whole.
-    period_start: '2026-05-01T00:00:00Z',
-    period_end: '2026-05-03T00:00:00Z',
+    // 15 of 30 days are left, so a 30-day rate lands at half value and a one-off lands whole.
+    period_start: '2026-04-17T00:00:00Z',
+    period_end: '2026-05-17T00:00:00Z',
 } as VisionQuotaApi
 
 const contribution = (overrides: Partial<QuotaContribution>): QuotaContribution => ({
@@ -61,6 +62,13 @@ describe('quotaContributions', () => {
         ])
         const drawn = model.projection.usedPct + model.segments.reduce((sum, s) => sum + s.pct, 0)
         expect(model.periodEndPct).toBe(Math.round(drawn))
+    })
+
+    it('uses the backend rest-of-period credits for the fleet, the figure billing forecasts from', () => {
+        // A capped scanner leaves less than the pro-rated rate, and only the backend knows that.
+        const quota = { ...HALF_PERIOD_QUOTA, scanners_period_credits: 50 }
+        const model = buildQuotaMeter(quota, fleetContributions(quota))
+        expect(model.periodEndCredits).toBe(100 + 50)
     })
 
     it('reports no cap and zero-width segments for an uncapped org', () => {

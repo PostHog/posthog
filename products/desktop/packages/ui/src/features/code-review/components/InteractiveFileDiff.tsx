@@ -10,6 +10,7 @@ import { buildFileAnnotations } from "@posthog/core/code-review/prCommentAnnotat
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useInView } from "../../../primitives/hooks/useInView";
 import { DIFF_METRICS, REVIEW_PREFETCH_ROOT_MARGIN } from "../constants";
+import { DiffWorkerPool } from "../DiffWorkerPool";
 import {
   type CommentEditSeed,
   useCommentState,
@@ -322,15 +323,17 @@ function PatchDiffView({
           renderCustomHeader={renderCustomHeader}
         />
       ) : (
-        <FileDiff
-          fileDiff={fileDiff}
-          options={mergedOptions}
-          lineAnnotations={annotations}
-          selectedLines={selectedRange}
-          renderAnnotation={renderAnnotation}
-          renderCustomHeader={renderCustomHeader}
-          metrics={DIFF_METRICS}
-        />
+        <DiffWorkerPool>
+          <FileDiff
+            fileDiff={fileDiff}
+            options={mergedOptions}
+            lineAnnotations={annotations}
+            selectedLines={selectedRange}
+            renderAnnotation={renderAnnotation}
+            renderCustomHeader={renderCustomHeader}
+            metrics={DIFF_METRICS}
+          />
+        </DiffWorkerPool>
       )}
       {tooLarge && (
         <div className="border-(--gray-5) border-t bg-(--gray-2) px-3 py-1.5 text-(--gray-10) text-[12px]">
@@ -414,15 +417,17 @@ function FilesDiffView({
   );
 
   return (
-    <MultiFileDiff
-      oldFile={oldFile}
-      newFile={newFile}
-      options={mergedOptions}
-      lineAnnotations={annotations}
-      selectedLines={selectedRange}
-      renderAnnotation={renderAnnotation}
-      renderCustomHeader={renderCustomHeader}
-      metrics={DIFF_METRICS}
-    />
+    <DiffWorkerPool>
+      <MultiFileDiff
+        oldFile={oldFile}
+        newFile={newFile}
+        options={mergedOptions}
+        lineAnnotations={annotations}
+        selectedLines={selectedRange}
+        renderAnnotation={renderAnnotation}
+        renderCustomHeader={renderCustomHeader}
+        metrics={DIFF_METRICS}
+      />
+    </DiffWorkerPool>
   );
 }

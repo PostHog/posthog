@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { sessionRecordingPinnedPropertiesLogic } from 'scenes/session-recordings/player/player-meta/sessionRecordingPinnedPropertiesLogic'
@@ -17,6 +18,7 @@ const EXPECTED_RECORDING_PROPERTIES = [
             $os: 'Windows',
             $os_name: 'Windows 10',
             $entry_referring_domain: 'google.com',
+            $ip: '192.0.2.1',
         },
     },
     {
@@ -40,6 +42,7 @@ const EXPECTED_RECORDING_PROPERTIES_BY_ID = {
         $os: 'Windows',
         $os_name: 'Windows 10',
         $entry_referring_domain: 'google.com',
+        $ip: '192.0.2.1',
     },
     s2: {
         $browser: 'Safari',
@@ -83,8 +86,20 @@ const mockSessons: SessionRecordingType[] = [
 ]
 
 // matches the order of the base columns in the properties query, after the leading session_id
-const S1_BASE_ROW = ['s1', 'AU', 'Chrome', 'Desktop', 'Windows', 'Windows 10', 'google.com', null, null, null]
-const S2_BASE_ROW = ['s2', 'GB', 'Safari', 'Mobile', 'iOS', 'iOS 14', 'google.com', null, null, null]
+const S1_BASE_ROW = [
+    's1',
+    'AU',
+    'Chrome',
+    'Desktop',
+    'Windows',
+    'Windows 10',
+    'google.com',
+    null,
+    null,
+    null,
+    '192.0.2.1',
+]
+const S2_BASE_ROW = ['s2', 'GB', 'Safari', 'Mobile', 'iOS', 'iOS 14', 'google.com', null, null, null, null]
 
 // mock the query endpoint with a per-request handler that receives the HogQL query string
 const useQueryMocks = (handler: (query: string) => unknown): void => {
@@ -147,6 +162,31 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         })
     })
 
+    it('lets overlapping batches land without requesting an in-flight session again', async () => {
+        const issuedQueries: string[] = []
+        const pending: (() => void)[] = []
+        useQueryMocks((query) => {
+            issuedQueries.push(query)
+            return new Promise((resolve) => {
+                pending.push(() =>
+                    resolve({ results: [S1_BASE_ROW, S2_BASE_ROW].filter((row) => query.includes(`'${row[0]}'`)) })
+                )
+            })
+        })
+
+        logic.actions.loadPropertiesForSessions([mockSessons[0]])
+        await waitFor(() => expect(issuedQueries).toHaveLength(1))
+        logic.actions.maybeLoadPropertiesForSessions(mockSessons)
+        await waitFor(() => expect(issuedQueries).toHaveLength(2))
+        expect(issuedQueries[1]).not.toContain("'s1'")
+
+        await expectLogic(logic, () => {
+            pending.forEach((resolve) => resolve())
+        }).toDispatchActions(['loadPropertiesForSessionsSuccess', 'loadPropertiesForSessionsSuccess'])
+
+        expect(logic.values.recordingPropertiesById).toMatchObject(EXPECTED_RECORDING_PROPERTIES_BY_ID)
+    })
+
     it('fetches pinned session properties alongside the base properties', async () => {
         const issuedQueries: string[] = []
         useQueryMocks((query) => {
@@ -166,11 +206,15 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(issuedQueries).toHaveLength(1)
-        expect(issuedQueries[0]).toContain('any(session.$entry_utm_medium) as $entry_utm_medium')
-        expect(issuedQueries[0]).toContain('any(session.$channel_type) as $channel_type')
+        // The WHERE clause lists every core event name, so a pin can only be found absent by looking
+        // at the select list. Searching the whole query trips over an unrelated event that shares the
+        // pin's name as a substring.
+        const selectList = issuedQueries[0].split('FROM events')[0]
+        expect(selectList).toContain('any(session.$entry_utm_medium) as $entry_utm_medium')
+        expect(selectList).toContain('any(session.$channel_type) as $channel_type')
         // non-session pins must not leak into the query
-        expect(issuedQueries[0]).not.toContain('email')
-        expect(issuedQueries[0]).not.toContain('Start')
+        expect(selectList).not.toContain('email')
+        expect(selectList).not.toContain('Start')
 
         expect(logic.values.recordingPropertiesById['s1']).toMatchObject({
             $browser: 'Chrome',

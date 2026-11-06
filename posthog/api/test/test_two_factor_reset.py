@@ -2,7 +2,7 @@ import time
 import datetime
 from importlib import import_module
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -125,7 +125,7 @@ class TestTwoFactorReset(APIBaseTest):
         token = self._setup_2fa_reset()
 
         # Move time forward by more than 24 hours
-        with freeze_time(timezone.now() + datetime.timedelta(hours=24, minutes=1)):
+        with time_machine.travel(timezone.now() + datetime.timedelta(hours=24, minutes=1), tick=False):
             self._setup_half_auth_session()
             response = self.client.get(f"/api/reset_2fa/{self.user.uuid}/?token={token}")
 
@@ -270,11 +270,11 @@ class TestTwoFactorReset(APIBaseTest):
     def test_new_reset_request_invalidates_old_token(self):
         """Test that requesting a new reset invalidates the old token."""
         # Get first token at time T
-        with freeze_time("2024-01-01 12:00:00"):
+        with time_machine.travel("2024-01-01 12:00:00", tick=False):
             token1 = self._setup_2fa_reset()
 
         # Request a new reset at time T+1 (which updates requested_2fa_reset_at)
-        with freeze_time("2024-01-01 12:00:01"):
+        with time_machine.travel("2024-01-01 12:00:01", tick=False):
             self.user.requested_2fa_reset_at = datetime.datetime.now(datetime.UTC)
             self.user.save(update_fields=["requested_2fa_reset_at"])
             token2 = TwoFactorResetVerifier.create_token(self.user)

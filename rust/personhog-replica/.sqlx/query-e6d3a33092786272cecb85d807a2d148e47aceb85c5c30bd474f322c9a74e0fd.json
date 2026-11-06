@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT distinct_id, version, id\n                    FROM posthog_persondistinctid\n                    WHERE team_id = $1 AND person_id = $2 AND is_deleted = false\n                          AND id > $3\n                    ORDER BY id ASC\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distinct_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "e6d3a33092786272cecb85d807a2d148e47aceb85c5c30bd474f322c9a74e0fd"
+}

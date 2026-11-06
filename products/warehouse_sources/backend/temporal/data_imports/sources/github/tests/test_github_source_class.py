@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from unittest import mock
 
@@ -6,6 +8,11 @@ from posthog.models.integration import GitHubIntegrationError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
     GithubAuthMethodConfig,
@@ -22,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
     GRANT_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _GITHUB_INTEGRATION_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
@@ -41,9 +47,6 @@ class TestGithubSource:
     def setup_method(self):
         self.source = GithubSource()
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GITHUB
 
     @mock.patch(_GITHUB_INTEGRATION_PATH)
     @mock.patch.object(GithubSource, "get_oauth_integration")
@@ -115,15 +118,76 @@ class TestGithubSource:
             "Integration not found",
             "Missing integration ID",
             "This installation has been suspended",
+            # A sunset API version pinned in X-GitHub-Api-Version returns 410 Gone permanently, so it
+            # must disable the schema rather than retry forever.
+            "410 Client Error",
         ],
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 
+    def test_deprecated_api_version_metadata(self):
+        # The generic registry test only checks deprecated ⊆ supported and default ∉ deprecated; this
+        # locks GitHub's specific deprecation — 2022-11-28 sunset on 2028-03-10, 2026-03-10 current —
+        # which drives the in-product warning and the source-level repin migration.
+        deprecation = self.source.get_version_deprecation("2022-11-28")
+        assert deprecation is not None
+        assert deprecation.sunset_at == datetime.date(2028, 3, 10)
+        assert self.source.get_version_deprecation("2026-03-10") is None
+
     def test_rate_limit_error_is_retryable_not_non_retryable(self):
         # A GitHubRateLimitError that exhausts _fetch_page's tenacity retry must stay retryable
         # so it never gets classified as a permanent failure that disables the source.
         observed_error = "GitHub API rate limit exceeded (resets at 1786360951)"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
+    def test_graphql_rate_limit_error_is_retryable_not_non_retryable(self):
+        # GraphQL's own primary rate limit (_raise_if_graphql_rate_limited) raises the same
+        # GitHubRateLimitError type as the REST limit above, but with different wording, so it
+        # needs its own entry to avoid falling through to the generic exception path.
+        observed_error = "Github GraphQL rate limit exceeded (resets at 1786360951)"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
+    def test_egress_budget_exhausted_is_retryable_not_non_retryable(self):
+        # Our own limiter shedding a deferrable call is the twin of GitHub's rate limit above, and
+        # must be classified the same way: tracking it as an exception put a self-inflicted,
+        # self-healing condition at the top of the pipeline-error groups.
+        observed_error = "GitHub egress budget exhausted for installation 99844466; deferring"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
+    def test_transient_5xx_error_is_retryable_not_non_retryable(self):
+        # A GithubRetryableError (any transient upstream 5xx) that exhausts _fetch_page's tenacity
+        # retry must stay retryable, so a GitHub-side outage doesn't disable the source.
+        observed_error = "Github API error (retryable): status=503, url=https://api.github.com/repos/o/r/issues"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # A TLS session cut at the socket while minting the installation access token.
+            "HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: "
+            "/app/installations/123/access_tokens (Caused by SSLError(SSLEOFError(8, "
+            "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))",
+            # A read timeout on the same call.
+            "HTTPSConnectionPool(host='api.github.com', port=443): Read timed out. (read timeout=10)",
+        ],
+    )
+    def test_token_mint_transport_error_is_retryable_not_non_retryable(self, observed_error):
+        # Neither has an in-process retry (client_request has none, unlike _fetch_page's tenacity
+        # retry). Must stay retryable so a dropped connection or a slow response to GitHub doesn't
+        # disable the source.
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in observed_error for key in non_retryable_errors)
         retryable_errors = self.source.get_retryable_errors()
@@ -236,7 +300,7 @@ class TestGithubSource:
         result = self.source.get_endpoint_permissions(config, self.team_id, ["teams", "team_members", "issues"])
 
         assert result["issues"] is None
-        assert result["teams"] == "No GitHub account is connected. Please reconnect your GitHub account."
+        assert result["teams"] == "No GitHub account is connected. Connect a GitHub account and try again."
         assert result["team_members"] == result["teams"]
 
     @pytest.mark.parametrize(
@@ -387,6 +451,33 @@ class TestGithubSource:
         assert schema.supports_incremental is False
         assert schema.should_sync_default is True
 
+    @pytest.mark.parametrize("endpoint", ["check_runs", "commit_statuses"])
+    def test_commit_fan_out_schemas_are_webhook_only(self, endpoint):
+        # Both fan out over commits, so any poll mode costs one API call per commit on every sync
+        # against a shared, rate-limited budget. The zero lookback floor is what stops the picker
+        # from offering that mode; if it regressed, a user could select incremental and a large
+        # repository would pay the per-commit fan-out indefinitely. They stay deselected by
+        # default because of their volume, unlike the deploy and review tables.
+        config = _pat_config("acme/widgets")
+        schema = {s.name: s for s in self.source.get_schemas(config, self.team_id)}[endpoint]
+
+        assert schema.supports_webhooks is True
+        assert schema.webhook_only is True
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+        assert schema.should_sync_default is False
+
+    @pytest.mark.parametrize("endpoint", ["issue_comments", "pull_request_comments", "commit_comments"])
+    def test_comment_schemas_stay_pollable_alongside_the_webhook(self, endpoint):
+        # The comment webhooks are a freshness win, not a load guard: their poll is the bootstrap
+        # feed that fills the table before webhook_enabled can flip (it needs initial_sync_complete),
+        # so giving them a zero lookback floor would strand them empty until the first delivery.
+        config = _pat_config("acme/widgets")
+        schema = {s.name: s for s in self.source.get_schemas(config, self.team_id)}[endpoint]
+
+        assert schema.supports_webhooks is True
+        assert schema.webhook_only is False
+
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(
@@ -426,11 +517,19 @@ class TestGithubSource:
 
         assert "GitHub access token not found" in self.source.get_non_retryable_errors()
 
-    def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
-        # Webhook cleanup runs on source deletion, after the OAuth integration may already be gone;
-        # get_oauth_integration then raises "Integration not found". delete_webhook must report the
-        # skip rather than let it escape and be captured as error-tracking noise, and its message
-        # must not echo the integration id back to the caller (it surfaces in the API response).
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda source, config, url, team_id: source.delete_webhook(config, url, team_id),
+            lambda source, config, url, team_id: source.get_external_webhook_info(config, url, team_id),
+        ],
+        ids=["delete_webhook", "get_external_webhook_info"],
+    )
+    def test_webhook_calls_skip_gracefully_when_integration_deleted(self, call):
+        # The OAuth integration can be deleted while the source still references it (on source deletion,
+        # or when the account is disconnected); get_oauth_integration then raises "Integration not found".
+        # Webhook calls must report that rather than let it escape and be captured as error-tracking
+        # noise, and the message must not echo the integration id back (it surfaces in the API response).
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(github_integration_id=42, selection="oauth", personal_access_token=""),
             repository="owner/repo",
@@ -439,16 +538,19 @@ class TestGithubSource:
         with mock.patch.object(
             self.source, "get_oauth_integration", side_effect=ValueError("Integration not found: 42")
         ):
-            result = self.source.delete_webhook(config, "https://ph.example/webhook", self.team_id)
+            result = call(self.source, config, "https://ph.example/webhook", self.team_id)
 
-        assert result.success is False
-        assert "42" not in (result.error or "")
+        assert result.error
+        assert "42" not in result.error
 
     @pytest.mark.parametrize(
         "selection,expected_message",
         [
-            ("oauth", "No GitHub account is connected. Please reconnect your GitHub account."),
-            ("pat", "GitHub personal access token is not configured. Please update the source configuration."),
+            ("oauth", "No GitHub account is connected. Connect a GitHub account and try again."),
+            (
+                "pat",
+                "No GitHub personal access token is set. Enter one, or switch the authentication type to OAuth and connect a GitHub account.",
+            ),
         ],
     )
     def test_validate_credentials_maps_config_errors_to_friendly_message(self, selection, expected_message):
@@ -475,6 +577,9 @@ class TestGithubSource:
             (None, ["PostHog/posthog", "posthog/posthog", " Other/Repo "], ["posthog/posthog", "other/repo"]),
             # A non-empty `repositories` is the authoritative set; `repository` only marks bare naming.
             ("posthog/posthog", ["a/b"], ["a/b"]),
+            # A repo pasted as a GitHub URL must route to the same storage as `owner/repo`, or the
+            # same repository would sync into two tables depending on how it was entered.
+            (None, ["https://github.com/PostHog/posthog.git", "posthog/posthog"], ["posthog/posthog"]),
         ],
     )
     def test_effective_repositories(self, repository, repositories, expected):
@@ -596,6 +701,36 @@ class TestGithubSource:
 
         assert valid is False
         assert message is not None and "a/missing" in message
+        assert message.count("read access") == 1
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.validate_github_credentials"
+    )
+    def test_validate_credentials_states_the_next_step_once_for_several_repos(self, mock_validate):
+        # Guards against the next step moving back into the per-repo reason, where N inaccessible
+        # repos would read as the same sentence N times.
+        mock_validate.side_effect = [
+            (False, "Repository 'a/one' not found or not accessible"),
+            (False, "Repository 'a/two' not found or not accessible"),
+        ]
+
+        valid, message = self.source.validate_credentials(_pat_config(repositories=["a/one", "a/two"]), self.team_id)
+
+        assert valid is False
+        assert message is not None
+        assert "a/one" in message and "a/two" in message
+        assert message.count("read access") == 1
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.validate_github_credentials"
+    )
+    def test_validate_credentials_omits_repo_guidance_for_other_failures(self, mock_validate):
+        mock_validate.side_effect = [(False, "Validation failed")]
+
+        valid, message = self.source.validate_credentials(_pat_config(repositories=["a/one"]), self.team_id)
+
+        assert valid is False
+        assert message == "Validation failed"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.validate_github_credentials"
@@ -636,6 +771,7 @@ class TestGithubSource:
         inputs.schema_metadata = None
         inputs.s3_folder_name = "issues"
         inputs.should_use_incremental_field = False
+        inputs.last_synced_at = datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC)
 
         self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
 
@@ -643,6 +779,7 @@ class TestGithubSource:
         assert kwargs["repository"] == "legacy/repo"
         assert kwargs["endpoint"] == "issues"
         assert kwargs["response_name"] == "issues"
+        assert kwargs["reconcile_since"] == inputs.last_synced_at
 
     @pytest.mark.parametrize(
         "pin,expected",
@@ -657,20 +794,13 @@ class TestGithubSource:
             (None, "2026-03-10"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.github_source")
-    def test_source_for_pipeline_threads_resolved_api_version(self, mock_github_source, pin, expected):
+    def test_source_for_pipeline_threads_resolved_api_version(self, pin, expected):
         config = _pat_config(repository="legacy/repo", repositories=["legacy/repo"])
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.schema_name = "issues"
-        inputs.schema_metadata = None
-        inputs.s3_folder_name = "issues"
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pin
+        result = SourceDriver(self.source, config).run("issues", [ScriptedResponse(json=[])], api_version=pin)
 
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        assert mock_github_source.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert result.paths == ["/repos/legacy/repo/issues"]
+        assert result.requests[0].headers["x-github-api-version"] == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.ensure_repo_webhook")
     def test_create_webhook_shares_one_secret_across_repos(self, mock_ensure):
@@ -704,3 +834,31 @@ class TestGithubSource:
         assert result.error is not None and "c/d: boom" in result.error
         # The repo that did get a hook verifies against this secret, so it must still persist.
         assert result.extra_inputs.get("signing_secret")
+
+    @pytest.mark.parametrize(
+        "rejection, expected_message",
+        [
+            (
+                ScriptedResponse(
+                    status=422,
+                    json={
+                        "message": "Validation Failed",
+                        "errors": [{"resource": "Hook", "message": 'The "push" event cannot have more than 20 hooks'}],
+                    },
+                ),
+                "This repository has reached GitHub's webhook limit.",
+            ),
+            (
+                ScriptedResponse(status=422, json={"message": "Validation Failed", "errors": [{"code": "custom"}]}),
+                "GitHub couldn't create the webhook.",
+            ),
+        ],
+    )
+    def test_create_webhook_rejection_shows_a_clean_message(self, rejection, expected_message):
+        with scripted_network([ScriptedResponse(status=200, json=[]), rejection]):
+            result = self.source.create_webhook(_pat_config(repository="o/r"), "https://hooks/x", self.team_id)
+
+        assert result.success is False
+        assert result.error is not None and expected_message in result.error
+        assert "422" not in result.error
+        assert "Validation Failed" not in result.error

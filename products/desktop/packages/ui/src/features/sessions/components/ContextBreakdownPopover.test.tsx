@@ -12,7 +12,6 @@ function usageWith(
     used: 74_000,
     size: 200_000,
     percentage: 37,
-    cost: null,
     breakdown,
     ...overrides,
   };
@@ -86,6 +85,27 @@ describe("ContextBreakdownPopover", () => {
     expect(screen.getByText("Conversation")).toBeInTheDocument();
     expect(screen.queryByText("Tools")).not.toBeInTheDocument();
     expect(screen.queryByText("Rules")).not.toBeInTheDocument();
+  });
+
+  it("renders the authoritative task cost breakdown", () => {
+    render(
+      <Theme>
+        <ContextBreakdownPopover
+          usage={usageWith(null)}
+          taskUsage={{
+            token_cost_usd: 12.34,
+            compute_cost_usd: 0.56,
+            total_cost_usd: 12.9,
+          }}
+        />
+      </Theme>,
+    );
+    expect(screen.getByText("Estimated cost")).toBeInTheDocument();
+    expect(screen.getByText("Tokens")).toBeInTheDocument();
+    expect(screen.getByText("Cloud compute")).toBeInTheDocument();
+    expect(screen.getByText("$12.90")).toBeInTheDocument();
+    expect(screen.getByText("$12.34")).toBeInTheDocument();
+    expect(screen.getByText("$0.56")).toBeInTheDocument();
   });
 
   it("scales segments to the context window, not the used tokens", () => {

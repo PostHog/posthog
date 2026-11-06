@@ -1,6 +1,4 @@
-from typing import TYPE_CHECKING, Optional
-
-import posthoganalytics
+from typing import TYPE_CHECKING, Optional, overload
 
 from posthog.cloud_utils import is_cloud
 from posthog.schema_enums import (
@@ -9,6 +7,7 @@ from posthog.schema_enums import (
     InlineCohortCalculation,
     MaterializationMode,
     PersonsArgMaxVersion,
+    PersonsOnEventsMode,
     PropertyGroupsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
@@ -22,6 +21,18 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode: ...
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None: ...
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None:
+    if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is not implemented in legacy insights
+        # It's functionally the same as DISABLED, just slower - hence aliasing to DISABLED
+        return PersonsOnEventsMode.DISABLED
+    return persons_on_events_mode
+
+
 def create_default_modifiers_for_user(
     user: "User", team: "Team", modifiers: Optional["HogQLQueryModifiers"] = None
 ) -> "HogQLQueryModifiers":
@@ -31,16 +42,6 @@ def create_default_modifiers_for_user(
         modifiers = HogQLQueryModifiers()
     else:
         modifiers = modifiers.model_copy()
-
-    modifiers.useMaterializedViews = posthoganalytics.feature_enabled(
-        "data-modeling",
-        str(user.distinct_id),
-        person_properties={
-            "email": user.email,
-        },
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
 
     return create_default_modifiers_for_team(team, modifiers)
 
@@ -62,6 +63,13 @@ def create_default_modifiers_for_team(
 
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
+            # A modifier removed from the schema can stay stored on a project, and the model rejects unknown fields.
+            if key not in HogQLQueryModifiers.model_fields:
+                continue
+            # The events table is switched per project by CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, which every
+            # reader of the table checks. A stored modifier would switch the HogQL readers alone.
+            if key == "useNewEventsSchema":
+                continue
             if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":
                     # don't break all queries if customChannelTypeRules are invalid
@@ -71,11 +79,43 @@ def create_default_modifiers_for_team(
                             setattr(modifiers, key, value)
                     except ValidationError:
                         pass
+                elif key == "customBotDefinitions":
+                    # parse_rules drops the entries that don't parse — one bad entry should not
+                    # take a project's whole bot list out of every query. warn_on_drop=False
+                    # because this runs per query; the API list and save paths report drops.
+                    from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (  # noqa: PLC0415
+                        parse_rules,
+                    )
+
+                    if isinstance(value, list):
+                        setattr(modifiers, key, parse_rules(value, warn_on_drop=False))
                 else:
                     setattr(modifiers, key, value)
 
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
+
+    if modifiers.materializeRepeatedCTEs is None and is_cloud():
+        from posthog.ph_client import (
+            feature_enabled_or_false,  # noqa: PLC0415 -- keeps the analytics client off django.setup's import path
+        )
+
+        if feature_enabled_or_false(
+            "hogql-materialize-repeated-ctes",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.materializeRepeatedCTEs = True
+
+    from products.web_analytics.backend.hogql_queries.cookieless_flag import (  # noqa: PLC0415 - keeps posthog.schema off the django.setup() import path
+        resolve_cookieless_traffic_is_regular_modifier,
+    )
+
+    modifiers.cookielessTrafficIsRegular = resolve_cookieless_traffic_is_regular_modifier(
+        team, modifiers.cookielessTrafficIsRegular
+    )
 
     set_default_modifier_values(modifiers, team)
 

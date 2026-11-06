@@ -29,10 +29,16 @@ from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
-from posthog.temporal.ai_observability.evaluation_llm_judge import LLM_JUDGE_RETRY_POLICY
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
+from posthog.temporal.ai_observability.evaluation_llm_judge import (
+    LLM_JUDGE_RETRY_POLICY,
+    backfill_retry_policy,
+    backfill_timeout,
+)
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
@@ -42,6 +48,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
 from posthog.temporal.ai_observability.metrics import increment_errors, increment_settle_poll
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
+    compact_backfill_result,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
@@ -58,6 +65,11 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     emit_trace_evaluation_event_activity,
     execute_trace_hog_eval_activity,
     execute_trace_llm_judge_activity,
+)
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
@@ -136,6 +148,7 @@ def check_trace_settled_activity(inputs: CheckTraceSettledInputs) -> str:
         },
         team=team,
         query_type="TraceSettlePoll",
+        posthog_tables_only=True,
         fall_back_to_events=False,
         workload=Workload.OFFLINE,
     )
@@ -216,6 +229,7 @@ def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
             },
             team=team,
             query_type="SessionSettlePoll",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )
@@ -242,6 +256,95 @@ def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
         raise ApplicationError(f"session active {int(quiet_for)}s ago", type="session_not_settled")
     increment_settle_poll("settled", target="session")
     return last_seen.isoformat()
+
+
+# Bounds the array the quiet-point query builds. A unit with more liveness events than this is
+# past every evaluation cap already, so the fetch skips it whatever window we pick.
+QUIET_POINT_MAX_EVENTS = SESSION_RUNAWAY_CIRCUIT_BREAKER_EVENTS
+
+# Reads the client-set `timestamp`, not the arrival `_timestamp` the live probe polls on: the gap
+# this looks for has to sit on the same clock the fetch bounds by, or the window would cut the
+# transcript somewhere the events do not.
+_QUIET_POINT_SQL = """
+SELECT arraySort(groupArray(timestamp)) AS timestamps
+FROM (
+    SELECT timestamp
+    FROM posthog.ai_events AS ai_events
+    WHERE event IN {liveness_events}
+      AND {unit_predicate}
+      AND timestamp >= {window_start}
+      AND timestamp <= {window_cap}
+    ORDER BY timestamp ASC
+    LIMIT {max_events}
+)
+"""
+
+
+@frozen
+class FindQuietPointInputs:
+    team_id: int
+    target: str
+    unit_id: str
+    window_start: str
+    quiet_period_seconds: int
+    max_age_seconds: int
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "target": self.target, "unit_id": self.unit_id}
+
+
+def _quiet_point(timestamps: list[datetime], window_start: datetime, quiet: timedelta, cap: datetime) -> datetime:
+    """The instant an inactivity-settled run would have graded this unit.
+
+    The live path polls until the unit has been silent for the quiet period, then reads up to that
+    moment, so events after the first long gap never reach its verdict. A historical unit has all
+    its events already, so the same point is the first gap of at least the quiet period.
+    """
+    for index, timestamp in enumerate(timestamps):
+        following = timestamps[index + 1] if index + 1 < len(timestamps) else None
+        if following is None or following - timestamp >= quiet:
+            return min(timestamp + quiet, cap)
+    return cap
+
+
+@temporalio.activity.defn
+@close_db_connections
+def find_evaluation_quiet_point_activity(inputs: FindQuietPointInputs) -> str:
+    """Where an inactivity-settled backfill stops reading a unit, as an ISO timestamp."""
+    team = Team.objects.get(id=inputs.team_id)
+    window_start = as_utc_datetime(inputs.window_start)
+    quiet = timedelta(seconds=inputs.quiet_period_seconds + INGESTION_LAG_MARGIN_SECONDS)
+    cap = window_start + timedelta(seconds=inputs.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
+    unit_field = "session_id" if inputs.target == "session" else "trace_id"
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = query_ai_events(
+            query=parse_select(_QUIET_POINT_SQL),
+            placeholders={
+                "liveness_events": ast.Constant(value=list(_LIVENESS_EVENTS)),
+                "unit_predicate": ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["ai_events", unit_field]),
+                    right=ast.Constant(value=inputs.unit_id),
+                ),
+                "window_start": ast.Constant(value=window_start),
+                "window_cap": ast.Constant(value=cap),
+                "max_events": ast.Constant(value=QUIET_POINT_MAX_EVENTS),
+            },
+            team=team,
+            query_type="EvaluationBackfillQuietPoint",
+            posthog_tables_only=True,
+            fall_back_to_events=False,
+            workload=Workload.OFFLINE,
+        )
+    rows = result.results or []
+    timestamps = [as_utc_datetime(value) if isinstance(value, str) else value for value in (rows[0][0] if rows else [])]
+    return _quiet_point(
+        [timestamp.replace(tzinfo=UTC) if timestamp.tzinfo is None else timestamp for timestamp in timestamps],
+        window_start,
+        quiet,
+        cap,
+    ).isoformat()
 
 
 def _clamp(value: Any, floor: int, ceiling: int, default: int) -> int:
@@ -299,7 +402,7 @@ def resolve_poll_interval(primary_seconds: int, poll_budget_seconds: int) -> int
     return max(primary_seconds // 4, budget_floor, 10)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SettlePlan:
     strategy: Literal["inactivity", "fixed_window"]
     # The quiet period under inactivity, the window under fixed_window.
@@ -325,7 +428,7 @@ def resolve_settle_plan(settle: dict[str, Any] | None, target: str = "trace") ->
     return SettlePlan(strategy="fixed_window", primary_seconds=window, max_age_seconds=window)
 
 
-@dataclass
+@frozen
 class RunAggregateEvaluationInputs:
     evaluation_id: str
     team_id: int
@@ -335,6 +438,8 @@ class RunAggregateEvaluationInputs:
     ai_session_id: str | None = None
     target: str = "trace"
     settle: dict[str, Any] | None = None
+    anchor_timestamp: str | None = None
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -383,7 +488,21 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
-        window_start = temporalio.workflow.now()
+        return compact_backfill_result(await self._run(inputs), inputs.backfill_id)
+
+    async def _run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
+        # A historical unit is settled by definition, so a backfill skips the settle wait and
+        # aggregates from the anchor, its first matching generation. Live starts carry no anchor,
+        # so old histories never take this branch and it needs no patch marker.
+        is_backfill = inputs.anchor_timestamp is not None
+        recover_backfill = inputs.backfill_id is not None and temporalio.workflow.patched(
+            "evaluation-backfill-extended-retries"
+        )
+        window_start = (
+            as_utc_datetime(inputs.anchor_timestamp)
+            if inputs.anchor_timestamp is not None
+            else temporalio.workflow.now()
+        )
 
         # Fail loudly rather than falling through to the trace path, which would grade `trace_id`
         # and emit a trace-shaped verdict under a session evaluation's name. Unreachable from the
@@ -396,7 +515,39 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
         plan = resolve_settle_plan(inputs.settle, inputs.target)
         is_session = inputs.target == "session" and inputs.ai_session_id is not None
-        if plan.strategy == "inactivity":
+
+        # A backfilled unit is graded over the span the live path would have covered from its
+        # anchor, so events that arrived after that span stay out of the verdict.
+        window_end: str | None = None
+        if is_backfill:
+            window_end = (
+                window_start + timedelta(seconds=plan.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
+            ).isoformat()
+            if plan.strategy == "inactivity":
+                # Under inactivity the live path stops at the first long gap, which is usually far
+                # short of the maximum age. Reading to the ceiling instead would hand the judge a
+                # transcript live never saw, and a long enough unit would cross the size cap and
+                # come back skipped where live returned a verdict.
+                unit_id = inputs.trace_id
+                if is_session and inputs.ai_session_id is not None:
+                    unit_id = inputs.ai_session_id
+                quiet_point: str = await temporalio.workflow.execute_activity(
+                    find_evaluation_quiet_point_activity,
+                    FindQuietPointInputs(
+                        team_id=inputs.team_id,
+                        target=inputs.target,
+                        unit_id=unit_id,
+                        window_start=window_start.isoformat(),
+                        quiet_period_seconds=plan.primary_seconds,
+                        max_age_seconds=plan.max_age_seconds,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=60),
+                    schedule_to_close_timeout=backfill_timeout(recover_backfill, None),
+                    retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=3)),
+                )
+                window_end = quiet_point
+
+        if plan.strategy == "inactivity" and not is_backfill:
             # Sleep past the lag margin too: a probe at exactly quiet_period can never pass
             # the `quiet_period + margin` settled bar, so it would burn a poll for nothing.
             initial_sleep_seconds = min(plan.primary_seconds + INGESTION_LAG_MARGIN_SECONDS, plan.max_age_seconds)
@@ -449,7 +600,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                             await asyncio.sleep(remaining)
                     else:
                         raise
-        elif plan.primary_seconds:
+        elif plan.primary_seconds and not is_backfill:
             await asyncio.sleep(plan.primary_seconds)
 
         eval_start = temporalio.workflow.now()
@@ -457,8 +608,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
         evaluation = await temporalio.workflow.execute_activity(
             fetch_evaluation_activity,
             RunEvaluationInputs(evaluation_id=inputs.evaluation_id, event_data={"team_id": inputs.team_id}),
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(seconds=30)),
+            retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=3)),
         )
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
 
@@ -466,12 +617,13 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
         # bail out instead of running against config the user just turned off.
         if evaluation["deleted"] or not evaluation["enabled"]:
             disabled_result: WorkflowResult = {
-                "verdict": None,
                 "skipped": True,
                 "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
                 "evaluation_id": inputs.evaluation_id,
                 "evaluation_type": evaluation_type,
             }
+            if evaluation.get("output_type") not in ("numeric", "categorical"):
+                disabled_result["verdict"] = None
             return disabled_result
 
         if is_session and inputs.ai_session_id is not None:
@@ -480,22 +632,24 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 session_id=inputs.ai_session_id,
                 window_start=window_start.isoformat(),
+                window_end=window_end,
+                backfill_id=inputs.backfill_id if recover_backfill else None,
             )
             if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
                     execute_session_hog_eval_activity,
                     session_inputs,
                     # Longer than the trace equivalent: the fetch spans every trace of the session.
-                    schedule_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
+                    schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=5)),
+                    retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=2)),
                 )
             else:
                 try:
                     result = await temporalio.workflow.execute_activity(
                         execute_session_llm_judge_activity,
                         session_inputs,
-                        schedule_to_close_timeout=timedelta(minutes=15),
-                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                        schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=15)),
+                        retry_policy=backfill_retry_policy(recover_backfill, LLM_JUDGE_RETRY_POLICY),
                     )
                 except temporalio.exceptions.ActivityError as e:
                     handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
@@ -508,6 +662,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 trace_id=inputs.trace_id,
                 window_start=window_start.isoformat(),
+                window_end=window_end,
+                backfill_id=inputs.backfill_id if recover_backfill else None,
             )
 
             if evaluation_type == "hog":
@@ -516,8 +672,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 result = await temporalio.workflow.execute_activity(
                     execute_trace_hog_eval_activity,
                     execute_inputs,
-                    schedule_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
+                    schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=2)),
+                    retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=2)),
                 )
             else:
                 try:
@@ -525,8 +681,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                         execute_trace_llm_judge_activity,
                         execute_inputs,
                         # > single-event judge timeout: the activity also fetches the trace from ClickHouse
-                        schedule_to_close_timeout=timedelta(minutes=8),
-                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                        schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=8)),
+                        retry_policy=backfill_retry_policy(recover_backfill, LLM_JUDGE_RETRY_POLICY),
                     )
                 except temporalio.exceptions.ActivityError as e:
                     handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
@@ -554,9 +710,12 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     start_time=eval_start,
                     target=inputs.target,
                     ai_session_id=inputs.ai_session_id,
+                    backfill_id=inputs.backfill_id,
+                    event_timestamp=inputs.anchor_timestamp,
                 ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                retry_policy=EMIT_EVENT_RETRY_POLICY,
             )
         except Exception:
             increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
@@ -574,13 +733,18 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
             )
 
         workflow_result: WorkflowResult = {
-            "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
             "skipped": result.get("skipped", False),
         }
+        if "verdict" in result:
+            workflow_result["verdict"] = result["verdict"]
+        if "score" in result:
+            workflow_result["score"] = result["score"]
+        if "categories" in result:
+            workflow_result["categories"] = result["categories"]
         if result.get("skipped"):
             skip_reason = result.get("skip_reason")
             if skip_reason is not None:

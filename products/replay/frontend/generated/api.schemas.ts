@@ -68,12 +68,26 @@ export interface UserBasicApi {
  * * `collection` - Collection
  * * `filters` - Filters
  */
-export type SessionRecordingPlaylistTypeEnumApi =
-    (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
+export type SessionRecordingPlaylistPlaylistTypeEnumApi =
+    (typeof SessionRecordingPlaylistPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistPlaylistTypeEnumApi]
 
-export const SessionRecordingPlaylistTypeEnumApi = {
+export const SessionRecordingPlaylistPlaylistTypeEnumApi = {
     Collection: 'collection',
     Filters: 'filters',
+} as const
+
+/**
+ * * `new` - new
+ * * `pin` - pin
+ * * `duplicate` - duplicate
+ */
+export type SessionRecordingPlaylistCreationMethodEnumApi =
+    (typeof SessionRecordingPlaylistCreationMethodEnumApi)[keyof typeof SessionRecordingPlaylistCreationMethodEnumApi]
+
+export const SessionRecordingPlaylistCreationMethodEnumApi = {
+    New: 'new',
+    Pin: 'pin',
+    Duplicate: 'duplicate',
 } as const
 
 export type SessionRecordingPlaylistApiRecordingsCounts = { [key: string]: { [key: string]: number | boolean | null } }
@@ -109,10 +123,16 @@ export interface SessionRecordingPlaylistApi {
      *
      * * `collection` - Collection
      * * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | null
+    type?: SessionRecordingPlaylistPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
+    /** How the PostHog app created the playlist, for product analytics. Not stored.
+     *
+     * * `new` - new
+     * * `pin` - pin
+     * * `duplicate` - duplicate */
+    creation_method?: SessionRecordingPlaylistCreationMethodEnumApi
 }
 
 export interface PaginatedSessionRecordingPlaylistListApi {
@@ -159,10 +179,16 @@ export interface PatchedSessionRecordingPlaylistApi {
      *
      * * `collection` - Collection
      * * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | null
+    type?: SessionRecordingPlaylistPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string
+    /** How the PostHog app created the playlist, for product analytics. Not stored.
+     *
+     * * `new` - new
+     * * `pin` - pin
+     * * `duplicate` - duplicate */
+    creation_method?: SessionRecordingPlaylistCreationMethodEnumApi
 }
 
 export interface MinimalPersonApi {
@@ -182,20 +208,6 @@ export interface MinimalPersonApi {
      * @nullable
      */
     readonly last_seen_at: string | null
-}
-
-/**
- * Initial goal and session outcome coming from LLM.
- */
-export interface OutcomeApi {
-    /**
-     * @minLength 1
-     * @maxLength 10000
-     * @nullable
-     */
-    description?: string | null
-    /** @nullable */
-    success?: boolean | null
 }
 
 export type SessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
@@ -243,21 +255,31 @@ export interface SessionRecordingApi {
     readonly ongoing: boolean
     /** @nullable */
     readonly activity_score: number | null
-    readonly has_summary: boolean
-    readonly summary_outcome: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
     /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
     readonly matches_filters: boolean
+    /**
+     * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+     * @nullable
+     */
+    readonly total_size: number | null
+    /**
+     * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+     * @nullable
+     */
+    readonly event_count: number | null
 }
 
-export interface PaginatedSessionRecordingListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+export interface SessionRecordingListResponseApi {
+    /** Recordings on this page. */
     results: SessionRecordingApi[]
+    /** Whether more recordings match the query after this page. */
+    has_next: boolean
+    /** Version of the listing response format. */
+    version: number
+    /** Cursor for the next page. Send it back as `after` to load the next page. Absent when the query does not page by cursor or there is no next page. */
+    next_cursor?: string
 }
 
 export type PatchedSessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
@@ -305,12 +327,59 @@ export interface PatchedSessionRecordingApi {
     readonly ongoing?: boolean
     /** @nullable */
     readonly activity_score?: number | null
-    readonly has_summary?: boolean
-    readonly summary_outcome?: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
     /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
     readonly matches_filters?: boolean
+    /**
+     * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+     * @nullable
+     */
+    readonly total_size?: number | null
+    /**
+     * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+     * @nullable
+     */
+    readonly event_count?: number | null
+}
+
+/**
+ * * `info` - Info
+ * * `warn` - Warn
+ * * `error` - Error
+ */
+export type ConsoleLogLevelEnumApi = (typeof ConsoleLogLevelEnumApi)[keyof typeof ConsoleLogLevelEnumApi]
+
+export const ConsoleLogLevelEnumApi = {
+    Info: 'info',
+    Warn: 'warn',
+    Error: 'error',
+} as const
+
+export interface SessionRecordingConsoleLogEntryApi {
+    /** When the browser logged the message. */
+    timestamp: string
+    /** Console level of the message.
+     *
+     * * `info` - Info
+     * * `warn` - Warn
+     * * `error` - Error */
+    level: ConsoleLogLevelEnumApi
+    /** The logged text. String arguments are joined with spaces, and non-string arguments are left out. Cut to 3000 characters. */
+    message: string
+    /** True when the message was cut to fit the length limit. */
+    truncated: boolean
+}
+
+export interface SessionRecordingConsoleLogsResponseApi {
+    /** Console log entries in chronological order. */
+    results: SessionRecordingConsoleLogEntryApi[]
+    /** True when more entries exist after this page. */
+    has_more: boolean
+    /** Whether the project captures console logs now. When false, an empty result means that nothing was captured, not that the session had no console output. */
+    console_log_capture_enabled: boolean
+    /** True when the recording started longer ago than the console log retention period. The recording can still exist after its console log entries are deleted. Entries expire one at a time, so a recording close to the retention period can already miss its earliest entries while this is false. */
+    logs_expired: boolean
 }
 
 export interface SessionRecordingBulkDeleteRequestApi {
@@ -338,156 +407,11 @@ export interface SessionRecordingBulkDeleteResponseApi {
     failed_ids: string[]
 }
 
-export interface SessionSummariesApi {
-    /**
-     * List of session IDs to summarize (max 300)
-     * @minItems 1
-     * @maxItems 300
-     */
-    session_ids: string[]
-    /**
-     * Optional focus area for the summarization
-     * @maxLength 500
-     */
-    focus_area?: string
-}
-
-/**
- * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
- * @nullable
- */
-export type SingleSessionSummaryMinimalApiSessionOutcome = {
-    readonly success?: boolean
-    readonly description?: string
-} | null
-
-/**
- * Optional context passed to the summary at generation time (e.g. `focus_area`).
- * @nullable
- */
-export type SingleSessionSummaryMinimalApiExtraSummaryContext = {
-    readonly focus_area?: string
-} | null
-
-/**
- * Lightweight projection for list endpoints — omits the full `summary` JSON (~50 KB per row).
- */
-export interface SingleSessionSummaryMinimalApi {
-    readonly id: string
-    /** Session replay ID */
-    readonly session_id: string
-    /**
-     * Distinct ID of the session's user
-     * @nullable
-     */
-    readonly distinct_id: string | null
-    /**
-     * Session start time
-     * @nullable
-     */
-    readonly session_start_time: string | null
-    /**
-     * Session duration in seconds
-     * @nullable
-     */
-    readonly session_duration: number | null
-    /**
-     * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
-     * @nullable
-     */
-    readonly session_outcome: SingleSessionSummaryMinimalApiSessionOutcome
-    /** Number of exception event IDs surfaced by this summary (capped at 100). */
-    readonly exception_count: number
-    /** True if the summary surfaced any exception events. */
-    readonly has_exceptions: boolean
-    /**
-     * LLM model identifier that generated this summary, if recorded in run metadata.
-     * @nullable
-     */
-    readonly model_used: string | null
-    /** True if the summary was produced with video-based visual confirmation (the rasterized-recording path). */
-    readonly visual_confirmation: boolean
-    /**
-     * Optional context passed to the summary at generation time (e.g. `focus_area`).
-     * @nullable
-     */
-    readonly extra_summary_context: SingleSessionSummaryMinimalApiExtraSummaryContext
-    readonly created_at: string
-    readonly created_by: UserBasicApi | null
-}
-
-export interface PaginatedSingleSessionSummaryMinimalListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SingleSessionSummaryMinimalApi[]
-}
-
-/**
- * Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block.
- */
-export type SingleSessionSummaryApiSummary = { [key: string]: unknown }
-
-/**
- * Optional context passed to the summary at generation time (e.g. `focus_area`).
- * @nullable
- */
-export type SingleSessionSummaryApiExtraSummaryContext = {
-    readonly focus_area?: string
-} | null
-
-/**
- * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
- * @nullable
- */
-export type SingleSessionSummaryApiRunMetadata = { [key: string]: unknown } | null
-
-/**
- * Full session summary, including the generated `summary` JSON content.
- */
-export interface SingleSessionSummaryApi {
-    readonly id: string
-    /** Session replay ID */
-    readonly session_id: string
-    /**
-     * Distinct ID of the session's user
-     * @nullable
-     */
-    readonly distinct_id: string | null
-    /**
-     * Session start time
-     * @nullable
-     */
-    readonly session_start_time: string | null
-    /**
-     * Session duration in seconds
-     * @nullable
-     */
-    readonly session_duration: number | null
-    /** Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block. */
-    readonly summary: SingleSessionSummaryApiSummary
-    /** Event IDs (capped at 100) where exceptions occurred during the session — extracted from the summary for searchability. */
-    readonly exception_event_ids: readonly string[]
-    /**
-     * Optional context passed to the summary at generation time (e.g. `focus_area`).
-     * @nullable
-     */
-    readonly extra_summary_context: SingleSessionSummaryApiExtraSummaryContext
-    /**
-     * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
-     * @nullable
-     */
-    readonly run_metadata: SingleSessionSummaryApiRunMetadata
-    readonly created_at: string
-    readonly created_by: UserBasicApi | null
-}
-
 export type SessionRecordingPlaylistsListParams = {
     created_by?: number
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -508,58 +432,42 @@ export type SessionRecordingsListParams = {
     offset?: number
 }
 
-export type SingleSessionSummariesListParams = {
+export type SessionRecordingsConsoleLogsRetrieveParams = {
     /**
-     * Filter to summaries triggered by a specific user, identified by `User.uuid`.
+     * Only return entries at or after this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.
      */
-    created_by?: string
+    after?: string
     /**
-     * Inclusive lower bound on `created_at`, accepts relative shorthand like `-7d`.
+     * Only return entries at or before this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.
      */
-    date_from?: string
+    before?: string
     /**
-     * Inclusive upper bound on `created_at`, accepts relative shorthand like `-1d`.
+     * Only return entries at this level. Omit to return every level.
+     *
+     * * `info` - Info
+     * * `warn` - Warn
+     * * `error` - Error
+     * @minLength 1
      */
-    date_to?: string
+    level?: SessionRecordingsConsoleLogsRetrieveLevel
     /**
-     * Filter to summaries for a single user (the session's `distinct_id`).
-     */
-    distinct_id?: string
-    /**
-     * When true, only summaries that surfaced one or more exception events; when false, only summaries without exceptions.
-     */
-    has_exceptions?: boolean
-    /**
-     * When true, only summaries produced via the video-based visual-confirmation workflow.
-     */
-    has_visual_confirmation?: boolean
-    /**
-     * Number of results to return per page.
+     * Maximum number of entries to return (1-500, default 100).
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Number of entries to skip. Use with `limit` to page through a long recording.
+     * @minimum 0
      */
     offset?: number
-    /**
-     * Ordering field, defaults to `-created_at` (most recent first). Allowed: `created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending).
-     */
-    order?: string
-    /**
-     * Filter by the summary's recorded `session_outcome.success` field. `success` for true, `failure` for false, `unknown` for summaries without an outcome.
-     */
-    outcome?: SingleSessionSummariesListOutcome
-    /**
-     * Comma-separated list of session IDs to restrict the result to (uses the `(team, session_id)` index).
-     */
-    session_ids?: string
 }
 
-export type SingleSessionSummariesListOutcome =
-    (typeof SingleSessionSummariesListOutcome)[keyof typeof SingleSessionSummariesListOutcome]
+export type SessionRecordingsConsoleLogsRetrieveLevel =
+    (typeof SessionRecordingsConsoleLogsRetrieveLevel)[keyof typeof SessionRecordingsConsoleLogsRetrieveLevel]
 
-export const SingleSessionSummariesListOutcome = {
-    Failure: 'failure',
-    Success: 'success',
-    Unknown: 'unknown',
+export const SessionRecordingsConsoleLogsRetrieveLevel = {
+    Info: 'info',
+    Warn: 'warn',
+    Error: 'error',
 } as const

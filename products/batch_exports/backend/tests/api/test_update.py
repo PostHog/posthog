@@ -9,8 +9,11 @@ from django.test.client import Client as HttpClient
 from asgiref.sync import async_to_sync
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 from posthog.models.integration import Integration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.service import sync_batch_export
 from products.batch_exports.backend.tests.api.conftest import (
@@ -18,12 +21,14 @@ from products.batch_exports.backend.tests.api.conftest import (
     assert_is_weekly_schedule,
     describe_schedule,
 )
+from products.batch_exports.backend.tests.api.fixtures import create_user
 from products.batch_exports.backend.tests.api.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
     patch_batch_export,
     put_batch_export,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 pytestmark = [
     pytest.mark.django_db,
@@ -48,7 +53,10 @@ def bigquery_integration(team, user):
     )
 
 
-def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration):
+@pytest.mark.parametrize("model", ["events", "persons"])
+def test_can_put_config(
+    client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration, model
+):
     destination_data: dict[str, t.Any] = {
         "type": "AwsS3",
         "integration": aws_s3_integration.id,
@@ -56,8 +64,6 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -65,6 +71,7 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "hour",
+        "model": model,
         "start_at": "2023-07-19T00:00:00+00:00",
         "end_at": "2023-07-20T00:00:00+00:00",
     }
@@ -87,23 +94,27 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
 
     old_schedule = describe_schedule(temporal, batch_export["id"])
     assert old_schedule.schedule.spec.intervals[0].every == dt.timedelta(hours=1)
+    editor = create_user("editor@example.com", "Test User", organization)
+    client.force_login(editor)
 
     # We should be able to update if we specify all fields
     new_destination_data = {**destination_data}
     new_destination_data["config"]["bucket_name"] = "my-new-production-s3-bucket"
-    new_destination_data["config"]["aws_secret_access_key"] = "new-secret"
     new_batch_export_data_2: dict[str, t.Any] = {
         "name": "my-production-s3-bucket-destination",
         "destination": new_destination_data,
         "interval": "day",
         "start_at": "2022-07-19 00:00:00",
+        "last_modified_by": user.pk,
     }
 
     response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data_2)
     assert response.status_code == status.HTTP_200_OK
+    assert BatchExport.objects.get(id=batch_export["id"]).last_modified_by_id == editor.pk
 
     # get the batch export and validate e.g. that interval has been updated to day
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["model"] == model
     assert batch_export["interval"] == "day"
     assert batch_export["timezone"] == "UTC"
     assert batch_export["offset_day"] is None
@@ -119,7 +130,10 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
     decoded_payload = async_to_sync(encryption_codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
-    assert args["aws_secret_access_key"] == "new-secret"
+    assert "user_id" not in args["batch_export_model"]
+    # Credentials are resolved from the integration at run time, never carried in the schedule.
+    assert args["integration_id"] == aws_s3_integration.id
+    assert args.get("aws_secret_access_key") is None
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
@@ -136,8 +150,6 @@ def test_can_patch_config(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -163,6 +175,9 @@ def test_can_patch_config(
     )
     old_schedule = describe_schedule(temporal, batch_export["id"])
 
+    editor = create_user("editor@example.com", "Test User", organization)
+    client.force_login(editor)
+
     # We should be able to update the destination config, excluding the aws
     # credentials. The existing values should be preserved.
     new_destination_data = {
@@ -178,10 +193,12 @@ def test_can_patch_config(
     new_batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": new_destination_data,
+        "last_modified_by": user.pk,
     }
 
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     assert response.status_code == status.HTTP_200_OK, response.json()
+    assert BatchExport.objects.get(id=batch_export["id"]).last_modified_by_id == editor.pk
 
     # get the batch export and validate e.g. that bucket_name and interval
     # has been preserved.
@@ -209,6 +226,7 @@ def test_can_patch_config(
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
     assert new_schedule.schedule.spec.time_zone_name == timezone
+    assert "user_id" not in args["batch_export_model"]
 
 
 @pytest.mark.parametrize(
@@ -405,6 +423,42 @@ def test_can_patch_config(
             "Higher frequency batch exports are not enabled for this team.",
             id="Cannot update to high frequency batch exports without feature flag",
         ),
+        pytest.param(
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 1,
+            },
+            {"offset_hour": 5},
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 5,
+                "interval_offset": 5 * 3600,
+            },
+            None,
+            id="Patching only the offset of a daily export",
+        ),
+        pytest.param(
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 3,
+                "offset_hour": 2,
+            },
+            {"offset_hour": 5},
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 3,  # the saved day stays
+                "offset_hour": 5,
+                "interval_offset": 3 * 86400 + 5 * 3600,
+            },
+            None,
+            id="Patching only the hour offset of a weekly export",
+        ),
     ],
 )
 def test_can_patch_schedule_configuration(
@@ -432,8 +486,6 @@ def test_can_patch_schedule_configuration(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -506,16 +558,15 @@ def test_can_patch_schedule_configuration(
 @pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day"])
 def test_can_patch_config_with_invalid_old_values(
-    client: HttpClient, encryption_codec, interval, temporal, organization, team, user
+    client: HttpClient, encryption_codec, interval, temporal, organization, team, user, aws_s3_integration
 ):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
+        "integration": aws_s3_integration,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
             "invalid_key": "invalid_value",
         },
     }
@@ -540,7 +591,8 @@ def test_can_patch_config_with_invalid_old_values(
     # We should be able to update the destination config, even if there is an invalid config
     # in the existing keys.
     new_destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-new-production-s3-bucket",
             "region": "us-east-1",
@@ -576,30 +628,12 @@ def test_patch_rejects_destination_type_change(
     organization,
     team,
     user,
-    aws_s3_integration,
+    s3_batch_export_data,
     bigquery_integration,
 ):
     """Assert PATCH cannot change the destination type — callers must delete and recreate."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
 
     new_destination_data = {
         "type": "BigQuery",
@@ -630,29 +664,11 @@ def test_put_rejects_destination_type_change(
     organization,
     team,
     user,
-    aws_s3_integration,
+    s3_batch_export_data,
 ):
     """Assert PUT cannot change the destination type either — same restriction as PATCH."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
 
     new_batch_export_data = {
         "name": "my-production-s3-bucket-destination",
@@ -676,34 +692,26 @@ def test_put_rejects_destination_type_change(
     assert refreshed["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
 
 
+@pytest.mark.parametrize(
+    "grandfathered_batch_export", ["same-team", "same-organization", "other-organization"], indirect=True
+)
 def test_can_patch_hogql_query(
-    client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration
+    client: HttpClient,
+    temporal,
+    encryption_codec,
+    organization,
+    team,
+    user,
+    s3_batch_export_data,
+    grandfathered_batch_export,
 ):
     """Test we can patch a schema with a HogQL query."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
 
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
     old_schedule = describe_schedule(temporal, batch_export["id"])
 
@@ -713,6 +721,12 @@ def test_can_patch_hogql_query(
     }
 
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    if grandfathered_batch_export.team.organization_id != team.organization_id:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "hogql_query"
+        assert get_batch_export_ok(client, team.pk, batch_export["id"])["schema"] is None
+        return
+
     assert response.status_code == status.HTTP_200_OK, response.json()
 
     response_data: dict[str, t.Any] = get_batch_export_ok(client, team.pk, batch_export["id"])
@@ -746,7 +760,7 @@ def test_can_patch_hogql_query(
     assert args["interval"] == "hour"
     assert args["batch_export_model"] == {
         "name": "events",
-        "filters": None,
+        "filters": [],
         "schema": {
             "fields": [
                 {
@@ -765,10 +779,25 @@ def test_can_patch_hogql_query(
             "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         },
-        "hogql_query": None,
+        "primary_key": [],
+        "version_key": [],
+        "incremental_mode": "APPEND",
     }
 
+    for patch_data, expected_schema in [
+        ({"name": "renamed"}, response_data["schema"]),
+        ({"hogql_query": None}, None),
+    ]:
+        response = patch_batch_export(client, team.pk, batch_export["id"], patch_data)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert get_batch_export_ok(client, team.pk, batch_export["id"])["schema"] == expected_schema
+        schedule = describe_schedule(temporal, batch_export["id"])
+        decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["batch_export_model"].get("schema") == expected_schema
 
+
+@pytest.mark.usefixtures("grandfathered_batch_export")
 def test_patch_returns_error_on_unsupported_hogql_query(
     client: HttpClient, temporal, organization, team, user, aws_s3_integration
 ):
@@ -779,8 +808,6 @@ def test_patch_returns_error_on_unsupported_hogql_query(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -805,8 +832,212 @@ def test_patch_returns_error_on_unsupported_hogql_query(
         # toInt32 is not a supported HogQL function
         "hogql_query": "select toInt32(1+1) as n from events",
     }
-    response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Unsupported" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("hogql_enabled", [True, False], ids=["enabled", "disabled"])
+def test_patch_hogql_model_batch_export(
+    client: HttpClient,
+    temporal,
+    encryption_codec,
+    organization,
+    team,
+    user,
+    hogql_batch_export_data,
+    hogql_batch_exports_enabled,
+    hogql_enabled: bool,
+):
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, hogql_batch_export_data)
+    source_id = BatchExport.objects.get(id=batch_export["id"]).source_id
+    editor = create_user("editor@example.com", "Test User", organization)
+    client.force_login(editor)
+    hogql_batch_exports_enabled.return_value = hogql_enabled
+
+    # A change that does not touch the source keeps it as it is.
+    response = patch_batch_export(
+        client, team.pk, batch_export["id"], {"name": "renamed", "last_modified_by": user.pk, "user_id": user.pk}
+    )
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    renamed = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert renamed["name"] == "renamed"
+    assert renamed["hogql_query"] == hogql_batch_export_data["hogql_query"]
+    assert BatchExport.objects.get(id=batch_export["id"]).last_modified_by_id == editor.pk
+    schedule = describe_schedule(temporal, batch_export["id"])
+    decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["batch_export_model"]["user_id"] == editor.pk
+    assert args["batch_export_model"]["query"] == hogql_batch_export_data["hogql_query"]
+
+    # A query without interval placeholders is as valid as a bounded one.
+    new_hogql_query = "SELECT uuid AS uuid, created_at AS created_at FROM events"
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"hogql_query": new_hogql_query},
+    )
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    updated = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert updated["hogql_query"] == new_hogql_query
+    assert BatchExport.objects.get(id=batch_export["id"]).source_id == source_id
+
+    schedule = describe_schedule(temporal, batch_export["id"])
+    decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["batch_export_model"] == {
+        "name": "hogql",
+        "query": new_hogql_query,
+        "user_id": editor.pk,
+        "modifiers": {},
+        "primary_key": [],
+        "version_key": [],
+        "incremental_mode": "APPEND",
+    }
+
+    # Modifiers can change without the query, and null removes them.
+    for hogql_modifiers in ({"convertToProjectTimezone": False}, {}, None):
+        response = patch_batch_export(client, team.pk, batch_export["id"], {"hogql_modifiers": hogql_modifiers})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        updated = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert updated["hogql_query"] == new_hogql_query
+        assert updated["hogql_modifiers"] == hogql_modifiers
+        assert BatchExport.objects.get(id=batch_export["id"]).source_id == source_id
+
+        schedule = describe_schedule(temporal, batch_export["id"])
+        decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["batch_export_model"]["query"] == new_hogql_query
+        assert args["batch_export_model"]["modifiers"] == (hogql_modifiers or {})
+
+    # A modifier removed from the schema after the export stored it is not returned, so sending back what was read
+    # still saves.
+    source = BatchExport.objects.get(id=batch_export["id"]).source
+    assert source is not None
+    source.hogql_modifiers = {"convertToProjectTimezone": False, "removedModifier": True}
+    source.save()
+
+    read_modifiers = get_batch_export_ok(client, team.pk, batch_export["id"])["hogql_modifiers"]
+    assert read_modifiers == {"convertToProjectTimezone": False}
+    response = patch_batch_export(client, team.pk, batch_export["id"], {"hogql_modifiers": read_modifiers})
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+@pytest.mark.parametrize("access_level,include_query", [("viewer", False), ("none", False), ("none", True)])
+def test_patch_hogql_model_batch_export_checks_editor_table_access(
+    client: HttpClient,
+    temporal,
+    encryption_codec,
+    organization,
+    team,
+    user,
+    hogql_batch_export_data,
+    access_level: str,
+    include_query: bool,
+) -> None:
+    organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+    ]
+    organization.save()
+    credential = DataWarehouseCredential.objects.create(team=team, access_key="key", access_secret="secret")
+    table = DataWarehouseTable.objects.create(
+        team=team,
+        name="export_table",
+        format=DataWarehouseTable.TableFormat.Parquet,
+        credential=credential,
+        url_pattern="s3://test-bucket/export/*",
+        columns={"id": "String"},
+    )
+    hogql_query = "SELECT id FROM export_table"
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, {**hogql_batch_export_data, "hogql_query": hogql_query})
+    old_schedule = describe_schedule(temporal, batch_export["id"])
+    editor = create_user("editor@example.com", "Test User", organization)
+    AccessControl.objects.create(
+        team=team,
+        resource="warehouse_table",
+        resource_id=str(table.pk),
+        access_level=access_level,
+        organization_member=OrganizationMembership.objects.get(organization=organization, user=editor),
+    )
+    client.force_login(editor)
+    patch_data: dict[str, str | int] = {"name": "renamed", "last_modified_by": user.pk}
+    if include_query:
+        patch_data["hogql_query"] = "SELECT id AS exported_id FROM export_table"
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], patch_data)
+
+    saved = BatchExport.objects.select_related("source").get(id=batch_export["id"])
+    assert saved.source is not None
+    assert saved.source.hogql_query == hogql_query
+    schedule = describe_schedule(temporal, batch_export["id"])
+    if access_level == "none":
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "hogql_query"
+        assert "You don't have access to table `export_table`" in response.json()["detail"]
+        assert saved.last_modified_by_id == user.pk
+        assert saved.name == batch_export["name"]
+        assert schedule.schedule == old_schedule.schedule
+        return
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert saved.last_modified_by_id == editor.pk
+    assert saved.name == "renamed"
+    decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["batch_export_model"]["user_id"] == editor.pk
+    assert args["batch_export_model"]["query"] == hogql_query
+
+
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+@pytest.mark.parametrize("hogql_query", ["SELECT does_not_exist AS does_not_exist FROM events", None])
+def test_patch_hogql_model_batch_export_validates_new_query(
+    client: HttpClient, temporal, organization, team, user, hogql_batch_export_data, hogql_query: str | None
+):
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, hogql_batch_export_data)
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], {"hogql_query": hogql_query})
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["attr"] == "hogql_query"
+    assert (
+        get_batch_export_ok(client, team.pk, batch_export["id"])["hogql_query"]
+        == (hogql_batch_export_data["hogql_query"])
+    )
+
+
+@pytest.mark.parametrize(
+    "from_model,to_model",
+    [("events", "hogql"), ("hogql", "events"), ("events", "persons"), ("persons", "sessions"), ("sessions", "events")],
+)
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+def test_patch_rejects_model_change(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    s3_batch_export_data,
+    hogql_batch_export_data,
+    from_model,
+    to_model,
+):
+    client.force_login(user)
+    create_data = hogql_batch_export_data if from_model == "hogql" else s3_batch_export_data
+    create_data = {**create_data, "model": from_model}
+    batch_export = create_batch_export_ok(client, team.pk, create_data)
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], {"model": to_model})
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["attr"] == "model"
+    assert get_batch_export_ok(client, team.pk, batch_export["id"])["model"] == from_model
 
 
 @pytest.fixture

@@ -1,30 +1,50 @@
+import hashlib
+from base64 import urlsafe_b64encode
 from typing import Any, Literal, TypedDict, cast
 
 from django.db import transaction
+from django.http import HttpRequest
 
 import structlog
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.request import Request
 
-from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
+from posthog.schema import (
+    DataTableNode,
+    DataVisualizationNode,
+    HogQLQuery,
+    HogQLVariable,
+    InsightVizNode,
+    QuerySchemaRoot,
+)
 
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
+from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.api import (
+    get_or_create_saved_insight,
+    insight_variables_for_team,
+    insights_including_soft_deleted_for_team,
+)
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     MISSING_INSIGHT_IDS_PROMPT,
     PERMISSION_REQUEST_PROMPT,
+    UNKNOWN_VARIABLES_PROMPT,
     UPDATE_NO_CHANGES_PROMPT,
     UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
     UPSERT_DASHBOARD_TOOL_PROMPT,
@@ -70,7 +90,36 @@ class UpdateDashboardToolArgs(BaseModel):
     )
 
 
-UpsertDashboardAction = CreateDashboardToolArgs | UpdateDashboardToolArgs
+class AddDashboardInsightsToolArgs(BaseModel):
+    """Schema to add insights to an existing dashboard without removing its tiles."""
+
+    action: Literal["add_insights"] = "add_insights"
+    dashboard_id: str = Field(description="Provide the ID of the dashboard to add insights to.")
+    insight_ids: list[str] = Field(description="The IDs of the insights to add to the dashboard.")
+
+
+class DuplicateDashboardToolArgs(BaseModel):
+    """Schema to copy an existing dashboard with its variables, filters, tiles, and insight display settings."""
+
+    action: Literal["duplicate"] = "duplicate"
+    dashboard_id: str = Field(description="The ID of the dashboard to copy.")
+    name: str = Field(description="A short and concise (3-7 words) name of the new dashboard.")
+    description: str | None = Field(
+        description="A short description of the new dashboard. If not provided, the source description is kept.",
+        default=None,
+    )
+    variable_values: dict[str, Any] | None = Field(
+        description=(
+            "New values for SQL variables on the copy, keyed by the variable code name, "
+            'for example {"subscription_id": "sub_123"}. Variables that are not listed keep the source values.'
+        ),
+        default=None,
+    )
+
+
+UpsertDashboardAction = (
+    CreateDashboardToolArgs | UpdateDashboardToolArgs | AddDashboardInsightsToolArgs | DuplicateDashboardToolArgs
+)
 
 
 class UpsertDashboardToolArgs(BaseModel):
@@ -119,8 +168,8 @@ class UpsertDashboardTool(MaxTool):
         """
         Build a rich preview showing dashboard details and what will be modified.
         """
-        if isinstance(action, CreateDashboardToolArgs):
-            raise MaxToolFatalError("Create dashboard operation is not dangerous.")
+        if not isinstance(action, UpdateDashboardToolArgs):
+            raise MaxToolFatalError("Only dashboard updates can require a dangerous operation preview.")
 
         dashboard = await self._get_dashboard(action.dashboard_id)
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
@@ -152,8 +201,11 @@ class UpsertDashboardTool(MaxTool):
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, dict | None]:
         if isinstance(action, CreateDashboardToolArgs):
             return await self._handle_create(action)
-        else:
+        if isinstance(action, UpdateDashboardToolArgs):
             return await self._handle_update(action)
+        if isinstance(action, DuplicateDashboardToolArgs):
+            return await self._handle_duplicate(action)
+        return await self._handle_add_insights(action)
 
     async def _handle_create(self, action: CreateDashboardToolArgs) -> tuple[str, dict | None]:
         """Handle CREATE action: create a new dashboard with insights."""
@@ -197,14 +249,17 @@ class UpsertDashboardTool(MaxTool):
         insight_ids = action.insight_ids or []
         artifacts = await self._get_visualization_artifacts(insight_ids) if insight_ids else []
 
-        dashboard, resolved_insights = await self._update_dashboard_with_tiles(
-            dashboard,
-            action.name,
-            action.description,
-            insight_ids,
-            artifacts,
-            action.layout_mode,
-        )
+        try:
+            dashboard, resolved_insights = await self._update_dashboard_with_tiles(
+                dashboard,
+                action.name,
+                action.description,
+                insight_ids,
+                artifacts,
+                action.layout_mode,
+            )
+        except ValidationError as error:
+            raise MaxToolRetryableError(str(error.detail)) from error
         await self._report_dashboard_action(dashboard, "dashboard updated")
 
         if artifacts:
@@ -217,6 +272,108 @@ class UpsertDashboardTool(MaxTool):
         output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
+
+    async def _handle_add_insights(self, action: AddDashboardInsightsToolArgs) -> tuple[str, dict | None]:
+        """Add insights to an existing dashboard while preserving current tiles."""
+        dashboard = await self._get_dashboard(action.dashboard_id)
+        insight_ids = list(dict.fromkeys(action.insight_ids))
+        artifacts = await self._get_visualization_artifacts(insight_ids)
+        try:
+            created_insights = await self._add_dashboard_insights(dashboard, insight_ids, artifacts)
+        except ValidationError as error:
+            raise MaxToolRetryableError(str(error.detail)) from error
+        await self._report_dashboard_action(dashboard, "dashboard updated", {"operation": "add_insights"})
+        for artifact, insight in created_insights:
+            await self._report_new_insights([artifact], [insight])
+
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+        insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
+        output = await self._format_dashboard_output(dashboard, insights)
+
+        return output, {"dashboard_id": dashboard.id}
+
+    async def _handle_duplicate(self, action: DuplicateDashboardToolArgs) -> tuple[str, dict | None]:
+        """Copy a dashboard as it is, so SQL variables and insight chart settings survive the copy."""
+        source = await self._get_dashboard(action.dashboard_id, required_level="viewer")
+        variables = await database_sync_to_async(self._resolve_duplicate_variables)(
+            source.variables or {}, action.variable_values or {}
+        )
+        dashboard = await self._duplicate_dashboard(
+            source,
+            action.name,
+            source.description if action.description is None else action.description,
+            variables,
+        )
+
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+        insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
+        output = await self._format_dashboard_output(dashboard, insights)
+
+        return output, {"dashboard_id": dashboard.id}
+
+    def _resolve_duplicate_variables(
+        self, source_variables: dict[str, Any], variable_values: dict[str, Any]
+    ) -> dict[str, Any]:
+        variables = {key: dict(value) for key, value in source_variables.items() if isinstance(value, dict)}
+        if not variable_values:
+            return variables
+
+        team_variables = {
+            variable.code_name: variable for variable in insight_variables_for_team(self._team.id) if variable.code_name
+        }
+        unknown = [code_name for code_name in variable_values if code_name not in team_variables]
+        if unknown:
+            raise MaxToolRetryableError(
+                format_prompt_string(
+                    UNKNOWN_VARIABLES_PROMPT,
+                    unknown_variables=", ".join(unknown),
+                    available_variables=", ".join(sorted(team_variables)) or "none",
+                )
+            )
+
+        for code_name, value in variable_values.items():
+            variable_id = str(team_variables[code_name].id)
+            variables[variable_id] = HogQLVariable(
+                variableId=variable_id, code_name=code_name, value=value, isNull=value is None
+            ).model_dump(exclude_none=True)
+        return variables
+
+    @database_sync_to_async
+    @transaction.atomic
+    def _duplicate_dashboard(
+        self, source: Dashboard, name: str, description: str, variables: dict[str, Any]
+    ) -> Dashboard:
+        http_request = HttpRequest()
+        http_request.method = "GET"
+        request = Request(http_request)
+        request.user = self._user
+        request.auth = None
+        cast(Any, request)._authenticator = None
+        serializer = DashboardSerializer(
+            data={
+                "use_dashboard": source.id,
+                "duplicate_tiles": True,
+                "name": name,
+                "description": description,
+            },
+            context={
+                "request": request,
+                "team_id": self._team.id,
+                "get_team": lambda: self._team,
+                "insight_variables": insight_variables_for_team(self._team.id),
+                "creation_event_properties": {"source": EventSource.POSTHOG_AI},
+            },
+        )
+        try:
+            serializer.is_valid(raise_exception=True)
+            dashboard = serializer.save()
+        except PermissionDenied as error:
+            raise MaxToolAccessDeniedError("insight", "viewer", action="read") from error
+        except ValidationError as error:
+            raise MaxToolRetryableError(str(error.detail)) from error
+        dashboard.variables = variables
+        dashboard.save(update_fields=["variables"])
+        return dashboard
 
     def _resolve_insights(self, artifacts: list[VisualizationWithSourceResult]) -> list[Insight]:
         """
@@ -317,6 +474,43 @@ class UpsertDashboardTool(MaxTool):
 
     @database_sync_to_async
     @transaction.atomic
+    def _add_dashboard_insights(
+        self, dashboard: Dashboard, insight_ids: list[str], artifacts: list[VisualizationWithSourceResult]
+    ) -> list[tuple[VisualizationWithSourceResult, Insight]]:
+        """Add or restore insight tiles without changing any other dashboard tiles."""
+        created_insights: list[tuple[VisualizationWithSourceResult, Insight]] = []
+        for artifact_id, artifact, insight in zip(insight_ids, artifacts, self._resolve_insights(artifacts)):
+            if not isinstance(artifact, ModelArtifactResult):
+                # Stable IDs let the database deduplicate artifact retries, including concurrent calls.
+                identity = f"dashboard:{dashboard.id}:{artifact.source.value}:{artifact_id}"
+                short_id = urlsafe_b64encode(hashlib.sha256(identity.encode()).digest()[:9]).decode()
+                insight_pk, created = get_or_create_saved_insight(
+                    team_id=self._team.id,
+                    user_id=self._user.id,
+                    short_id=short_id,
+                    name=insight.name,
+                    description=insight.description,
+                    query=insight.query,
+                )
+                insight = insights_including_soft_deleted_for_team(team_id=self._team.id, insight_ids=[insight_pk])[0]
+                if created:
+                    created_insights.append((artifact, insight))
+
+            check_can_add_insight_to_dashboard(self._user, dashboard, insight.query, self.user_access_control)
+
+            tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
+                dashboard=dashboard,
+                insight=insight,
+                defaults={"team_id": dashboard.team_id, "layouts": {}},
+            )
+            if not created and tile.deleted:
+                tile.deleted = False
+                tile.save(update_fields=["deleted"])
+
+        return created_insights
+
+    @database_sync_to_async
+    @transaction.atomic
     def _update_dashboard_with_tiles(
         self,
         dashboard: Dashboard,
@@ -372,6 +566,9 @@ class UpsertDashboardTool(MaxTool):
         # 2. Create new tiles or restore soft deleted
         for insight_id, insight in zip(insight_ids, resolved_insights):
             existing_tile = short_id_to_tile.get(insight_id)
+            becomes_live = existing_tile is None or existing_tile.deleted
+            if becomes_live:
+                check_can_add_insight_to_dashboard(self._user, dashboard, insight.query, self.user_access_control)
 
             if existing_tile:
                 # Restore if soft deleted
@@ -575,7 +772,9 @@ class UpsertDashboardTool(MaxTool):
 
         return await context.format_schema()
 
-    async def _get_dashboard(self, dashboard_id: Any) -> Dashboard:
+    async def _get_dashboard(
+        self, dashboard_id: Any, required_level: Literal["viewer", "editor"] = "editor"
+    ) -> Dashboard:
         """Get the dashboard and sorted tiles for the given dashboard ID."""
         # LLMs sometimes output IDs as floats (e.g., "642161.0"), so we parse to int
         try:
@@ -587,7 +786,9 @@ class UpsertDashboardTool(MaxTool):
         except Dashboard.DoesNotExist:
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
-        await self.check_object_access(dashboard, "editor", action="edit")
+        await self.check_object_access(
+            dashboard, required_level, action="edit" if required_level == "editor" else "read"
+        )
 
         return dashboard
 

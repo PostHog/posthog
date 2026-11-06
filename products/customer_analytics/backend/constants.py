@@ -1,3 +1,7 @@
+from django.db import models
+
+from products.customer_analytics.backend.facade.enums import CustomPropertyOptionColor
+
 DEFAULT_ACTIVITY_EVENT = {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}
 
 # Mirrors frontend `SLACK_ARCHIVES_ORIGIN` in accountLinksLogic.ts. PostHog-internal: hardcodes our
@@ -7,6 +11,10 @@ SLACK_ARCHIVES_ORIGIN = "https://posthog.slack.com/archives"
 
 # Mirrors frontend `FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP`.
 CUSTOMER_ANALYTICS_CSP_FLAG = "customer-analytics-csp"
+CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG = "customer-analytics-feature-requests"
+CUSTOMER_ANALYTICS_TRACK_RULES_FLAG = "customer-analytics-track-rules"
+CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG = "customer-analytics-customer-tasks"
+CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG = "customer-analytics-account-views"
 
 # Mirrors frontend `FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES`. Gates the whole warehouse -> person
 # properties feature: creating person-target custom property sources (API + UI), staging rows during
@@ -20,19 +28,23 @@ WAREHOUSE_PERSON_PROPERTIES_FLAG = "warehouse-person-properties"
 BILLING_USAGE_INSIGHT_SHORT_IDS = ["fiJDsKLp"]
 BILLING_SPEND_INSIGHT_SHORT_IDS = ["o4I9sdFE", "Tjo4bsux"]
 
-CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = [
-    "text",
-    "number",
-    "currency",
-    "percent",
-    "date",
-    "datetime",
-    "boolean",
-    "select",
-]
 
-# Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
-CUSTOM_PROPERTY_OPTION_COLORS = [f"preset-{i}" for i in range(1, 11)]
+class CustomPropertyDisplayType(models.TextChoices):
+    TEXT = "text", "text"
+    LINK = "link", "link"
+    NUMBER = "number", "number"
+    CURRENCY = "currency", "currency"
+    PERCENT = "percent", "percent"
+    DATE = "date", "date"
+    DATETIME = "datetime", "datetime"
+    BOOLEAN = "boolean", "boolean"
+    SELECT = "select", "select"
+
+
+CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = list(CustomPropertyDisplayType.values)
+
+
+CUSTOM_PROPERTY_OPTION_COLORS = CustomPropertyOptionColor.values
 
 # Bounds the fan-out so one create can't enqueue an unbounded Slack send loop.
 MAX_ANNOUNCEMENT_CHANNELS = 200
@@ -49,3 +61,6 @@ SLACK_SUMMARY_CADENCE_CHOICES = ["daily", "weekly", "monthly"]
 DELIVERY_IN_FLIGHT_ERROR = "in_flight"
 DELIVERY_RATE_LIMIT_DEFERRED_ERROR = "rate_limited_deferred"
 DELIVERY_INTERRUPTED_ERROR = "interrupted before confirmation; the message may have been delivered"
+
+# Marks an async query status whose stored results are account users, so retrieval repeats the access check.
+ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-account-users:"

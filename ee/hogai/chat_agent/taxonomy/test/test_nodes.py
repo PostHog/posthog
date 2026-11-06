@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -35,7 +37,7 @@ class ConcreteTaxonomyAgentToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, 
     pass
 
 
-class TestPropertyTypesPrompt(BaseTest):
+class TestPropertyTypesPrompt(SimpleTestCase):
     @parameterized.expand(
         [
             ("survey_dismissed", "$survey_dismissed/{survey_id}"),
@@ -67,9 +69,9 @@ class TestTaxonomyAgentNode(BaseTest):
         self.assertIsInstance(self.node._toolkit, MockTaxonomyAgentToolkit)
 
     def test_get_state_class(self):
-        state_class, partial_state_class = self.node._get_state_class(TaxonomyAgentNode)
-        self.assertEqual(state_class, TaxonomyAgentState)
-        self.assertEqual(partial_state_class, TaxonomyAgentState)
+        state_classes = self.node._get_state_class(TaxonomyAgentNode)
+        self.assertEqual(state_classes.state_class, TaxonomyAgentState)
+        self.assertEqual(state_classes.partial_state_class, TaxonomyAgentState)
 
     def test_get_system_prompt_concrete_implementation(self):
         prompts = self.node._get_system_prompt()
@@ -213,9 +215,9 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         self.assertEqual(self.node.MAX_ITERATIONS, 10)
 
     def test_get_state_class(self):
-        state_class, partial_state_class = self.node._get_state_class(TaxonomyAgentToolsNode)
-        self.assertEqual(state_class, TaxonomyAgentState)
-        self.assertEqual(partial_state_class, TaxonomyAgentState)
+        state_classes = self.node._get_state_class(TaxonomyAgentToolsNode)
+        self.assertEqual(state_classes.state_class, TaxonomyAgentState)
+        self.assertEqual(state_classes.partial_state_class, TaxonomyAgentState)
 
     def test_get_state_class_no_generic_error(self):
         # Test error case for non-generic class

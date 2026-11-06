@@ -172,7 +172,10 @@ class MultipleInCohortResolver(TraversingVisitor):
             inlineable_dynamic: list[tuple[int, ast.SelectQuery | ast.SelectSetQuery]] = []
             non_inlineable_dynamic: list[tuple[int, StaticOrDynamic, int]] = []
             for cohort_id, cohort_type, version in dynamic_cohorts:
-                inline_ast = inline_cohort_query(cohort_id, False, version, self.context)
+                # This runs before the flag-call swap, which then sees the cohort's scans.
+                inline_ast = inline_cohort_query(
+                    cohort_id, False, version, self.context, read_flag_calls_from_union=False
+                )
                 if inline_ast is not None:
                     inlineable_dynamic.append((cohort_id, inline_ast))
                 else:
@@ -214,10 +217,12 @@ class MultipleInCohortResolver(TraversingVisitor):
             parts: list[ast.SelectQuery | ast.SelectSetQuery] = []
 
             if static_cohorts:
+                # DISTINCT because duplicate membership rows survive in `person_static_cohort` (its sort
+                # key carries a per-row UUID), and each one would fan out through the LEFT JOIN below.
                 parts.append(
                     parse_select(
                         """
-                            SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                            SELECT DISTINCT person_id AS cohort_person_id, 1 AS matched, cohort_id
                             FROM static_cohort_people
                             WHERE {clause}
                         """,
@@ -371,6 +376,7 @@ class InCohortResolver(TraversingVisitor):
         negative: bool,
     ):
         from posthog.hogql.functions.cohort import inline_cohort_query
+        from posthog.hogql.transforms.flag_calls_union import require_union_readable
         from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 
         assert self.context is not None
@@ -403,7 +409,10 @@ class InCohortResolver(TraversingVisitor):
                 )
             else:
                 if is_static:
-                    sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+                    # DISTINCT because `person_static_cohort` keeps a per-row UUID in its sort key, so
+                    # ReplacingMergeTree can't collapse repeated inserts of the same member. Without it
+                    # every duplicate membership row fans out through the LEFT JOIN below.
+                    sql = "(SELECT DISTINCT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
                 elif version is not None:
                     sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
                 else:
@@ -435,6 +444,7 @@ class InCohortResolver(TraversingVisitor):
                 ),
             )
             if inline_ast is not None:
+                require_union_readable(new_join, self.context)
                 resolve_lazy_tables(
                     new_join, self.dialect, [self.stack[-1]], self.context, resolver_factory=self.resolver_factory
                 )

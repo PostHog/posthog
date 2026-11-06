@@ -8,7 +8,7 @@ The three observability tables — `posthog.metrics`, `posthog.trace_spans`, `lo
 
 **`trace_id` format:** All three tables store `trace_id` as base64-encoded 16 bytes. Joins are direct equality (no decoding needed). Use `hex(tryBase64Decode(trace_id))` to display in hex.
 
-> ⚠️ **Status (as of PR [#50936](https://github.com/PostHog/posthog/pull/50936)):** exemplar extraction is not yet wired up in `rust/capture-logs/src/metric_record.rs` — the `_exemplars` argument is prefixed with underscore (unused). Every metric row has `trace_id = ''` today. The example query below describes the intended pattern but returns empty until exemplars are populated. The "Works today" alternative further down uses `posthog.trace_spans` directly as the starting point and works against current data.
+> **Exemplars are sparse.** Only metric points whose SDK attached an exemplar carry a `trace_id`. An empty result from the query below means no spans or logs matched the chosen trace (the trace may not be exported or retained); it does not prove the metric has no exemplars. Count `trace_id != ''` rows in `posthog.metrics` for the same metric and window first. Use the span-anchored alternative further down when that count is zero, or when the exemplar traces have no retained spans or logs. In the second case, try the next exemplar from the variant query below before you fall back.
 
 ## Pattern
 
@@ -62,9 +62,9 @@ ORDER BY timestamp
 - **`status_code = 2` is Error** in `posthog.trace_spans` (OTel semantics). Use this column to flag error spans inline in the result.
 - If you need to drill into the span tree visually, take the resulting `trace_id` and call `posthog:apm-trace-get` to get the full waterfall.
 
-## Works today: span-anchored correlation
+## Fallback: span-anchored correlation
 
-Until metric exemplars are populated by ingestion, anchor on a span instead. Find an interesting trace (slowest error, longest duration, specific service), then pull its logs.
+When the metric has no exemplar points in the window, or none of its exemplar traces has retained spans or logs, anchor on a span instead. Find an interesting trace (slowest error, longest duration, specific service), then pull its logs.
 
 ```sql
 WITH slow_error_trace AS (

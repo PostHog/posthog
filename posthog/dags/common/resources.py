@@ -1,10 +1,8 @@
 import json
 import socket
 import asyncio
-from collections.abc import Generator
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
 
 import dagster
 import psycopg2
@@ -15,11 +13,14 @@ import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog import settings
-from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
-from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
-from posthog.kafka_client.client import _KafkaProducer
-from posthog.kafka_client.profiles import KafkaClusterProfile
-from posthog.kafka_client.routing import get_producer
+from posthog.clickhouse.backoff import ExponentialBackoff
+from posthog.clickhouse.client.connection import (
+    ClickHouseCredentials,
+    ClickHouseUser,
+    get_clickhouse_creds,
+    is_file_backed_user,
+)
+from posthog.clickhouse.cluster import ClickhouseCluster, RetryPolicy, get_cluster
 from posthog.redis import get_client, redis
 from posthog.utils import initialize_self_capture_api_token
 
@@ -58,6 +59,22 @@ def _is_retryable_clickhouse_exception(e: Exception) -> bool:
     )
 
 
+def _dedicated_user_connection_overrides(creds: ClickHouseCredentials) -> dict[str, Any]:
+    """Build get_cluster connection_overrides for a dedicated ClickHouse user.
+
+    Mirrors the file-backed branch of get_pool: a user whose credential comes from a rotating token
+    file passes a credential_provider so RefreshingChPool re-stamps the live token on each checkout,
+    while a static-password user passes the password directly. get_cluster leaves the user override
+    untouched, so the pool authenticates as this user with this user's credential.
+    """
+    overrides: dict[str, Any] = {"user": creds.user}
+    if is_file_backed_user(creds, creds.user):
+        overrides["credential_provider"] = creds.read_password
+    else:
+        overrides["password"] = creds.password
+    return overrides
+
+
 class ClickhouseClusterResource(dagster.ConfigurableResource):
     """
     The ClickHouse cluster used to run the job.
@@ -83,15 +100,16 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=self.retry_max_attempts,
-                delay=ExponentialBackoff(20, max_delay=60),
+                delay=ExponentialBackoff(delay=20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
 
 
-class OpsClickhouseClusterResource(dagster.ConfigurableResource):
+class SatelliteClickhouseClusterResource(dagster.ConfigurableResource):
     max_execution_time: int
     max_memory_usage: int
+    satellite_cluster: str
 
     # OPS is discoverable only from the migrations host/cluster: satellite discovery runs
     # clusterAllReplicas(ops, system.clusters) WHERE cluster = <migrations cluster>, which the default
@@ -104,7 +122,7 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
             context.log,
             host=self.host,
             cluster=self.cluster,
-            satellite_clusters=[settings.CLICKHOUSE_OPS_CLUSTER],
+            satellite_clusters=[self.satellite_cluster],
             client_settings={
                 "max_execution_time": str(self.max_execution_time),
                 "max_memory_usage": str(self.max_memory_usage),
@@ -114,17 +132,22 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
             },
             retry_policy=RetryPolicy(
                 max_attempts=2,
-                delay=ExponentialBackoff(20, max_delay=60),
+                delay=ExponentialBackoff(delay=20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
+
+
+class OpsClickhouseClusterResource(SatelliteClickhouseClusterResource):
+    satellite_cluster: str = settings.CLICKHOUSE_OPS_CLUSTER
 
 
 class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'backups' user.
 
-    Requires CLICKHOUSE_BACKUPS_USER and CLICKHOUSE_BACKUPS_PASSWORD env vars.
+    Requires CLICKHOUSE_BACKUPS_USER and either CLICKHOUSE_BACKUPS_PASSWORD or
+    CLICKHOUSE_BACKUPS_PASSWORD_FILE env vars.
     The backups user must have a server-side settings profile with
     use_concurrency_control=0 (configured in users.xml via Ansible) because
     async BACKUP threads don't inherit session-level settings.
@@ -157,10 +180,10 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20, max_delay=60),
+                delay=ExponentialBackoff(delay=20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
-            connection_overrides={"user": creds.user, "password": creds.password},
+            connection_overrides=_dedicated_user_connection_overrides(creds),
         )
 
 
@@ -168,7 +191,8 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'part_breaker' user.
 
-    Requires CLICKHOUSE_PART_BREAKER_USER and CLICKHOUSE_PART_BREAKER_PASSWORD env vars.
+    Requires CLICKHOUSE_PART_BREAKER_USER and either CLICKHOUSE_PART_BREAKER_PASSWORD or
+    CLICKHOUSE_PART_BREAKER_PASSWORD_FILE env vars.
     The part_breaker user needs SELECT on system tables, CREATE/DROP/INSERT/ALTER on
     staging tables, and ALTER FREEZE / DROP PART on source tables.
     """
@@ -194,10 +218,10 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20, max_delay=60),
+                delay=ExponentialBackoff(delay=20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
-            connection_overrides={"user": creds.user, "password": creds.password},
+            connection_overrides=_dedicated_user_connection_overrides(creds),
         )
 
 
@@ -223,6 +247,8 @@ class PostgresResource(dagster.ConfigurableResource):
     password: str
 
     def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
+        # Without a timeout a blackholed route hangs this connect for the OS TCP timeout
+        # (about two minutes) and the step emits nothing while it waits.
         return psycopg2.connect(
             host=self.host,
             port=int(self.port),
@@ -230,6 +256,7 @@ class PostgresResource(dagster.ConfigurableResource):
             user=self.user,
             password=self.password,
             cursor_factory=psycopg2.extras.RealDictCursor,
+            connect_timeout=10,
         )
 
 
@@ -252,46 +279,18 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
         return None
 
 
-class PostgresURLResource(dagster.ConfigurableResource):
-    """
-    Postgres connection that parses a connection URL.
-    Delegates to PostgresResource for actual connection logic.
-    Expects format: postgres://user:pass@host:port/dbname
+class PostgresURL(dagster.ConfigurableResource):
+    """A Postgres connection URL handed to the op unopened.
+
+    An op that connects in its own body turns a connect failure into a step failure, which is
+    what lets failure hooks run; a connection opened at resource init fails before the step
+    exists and no hook fires. It also lets a dry run skip the connect entirely.
     """
 
     connection_url: str
 
-    def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
-        parsed = urlparse(self.connection_url)
-        pg = PostgresResource(
-            host=parsed.hostname or "",
-            port=str(parsed.port or 5432),
-            database=parsed.path.lstrip("/"),
-            user=parsed.username or "",
-            password=parsed.password or "",
-        )
-        return pg.create_resource(context)
-
-
-@dagster.resource
-def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer]:
-    """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
-
-    Every existing consumer of this resource (`detach_distinct_id_op`,
-    `person_property_reconciliation`, `person_property_reconciliation_restore`)
-    produces to `clickhouse_person` / `clickhouse_person_distinct_id`, which the
-    routing map sends to the INGESTION profile. Binding the resource here keeps
-    that explicit so a chart misconfiguration (missing `KAFKA_INGESTION_HOSTS`)
-    fails loud rather than silently dropping writes via the DEFAULT fallback.
-
-    Ops producing to topics on a different profile must call
-    `posthog.kafka_client.routing.get_producer(topic=...)` directly.
-    """
-    producer = get_producer(profile=KafkaClusterProfile.INGESTION)
-    try:
-        yield producer
-    finally:
-        producer.flush()
+    def create_resource(self, context: dagster.InitResourceContext) -> str:
+        return self.connection_url
 
 
 def _is_retryable_http_error(exception: BaseException) -> bool:

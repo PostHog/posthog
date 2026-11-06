@@ -4,6 +4,7 @@ from typing import Any
 
 from django.db import models
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.types import ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 from posthog.models.resource_transfer.visitors.common import build_edges_for_ids
@@ -13,7 +14,6 @@ from posthog.models.resource_transfer.visitors.experiment_payload import (
     rewrite_cohort_in_experiment_payload,
 )
 
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -31,6 +31,9 @@ class ExperimentVisitor(
         "flag_cleanup_task_id",
         # Points into the source team's GitHub integration, which does not transfer.
         "repository",
+        # Rules v2 link and frozen snapshot belong to the source flag's rule; a copy starts unlinked.
+        "feature_flag_rule_id",
+        "feature_flag_rule_snapshot",
         "created_at",
         "updated_at",
     ],
@@ -44,9 +47,15 @@ class ExperimentVisitor(
 
     @classmethod
     def get_dynamic_edges(cls, resource: Any) -> list[ResourceTransferEdge]:
-        cohort_ids, action_ids = collect_cohort_and_action_ids_from_experiment_json(resource)
+        collected = collect_cohort_and_action_ids_from_experiment_json(resource)
 
         edges: list[ResourceTransferEdge] = []
-        edges.extend(build_edges_for_ids(cohort_ids, Cohort, "json_cohort", rewrite_cohort_in_experiment_payload))
-        edges.extend(build_edges_for_ids(action_ids, Action, "json_action", rewrite_action_in_experiment_payload))
+        edges.extend(
+            build_edges_for_ids(collected.cohort_ids, Cohort, "json_cohort", rewrite_cohort_in_experiment_payload)
+        )
+        edges.extend(
+            build_edges_for_ids(
+                collected.action_ids, registered_model("Action"), "json_action", rewrite_action_in_experiment_payload
+            )
+        )
         return edges

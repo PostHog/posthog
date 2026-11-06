@@ -11,12 +11,13 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar, Union
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.ddl_references import Statement
 from django.db.backends.utils import CursorWrapper
-from django.db.models import Q, Subquery, UniqueConstraint
+from django.db.models import Q, QuerySet, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from posthog.hogql import ast
 
 T = TypeVar("T")
+ModelT = TypeVar("ModelT", bound=models.Model)
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
 AMBIGUOUS_CHARS = frozenset("01OIl")
@@ -143,6 +145,26 @@ def namedtuplefetchall(cursor):
     return [nt_result(*row) for row in cursor.fetchall()]
 
 
+def strip_null_bytes(value: Any) -> Any:
+    """Recursively remove NUL (\\x00) from strings, because Postgres text/jsonb columns cannot store it.
+
+    Anything written to a Postgres text or JSON column that originates outside Postgres (ClickHouse
+    query results, LLM output, user-supplied prompts) must pass through this first. Otherwise Django
+    serializes the NUL to a unicode escape that Postgres rejects, and the whole write fails with a DataError.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [strip_null_bytes(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(strip_null_bytes(v) for v in value)
+    if isinstance(value, dict):
+        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
+        # and Postgres rejects it in a jsonb key just as it does in a value.
+        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
+    return value
+
+
 def generate_random_token(nbytes: int = 32) -> str:
     """Generate a securely random token.
 
@@ -164,6 +186,7 @@ def generate_random_token(nbytes: int = 32) -> str:
 PROJECT_API_TOKEN_PREFIX = "phc_"  # "c" standing for "client"
 PERSONAL_API_KEY_PREFIX = "phx_"  # "x" standing for nothing in particular
 SECRET_API_TOKEN_PREFIX = "phs_"  # "s" standing for "secret"; team secret tokens and project secret API keys
+HEATMAP_SCREENSHOT_SECRET_PREFIX = "phh_"  # "h" standing for "heatmap"
 OAUTH_ACCESS_TOKEN_PREFIX = "pha_"  # "a" standing for "access"
 OAUTH_REFRESH_TOKEN_PREFIX = "phr_"  # "r" standing for "refresh"
 
@@ -182,6 +205,10 @@ def generate_random_token_personal() -> str:
 def generate_random_token_secret() -> str:
     # Similar to personal API keys, but for retrieving feature flag definitions for local evaluation.
     return SECRET_API_TOKEN_PREFIX + generate_random_token(35)
+
+
+def generate_random_token_heatmap_screenshot() -> str:
+    return HEATMAP_SCREENSHOT_SECRET_PREFIX + generate_random_token(16)
 
 
 def generate_random_oauth_access_token(_request) -> str:
@@ -221,6 +248,16 @@ def hash_key_value(
     return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
+# Mirrors CredentialNodeValue in PostHog/ai-gateway; a change here without its twin breaks the join silently.
+AI_CREDENTIAL_HEX_LENGTH = 32
+
+
+def ai_credential_value(secure_value: str) -> str:
+    """The value the AI gateway stamps as $ai_credential on a key's generations: sha256 over the
+    stored sha256$<hex> hash (the gateway's credential fingerprint), first 32 hex characters."""
+    return hashlib.sha256(secure_value.encode()).hexdigest()[:AI_CREDENTIAL_HEX_LENGTH]
+
+
 def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> str:
     if alphabet is None:
         if base > 62:
@@ -238,7 +275,7 @@ def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> st
 
 
 class Percentile(models.Aggregate):
-    template = "percentile_disc(%(percentile)s) WITHIN GROUP (ORDER BY %(expressions)s)"
+    template = "percentile_disc(%(percentile)s) WITHIN GROUP (ORDER BY %(expressions)s)%(filter)s"
 
     def __init__(self, percentile, expression, **extra):
         super().__init__(expression, percentile=percentile, **extra)
@@ -256,15 +293,19 @@ def generate_random_short_suffix():
     return "".join(secrets.choice(string.ascii_letters) for _ in range(4))
 
 
+def generate_slug_candidates(base_slug: str, attempts: int = 10) -> Iterator[str]:
+    """Yield the plain slug first, then random-suffixed variants for disambiguation of duplicates."""
+    yield base_slug
+    for _ in range(attempts - 1):
+        # Lowercase so the in-memory value matches what LowercaseSlugField stores.
+        yield f"{base_slug[: MAX_SLUG_LENGTH - 5]}-{generate_random_short_suffix()}".lower()
+
+
 def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *args, **kwargs) -> T:
     """Run model manager create function, making sure that the model is saved with a valid autogenerated slug field."""
     slugified_name = slugify(kwargs["name"])[:MAX_SLUG_LENGTH] if "name" in kwargs else default_slug
-    for retry_i in range(10):
-        # This retry loop handles possible duplicates by appending `-\d` to the slug in case of an IntegrityError
-        if not retry_i:
-            kwargs["slug"] = slugified_name
-        else:
-            kwargs["slug"] = f"{slugified_name[: MAX_SLUG_LENGTH - 5]}-{generate_random_short_suffix()}"
+    for candidate in generate_slug_candidates(slugified_name):
+        kwargs["slug"] = candidate
         try:
             with transaction.atomic():
                 return create_func(*args, **kwargs)
@@ -297,6 +338,13 @@ def get_deferred_field_set_for_model(
     if fields_not_deferred is None:
         fields_not_deferred = set()
     return {f"{field_prefix}{x.name}" for x in model._meta.fields if x.name not in fields_not_deferred}
+
+
+def strict_fetch(queryset: QuerySet[ModelT]) -> QuerySet[ModelT]:
+    # In tests and local dev, a lazy load of a related object or deferred field raises FieldFetchBlocked,
+    # so a missing select_related fails loudly. In production, Django loads that field for all rows of the
+    # queryset in one query, so a missing select_related costs one extra query and not one per row.
+    return queryset.fetch_mode(models.FETCH_RAISE if settings.DEBUG or settings.TEST else models.FETCH_PEERS)
 
 
 class UniqueConstraintByExpression(BaseConstraint):
@@ -403,6 +451,14 @@ class RootTeamMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        # A partial update that leaves the team out cannot change it, so it skips the team read.
+        # In a loop over rows that did not load the team, that read costs one query per row.
+        if kwargs.get("update_fields") is not None:
+            # Django accepts any iterable here, so read it once and pass the same values on.
+            kwargs["update_fields"] = update_fields = list(kwargs["update_fields"])
+            if not {"team", "team_id"} & set(update_fields):
+                super().save(*args, **kwargs)
+                return
         if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
             self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)
@@ -533,6 +589,16 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "id": obj.id,
                 "short_id": obj.short_id,
             }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Integration":
+            # Identity only: an integration's config and sensitive_config hold credentials, and the
+            # Integration scope already masks both. `integration_id` rather than `display_name`,
+            # because that property reaches into per-provider OAuth config and raises when the
+            # provider's app is not set up on this instance.
+            return {
+                "id": obj.id,
+                "kind": obj.kind,
+                "integration_id": obj.integration_id,
+            }
         if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
             return {
                 "id": obj.id,
@@ -556,4 +622,10 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "model": obj.model,
                 "provider_key_id": str(obj.provider_key_id) if obj.provider_key_id else None,
             }
+        if isinstance(obj, models.Model):
+            # `changes_between` puts the related instance of a relation field into the change.
+            # Without this fallback each model with no branch above makes the write raise, and the
+            # deferred writer drops the row. The id identifies the instance and copies none of its
+            # fields, which can hold credentials.
+            return {"id": obj.pk}
         return json.JSONEncoder.default(self, obj)

@@ -19,7 +19,9 @@ Tools (be frugal — hard call budget, the user is waiting):
   access for segmenting by property or grabbing raw events.
 
 Workflow:
-1. Read the anomaly context and look at the attached chart.
+1. Read the metric definition block in the anomaly context first, and look at the
+   attached chart. Write down what the metric measures before you think about
+   causes — see "Ground the metric" below.
 2. Sanity-check the magnitude *before* spending tool budget — see "Magnitude
    check" below. If the absolute counts and relative deviation both look small,
    lean toward `false_positive` or `inconclusive` and use any remaining budget
@@ -32,7 +34,8 @@ Workflow:
 Final JSON schema (emit exactly these keys):
 {
   "verdict": "true_positive" | "false_positive" | "inconclusive",
-  "summary": "1-3 sentence plain-English summary of what happened.",
+  "metric_meaning": "One sentence: what the alerted number counts, read off the metric definition.",
+  "summary": "2-4 short Markdown bullets with the result, evidence, and any uncertainty.",
   "hypotheses": [
     {
       "title": "Short name of the hypothesis.",
@@ -42,6 +45,45 @@ Final JSON schema (emit exactly these keys):
   ],
   "recommendations": ["Suggested next action.", "Another action."]
 }
+
+Ground the metric (do this before forming any hypothesis):
+- The insight's name is a label a person typed. It is not the definition, and it
+  is often shorthand that says something different from what the query counts.
+  Read the event, aggregation, and filters in the metric definition block, and
+  put what the metric measures into `metric_meaning` in your own words.
+- A common trap: a series named for a problem domain — "errors", "failures",
+  "outages" — that is really a `$pageview` count filtered to the URLs of the
+  page where users look at that domain. That counts people *visiting a page*,
+  not people *hitting the problem*. Reading it the other way turns an ordinary
+  engagement change into a fabricated incident.
+- The name also says nothing about *how* the event is produced. A name like
+  "summaries generated" or "jobs processed" reads as the output of a backend
+  pipeline, and just as often marks a person's action recorded from a request
+  handler. Never assert a producing mechanism — a pipeline, a queue, a worker
+  pool, a cron, a model call — that you have no evidence for. The event
+  provenance block, when present, measures the emitter: many distinct actors
+  means many separate actors each emit the event, which no single background job
+  produces. Without that evidence, say the mechanism is unknown.
+- Every hypothesis has to work against the metric as defined. If a hypothesis
+  only makes sense when the metric means something the definition does not
+  support, drop it — do not soften it into a maybe.
+- The definition also tells you what the metric cannot see. A metric filtered to
+  one page, one event, or one property value carries no information about
+  anything outside that filter.
+
+Corroborating with a second data stream:
+- When you cite another event stream as the cause (exception volume, error
+  counts, a backend signal), high absolute volume is not evidence. A busy
+  project has streams running at thousands per hour all day.
+- Compare that stream inside the alert window against the same stream before the
+  window. Only cite it if it *changed* when the metric changed. If it was
+  already at that level hours before the anomaly started, it is background
+  noise, and blaming the anomaly on it sends the on-call engineer to chase an
+  incident that is not there.
+- If you cannot check the before-window baseline within budget, say the stream
+  is unverified rather than presenting it as the cause.
+- Even a stream that did change is a coincidence until you can name the
+  mechanism. Say "coincides with" unless you have evidence for causation.
 
 Magnitude check (do this before classifying):
 - Compare the triggered point against the typical baseline for the series (the
@@ -55,10 +97,35 @@ Magnitude check (do this before classifying):
     * the triggered value is in the single digits, or
     * the triggered value is within ~50% of recent typical buckets, or
     * the framing is "highest in window" but the runner-up is close behind.
+- A ratio, rate, or percentage (a formula such as `A / B`, or SQL that divides
+  one count by another) has its own volume: the denominator. 1 failure in 1 run
+  is `100%`, and 0 in 2 runs is `0%`, so a ratio over few trials swings between
+  extremes with no real change. When the metric is a ratio, query the
+  denominator per bucket for the triggered bucket and the baseline buckets with
+  `run_hogql_query`, using the formula inputs or the SQL in the metric
+  definition. Do not describe the ratio as small-sample noise until you have
+  the counts. Put the triggered bucket's numerator and denominator in the
+  evidence. A small denominator (single or low double digits) is a reason for
+  caution, not a verdict. Compare the triggered counts with the baseline
+  counts: a ratio that stays at `0/20` for weeks and then goes to `20/20` is a
+  real shift, even with a small denominator. Call the firing low-sample noise,
+  and give the verdict `false_positive`, only when the baseline ratios already
+  swing over a similar range, or when the triggered ratio comes from a few
+  trials that the baseline rate can easily produce. A bucket with a zero
+  denominator has no ratio. Treat it as missing data, not as `0%`.
 - Many series carry natural variance the detector may not be tuned for —
   seasonality, burstiness, occasional outlier buckets. Sense-check the
   firing against the series' broader shape, not just the triggered point
   and its immediate neighbours.
+- Hourly and daily series often have a weekly cycle: weekend buckets can sit
+  far below weekday buckets, so Monday looks like a level shift against a
+  window that starts on a weekend. Before a `true_positive` verdict on an
+  hourly or daily series, compare the triggered bucket against the same
+  weekday (and the same hour, for hourly series) in at least two earlier
+  weeks. Call `fetch_metric_series` with a `date_from` that covers those
+  weeks. If the triggered value is within the range of those same-slot
+  values, the firing is weekly seasonality, not a shift. Name the
+  same-slot values you compared in the evidence.
 - A real true positive should be visible to a human glancing at the chart:
   a clear step-change, a sustained shift, a cliff, or a spike that is
   multiple times any other point in the window. If you have to squint, it
@@ -71,20 +138,38 @@ Verdict rubric:
   tied to a known release or property change.
 - `false_positive` — the firing is best explained by something other than a
   real shift. Includes data artifacts (duplicated events, new property values,
-  recent release noise) AND ordinary noise on a low-volume or naturally
-  bursty series. If the magnitude check says "this could plausibly be normal
+  recent release noise), ordinary noise on a low-volume or naturally
+  bursty series, AND a weekly cycle such as weekdays returning after a
+  weekend. If the magnitude check says "this could plausibly be normal
   variance for this metric", that is a false positive, even if the detector
   technically flagged it.
 - `inconclusive` — not enough evidence to call it either way within the
-  budget; say so plainly rather than forcing a verdict.
+  budget; say so plainly rather than forcing a verdict. Do not use it for a
+  hypothesis that one query can confirm or refute: run that query first.
 
 Guidelines:
 - Prefer narrow queries over broad scans. Scope to the triggered dates.
 - If the detector looks overly sensitive for the metric's natural variance
   (a low-volume count series scored by a detector tuned for higher volumes,
-  or repeated near-threshold firings on the same metric), flag that
-  explicitly as a recommendation — e.g. raise the threshold, switch detector
-  type, or aggregate the metric to a less noisy interval.
+  a ratio over a small denominator, or repeated near-threshold firings on the
+  same metric), flag that explicitly as a recommendation — e.g. raise the
+  threshold, switch detector type, or aggregate the metric to a less noisy
+  interval. For a ratio over a small denominator, also suggest alerting on the
+  numerator count instead.
+- Every recommendation must point at something your evidence shows exists.
+  Telling the reader to check a queue, a worker, a rate limit or a dashboard you
+  inferred from the metric's name sends them to inspect infrastructure that may
+  not be there, which costs more than saying you don't know. When you have no
+  grounded next step, recommend the check that would ground it.
+- Write the summary as 2-4 short Markdown bullets. Lead with what changed, then
+  give the evidence and any uncertainty. Use inline code for metric names and measured values,
+  including units, and technical identifiers such as event names,
+  property keys, and error codes. Italicize dates, times, durations, and comparison windows.
+  Use ▲ or ▼ only for measured changes against an explicit comparable baseline.
+  Keep absolute values and changes distinct. Do not invent a cause, a next step,
+  a percentage change, or a direction when the evidence does not support one.
+  Use direct sentences without repeated labels, decorative headings, or filler.
+  Do not repeat the verdict, alert name, or notebook URL in the summary.
 - Keep summaries concrete and short. No filler. No apologies. No hedging
   beyond what the data supports. If it's a false positive, say so directly
   in the summary rather than burying it.
@@ -100,23 +185,37 @@ def build_anomaly_context(
     triggered_metadata: dict | None,
     calculated_value: float | None,
     interval: str | None,
+    metric_definition: str,
+    event_provenance: str = "",
 ) -> str:
     """First user message — packs the alert context the agent needs to act."""
-    md = triggered_metadata or {}
+    md = dict(triggered_metadata or {})
+    # The AI detector already judged this series once. Give its reason its own line rather
+    # than leaving it as a metadata key, so the agent starts from that read instead of zero.
+    # The prompt frames it as a prior to check rather than as a conclusion.
+    rationale = str(md.pop("rationale", "") or "").strip()
+    rationale_line = f"The detector's own read of this fire: {rationale}\n" if rationale else ""
     metadata_line = ""
     if md:
         parts = [f"{k}={v}" for k, v in md.items() if v is not None]
         if parts:
             metadata_line = "Trigger metadata: " + ", ".join(parts) + "."
 
+    provenance_block = f"{event_provenance}\n\n" if event_provenance else ""
+
     return (
         f"Alert: {alert_name}\n"
-        f"Metric: {metric_description}\n"
+        f"Insight name (a label someone typed, not the definition): {metric_description}\n"
         f"Detector: {detector_type}\n"
         f"Interval: {interval or 'unknown'}\n"
         f"Calculated value at fire: {calculated_value}\n"
         f"Triggered dates: {', '.join(triggered_dates) if triggered_dates else 'n/a'}\n"
+        f"{rationale_line}"
         f"{metadata_line}\n\n"
+        f"{metric_definition}\n\n"
+        f"{provenance_block}"
         "Use your tools to validate the anomaly and investigate the likely cause. "
+        "Read the metric definition above before forming a hypothesis, and state what the "
+        "metric measures in `metric_meaning`. "
         "Submit the final InvestigationReport using the submit_investigation_report tool."
     )

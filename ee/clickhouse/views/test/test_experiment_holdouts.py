@@ -1,14 +1,15 @@
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestExperimentHoldoutCRUD(APILicensedTest):
@@ -331,3 +332,177 @@ class TestExperimentHoldoutAccessControl(APILicensedTest):
             format="json",
         )
         self.assertEqual(put_res.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestExperimentHoldoutApprovals(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
+        self.holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name="Gated holdout",
+            filters=[{"properties": [], "rollout_percentage": 20, "variant": "holdout-1"}],
+            created_by=self.user,
+        )
+        self.holdout.filters = [{**self.holdout.filters[0], "variant": f"holdout-{self.holdout.id}"}]
+        self.holdout.save()
+
+        self.flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="experiment-in-holdout",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "holdout": {"holdout_id": self.holdout.id, "exclusion_percentage": 20},
+            },
+        )
+        self.experiment = Experiment.objects.create(
+            team=self.team, name="Experiment in holdout", feature_flag=self.flag, holdout=self.holdout
+        )
+
+    def _create_policy(self, action_key: str, conditions: dict | None = None, approver_ids: list[int] | None = None):
+        from products.approvals.backend.models import ApprovalPolicy
+
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions=conditions or {},
+            approver_config={"quorum": 1, "users": approver_ids or [self.user.id], "roles": []},
+            allow_self_approve=True,
+            created_by=self.user,
+        )
+
+    def _patch_exclusion(self, percentage: int, **extra):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}",
+            data={"filters": [{"properties": [], "rollout_percentage": percentage, "variant": "holdout"}], **extra},
+            format="json",
+        )
+
+    def _approve(self, change_request):
+        return self.client.post(
+            f"/api/environments/{self.team.id}/change_requests/{change_request.id}/approve/",
+            {"reason": "ok"},
+        )
+
+    def _change_request(self, action_key: str):
+        from products.approvals.backend.models import ChangeRequest
+
+        return ChangeRequest.objects.get(team=self.team, action_key=action_key)
+
+    def test_gated_update_writes_nothing_and_keeps_its_change_request(self):
+        self._create_policy("experiment_holdout.update")
+
+        response = self._patch_exclusion(40)
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        change_request = self._change_request("experiment_holdout.update")
+        assert response.json()["change_request_id"] == str(change_request.id)
+        assert change_request.intent["current_state"]["exclusion_percentage"] == 20
+        assert change_request.intent["gated_changes"]["exclusion_percentage"] == 40
+        assert [e["flag_key"] for e in change_request.intent["affected_experiments"]] == [self.flag.key]
+
+        self.holdout.refresh_from_db()
+        self.flag.refresh_from_db()
+        assert self.holdout.filters[0]["rollout_percentage"] == 20
+        assert self.flag.filters["holdout"]["exclusion_percentage"] == 20
+
+    def test_approving_an_update_rewrites_the_holdout_and_every_flag(self):
+        self._create_policy("experiment_holdout.update")
+        self._patch_exclusion(40, name="Renamed holdout")
+
+        response = self._approve(self._change_request("experiment_holdout.update"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "applied"
+        self.holdout.refresh_from_db()
+        self.flag.refresh_from_db()
+        assert self.holdout.name == "Renamed holdout"
+        assert self.holdout.filters[0]["rollout_percentage"] == 40
+        assert self.flag.filters["holdout"]["exclusion_percentage"] == 40
+
+    def test_update_is_stale_when_the_holdout_moved_after_the_request(self):
+        self._create_policy("experiment_holdout.update")
+        self._patch_exclusion(40)
+        change_request = self._change_request("experiment_holdout.update")
+
+        self.holdout.filters = [{**self.holdout.filters[0], "rollout_percentage": 35}]
+        self.holdout.save()
+        response = self._approve(change_request)
+
+        self.holdout.refresh_from_db()
+        assert self.holdout.filters[0]["rollout_percentage"] == 35
+        assert response.json().get("status") != "applied"
+
+    def test_update_is_stale_when_an_experiment_joined_the_holdout(self):
+        self._create_policy("experiment_holdout.update")
+        self._patch_exclusion(40)
+        change_request = self._change_request("experiment_holdout.update")
+
+        joined_flag = FeatureFlag.objects.create(team=self.team, key="joined-later", created_by=self.user)
+        Experiment.objects.create(team=self.team, name="Joined later", feature_flag=joined_flag, holdout=self.holdout)
+        response = self._approve(change_request)
+
+        self.holdout.refresh_from_db()
+        assert self.holdout.filters[0]["rollout_percentage"] == 20
+        assert response.json().get("status") != "applied"
+
+    def test_gated_delete_keeps_the_holdout_until_approval(self):
+        self._create_policy("experiment_holdout.delete")
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        change_request = self._change_request("experiment_holdout.delete")
+        assert ExperimentHoldout.objects.filter(id=self.holdout.id).exists()
+        self.flag.refresh_from_db()
+        assert self.flag.filters["holdout"]["exclusion_percentage"] == 20
+
+        approve = self._approve(change_request)
+
+        assert approve.status_code == status.HTTP_200_OK
+        assert not ExperimentHoldout.objects.filter(id=self.holdout.id).exists()
+        self.flag.refresh_from_db()
+        assert self.flag.filters.get("holdout") is None
+
+    @parameterized.expand(
+        [
+            ("update", "experiment_holdout.update", {}),
+            ("delete", "experiment_holdout.delete", {}),
+            (
+                "update_with_flag_field_condition",
+                "experiment_holdout.update",
+                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50},
+            ),
+        ]
+    )
+    def test_a_flag_policy_alone_still_gates_a_holdout_change(self, operation, action_key, conditions):
+        flag_policy = self._create_policy("feature_flag.update", conditions=conditions)
+
+        if operation == "delete":
+            response = self.client.delete(f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}")
+        else:
+            response = self._patch_exclusion(40)
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        change_request = self._change_request(action_key)
+        assert change_request.get_policy() == flag_policy
+        self.flag.refresh_from_db()
+        assert self.flag.filters["holdout"]["exclusion_percentage"] == 20
+
+    def test_a_holdout_policy_takes_precedence_over_a_flag_policy(self):
+        other_approver = User.objects.create_and_join(self.organization, "approver@posthog.com", None)
+        self._create_policy("feature_flag.update")
+        holdout_policy = self._create_policy("experiment_holdout.update", approver_ids=[other_approver.id])
+
+        response = self._patch_exclusion(40)
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        change_request = self._change_request("experiment_holdout.update")
+        assert change_request.get_policy() == holdout_policy
+        assert change_request.policy_snapshot["users"] == [other_approver.id]

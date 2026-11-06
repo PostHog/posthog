@@ -9,14 +9,15 @@ from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.core_event import CoreEvent
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cache
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
+
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestCoreEvent(BaseTest):
@@ -135,6 +136,8 @@ class TestTeam(BaseTest):
         all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
 
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, another_user.id])
+        assert list(self.team.all_users_with_access(user_uuids={str(another_user.uuid)})) == [another_user]
+        assert not self.team.all_users_with_access(user_uuids=set()).exists()
 
     def test_all_users_with_access_simple_org_membership_and_redundant_team_one(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -150,6 +153,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_non_private_team(self):
         """Test that all organization members have access to a non-private team with the new access control system"""
+        self._enable_access_control()
 
         # Create another user as a member
         member_user = User.objects.create_and_join(
@@ -165,6 +169,7 @@ class TestTeam(BaseTest):
 
         # Both users should have access since the team is not private
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+        assert list(self.team.all_users_with_access(user_uuids={str(member_user.uuid)})) == [member_user]
 
     def test_all_users_with_access_new_access_control_private_team(self):
         """Test that only users with specific access have access to a private team with the new access control system"""
@@ -198,6 +203,7 @@ class TestTeam(BaseTest):
 
         # Only the admin user should have access
         assert all_user_with_access_ids == [self.user.id]
+        assert not self.team.all_users_with_access(user_uuids=set()).exists()
 
     def test_all_users_with_access_new_access_control_private_team_with_member_access(self):
         """Test that users with specific member access have access to a private team with the new access control system"""
@@ -241,6 +247,7 @@ class TestTeam(BaseTest):
 
         # Both users should have access
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+        assert list(self.team.all_users_with_access(user_uuids={str(member_user.uuid)})) == [member_user]
 
     def test_all_users_with_access_new_access_control_private_team_with_role_access(self):
         """Test that users with role-based access have access to a private team with the new access control system"""
@@ -286,6 +293,55 @@ class TestTeam(BaseTest):
 
         # Both users should have access
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+        assert list(self.team.all_users_with_access(user_uuids={str(member_user.uuid)})) == [member_user]
+        assert not self.team.all_users_with_access(user_uuids=set()).exists()
+
+    def test_all_users_with_access_ignores_role_membership_from_another_organization(self):
+        self._enable_access_control(role_based=True)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        member_user = User.objects.create_and_join(
+            self.organization,
+            email="member-cross-org@posthog.com",
+            first_name="first_name",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        other_organization = Organization.objects.create(name="Other organization")
+        OrganizationMembership.objects.create(
+            organization=other_organization,
+            user=member_user,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=member_user,
+            organization_member=OrganizationMembership.objects.get(
+                organization=self.organization,
+                user=member_user,
+            ),
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=role,
+            access_level="member",
+        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
+
+        assert all_user_with_access_ids == [self.user.id]
+        assert not self.team.all_users_with_access(user_uuids={str(member_user.uuid)}).exists()
 
     def test_all_users_with_access_returns_all_org_members_without_access_control_feature(self):
         """Without ACCESS_CONTROL there are no private teams — every org member has access,
@@ -376,14 +432,18 @@ class TestTeamSetTokenAndSave(BaseTest):
         self.team.refresh_from_db()
         assert self.team.api_token == "phc_old_token_value"
 
+    @patch("posthog.tasks.remote_config.update_team_remote_config.delay")
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
     @patch("posthog.models.team.team.set_team_in_cache")
-    def test_set_token_and_save_success_runs_full_side_effect_chain(self, mock_set_cache, mock_push_vercel) -> None:
-        self.team.set_token_and_save(
-            new_token="phc_new_token_value",
-            user=self.user,
-            is_impersonated_session=False,
-        )
+    def test_set_token_and_save_success_runs_full_side_effect_chain(
+        self, mock_set_cache, mock_push_vercel, mock_sync_remote_config
+    ) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.set_token_and_save(
+                new_token="phc_new_token_value",
+                user=self.user,
+                is_impersonated_session=False,
+            )
 
         self.team.refresh_from_db()
         assert self.team.api_token == "phc_new_token_value"
@@ -393,6 +453,10 @@ class TestTeamSetTokenAndSave(BaseTest):
         assert any(args[0] == "phc_new_token_value" and args[1] is self.team for args in cache_calls)
 
         mock_push_vercel.assert_called_once_with(self.team.id)
+
+        # Without the old token, the sync rewrites array/config.json in Redis only.
+        # The revoked token then keeps serving.
+        mock_sync_remote_config.assert_any_call(self.team.id, old_token="phc_old_token_value")
 
         log_entry = ActivityLog.objects.get(scope="Team", item_id=str(self.team.pk), activity="updated")
         assert log_entry.detail is not None

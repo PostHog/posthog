@@ -64,12 +64,15 @@ def _build_embedding_payload(team: Team, content: str, model: str | None, no_tru
 def _raise_for_embedding_response(response) -> None:
     """raise_for_status() with a clearer hint when the worker rejects ad-hoc requests
     because the organization has not opted into AI data processing — a common dev
-    foot-gun where the underlying 403 body is hidden behind a generic HTTPStatusError.
+    foot-gun otherwise hidden behind a generic HTTPStatusError.
+
+    The worker returns 403 for the opt-in gate and nothing else, and sends no body
+    with it, so the status alone identifies the case.
     """
-    if response.status_code == 403 and "ai" in response.text.lower():
+    if response.status_code == 403:
         raise httpx.HTTPStatusError(
-            f"Embedding worker returned 403: {response.text}. "
-            "Likely the organization has not opted into AI data processing — "
+            "Embedding worker returned 403. "
+            "The organization has not opted into AI data processing — "
             "set Organization.is_ai_data_processing_approved=True (Settings > AI, "
             "or via SQL in local dev) and retry.",
             request=response.request,

@@ -1,14 +1,14 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { integrationAuthorizeUrl, integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -52,11 +52,21 @@ const getSlackAppManifest = (): any => ({
     },
 })
 
-export function SlackIntegration({ next, centered }: { next?: string; centered?: boolean } = {}): JSX.Element {
+export function SlackIntegration({
+    next,
+    centered,
+    connectSurface,
+}: { next?: string; centered?: boolean; connectSurface?: IntegrationConnectSurface } = {}): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
+    const { startPolling, stopPolling } = useActions(integrationsLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
+
+    useOnMountEffect(() => {
+        startPolling()
+        return () => stopPolling()
+    })
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const requiredScopesArr = useSlackRequiredScopes()
     const requiredScopes = useMemo(() => requiredScopesArr.join(' '), [requiredScopesArr])
@@ -71,7 +81,16 @@ export function SlackIntegration({ next, centered }: { next?: string; centered?:
                 <div>
                     {slackAvailable ? (
                         <div className={centered ? 'flex flex-col items-center gap-2 text-center' : undefined}>
-                            <Link to={api.integrations.authorizeUrl({ kind: 'slack', next })} disableClientSideRouting>
+                            <Link
+                                to={integrationAuthorizeUrl({ kind: 'slack', next })}
+                                disableClientSideRouting
+                                // Silent without `connectSurface`, because the OAuth landing page reports its own clicks.
+                                onClick={
+                                    connectSurface
+                                        ? () => reportIntegrationConnectClicked('slack', 'slack', connectSurface)
+                                        : undefined
+                                }
+                            >
                                 <img
                                     alt="Connect to Slack workspace"
                                     height="40"
@@ -80,18 +99,16 @@ export function SlackIntegration({ next, centered }: { next?: string; centered?:
                                     srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
                                 />
                             </Link>
-                            {featureFlags[FEATURE_FLAGS.SLACK_APP_ASSISTANT] && (
-                                <p
-                                    className={
-                                        centered
-                                            ? 'text-sm text-secondary max-w-sm m-0'
-                                            : 'text-sm text-secondary mt-2 mb-0'
-                                    }
-                                >
-                                    Adding PostHog creates a public #posthog-inbox channel in your Slack workspace,
-                                    where PostHog posts what it finds.
-                                </p>
-                            )}
+                            <p
+                                className={
+                                    centered
+                                        ? 'text-sm text-secondary max-w-sm m-0'
+                                        : 'text-sm text-secondary mt-2 mb-0'
+                                }
+                            >
+                                Adding PostHog creates a public #posthog-inbox channel in your Slack workspace, where
+                                PostHog posts what it finds.
+                            </p>
                         </div>
                     ) : user?.is_staff ? (
                         !showSlackInstructions ? (

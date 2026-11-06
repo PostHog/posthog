@@ -1,8 +1,16 @@
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+
 import { IntegrationKind, IntegrationType } from '~/types'
 
 /** The actionable connect section, reused in both settings and the full page.
- * The full page passes ``centered`` so the section can match its centered layout. */
-export type SettingsSectionComponent = (props: { next?: string; centered?: boolean }) => JSX.Element
+ * The full page passes ``centered`` so the section can match its centered layout.
+ * ``connectSurface`` names where the section is embedded for a section that reports its own connect
+ * clicks; the full page leaves it unset because it reports every kind's clicks itself. */
+export type SettingsSectionComponent = (props: {
+    next?: string
+    centered?: boolean
+    connectSurface?: IntegrationConnectSurface
+}) => JSX.Element
 
 /**
  * Optional slot rendered on the OAuth landing page directly below the success card,
@@ -25,6 +33,9 @@ export type IntegrationStatus = 'ok' | 'needs_attention'
  * page invokes it exactly once on every render.
  */
 export type IntegrationStatusHook = (integrations: IntegrationType[]) => IntegrationStatus
+
+/** Must follow the Rules of Hooks, like {@link IntegrationStatusHook}. */
+export type IntegrationSetupUrlHook = (integrations: IntegrationType[]) => string | null
 
 /**
  * Pure metadata describing an integration. Deliberately holds no components so each
@@ -60,6 +71,8 @@ export interface IntegrationDefinition {
      * copy for a warning icon and follow-up copy that points at {@link PostConnect}.
      */
     useStatus?: IntegrationStatusHook
+    /** When it returns a URL, the landing page's primary action goes there instead of the app. */
+    useSetupUrl?: IntegrationSetupUrlHook
 }
 
 /** A definition bundled with its renderable components. */

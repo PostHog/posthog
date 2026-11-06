@@ -5,8 +5,6 @@ from posthog.schema import NativeMarketingSource
 from .constants import (
     _CONFIG_MODELS,
     _DEFAULT_SOURCES_ENUMS,
-    _TABLE_EXCLUSIONS_ENUMS,
-    _TABLE_KEYWORDS_ENUMS,
     INTEGRATION_DEFAULT_SOURCES,
     INTEGRATION_FIELD_NAMES,
     INTEGRATION_PRIMARY_SOURCE,
@@ -27,18 +25,6 @@ class TestMarketingAnalyticsConstantsCoverage:
         covered_sources = set(_DEFAULT_SOURCES_ENUMS.keys())
         missing = all_sources - covered_sources
         assert covered_sources == all_sources, f"Missing sources in _DEFAULT_SOURCES_ENUMS: {missing}"
-
-    def test_table_keywords_enums_covers_all_sources(self):
-        all_sources = set(NativeMarketingSource)
-        covered_sources = set(_TABLE_KEYWORDS_ENUMS.keys())
-        missing = all_sources - covered_sources
-        assert covered_sources == all_sources, f"Missing sources in _TABLE_KEYWORDS_ENUMS: {missing}"
-
-    def test_table_exclusions_enums_covers_all_sources(self):
-        all_sources = set(NativeMarketingSource)
-        covered_sources = set(_TABLE_EXCLUSIONS_ENUMS.keys())
-        missing = all_sources - covered_sources
-        assert covered_sources == all_sources, f"Missing sources in _TABLE_EXCLUSIONS_ENUMS: {missing}"
 
     def test_integration_default_sources_covers_all_sources(self):
         all_sources = set(NativeMarketingSource)
@@ -98,10 +84,13 @@ class TestMarketingAnalyticsConstantsStructure:
         assert primary in defaults, f"{source}: primary source '{primary}' not in default sources {defaults}"
 
     @parameterized.expand([(source,) for source in NativeMarketingSource])
-    def test_needed_fields_has_two_tables(self, source):
+    def test_needed_fields_has_expected_tables(self, source: NativeMarketingSource) -> None:
         tables = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source]
         assert isinstance(tables, list), f"{source}: expected list, got {type(tables)}"
-        assert len(tables) == 2, f"{source}: expected 2 tables, got {len(tables)}"
+        if source == NativeMarketingSource.ROKT_ADS:
+            assert tables == ["CampaignPerformance"]
+        else:
+            assert len(tables) == 2, f"{source}: expected 2 tables, got {len(tables)}"
         for table in tables:
             assert isinstance(table, str), f"{source}: table '{table}' is not a string"
             assert table, f"{source}: contains empty table name"
@@ -109,19 +98,21 @@ class TestMarketingAnalyticsConstantsStructure:
     @parameterized.expand([(source,) for source in NativeMarketingSource])
     def test_table_patterns_has_required_keys(self, source):
         patterns = TABLE_PATTERNS[source]
-        required_keys = ["campaign_table_keywords", "campaign_table_exclusions", "stats_table_keywords"]
-        for key in required_keys:
-            assert key in patterns, f"{source}: missing '{key}'"
-            assert isinstance(patterns[key], list), f"{source}: '{key}' should be a list"
-            assert len(patterns[key]) > 0, f"{source}: '{key}' is empty"
+        stats_keywords = patterns["stats_table_keywords"]
+        assert isinstance(stats_keywords, list), f"{source}: 'stats_table_keywords' should be a list"
+        assert len(stats_keywords) > 0, f"{source}: 'stats_table_keywords' is empty"
+
+        campaign_table_name = patterns["campaign_table_name"]
+        assert isinstance(campaign_table_name, str), f"{source}: 'campaign_table_name' should be a string"
+        assert campaign_table_name, f"{source}: 'campaign_table_name' is empty"
 
 
 class TestMarketingAnalyticsConstantsConsistency:
     @parameterized.expand([(source,) for source in NativeMarketingSource])
-    def test_stats_table_name_matches_pattern(self, source):
+    def test_stats_table_name_matches_pattern(self, source: NativeMarketingSource) -> None:
         needed_fields = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source]
         patterns = TABLE_PATTERNS[source]
-        stats_table = needed_fields[1]
+        stats_table = needed_fields[-1].lower()
         stats_keywords = patterns["stats_table_keywords"]
         assert stats_table in stats_keywords, f"{source}: stats table '{stats_table}' not in keywords {stats_keywords}"
 

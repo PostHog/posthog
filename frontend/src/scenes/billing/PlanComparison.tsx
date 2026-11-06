@@ -10,13 +10,20 @@ import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { isCompanionProduct } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
-import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
+import {
+    AvailableFeature,
+    BillingFeatureType,
+    BillingPlanType,
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+} from '~/types'
 
 import { convertLargeNumberToWords, getProration } from './billing-utils'
-import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -105,6 +112,14 @@ const PricingTiers = ({
     )
 }
 
+function featuresToCompare(plan?: BillingPlanType): BillingFeatureType[] {
+    return (
+        plan?.features?.filter(
+            (feature) => feature.key !== AvailableFeature.PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION
+        ) ?? []
+    )
+}
+
 export const PlanComparison = ({
     product,
     includeAddons = false,
@@ -125,6 +140,17 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
+    const comparedFeatures = featuresToCompare(fullyFeaturedPlan)
+
+    const productAnalyticsPlans = billing?.products?.find((product) => product.type === 'product_analytics')?.plans
+    const eventsRetentionOf = (plan?: BillingPlanType): BillingFeatureType | undefined =>
+        plan?.features?.find((feature) => feature.key === AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION)
+    const freeEventsRetention = eventsRetentionOf(
+        productAnalyticsPlans?.find((plan) => !!plan.free_allocation && !plan.tiers)
+    )
+    const paidEventsRetention = eventsRetentionOf(productAnalyticsPlans?.at(-1))
+    const showEventsRetention =
+        product.type === 'platform_and_support' && !!freeEventsRetention && !!paidEventsRetention
 
     return (
         <table className="PlanComparison w-full table-fixed" ref={planComparisonRef}>
@@ -265,11 +291,13 @@ export const PlanComparison = ({
                         </h3>
                     </th>
                 </tr>
-                {fullyFeaturedPlan?.features?.map((feature, i) => (
+                {comparedFeatures.map((feature, i) => (
                     <tr
                         key={`tr-${feature.key}`}
                         className={clsx(
-                            i == fullyFeaturedPlan?.features?.length - 1 && !billing?.has_active_subscription
+                            i == comparedFeatures.length - 1 &&
+                                !showEventsRetention &&
+                                !billing?.has_active_subscription
                                 ? 'PlanTable__tr__border'
                                 : ''
                         )}
@@ -278,7 +306,9 @@ export const PlanComparison = ({
                             className={clsx(
                                 'PlanTable__th__feature',
                                 width && width < 600 && 'PlanTable__th__feature--reduced_padding',
-                                i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature'
+                                i == comparedFeatures.length - 1 &&
+                                    !showEventsRetention &&
+                                    'PlanTable__th__last-feature'
                             )}
                         >
                             <Tooltip title={feature.description}>
@@ -305,6 +335,33 @@ export const PlanComparison = ({
                         ))}
                     </tr>
                 ))}
+                {showEventsRetention && (
+                    <tr className={clsx(!billing?.has_active_subscription && 'PlanTable__tr__border')}>
+                        <th
+                            className={clsx(
+                                'PlanTable__th__feature',
+                                width && width < 600 && 'PlanTable__th__feature--reduced_padding',
+                                'PlanTable__th__last-feature'
+                            )}
+                        >
+                            <Tooltip title="How far back your insights can query events. Older events aren't included in the results.">
+                                <span>Events data retention</span>
+                            </Tooltip>
+                        </th>
+                        {plans?.map((plan) => (
+                            <td key={`${plan.plan_key}-events-data-retention`}>
+                                <PlanIcon
+                                    feature={
+                                        plan.included_if === 'no_active_subscription'
+                                            ? freeEventsRetention
+                                            : paidEventsRetention
+                                    }
+                                    className="text-base"
+                                />
+                            </td>
+                        ))}
+                    </tr>
+                )}
                 {!billing?.has_active_subscription && !product.inclusion_only && (
                     <>
                         <tr>
@@ -317,7 +374,7 @@ export const PlanComparison = ({
                             </th>
                         </tr>
                         {billing?.products
-                            .filter((product) => product.inclusion_only)
+                            .filter((product) => product.inclusion_only && !isCompanionProduct(product))
                             .map((includedProduct) => {
                                 const includedPlans = includedProduct.plans.filter(
                                     (plan) => plan.included_if == 'has_subscription' || plan.current_plan

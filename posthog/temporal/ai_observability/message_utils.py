@@ -3,8 +3,12 @@
 import json
 from typing import Any, Union
 
+from products.ai_observability.backend.text_repr.formatters.constants import RESPONSES_TOOL_OUTPUT_TYPES
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker, parse_media_block
+from products.ai_observability.backend.text_repr.formatters.otel_parts import MEDIA_PART_KEY, flatten_parts_message
 
-def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
+
+def extract_text_from_messages(messages: Union[str, list, dict, None], media_marker: MediaMarker | None = None) -> str:
     """
     Extract readable text from LLM message structures.
 
@@ -20,6 +24,8 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
 
     Returns formatted string like:
     "user: Hello\\nassistant: Hi there"
+
+    With `media_marker`, media blocks render as the markers it returns, such as `[image 1]`.
     """
     if not messages:
         return ""
@@ -33,8 +39,8 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
         formatted_parts = []
         for msg in messages:
             if isinstance(msg, dict):
-                for flattened in _flatten_parts_message(msg):
-                    rendered_msg = _render_message(flattened)
+                for flattened in flatten_parts_message(msg):
+                    rendered_msg = _render_message(flattened, media_marker)
                     if rendered_msg is not None:
                         formatted_parts.append(rendered_msg)
             elif isinstance(msg, str):
@@ -45,90 +51,53 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
     # Handle single dict message — render it the same way as a one-element
     # list so that role prefixes and tool_call_id correlation are surfaced
     # consistently regardless of the wrapper shape.
-    rendered_messages = [_render_message(flattened) for flattened in _flatten_parts_message(messages)]
+    rendered_messages = [_render_message(flattened, media_marker) for flattened in flatten_parts_message(messages)]
     return "\n".join(rendered for rendered in rendered_messages if rendered is not None)
 
 
-def _flatten_parts_message(msg: dict) -> list[dict]:
-    """Convert an OTel GenAI semconv parts-shaped message into flat chat message(s).
+def last_message_text(messages: Union[str, list, dict, None], role: str) -> str:
+    """Text of the last message in a role, or all the text when no message has that role.
 
-    `/i/v0/ai/otel` stores `gen_ai.input.messages` / `gen_ai.output.messages` verbatim,
-    so messages arrive as `{"role": ..., "parts": [...]}` with the text inside typed
-    parts instead of a flat `content` key. `_render_message` only reads `content` and
-    `tool_calls`, which made these messages render as a bare `role:` line and left the
-    LLM judge grading an empty conversation.
-
-    Mirrors the trace UI's `otel.yaml` normalizer recipe so the judge sees the same
-    conversation the trace view renders:
-    - `{"type": "text", "content": ...}` parts join into the message's `content`
-    - `{"type": "tool_call", "id", "name", "arguments"}` parts become `tool_calls`
-    - each `{"type": "tool_call_response", "id", "result"}` part becomes its own
-      follow-up `role: "tool"` message so the existing `tool[<id>]:` correlation applies
-    - `reasoning` and other non-text parts are dropped, matching the trace view
-
-    Like the recipe, this only applies to dicts with a string `role` alongside the
-    `parts` list, so a structured-output payload that happens to have its own `parts`
-    array still reaches the JSON-stringify fallback in `_render_message`.
-
-    Messages that already carry `content` or `tool_calls`, or have no `parts` list,
-    pass through unchanged.
+    A preview built from the start of the input shows the system prompt, which is the same on every sample.
     """
-    parts = msg.get("parts")
-    if not isinstance(msg.get("role"), str) or not isinstance(parts, list):
-        return [msg]
-    if msg.get("content") or msg.get("tool_calls"):
-        return [msg]
-
-    text_chunks: list[str] = []
-    tool_calls: list[dict] = []
-    tool_results: list[dict] = []
-    for part in parts:
-        if not isinstance(part, dict):
-            continue
-        part_type = part.get("type")
-        if part_type == "text":
-            content = part.get("content")
-            if isinstance(content, str) and content:
-                text_chunks.append(content)
-        elif part_type == "tool_call":
-            tool_calls.append(
-                {
-                    "id": part.get("id"),
-                    "function": {"name": part.get("name", ""), "arguments": part.get("arguments", "")},
-                }
-            )
-        elif part_type == "tool_call_response":
-            result = part.get("result", "")
-            if not isinstance(result, str):
-                result = json.dumps(result, default=str)
-            tool_results.append({"role": "tool", "content": result, "tool_call_id": part.get("id")})
-
-    primary = {key: value for key, value in msg.items() if key != "parts"}
-    if text_chunks:
-        primary["content"] = " ".join(text_chunks)
-    if tool_calls:
-        primary["tool_calls"] = tool_calls
-
-    # Keep an empty primary only when there are no follow-up tool results, so a
-    # message whose parts produce nothing still holds its `role:` conversation slot
-    # (matching how empty flat messages render) without adding a stray blank line
-    # in front of every tool result.
-    flattened: list[dict] = []
-    if text_chunks or tool_calls or not tool_results:
-        flattened.append(primary)
-    flattened.extend(tool_results)
-    return flattened
+    if isinstance(messages, list):
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and msg.get("role") == role and not _only_tool_results(msg):
+                rendered = extract_text_from_messages([msg])
+                if rendered:
+                    return rendered.removeprefix(f"{role}: ")
+    return extract_text_from_messages(messages)
 
 
-def _render_message(msg: dict) -> str | None:
+def _only_tool_results(msg: dict) -> bool:
+    # Anthropic sends tool output back as a user message made only of tool_result blocks.
+    content = msg.get("content")
+    return (
+        isinstance(content, list)
+        and len(content) > 0
+        and all(isinstance(part, dict) and part.get("type") == "tool_result" for part in content)
+    )
+
+
+def _render_message(msg: dict, media_marker: MediaMarker | None) -> str | None:
     """Render a single message dict into a `role: body` line.
 
     Returns None when the message has neither a role nor any body to render
     (so the caller can skip it).
     """
+    item_type = msg.get("type")
+    if media_marker is not None and isinstance(item_type, str) and item_type in RESPONSES_TOOL_OUTPUT_TYPES:
+        # A Responses API tool output has no role or content, so render it as a tool message to reach its images.
+        msg = {"role": "tool", "tool_call_id": msg.get("call_id"), "content": msg.get("output")}
     role = msg.get("role", "")
     content = msg.get("content", "")
-    text = _extract_content_text(content)
+    part = msg.get(MEDIA_PART_KEY)
+    media = parse_media_block(part) if media_marker is not None and isinstance(part, dict) else None
+    text = (
+        media_marker(media)
+        if media_marker is not None and media is not None
+        else _extract_content_text(content, media_marker)
+    )
     tool_calls_text = _format_tool_calls(msg.get("tool_calls"))
 
     rendered = " ".join(part for part in (text, tool_calls_text) if part)
@@ -157,13 +126,14 @@ def _render_message(msg: dict) -> str | None:
     return None
 
 
-def _extract_content_text(content: Union[str, list, dict, None]) -> str:
+def _extract_content_text(content: Union[str, list, dict, None], media_marker: MediaMarker | None = None) -> str:
     """Extract text from message content, handling nested structures.
 
     Handles multiple provider formats:
     - Anthropic: [{"type": "text", "text": "..."}]
     - OpenAI Responses API: [{"text": "...", "annotations": [...]}]
     - Generic: [{"content": "..."}]
+    - With `media_marker`, image, audio and file blocks, as markers such as `[image 1]`
     - Plain strings
 
     Always falls back to str() rather than returning empty — an LLM judge
@@ -184,13 +154,23 @@ def _extract_content_text(content: Union[str, list, dict, None]) -> str:
                 if "text" in block:
                     text_parts.append(str(block["text"]))
                 elif "content" in block:
-                    text_parts.append(str(block["content"]))
+                    # Tool results can hold image blocks, which only a judge with images unpacks.
+                    nested = block["content"]
+                    if media_marker is not None and isinstance(nested, list):
+                        text_parts.append(_extract_content_text(nested, media_marker))
+                    else:
+                        text_parts.append(str(nested))
+                elif media_marker is not None and (media := parse_media_block(block)) is not None:
+                    text_parts.append(media_marker(media))
                 else:
                     # Unknown block shape — stringify rather than silently drop
                     text_parts.append(str(block))
             elif isinstance(block, str):
                 text_parts.append(block)
         return " ".join(text_parts)
+
+    if media_marker is not None and isinstance(content, dict) and (media := parse_media_block(content)) is not None:
+        return media_marker(media)
 
     # Fallback: convert to string
     return str(content)

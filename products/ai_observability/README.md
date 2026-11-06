@@ -36,14 +36,15 @@ products/ai_observability/
   dags/                   # Dagster jobs + metrics
   skills/                 # Agent skills scoped to the product
   docs/                   # Product-level docs (architecture decision records)
-  shared/                 # Cross-frontend/backend constants, schemas
+  shared/                 # Constants and schemas shared across frontend, backend, capture and ingestion (crosslang/)
   manifest.tsx            # Scene + navigation registration
   package.json            # Turborepo package (@posthog/products-ai-observability)
 ```
 
 Query runners for the product live **outside** this folder in
-`posthog/hogql_queries/ai/`. Two runners matter: `trace_query_runner.py`
-(single trace) and `traces_query_runner.py` (list). See
+`posthog/hogql_queries/ai/`. Three runners matter: `trace_query_runner.py`
+(single trace), `traces_query_runner.py` (list), and
+`session_query_runner.py` (traces in a session). See
 [AGENTS.md](./AGENTS.md) for why that detail matters.
 
 ## Running tests locally

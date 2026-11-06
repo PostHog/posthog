@@ -119,6 +119,7 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
         filter_exprs = [property_to_expr(f, team) for f in inputs.event_filters]
         filter_expr = ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
+    # The embedding formatter cannot represent numeric or categorical results.
     query = parse_select(
         """
         SELECT
@@ -130,6 +131,8 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
             properties.$ai_evaluation_id as eval_id
         FROM events
         WHERE event = '$ai_evaluation'
+            AND (isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type != 'numeric')
+            AND (isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type != 'categorical')
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
             AND {filter_expr}

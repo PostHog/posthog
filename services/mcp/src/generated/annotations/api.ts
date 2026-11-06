@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsListParams = /* @__PURE__ */ zod.object({
+export const AnnotationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,8 +19,10 @@ export const AnnotationsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AnnotationsListQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+export const annotationsListQueryLimitMax = 1000
+
+export const AnnotationsListQueryParams = () => zod.object({
+    limit: zod.number().max(annotationsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
 })
@@ -28,7 +30,7 @@ export const AnnotationsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsCreateParams = /* @__PURE__ */ zod.object({
+export const AnnotationsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -40,7 +42,7 @@ export const annotationsCreateBodyContentMax = 8192
 
 export const annotationsCreateBodyEmojiMax = 16
 
-export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
+export const AnnotationsCreateBody = () => zod.object({
     content: zod
         .string()
         .max(annotationsCreateBodyContentMax)
@@ -57,8 +59,14 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()
@@ -88,7 +96,7 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
+export const AnnotationsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this annotation.'),
     project_id: zod
         .string()
@@ -100,7 +108,7 @@ export const AnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const AnnotationsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this annotation.'),
     project_id: zod
         .string()
@@ -113,7 +121,7 @@ export const annotationsPartialUpdateBodyContentMax = 8192
 
 export const annotationsPartialUpdateBodyEmojiMax = 16
 
-export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const AnnotationsPartialUpdateBody = () => zod.object({
     content: zod
         .string()
         .max(annotationsPartialUpdateBodyContentMax)
@@ -130,8 +138,14 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()
@@ -161,11 +175,56 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const AnnotationsDestroyParams = /* @__PURE__ */ zod.object({
+export const AnnotationsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this annotation.'),
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Lists the changes that can affect production in a time window, newest first: feature flag and experiment edits, error tracking releases, and annotations. Use it to find what changed just before an error spike or a metric drop. Changes the user has no access to are left out.
+ * @summary List recent production changes
+ */
+export const ChangeFeedListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const changeFeedListQueryKindsDefault = []
+export const changeFeedListQueryLimitDefault = 100
+export const changeFeedListQueryLimitMax = 500
+
+export const ChangeFeedListQueryParams = () => zod.object({
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Start of the time window (inclusive), ISO 8601. Defaults to 24 hours before `date_to`.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('End of the time window (inclusive), ISO 8601. Defaults to now.'),
+    kinds: zod
+        .array(
+            zod
+                .enum(['feature_flag', 'experiment', 'release', 'annotation'])
+                .describe(
+                    '\* `feature_flag` - Feature flag\n\* `experiment` - Experiment\n\* `release` - Release\n\* `annotation` - Annotation'
+                )
+        )
+        .default(changeFeedListQueryKindsDefault)
+        .describe(
+            'Return only these kinds of change. Omit to return every kind. Use `feature_flag` and `experiment` to see configuration edits without releases and annotations.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(changeFeedListQueryLimitMax)
+        .default(changeFeedListQueryLimitDefault)
+        .describe('Maximum number of changes to return, newest first. Defaults to 100, at most 500.'),
 })

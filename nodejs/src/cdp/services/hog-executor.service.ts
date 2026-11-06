@@ -13,11 +13,18 @@ import type {
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
 } from '../types'
-import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import {
+    createAddLogFunction,
+    getConfiguredSensitiveValues,
+    getSensitiveValues,
+    redactSensitiveValues,
+    sanitizeLogMessage,
+} from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
+import type { PreferencesTokenSource } from './messaging/recipient-tokens.service'
 
 export interface HogExecutorConfig {
     /** Hard wall-clock limit for one Hog program. The VM aborts the invocation once it elapses. */
@@ -57,7 +64,14 @@ export type HogExecutorAsyncFunctionHandler = (
 /** The parts of an earlier step's result that carry forward into the next one. */
 export type HogExecutorPreviousResult = Pick<
     Partial<CyclotronJobInvocationResult>,
-    'finished' | 'capturedPostHogEvents' | 'warehouseWebhookPayloads' | 'logs' | 'metrics' | 'error' | 'execResult'
+    | 'finished'
+    | 'capturedPostHogEvents'
+    | 'warehouseWebhookPayloads'
+    | 'logs'
+    | 'metrics'
+    | 'error'
+    | 'execResult'
+    | 'emailSendResult'
 >
 
 export type HogExecutorExecuteOptions = {
@@ -87,9 +101,15 @@ export class HogExecutorService {
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>
+        additionalInputs?: Record<string, any>,
+        preferencesTokenSource?: PreferencesTokenSource
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
-        return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
+        return this.hogInputsService.buildInputsWithGlobals(
+            hogFunction,
+            globals,
+            additionalInputs,
+            preferencesTokenSource
+        )
     }
 
     /**
@@ -125,6 +145,7 @@ export class HogExecutorService {
                 continue
             }
             const { match } = await filterFunctionInstrumented({
+                caller: 'execute_hog_function',
                 fn: hogFunction,
                 filters: mapping.filters,
                 filterGlobals,
@@ -155,6 +176,12 @@ export class HogExecutorService {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, previousResult)
         const addLog = createAddLogFunction(result.logs)
 
+        // Declared out here so the terminal catch can mask secrets out of `result.error`, which is
+        // persisted to `hog_invocation_results.error_message` and rendered in the Invocations tab.
+        // Starts from the values the function config holds, so an error raised while the inputs are
+        // still resolving is masked too; the resolved values are added once the build succeeds.
+        let sensitiveValues: string[] = getConfiguredSensitiveValues(invocation.hogFunction)
+
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined
@@ -183,12 +210,13 @@ export class HogExecutorService {
                     )
                 }
             } catch (e) {
-                addLog('error', `Error building inputs: ${e}`)
+                // A template can hand an earlier secret input to a function that quotes its argument.
+                addLog('error', sanitizeLogMessage([`Error building inputs: ${e}`], sensitiveValues))
 
                 throw e
             }
 
-            const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
+            sensitiveValues = [...sensitiveValues, ...this.getSensitiveValues(invocation.hogFunction, globals.inputs)]
             const invocationInput = invocation.state.vmState ?? invocation.hogFunction.bytecode
             const eventId = invocation?.state.globals?.event?.uuid || 'Unknown event'
 
@@ -296,7 +324,10 @@ export class HogExecutorService {
                     result.execResult = convertHogToJS(execRes.result)
                 }
             } catch (e) {
-                addLog('error', `Error executing function on event ${eventId}: ${e}`)
+                addLog(
+                    'error',
+                    sanitizeLogMessage([`Error executing function on event ${eventId}: ${e}`], sensitiveValues)
+                )
                 throw e
             }
 
@@ -348,7 +379,7 @@ export class HogExecutorService {
                 addLog('debug', messages.join(' '))
             }
         } catch (err) {
-            result.error = err.message
+            result.error = redactSensitiveValues(err.message, sensitiveValues)
             result.finished = true // Explicitly set to true to prevent infinite loops
         }
 
@@ -356,45 +387,6 @@ export class HogExecutorService {
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
-        const values: string[] = []
-
-        const collectStringValues = (obj: any): void => {
-            if (obj && typeof obj === 'object') {
-                // Assume the values are the sensitive parts
-                Object.values(obj).forEach((val: any) => {
-                    if (typeof val === 'string') {
-                        values.push(val)
-                    }
-                })
-            }
-        }
-
-        hogFunction.inputs_schema?.forEach((schema) => {
-            if (
-                schema.secret ||
-                schema.type === 'integration' ||
-                schema.type === 'integration_multi' ||
-                schema.type === 'push_subscription'
-            ) {
-                const value = inputs[schema.key]
-                if (typeof value === 'string') {
-                    values.push(value)
-                } else if (schema.type === 'integration_multi' && Array.isArray(value)) {
-                    // integration_multi resolves to an array of integration objects, each carrying its own
-                    // sensitive_config (e.g. APNs signing_key, FCM access_token_raw) — mask every one.
-                    value.forEach(collectStringValues)
-                } else if (
-                    (schema.type === 'dictionary' ||
-                        schema.type === 'integration' ||
-                        schema.type === 'push_subscription') &&
-                    typeof value === 'object'
-                ) {
-                    collectStringValues(value)
-                }
-            }
-        })
-
-        // We don't want to add "REDACTED" for empty strings
-        return values.filter((v) => v.trim())
+        return getSensitiveValues(hogFunction, inputs)
     }
 }

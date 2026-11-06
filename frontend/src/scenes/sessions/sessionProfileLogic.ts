@@ -2,9 +2,9 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { hogql } from 'lib/utils/hogql'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { SessionEventType } from '~/types'
 
 import type { TeamPublicType, TeamType } from '../../types'
@@ -17,7 +17,7 @@ import { teamLogic } from '../teamLogic'
  * We apply buffers in both directions to handle clock skew between the client
  * (which generates the UUIDv7) and the server (which records event timestamps).
  */
-function getTimestampFromUUIDv7(sessionId: string): { startDate: Date; endDate: Date } {
+export function getTimestampFromUUIDv7(sessionId: string): { startDate: Date; endDate: Date } {
     const uuidHex = sessionId.replace(/-/g, '')
     const timestampMs = parseInt(uuidHex.substring(0, 12), 16)
     // Generous buffers for partition pruning while we wait for sessions v3

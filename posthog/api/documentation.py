@@ -1,13 +1,17 @@
 import os
 import re
-from typing import Any, get_args
+import copy
+from typing import TYPE_CHECKING, Any, Literal, get_args
+from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db import models
 
+from drf_spectacular.contrib.rest_framework_dataclasses import OpenApiDataclassSerializerExtensions
 from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.openapi import AutoSchema
-from drf_spectacular.plumbing import build_basic_type, build_mock_request, build_parameter_type
+from drf_spectacular.plumbing import ComponentRegistry, build_basic_type, build_mock_request, build_parameter_type
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -18,13 +22,18 @@ from drf_spectacular.utils import (
 )  # # noqa: F401 for easy import
 from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
+from rest_framework_dataclasses.fields import EnumField as DataclassEnumField
 
-from posthog.models.entity import MathType
+from posthog.enums import LabeledEnumType
 from posthog.models.property import OperatorType, PropertyType
+from posthog.models.property.property import SemverOperator
 from posthog.permissions import APIScopePermission
 from posthog.products import is_product_module
 
 from products.feature_flags.backend.types import PropertyFilterType
+
+if TYPE_CHECKING:
+    from posthog.api.routing import PathParameter
 
 # Path parameters that are resolved at runtime by TeamAndOrgViewSetMixin and
 # therefore cannot be derived from any model field.  We pre-supply their
@@ -34,6 +43,13 @@ _KNOWN_PATH_PARAMS: dict[str, dict[str, Any]] = {
     "environment_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "organization_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "plugin_config_id": {"schema": build_basic_type(OpenApiTypes.INT), "description": ""},
+}
+
+# OpenAPI schemas for the types a view can declare in TeamAndOrgViewSetMixin.path_parameters.
+_DECLARED_PATH_PARAM_SCHEMAS: dict[type, dict[str, str]] = {
+    UUID: {"type": "string", "format": "uuid"},
+    int: {"type": "integer"},
+    str: {"type": "string"},
 }
 
 
@@ -79,9 +95,44 @@ class _FallbackSerializer(serializers.Serializer):
     pass
 
 
+def _include_internal_operations() -> bool:
+    return os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
+
+
 class PostHogAutoSchema(AutoSchema):
     """AutoSchema subclass that silences path-parameter warnings for params
     handled by TeamAndOrgViewSetMixin (project_id, environment_id, etc.)."""
+
+    def is_excluded(self) -> bool:
+        if super().is_excluded():
+            return True
+        # `x-internal` keeps an operation out of the served schema (Swagger, Redoc, the public
+        # API docs) but in the codegen build, so MCP tools and frontend types still cover it
+        # without a public REST contract.
+        return bool(self.get_extensions().get("x-internal")) and not _include_internal_operations()
+
+    def get_operation(
+        self, path: str, path_regex: str, path_prefix: str, method: str, registry: ComponentRegistry
+    ) -> dict[str, Any] | None:
+        operation = super().get_operation(path, path_regex, path_prefix, method, registry)
+        # The marker is set here and not in get_extensions(), because an @extend_schema(extensions=...)
+        # decorator on the action replaces the get_extensions() output.
+        dynamic_actions: frozenset[str] = getattr(self.view, "request_dependent_scope_actions", frozenset())
+        if operation is not None and getattr(self.view, "action", None) in dynamic_actions:
+            operation["x-request-dependent-scopes"] = True
+        return operation
+
+    def _declared_path_parameter(self, variable: str) -> "PathParameter | None":
+        # routing imports this module through posthog.api.utils, so a module-level import is circular.
+        from posthog.api.routing import as_path_parameter  # noqa: PLC0415
+
+        declared = getattr(self.view, "path_parameters", {})
+        if variable in declared:
+            return as_path_parameter(declared[variable])
+        # The router names the detail kwarg `pk`, and drf-spectacular renames `{pk}` to `{id}` in the path.
+        if variable == "id" and "pk" in declared:
+            return as_path_parameter(declared["pk"])
+        return None
 
     def _resolve_path_parameters(self, variables):
         from drf_spectacular.plumbing import get_view_model, resolve_django_path_parameter, resolve_regex_path_parameter
@@ -90,6 +141,7 @@ class PostHogAutoSchema(AutoSchema):
         parameters = []
 
         for variable in variables:
+            declared = self._declared_path_parameter(variable)
             if variable in _KNOWN_PATH_PARAMS:
                 # Params handled by TeamAndOrgViewSetMixin — not derivable from any model.
                 parameters.append(
@@ -98,6 +150,16 @@ class PostHogAutoSchema(AutoSchema):
                         location=OpenApiParameter.PATH,
                         description=_KNOWN_PATH_PARAMS[variable]["description"],
                         schema=_KNOWN_PATH_PARAMS[variable]["schema"],
+                    )
+                )
+            elif declared is not None:
+                # TeamAndOrgViewSetMixin parses the kwarg to this type, so the schema states the same type.
+                parameters.append(
+                    build_parameter_type(
+                        name=variable,
+                        location=OpenApiParameter.PATH,
+                        description=declared.description,
+                        schema=_DECLARED_PATH_PARAM_SCHEMAS[declared.type],
                     )
                 )
             elif model is None:
@@ -156,6 +218,37 @@ class ValueField(serializers.Field):
 
     def to_internal_value(self, data):
         return data
+
+
+def _use_class_labels(field: serializers.Field) -> None:
+    child = getattr(field, "child", None)
+    if isinstance(child, serializers.Field):
+        _use_class_labels(child)
+    if not isinstance(field, DataclassEnumField) or field.by_name:
+        return
+    enum_class = field.enum_class
+    if not (isinstance(enum_class, LabeledEnumType) or issubclass(enum_class, models.Choices)):
+        return
+    # Leave choices that a declared field or extra_kwargs set on purpose.
+    library_default = {field.to_representation(member): member.name for member in enum_class}
+    if dict(field.choices) == library_default:
+        field.choices = enum_class.choices
+
+
+# rest_framework_dataclasses labels enum choices with member names, which no class carries, so
+# posthog/openapi/enum_names.py cannot name those enums after their class. This fixes the schema only.
+class LabeledEnumDataclassSerializerExtension(OpenApiDataclassSerializerExtensions):
+    priority = 1
+
+    def map_serializer(self, auto_schema: AutoSchema, direction: Any) -> dict[str, Any]:
+        # drf-spectacular reuses instances passed to extend_schema, so map a copy. A shallow copy keeps
+        # partial=True on PATCH bodies, and dropping the cached fields gives the copy fresh ones.
+        serializer = copy.copy(self.target)
+        serializer.__dict__.pop("fields", None)
+        for field in serializer.fields.values():
+            _use_class_labels(field)
+        schema = auto_schema._map_serializer(serializer, direction, bypass_extensions=True)
+        return self.strip_library_doc(schema)
 
 
 class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
@@ -234,6 +327,19 @@ class _PropertyFilterBase(serializers.Serializer):
     )
 
 
+class StringMatchOperator(models.TextChoices):
+    EXACT = "exact", "exact"
+    IS_NOT = "is_not", "is_not"
+    ICONTAINS = "icontains", "icontains"
+    NOT_ICONTAINS = "not_icontains", "not_icontains"
+    STARTS_WITH = "starts_with", "starts_with"
+    NOT_STARTS_WITH = "not_starts_with", "not_starts_with"
+    ENDS_WITH = "ends_with", "ends_with"
+    NOT_ENDS_WITH = "not_ends_with", "not_ends_with"
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+
+
 class StringPropertyFilterSerializer(_PropertyFilterBase):
     """Matches string values with text-oriented operators."""
 
@@ -242,18 +348,7 @@ class StringPropertyFilterSerializer(_PropertyFilterBase):
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=[
-            "exact",
-            "is_not",
-            "icontains",
-            "not_icontains",
-            "starts_with",
-            "not_starts_with",
-            "ends_with",
-            "not_ends_with",
-            "regex",
-            "not_regex",
-        ],
+        choices=StringMatchOperator.choices,
         default="exact",
         required=False,
         help_text="String comparison operator.",
@@ -291,6 +386,12 @@ class ArrayPropertyFilterSerializer(_PropertyFilterBase):
     )
 
 
+class DateOperator(models.TextChoices):
+    IS_DATE_EXACT = "is_date_exact", "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before", "is_date_before"
+    IS_DATE_AFTER = "is_date_after", "is_date_after"
+
+
 class DatePropertyFilterSerializer(_PropertyFilterBase):
     """Matches date/datetime values with date-specific operators."""
 
@@ -299,18 +400,23 @@ class DatePropertyFilterSerializer(_PropertyFilterBase):
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=["is_date_exact", "is_date_before", "is_date_after"],
+        choices=DateOperator.choices,
         default="is_date_exact",
         required=False,
         help_text="Date comparison operator.",
     )
 
 
+class ExistenceOperator(models.TextChoices):
+    IS_SET = "is_set", "is_set"
+    IS_NOT_SET = "is_not_set", "is_not_set"
+
+
 class ExistencePropertyFilterSerializer(_PropertyFilterBase):
     """Checks whether a property is set or not, without comparing values."""
 
     operator = serializers.ChoiceField(
-        choices=["is_set", "is_not_set"],
+        choices=ExistenceOperator.choices,
         required=True,
         help_text="Existence check operator.",
     )
@@ -326,7 +432,7 @@ class _FeatureFlagFilterPropertyBaseSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=_FEATURE_FLAG_FILTER_NON_FLAG_TYPE_CHOICES,
         required=False,
-        help_text="Property filter type. Common values are 'person' and 'cohort'.",
+        help_text="Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.",
     )
     cohort_name = serializers.CharField(
         required=False,
@@ -336,7 +442,7 @@ class _FeatureFlagFilterPropertyBaseSerializer(serializers.Serializer):
     group_type_index = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Group type index when using group-based filters.",
+        help_text="Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
     )
 
 
@@ -369,7 +475,7 @@ class FeatureFlagFilterPropertyGenericSchemaSerializer(_FeatureFlagFilterPropert
 
 class FeatureFlagFilterPropertyExistsSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
     operator = serializers.ChoiceField(
-        choices=["is_set", "is_not_set"],
+        choices=ExistenceOperator.choices,
         required=True,
         help_text="Existence operator.",
     )
@@ -393,17 +499,7 @@ class FeatureFlagFilterPropertyDateSchemaSerializer(_FeatureFlagFilterPropertyBa
 
 class FeatureFlagFilterPropertySemverSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
     operator = serializers.ChoiceField(
-        choices=[
-            "semver_gt",
-            "semver_gte",
-            "semver_lt",
-            "semver_lte",
-            "semver_eq",
-            "semver_neq",
-            "semver_tilde",
-            "semver_caret",
-            "semver_wildcard",
-        ],
+        choices=SemverOperator.choices,
         required=True,
         help_text="Semantic version comparison operator.",
     )
@@ -440,6 +536,16 @@ class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterProper
     value = serializers.JSONField(
         required=True,
         help_text="Cohort comparison value (single or list, depending on usage).",
+    )
+    cohort_deleted = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when the cohort is deleted or does not exist. "
+        "The flag cannot evaluate this condition. Ignored on write.",
+    )
+    cohort_missing = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when no cohort with this id exists in the project, so it cannot be "
+        "restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.",
     )
 
 
@@ -557,6 +663,11 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
 property_help_text = "Filter events by event property, person property, cohort, groups and more."
 
 
+class PropertyGroupOperator(models.TextChoices):
+    AND = "AND", "AND"
+    OR = "OR", "OR"
+
+
 class PropertySerializer(serializers.Serializer):
     def run_validation(self, data=fields.empty):
         if isinstance(data, list):
@@ -618,7 +729,7 @@ Or you can create more complicated queries with AND and OR:
 }
 ```
 """,
-        choices=["AND", "OR"],
+        choices=PropertyGroupOperator.choices,
         default="AND",
     )
     values = PropertyItemSerializer(many=True, required=True)
@@ -631,6 +742,35 @@ class PropertiesSerializer(serializers.Serializer):
 class PersonPropertiesSerializer(serializers.Serializer):
     properties = PropertySerializer(required=False, many=True, help_text="Filter Persons by person properties.")
 
+
+MathType = Literal[
+    "total",
+    "dau",
+    "weekly_active",
+    "monthly_active",
+    "unique_group",
+    "unique_session",
+    "hogql",
+    # Equivalent to *PROPERTY_MATH_FUNCTIONS.keys(),
+    "sum",
+    "min",
+    "max",
+    "avg",
+    "median",
+    "p75",
+    "p90",
+    "p95",
+    "p99",
+    # Equivalent to *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
+    "min_count_per_actor",
+    "max_count_per_actor",
+    "avg_count_per_actor",
+    "median_count_per_actor",
+    "p75_count_per_actor",
+    "p90_count_per_actor",
+    "p95_count_per_actor",
+    "p99_count_per_actor",
+]
 
 math_help_text = """How to aggregate results, shown as \"counted by\" in the interface.
 - `total` (default): no aggregation, count by events
@@ -695,11 +835,10 @@ _HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "p
 
 # Match finalized paths (after {parent_lookup_*} substitution) for postprocessing.
 _ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
-_PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
 
 
 def _get_product_from_module(module: str) -> str | None:
-    """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
+    """Extract product folder name from module path like 'products.batch_exports.backend.presentation.views'."""
     if is_product_module(module):
         parts = module.split(".")
         if len(parts) >= 2:
@@ -728,7 +867,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     vs organization_id, etc.).
     """
     # For frontend type generation, include INTERNAL views if they have explicit tags
-    include_internal = os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
+    include_internal = _include_internal_operations()
 
     # Clear previous mappings
     _endpoint_product_mapping.clear()
@@ -741,13 +880,25 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     projects_suffixes: set[tuple[str, str]] = set()
 
     for path, path_regex, method, callback in endpoints:
-        if getattr(callback.cls, "param_derived_from_user_current_team", None):
+        force_include = getattr(callback.cls, "force_include_in_api_docs", False)
+
+        if getattr(callback.cls, "param_derived_from_user_current_team", None) and not force_include:
+            # Root-router viewsets don't fit the /api/projects/{team_id}/... pattern; opt in via
+            # `force_include_in_api_docs = True` to surface in type-gen and MCP scaffolding.
             continue
-        if not hasattr(callback.cls, "scope_object") or getattr(callback.cls, "hide_api_docs", False):
+        has_scope_object = hasattr(callback.cls, "scope_object")
+        # A view with no scope_object is normally excluded - the schema is built around
+        # team/org-scoped resources. include_in_api_docs is the explicit opt-in for a
+        # deliberately unscoped view (e.g. a public, unauthenticated endpoint) that still
+        # wants to appear in the docs.
+        if not has_scope_object and not getattr(callback.cls, "include_in_api_docs", False):
             continue
-        scope = callback.cls.scope_object
-        if scope == "INTERNAL" and not include_internal:
+        if getattr(callback.cls, "hide_api_docs", False):
             continue
+        if has_scope_object:
+            scope = callback.cls.scope_object
+            if scope == "INTERNAL" and not include_internal:
+                continue
 
         included.append((path, path_regex, method, callback))
         suffix = _extract_root_suffix(_PROJECTS_PREFIX_RE, path)
@@ -766,7 +917,13 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         is_env_duplicate = env_suffix is not None and (env_suffix, method) in projects_suffixes
 
         org_suffix = _extract_root_suffix(_ORG_PREFIX_RE, path)
-        is_org_duplicate = org_suffix is not None and (org_suffix, method) in projects_suffixes
+        # Sharing a suffix usually means one resource served at both levels. A viewset whose organization
+        # paths are a different resource opts out with `schema_org_paths_are_not_duplicates = True`.
+        is_org_duplicate = (
+            org_suffix is not None
+            and (org_suffix, method) in projects_suffixes
+            and not getattr(callback.cls, "schema_org_paths_are_not_duplicates", False)
+        )
 
         if is_env_duplicate:
             path = _ENVIRONMENTS_PREFIX_RE.sub("/api/environments/{environment_id}/", path, count=1)
@@ -1167,12 +1324,9 @@ def custom_postprocessing_hook(result, generator, request, public):
             # - /api/organizations/{id}/projects/… paths must NOT have projects_ stripped — that
             #   segment is the resource name, not a router namespace, and stripping it collapses
             #   everything to e.g. "list"/"create" which then collides with top-level org paths.
-            # - /api/projects/{id}/environments/… paths must NOT have environments_ stripped for the
-            #   same reason — those are sub-resources, not the main /api/environments/ router.
             # - Everything else: strip projects_/environments_ (router-namespace noise).
             is_org_dup = (path, method.upper()) in _org_paths_with_project_dup
             is_org_projects = bool(_ORG_PROJECTS_FINAL_RE.match(path))
-            is_project_envs = bool(_PROJECT_ENVS_FINAL_RE.match(path))
 
             if is_org_dup:
                 definition["deprecated"] = True
@@ -1193,8 +1347,7 @@ def custom_postprocessing_hook(result, generator, request, public):
                 op_id = definition["operationId"]
                 if not is_org_projects:
                     op_id = op_id.replace("projects_", "", 1)
-                if not is_project_envs:
-                    op_id = op_id.replace("environments_", "", 1)
+                op_id = op_id.replace("environments_", "", 1)
                 definition["operationId"] = op_id
 
             if "parameters" in definition:

@@ -57,14 +57,23 @@ describe('InsightSelector', () => {
         expect(checkboxes[2]).not.toBeChecked() // Users (103)
     })
 
-    it('shows selection count', () => {
+    it.each([
+        ['fewer insights than the limit', 3, '2 of 3 insights selected'],
+        ['more insights than the limit', MAX_INSIGHTS + 1, `2 of ${MAX_INSIGHTS} insights selected`],
+    ])('shows selection count with %s', (_name, tileCount, expected) => {
+        const tiles = Array.from({ length: tileCount as number }, (_, i) => ({
+            id: i + 1,
+            insight: { id: 101 + i, name: `Insight ${i}` } as any,
+            layouts: { sm: { x: 0, y: i } } as any,
+        }))
+
         renderInsightSelector({
-            tiles: createMockTiles() as DashboardTile[],
+            tiles: tiles as DashboardTile[],
             selectedInsightIds: [101, 102],
             onChange: jest.fn(),
         })
 
-        expect(screen.getByText(`2 of ${MAX_INSIGHTS} insights selected`)).toBeInTheDocument()
+        expect(screen.getByText(expected as string)).toBeInTheDocument()
     })
 
     it('calls onChange when selecting an insight', async () => {
@@ -106,18 +115,41 @@ describe('InsightSelector', () => {
         expect(onDefaultsApplied).toHaveBeenCalledWith([101, 102, 103])
     })
 
-    it('filters out stale IDs that no longer exist in tiles', () => {
+    it.each([[[101, 999, 102]], [[998, 999]]])('preserves unavailable selections on open: %j', (ids) => {
         const onChange = jest.fn()
-
-        // Selected IDs include 999 which doesn't exist in tiles
         renderInsightSelector({
             tiles: createMockTiles() as DashboardTile[],
-            selectedInsightIds: [101, 999, 102],
+            selectedInsightIds: ids,
             onChange,
         })
 
-        // Should call onChange to remove the stale ID
-        expect(onChange).toHaveBeenCalledWith([101, 102])
+        expect(screen.getByText(/selected insights? (?:is|are) no longer on this dashboard/)).toBeInTheDocument()
+        expect(onChange).not.toHaveBeenCalled()
+        const labels = screen.getAllByRole('checkbox').map((input) => input.nextElementSibling?.textContent)
+        expect(labels).toEqual(['Pageviews', 'Sessions', 'Users'])
+        expect(screen.queryByText(/ID:/)).not.toBeInTheDocument()
+    })
+
+    it('keeps unavailable insights when selecting a replacement', async () => {
+        const onChange = jest.fn()
+        renderInsightSelector({
+            tiles: createMockTiles() as DashboardTile[],
+            selectedInsightIds: [999],
+            onChange,
+        })
+
+        await userEvent.click(screen.getByText('Sessions'))
+        expect(onChange).toHaveBeenLastCalledWith([999, 102])
+    })
+
+    it('shows unavailable selections even when the dashboard is empty', () => {
+        renderInsightSelector({ tiles: [], selectedInsightIds: [999], onChange: jest.fn() })
+        expect(screen.getByText(/selected insights? (?:is|are) no longer on this dashboard/)).toBeInTheDocument()
+        expect(
+            screen.getByText(
+                '1 selected insight is no longer on this dashboard. It will be removed from this subscription when you save.'
+            )
+        ).toBeInTheDocument()
     })
 
     it('shows max limit message when at capacity', () => {
@@ -171,7 +203,9 @@ describe('InsightSelector', () => {
             onChange: jest.fn(),
         })
 
-        expect(screen.getByText('No insights found in this dashboard.')).toBeInTheDocument()
+        expect(
+            screen.getByText('No insights found in this dashboard. Add an insight before saving.')
+        ).toBeInTheDocument()
     })
 
     it('uses derived_name when name is not available', () => {

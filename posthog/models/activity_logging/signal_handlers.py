@@ -20,7 +20,11 @@ from prometheus_client import Counter
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
+from posthog.helpers.impersonation import (
+    get_original_user_from_session,
+    get_original_user_id_from_session,
+    is_impersonated,
+)
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
@@ -30,6 +34,7 @@ from posthog.models.activity_logging.activity_log import (
     LogActivityEntry,
     bulk_log_activity,
     changes_between,
+    field_name_overrides,
     log_activity,
 )
 from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user, get_was_impersonated
@@ -48,14 +53,10 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
+from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
+from posthog.session.activity import session_activity_credential
 from posthog.session.models import Session
 from posthog.utils import get_ip_address, get_short_user_agent
-
-from products.experiments.backend.models.experiment import (
-    ExperimentHoldout,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -139,38 +140,80 @@ def _determine_login_method(request, was_impersonated):
     return login_method
 
 
+def _record_current_session_credential(request: HttpRequest, *, impersonated_by_id: int | None = None) -> None:
+    """Record the session that the login leaves behind.
+
+    The session resolver of `ActivityLoggingMiddleware` does not cover a login. A fresh sign-in was
+    anonymous when the middleware ran, so the middleware set no resolver. A login that switches
+    users fails the resolver's user check, so the resolver returns no credential.
+    """
+    if not activity_storage.is_request_scoped():
+        return
+    activity_storage.set_credential(
+        session_activity_credential(request, impersonated_by_id or get_original_user_id_from_session(request))
+    )
+
+
+def log_login_activity(
+    user,
+    request: HttpRequest,
+    *,
+    login_method: str,
+    reauth: bool,
+    was_impersonated: bool = False,
+    log_user=None,
+    item_id: str | None = None,
+) -> None:
+    """Write the `logged_in` audit entry.
+
+    Also called directly for an SSO step-up re-auth, which keeps its session and so never fires
+    `user_logged_in` (see `posthog.api.authentication.social_reauth`).
+    """
+    organization_id = user.current_organization_id
+
+    if organization_id is None:
+        logger.info("Skipping login activity log - user has no organization", user_id=user.id)
+        return
+
+    # `login_as` fires `user_logged_in` before it stores the staff user in the session, so on the
+    # row that starts an impersonation only the detected staff user can name the impersonator.
+    impersonated_by_id = log_user.pk if was_impersonated and log_user is not None and log_user.pk != user.pk else None
+    _record_current_session_credential(request, impersonated_by_id=impersonated_by_id)
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=None,
+        user=log_user or user,
+        item_id=item_id or str(user.id),
+        scope="User",
+        activity="logged_in",
+        detail=Detail(
+            name=user.email,
+            changes=[],
+            context=UserLoginContext(
+                login_method=login_method,
+                ip_address=get_ip_address(request),
+                user_agent=get_short_user_agent(request),
+                reauth=reauth,
+            ),
+        ),
+        was_impersonated=was_impersonated,
+    )
+
+
 @receiver(user_logged_in)
 def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # noqa: ARG001
     try:
         was_impersonated, log_user, item_id, _ = _detect_impersonation_for_login(user, request)
-        ip_address = get_ip_address(request)
-        user_agent = get_short_user_agent(request)
-        reauth = request.session.get("reauth") == "true"
 
-        organization_id = user.current_organization_id
-
-        if organization_id is None:
-            logger.info("Skipping login activity log - user has no organization", user_id=user.id)
-            return
-
-        log_activity(
-            organization_id=organization_id,
-            team_id=None,
-            user=log_user,
-            item_id=item_id,
-            scope="User",
-            activity="logged_in",
-            detail=Detail(
-                name=user.email,
-                changes=[],
-                context=UserLoginContext(
-                    login_method=_determine_login_method(request, was_impersonated),
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    reauth=reauth,
-                ),
-            ),
+        log_login_activity(
+            user,
+            request,
+            login_method=_determine_login_method(request, was_impersonated),
+            reauth=request.session.get("reauth") == "true",
             was_impersonated=was_impersonated,
+            log_user=log_user,
+            item_id=item_id,
         )
     except Exception as e:
         logger.exception("Failed to log user login activity", user_id=user.id, error=e)
@@ -372,75 +415,6 @@ def handle_identity_provider_config_change(
     )
 
 
-@mutable_receiver(model_activity_signal, sender=ExperimentSavedMetric)
-def handle_experiment_saved_metric_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity=activity,
-        detail=Detail(
-            # need to use ExperimentSavedMetric here for field exclusions..
-            changes=changes_between("ExperimentSavedMetric", previous=before_update, current=after_update),
-            name=after_update.name,
-            type="shared_metric",
-        ),
-    )
-
-
-@receiver(pre_delete, sender=ExperimentSavedMetric)
-def handle_experiment_saved_metric_delete(sender, instance, **kwargs):
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=activity_storage.get_was_impersonated(),
-        item_id=instance.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity="deleted",
-        detail=Detail(name=instance.name, type="shared_metric"),
-    )
-
-
-@mutable_receiver(model_activity_signal, sender=ExperimentHoldout)
-def handle_experiment_holdout_change(
-    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
-):
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user or after_update.created_by,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            type="holdout",
-        ),
-    )
-
-
-@receiver(pre_delete, sender=ExperimentHoldout)
-def handle_experiment_holdout_delete(sender, instance, **kwargs):
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=activity_storage.get_was_impersonated(),
-        item_id=instance.id,
-        scope="Experiment",
-        activity="deleted",
-        detail=Detail(name=instance.name, type="holdout"),
-    )
-
-
 @dataclasses.dataclass(frozen=True)
 class OAuthApplicationScopesContext(ActivityContextBase):
     client_id: str
@@ -471,16 +445,19 @@ def handle_oauth_application_scopes_change(
     else:
         if before_update is None or after_update is None:
             return
-        # `scopes` is an ordered ArrayField but semantically a set (a permission ceiling),
-        # so a pure reorder is not an auditable change.
-        if set(before_update.scopes or []) == set(after_update.scopes or []):
-            return
-        # Only the scope ceiling is audited for OAuth apps; other fields changed in the
-        # same save are deliberately left out of the entry.
+        # Only the scope ceiling and the provisioning config (capabilities and rate-limit
+        # overrides) are audited for OAuth apps; other fields changed in the same save are
+        # deliberately left out of the entry. `scopes` is an ordered ArrayField but
+        # semantically a set (a permission ceiling), so a pure reorder is not auditable.
+        scopes_changed = set(before_update.scopes or []) != set(after_update.scopes or [])
+        # Changes carry the display name, not the column name.
+        provisioning_field = field_name_overrides.get("OAuthApplication", {}).get(
+            "_provisioning_config", "_provisioning_config"
+        )
         changes = [
             change
             for change in changes_between(scope, previous=before_update, current=after_update)
-            if change.field == "scopes"
+            if (change.field == "scopes" and scopes_changed) or change.field == provisioning_field
         ]
         if not changes:
             return
@@ -518,33 +495,63 @@ def handle_oauth_application_scopes_change(
     )
 
 
-@mutable_receiver(model_activity_signal, sender=ExperimentToSavedMetric)
-def handle_experiment_to_saved_metric_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
+def _log_workload_trust_activity(
+    scope: ActivityScope,
+    before_update: WorkloadTrustPolicy | WorkloadTrustPolicyRequest | None,
+    after_update: WorkloadTrustPolicy | WorkloadTrustPolicyRequest | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool,
+) -> None:
     instance = after_update or before_update
-    if not instance:
+    if instance is None:
         return
-
     log_activity(
-        organization_id=instance.experiment.team.organization_id,
-        team_id=instance.experiment.team_id,
-        user=user or activity_storage.get_user(),
-        was_impersonated=was_impersonated or activity_storage.get_was_impersonated(),
-        item_id=instance.experiment_id,
-        # Stored under the public Experiment scope so it shows up in the experiment
-        # activity log feed. The describer arm on `type="saved_metric_config"`
-        # renders the row.
-        scope="Experiment",
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.pk,
+        scope=scope,
         activity=activity,
         detail=Detail(
-            # `"ExperimentToSavedMetric"` is an InternalActivityScope key used only for
-            # field_exclusions / changes_between — never written to ActivityLog.scope.
-            changes=changes_between("ExperimentToSavedMetric", previous=before_update, current=after_update),
-            name=instance.saved_metric.name,
-            type="saved_metric_config",
+            name=instance.name,
+            changes=changes_between(scope, previous=before_update, current=after_update),
         ),
     )
+
+
+@mutable_receiver(model_activity_signal, sender=WorkloadTrustPolicy)
+def handle_workload_trust_policy_change(
+    sender: type[WorkloadTrustPolicy],
+    scope: ActivityScope,
+    before_update: WorkloadTrustPolicy | None,
+    after_update: WorkloadTrustPolicy | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    _log_workload_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
+
+
+@mutable_receiver(model_activity_signal, sender=WorkloadTrustPolicyRequest)
+def handle_workload_trust_policy_request_change(
+    sender: type[WorkloadTrustPolicyRequest],
+    scope: ActivityScope,
+    before_update: WorkloadTrustPolicyRequest | None,
+    after_update: WorkloadTrustPolicyRequest | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    if activity == "updated":
+        # A request is immutable apart from its resolution, so an update is an approval or a rejection.
+        if before_update is None or after_update is None or before_update.status == after_update.status:
+            return
+        activity = after_update.status
+    _log_workload_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
 
 
 # --- Receivers relocated from posthog.api viewset modules ---------------------------------
@@ -610,11 +617,14 @@ RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
     "ticket": RelatedObjectActivityLogger(
         scope="Ticket",
         resolve_name=lambda tagged_item, default_name: (
-            f"Ticket #{tagged_item.ticket.ticket_number}" if tagged_item.ticket else default_name
+            f"Ticket #{number}"
+            if (number := getattr(tagged_item.content_object, "ticket_number", None)) is not None
+            else default_name
         ),
     ),
     "account": RelatedObjectActivityLogger(scope="Account"),
     "endpoint": RelatedObjectActivityLogger(scope="Endpoint"),
+    "hog_flow": RelatedObjectActivityLogger(scope="HogFlow"),
 }
 
 
@@ -628,15 +638,15 @@ def handle_tagged_item_change(
     if not tagged_item or not tagged_item.tag:
         return
 
-    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
+    related_object = get_tagged_item_related_object_info(tagged_item)
 
     context = TaggedItemContext(
         tag_name=tagged_item.tag.name,
         tag_id=str(tagged_item.tag.id),
         team_id=tagged_item.tag.team_id,
-        related_object_type=related_object_type,
-        related_object_id=related_object_id,
-        related_object_name=related_object_name,
+        related_object_type=related_object.type,
+        related_object_id=related_object.id,
+        related_object_name=related_object.name,
     )
 
     team = tagged_item.tag.team
@@ -663,19 +673,19 @@ def handle_tagged_item_change(
 
     # Mirror the tag change onto the related object's own activity stream
     # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
-    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object_type or "")
-    if related_logger and related_object_id:
+    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object.type or "")
+    if related_logger and related_object.id:
         tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
         log_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
             was_impersonated=was_impersonated,
-            item_id=related_object_id,
+            item_id=related_object.id,
             scope=related_logger.scope,
             activity="updated",
             detail=Detail(
-                name=related_logger.resolve_name(tagged_item, related_object_name),
+                name=related_logger.resolve_name(tagged_item, related_object.name),
                 changes=[
                     Change(
                         type=related_logger.scope,

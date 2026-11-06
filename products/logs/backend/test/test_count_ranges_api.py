@@ -3,7 +3,7 @@ import re
 import json
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -42,7 +42,7 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         return response.json() if expected_status == status.HTTP_200_OK else response
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_default_target_buckets_picks_12h_interval(self):
         # 5-day window / 10 target buckets => 12-hour interval (deterministic from
         # the picker's "round" interval list).
@@ -61,19 +61,19 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
             (50, "2h"),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_target_buckets_picks_appropriate_interval(self, target, expected_interval):
         response = self._ranges({"dateRange": _FIXTURE_WINDOW, "targetBuckets": target})
         self.assertEqual(response["interval"], expected_interval)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_target_buckets_above_max_is_clamped(self):
         over = self._ranges({"dateRange": _FIXTURE_WINDOW, "targetBuckets": 999})
         capped = self._ranges({"dateRange": _FIXTURE_WINDOW, "targetBuckets": 100})
         self.assertEqual(over["interval"], capped["interval"])
         self.assertEqual(len(over["ranges"]), len(capped["ranges"]))
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_empty_window_returns_no_ranges(self):
         response = self._ranges(
             {"dateRange": {"date_from": "2000-01-01T00:00:00Z", "date_to": "2000-01-02T00:00:00Z"}},
@@ -91,7 +91,7 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
             ("service_argo_rollouts_contour", "serviceNames", ["argo-rollouts", "contour"]),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_filter_sum_matches_count_endpoint(self, _name, field, value):
         params = {"dateRange": _FIXTURE_WINDOW, field: value}
         ranges_response = self._ranges({**params, "targetBuckets": 50})
@@ -104,7 +104,7 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(count_response.status_code, status.HTTP_200_OK)
         self.assertEqual(bucket_sum, count_response.json()["count"])
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_buckets_ordered_ascending_and_aligned(self):
         response = self._ranges({"dateRange": _DENSE_DAY, "targetBuckets": 24})
         ranges = response["ranges"]
@@ -116,7 +116,7 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
             dt_ = datetime.fromisoformat(bucket["date_to"])
             self.assertGreater(dt_, df)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_bucket_timestamps_are_utc_z_suffixed(self):
         ranges = self._ranges({"dateRange": _DENSE_DAY, "targetBuckets": 24})["ranges"]
         self.assertGreater(len(ranges), 0)
@@ -124,7 +124,7 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
             self.assertTrue(bucket["date_from"].endswith("Z"), bucket["date_from"])
             self.assertTrue(bucket["date_to"].endswith("Z"), bucket["date_to"])
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_recursion_happy_path(self):
         wide = self._ranges({"dateRange": _FIXTURE_WINDOW, "targetBuckets": 10})
         densest = max(wide["ranges"], key=lambda b: b["count"])
@@ -140,12 +140,12 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
         self.assertLessEqual(narrow_sum, densest["count"])
         self.assertGreater(narrow_sum, 0)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_no_filtergroup_does_not_crash(self):
         response = self._ranges({"dateRange": _DENSE_DAY})
         self.assertGreater(len(response["ranges"]), 0)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_defaults_date_range_to_last_hour(self):
         response = self._ranges({})
         self.assertEqual(response["ranges"], [])

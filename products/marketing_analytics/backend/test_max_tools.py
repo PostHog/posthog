@@ -2,9 +2,11 @@ import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.test import SimpleTestCase
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -119,7 +121,7 @@ def _make_data_source_entry(
 
 def _make_goal_summary(
     *,
-    id="goal-1",
+    conversion_goal_id="goal-1",
     name="Purchase",
     kind="EventsNode",
     target_label="purchase",
@@ -133,7 +135,7 @@ def _make_goal_summary(
     misconfig_reason=None,
 ):
     return ConversionGoalSummary(
-        id=id,
+        conversion_goal_id=conversion_goal_id,
         name=name,
         kind=kind,
         target_label=target_label,
@@ -148,7 +150,7 @@ def _make_goal_summary(
     )
 
 
-class TestSanitizeForPrompt(BaseTest):
+class TestSanitizeForPrompt(SimpleTestCase):
     @parameterized.expand(
         [
             ("newline_to_space", "google\nads", "google ads"),
@@ -203,8 +205,8 @@ class TestSanitizeForPrompt(BaseTest):
         assert result == "abc"
 
 
-@freeze_time("2025-06-15")
-class TestFormatTimestampForLlm(BaseTest):
+@time_machine.travel("2025-06-15", tick=False)
+class TestFormatTimestampForLlm(SimpleTestCase):
     @parameterized.expand(
         [
             ("none_returns_never", None, "never"),
@@ -296,8 +298,8 @@ class TestResolveLookbackDays(BaseTest):
         assert result == 90
 
 
-@freeze_time("2025-06-15")
-class TestFormatDiagnosticForLlm(BaseTest):
+@time_machine.travel("2025-06-15", tick=False)
+class TestFormatDiagnosticForLlm(SimpleTestCase):
     def _make_minimal_response(self, *, overall_status="healthy", summary="All good"):
         return MarketingDiagnosticResponse(
             integrations=[],
@@ -396,7 +398,7 @@ class TestFormatDiagnosticForLlm(BaseTest):
         assert "Purchase" in result
 
 
-class TestFormatConversionGoalsForLlm(BaseTest):
+class TestFormatConversionGoalsForLlm(SimpleTestCase):
     def test_empty_goals_returns_no_goals_message(self):
         response = ConversionGoalsListResponse(
             goals=[],
@@ -409,7 +411,7 @@ class TestFormatConversionGoalsForLlm(BaseTest):
 
     def test_populated_goals_includes_goal_names(self):
         response = ConversionGoalsListResponse(
-            goals=[_make_goal_summary(name="Signup"), _make_goal_summary(id="goal-2", name="Purchase")],
+            goals=[_make_goal_summary(name="Signup"), _make_goal_summary(conversion_goal_id="goal-2", name="Purchase")],
             attribution_window_days=30,
             attribution_mode="last_touch",
             has_misconfigured=False,
@@ -442,7 +444,7 @@ class TestFormatConversionGoalsForLlm(BaseTest):
         assert "14" in result
 
 
-class TestFormatGoalLine(BaseTest):
+class TestFormatGoalLine(SimpleTestCase):
     def test_includes_goal_name_and_kind(self):
         goal = _make_goal_summary(name="Signup", kind="EventsNode")
         result = _format_goal_line(goal)
@@ -450,7 +452,7 @@ class TestFormatGoalLine(BaseTest):
         assert "EventsNode" in result
 
     def test_include_id_prepends_id(self):
-        goal = _make_goal_summary(id="abc-123")
+        goal = _make_goal_summary(conversion_goal_id="abc-123")
         result = _format_goal_line(goal, include_id=True)
         assert "abc-123" in result
 
@@ -467,8 +469,8 @@ class TestFormatGoalLine(BaseTest):
         assert "non_integrated=50" in result
 
 
-@freeze_time("2025-06-15")
-class TestFormatDataSourcesForLlm(BaseTest):
+@time_machine.travel("2025-06-15", tick=False)
+class TestFormatDataSourcesForLlm(SimpleTestCase):
     def test_not_connected_shows_in_output(self):
         entry = _make_data_source_entry(
             display_name="Meta Ads",
@@ -536,10 +538,10 @@ class TestFormatDataSourcesForLlm(BaseTest):
         assert "cost_micros" in result
 
 
-class TestFormatExplainGoalForLlm(BaseTest):
+class TestFormatExplainGoalForLlm(SimpleTestCase):
     def _make_explanation(self, *, kind="EventsNode", total_count=200):
         return GoalExplanation(
-            goal_id="goal-1",
+            conversion_goal_id="goal-1",
             goal_name="Signup",
             kind=kind,
             period=DateRange(date_from="2025-04-01", date_to="2025-05-01"),
@@ -586,7 +588,7 @@ class TestFormatExplainGoalForLlm(BaseTest):
         assert "flat breakdown" in result
 
 
-class TestFormatAuditUtmForLlm(BaseTest):
+class TestFormatAuditUtmForLlm(SimpleTestCase):
     def _make_response(self, *, campaigns_with_issues=0, results=None, all_utm_events=None):
         return UtmAuditResponse(
             total_campaigns=5,
@@ -639,7 +641,7 @@ class TestFormatAuditUtmForLlm(BaseTest):
         assert "unknown_source" in result
 
 
-class TestFormatEventSuggestionsForLlm(BaseTest):
+class TestFormatEventSuggestionsForLlm(SimpleTestCase):
     def test_empty_candidates_returns_no_candidates_message(self):
         response = EventSuggestionsResponse(candidates=[], lookback_days=30)
         result = _format_event_suggestions_for_llm(response)
@@ -680,7 +682,7 @@ class TestFormatEventSuggestionsForLlm(BaseTest):
         assert "already a goal" in result
 
 
-class TestFormatUtmMappingSuggestionsForLlm(BaseTest):
+class TestFormatUtmMappingSuggestionsForLlm(SimpleTestCase):
     def _make_empty_response(self):
         return UtmMappingSuggestionsResponse(
             lookback_days_used=90,
@@ -874,7 +876,7 @@ class TestMarketingExplainConversionGoalTool(BaseTest):
     async def test_arun_impl_success(self):
         tool = self._setup_tool()
         explanation = GoalExplanation(
-            goal_id="goal-1",
+            conversion_goal_id="goal-1",
             goal_name="Signup",
             kind="EventsNode",
             period=DateRange(date_from="2025-04-01", date_to="2025-05-01"),
@@ -893,7 +895,7 @@ class TestMarketingExplainConversionGoalTool(BaseTest):
             "products.marketing_analytics.backend.max_tools.explain_conversion_goal",
             new=AsyncMock(return_value=explanation),
         ):
-            content, artifact = await tool._arun_impl(goal_id="goal-1")
+            content, artifact = await tool._arun_impl(conversion_goal_id="goal-1")
 
         assert isinstance(content, str)
         assert isinstance(artifact, dict)
@@ -907,11 +909,11 @@ class TestMarketingExplainConversionGoalTool(BaseTest):
             "products.marketing_analytics.backend.max_tools.explain_conversion_goal",
             new=AsyncMock(side_effect=ValueError("Goal 'missing-id' not found")),
         ):
-            content, artifact = await tool._arun_impl(goal_id="missing-id")
+            content, artifact = await tool._arun_impl(conversion_goal_id="missing-id")
 
         assert "Could not explain" in content
         assert artifact["error"] == "goal_not_found"
-        assert artifact["goal_id"] == "missing-id"
+        assert artifact["conversion_goal_id"] == "missing-id"
 
 
 class TestMarketingListConversionGoalsTool(BaseTest):

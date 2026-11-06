@@ -24,8 +24,12 @@ use crate::{
         flag_service::FlagService,
     },
     handler::{
-        apply_minimal_flag_called_events, decoding, evaluation::evaluate_feature_flags,
-        flags::fetch_and_filter, properties, FeatureFlagEvaluationContext,
+        apply_minimal_flag_called_events,
+        canonical_log::{run_with_canonical_log, FlagsCanonicalLogLine},
+        decoding,
+        evaluation::evaluate_feature_flags,
+        flags::fetch_and_filter,
+        properties, FeatureFlagEvaluationContext,
     },
     mock,
     properties::property_models::PropertyType,
@@ -35,7 +39,8 @@ use crate::{
         test_utils::{
             flag_list_with_metadata_and_filter, insert_flags_for_team_in_redis,
             mock_group_type_cache, setup_hypercache_reader, setup_pg_reader_client,
-            setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader, TestContext,
+            setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader,
+            write_flags_wire_json_to_redis, TestContext,
         },
     },
 };
@@ -138,6 +143,13 @@ enum GeoipExpected {
     IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
     GeoipExpected::None
 )]
+// GeoIP on, loopback IP, with person props → supplied props survive an unresolvable IP
+#[case(
+    false,
+    true,
+    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+    GeoipExpected::NameOnly
+)]
 fn test_geoip_person_property_overrides(
     #[case] geoip_disabled: bool,
     #[case] with_name: bool,
@@ -175,6 +187,101 @@ fn test_geoip_person_property_overrides(
         }
         GeoipExpected::None => assert!(result.is_none()),
     }
+}
+
+#[test]
+// A supplied null survives only when the IP resolves nothing: the fill loop at
+// properties.rs only visits keys MaxMind returns. That leftover null reads as
+// "supplied" to `requires_db_property`, so it suppresses the person fetch; treat
+// this as a presence test for the residual null, not a verdict that the DB
+// suppression is correct.
+fn test_supplied_geoip_null_survives_unresolvable_ip() {
+    let geoip_service = create_test_geoip_service();
+    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    let name = Value::String("John".to_string());
+
+    let person_properties = HashMap::from([
+        ("name".to_string(), name.clone()),
+        ("$geoip_country_code".to_string(), Value::Null),
+    ]);
+
+    let result = properties::get_person_property_overrides(
+        false,
+        Some(person_properties),
+        &ip,
+        &geoip_service,
+    );
+
+    let result = result.expect("expected property overrides");
+    assert_eq!(result.len(), 2);
+    assert_eq!(result.get("name"), Some(&name));
+    assert_eq!(result.get("$geoip_country_code"), Some(&Value::Null));
+}
+
+/// `supplied` is the value the request sends for `$geoip_country_code`, or `None` for a request
+/// that sends person properties without that key at all (the `unrelated_key_only` case).
+#[rstest]
+#[case::differs(false, Some(Value::String("DE".to_string())), true, "DE")]
+#[case::matches_lookup(false, Some(Value::String("US".to_string())), false, "US")]
+#[case::null_counts_as_absent(false, Some(Value::Null), false, "US")]
+#[case::unrelated_key_only(false, None, false, "US")]
+#[case::geoip_disabled(true, Some(Value::String("DE".to_string())), false, "DE")]
+#[tokio::test]
+async fn test_canonical_log_records_geoip_divergence(
+    #[case] geoip_disabled: bool,
+    #[case] supplied: Option<Value>,
+    #[case] expected_divergence: bool,
+    #[case] expected_country: &str,
+) {
+    let geoip_service = create_test_geoip_service();
+    let ip = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+
+    // The `matches_lookup` case is only meaningful if the lookup really resolves this value.
+    assert_eq!(
+        geoip_service
+            .get_geoip_properties(&ip.to_string())
+            .unwrap_or_default()
+            .get("$geoip_country_code")
+            .map(String::as_str),
+        Some("US")
+    );
+
+    let person_properties = supplied
+        .map(|value| HashMap::from([("$geoip_country_code".to_string(), value)]))
+        .or_else(|| {
+            Some(HashMap::from([(
+                "name".to_string(),
+                Value::String("John".to_string()),
+            )]))
+        });
+
+    let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), ip.to_string());
+    let (result, final_log) = run_with_canonical_log(log, async {
+        properties::get_person_property_overrides(
+            geoip_disabled,
+            person_properties,
+            &ip,
+            &geoip_service,
+        )
+    })
+    .await;
+
+    assert_eq!(
+        final_log.geoip_properties_differ_from_lookup,
+        expected_divergence
+    );
+
+    // Supplied values win; the lookup only fills keys the request left absent or null.
+    let result = result.expect("expected property overrides");
+    assert_eq!(
+        result.get("$geoip_country_code"),
+        Some(&Value::String(expected_country.to_string()))
+    );
+    assert_eq!(
+        result.contains_key("$geoip_country_name"),
+        !geoip_disabled,
+        "the lookup should fill the geoip keys the request didn't send, unless disabled"
+    );
 }
 
 #[tokio::test]
@@ -223,9 +330,11 @@ async fn test_evaluate_feature_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -309,9 +418,11 @@ async fn test_evaluate_feature_flags_with_errors() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -341,6 +452,7 @@ async fn test_evaluate_feature_flags_with_errors() {
                 has_experiment: false,
             },
             conditions: None,
+            config_outcome: Default::default(),
         }
     );
     let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -702,9 +814,11 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -786,9 +900,11 @@ async fn test_evaluate_feature_flags_details() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -818,6 +934,7 @@ async fn test_evaluate_feature_flags_details() {
                 has_experiment: false,
             },
             conditions: None,
+            config_outcome: Default::default(),
         }
     );
     assert_eq!(
@@ -840,6 +957,7 @@ async fn test_evaluate_feature_flags_details() {
                 has_experiment: false,
             },
             conditions: None,
+            config_outcome: Default::default(),
         }
     );
 }
@@ -943,9 +1061,11 @@ async fn test_evaluate_feature_flags_with_overrides() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -1026,9 +1146,11 @@ async fn test_long_distinct_id() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -1343,6 +1465,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
         dependency_stages: vec![vec![1], vec![2]],
         flags_with_missing_deps: vec![],
         transitive_deps: HashMap::from([(2, std::collections::HashSet::from([1]))]),
+        ..Default::default()
     };
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.clone(),
@@ -1375,6 +1498,477 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     assert_eq!(ctx.dependency_stages, vec![vec![1], vec![2]]);
     assert!(ctx.flags_with_missing_deps.is_empty());
     assert!(ctx.transitive_deps.contains_key(&2));
+}
+
+/// Historical test evaluation ships a reconstructed soft-deleted flag as an
+/// override. The team's cached flag list excludes deleted flags, so the
+/// override's key is absent from it: `fetch_and_filter` must add the override
+/// to the list, leave it un-filtered, and stage it in the evaluation metadata
+/// (a flag absent from `dependency_stages` is never evaluated and would be
+/// miscounted as a cycle participant).
+#[tokio::test]
+async fn test_fetch_and_filter_override_adds_flag_missing_from_team_list() {
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    // The team's list carries only the live flag; the soft-deleted flag (id 2)
+    // is excluded at cache-write time, exactly like production.
+    let flags = vec![mock!(FeatureFlag,
+        name: "Live flag".mock_into(),
+        id: 1,
+        key: "live-flag".mock_into(),
+        team_id: team.id,
+        filters: FlagFilters::default()
+    )];
+    let eval_metadata = EvaluationMetadata {
+        dependency_stages: vec![vec![1]],
+        flags_with_missing_deps: vec![],
+        transitive_deps: HashMap::from([(1, std::collections::HashSet::new())]),
+        ..Default::default()
+    };
+    let wrapper = HypercacheFlagsWrapper {
+        flags: flags.clone(),
+        evaluation_metadata: eval_metadata,
+        cohorts: None,
+    };
+    let json_string = serde_json::to_string(&wrapper).unwrap();
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
+        .await
+        .unwrap();
+
+    let override_def = json!({
+        "id": 2,
+        "team_id": team.id,
+        "name": "Reconstructed deleted flag",
+        "key": "deleted-flag",
+        "filters": { "groups": [{"properties": [], "rollout_percentage": 100}] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> =
+        HashMap::from([("deleted-flag".to_string(), override_def)]);
+
+    let query_params = FlagsQueryParams::default();
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &query_params,
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        result.flags.len(),
+        2,
+        "override for a key absent from the team's list must be added, not dropped"
+    );
+    let added = result
+        .flags
+        .iter()
+        .find(|f| f.key == "deleted-flag")
+        .expect("added flag must be in the list");
+    assert!(
+        !result.filtered_out_flag_ids.contains(&added.id),
+        "added flag must not be filtered out"
+    );
+    let staged: Vec<i32> = result
+        .evaluation_metadata
+        .dependency_stages
+        .iter()
+        .flatten()
+        .copied()
+        .collect();
+    assert!(
+        staged.contains(&added.id),
+        "added flag must appear in a dependency stage or it is never evaluated (stages: {staged:?})"
+    );
+}
+
+/// When an override adds a flag, `fetch_and_filter` recomputes the evaluation
+/// metadata. The recompute must keep the read-time `has_unparseable_flags`
+/// marker, or a partial evaluation would stop reporting
+/// `errorsWhileComputingFlags`.
+#[tokio::test]
+async fn test_fetch_and_filter_override_add_preserves_unparseable_marker() {
+    use crate::flags::test_helpers::payload_with_unparseable_flag;
+
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    let json_string = payload_with_unparseable_flag(team.id).to_string();
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
+        .await
+        .unwrap();
+
+    let override_def = json!({
+        "id": 99,
+        "team_id": team.id,
+        "name": "Reconstructed deleted flag",
+        "key": "deleted-flag",
+        "filters": { "groups": [{"properties": [], "rollout_percentage": 100}] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> =
+        HashMap::from([("deleted-flag".to_string(), override_def)]);
+
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        result.flags.iter().any(|f| f.key == "deleted-flag"),
+        "override must be added"
+    );
+    assert!(
+        result.evaluation_metadata.has_unparseable_flags,
+        "metadata recompute must keep the unparseable-flags marker"
+    );
+}
+
+/// The cached cohort list only holds cohorts the team's live flags reference,
+/// and the matcher treats a present list as complete. An override can name a
+/// cohort outside that list (a reconstructed deleted flag's cohort), so
+/// `fetch_and_filter` must drop the scoped list when an override was applied,
+/// which makes the matcher load the team's full cohort set instead. Without
+/// an override, the cached list passes through untouched.
+#[tokio::test]
+async fn test_fetch_and_filter_override_drops_scoped_cohort_list() {
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    let flags = vec![mock!(FeatureFlag,
+        name: "Live flag".mock_into(),
+        id: 1,
+        key: "live-flag".mock_into(),
+        team_id: team.id,
+        filters: FlagFilters::default()
+    )];
+    let eval_metadata = EvaluationMetadata {
+        dependency_stages: vec![vec![1]],
+        flags_with_missing_deps: vec![],
+        transitive_deps: HashMap::from([(1, std::collections::HashSet::new())]),
+        ..Default::default()
+    };
+    // What Django writes when no live flag targets a cohort: an empty list,
+    // not a missing one.
+    let wrapper = HypercacheFlagsWrapper {
+        flags: flags.clone(),
+        evaluation_metadata: eval_metadata,
+        cohorts: Some(vec![]),
+    };
+    let json_string = serde_json::to_string(&wrapper).unwrap();
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
+        .await
+        .unwrap();
+
+    // Without an override the scoped list passes through.
+    let no_override = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(
+        no_override.cohorts.is_some(),
+        "without overrides the cached cohort list must pass through"
+    );
+
+    let override_def = json!({
+        "id": 2,
+        "team_id": team.id,
+        "name": "Reconstructed deleted flag",
+        "key": "deleted-flag",
+        "filters": { "groups": [{"properties": [], "rollout_percentage": 100}] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> =
+        HashMap::from([("deleted-flag".to_string(), override_def)]);
+
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        result.flags.iter().any(|f| f.key == "deleted-flag"),
+        "override must be added"
+    );
+    assert!(
+        result.cohorts.is_none(),
+        "an applied override must drop the scoped cohort list so the matcher loads the full set"
+    );
+}
+
+/// A REPLACED flag's historical version can depend on flags its live version
+/// does not. The recompute must run for replacements too, or the cached
+/// `transitive_deps` would leave the dependency unevaluated and the condition
+/// would read as a silent non-match.
+#[tokio::test]
+async fn test_fetch_and_filter_replace_override_recomputes_metadata() {
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    // Two independent live flags: the cached metadata has no edges.
+    let flags = vec![
+        mock!(FeatureFlag,
+            name: "Flag A".mock_into(),
+            id: 1,
+            key: "flag-a".mock_into(),
+            team_id: team.id,
+            filters: FlagFilters::default()
+        ),
+        mock!(FeatureFlag,
+            name: "Flag B".mock_into(),
+            id: 2,
+            key: "flag-b".mock_into(),
+            team_id: team.id,
+            filters: FlagFilters::default()
+        ),
+    ];
+    let eval_metadata = EvaluationMetadata {
+        dependency_stages: vec![vec![1, 2]],
+        flags_with_missing_deps: vec![],
+        transitive_deps: HashMap::from([
+            (1, std::collections::HashSet::new()),
+            (2, std::collections::HashSet::new()),
+        ]),
+        ..Default::default()
+    };
+    let wrapper = HypercacheFlagsWrapper {
+        flags: flags.clone(),
+        evaluation_metadata: eval_metadata,
+        cohorts: Some(vec![]),
+    };
+    let json_string = serde_json::to_string(&wrapper).unwrap();
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
+        .await
+        .unwrap();
+
+    // The historical version of flag-a depended on flag-b.
+    let override_def = json!({
+        "id": 1,
+        "team_id": team.id,
+        "name": "Flag A at the timestamp",
+        "key": "flag-a",
+        "filters": { "groups": [{
+            "properties": [{
+                "key": "2",
+                "type": "flag",
+                "value": "true",
+                "operator": "flag_evaluates_to",
+            }],
+            "rollout_percentage": 100,
+        }] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> = HashMap::from([("flag-a".to_string(), override_def)]);
+
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        result.evaluation_metadata.transitive_deps.get(&1),
+        Some(&std::collections::HashSet::from([2])),
+        "replace-path override must recompute transitive deps (got {:?})",
+        result.evaluation_metadata.transitive_deps
+    );
+    assert!(
+        result.cohorts.is_none(),
+        "an applied override must drop the scoped cohort list"
+    );
+}
+
+/// An added flag can depend on a flag that is itself still deleted and so
+/// absent from the merged list. The metadata recompute must mark the added
+/// flag as missing a dependency (it then fails closed), and the live flag
+/// must stay staged.
+#[tokio::test]
+async fn test_fetch_and_filter_override_add_with_missing_dependency_fails_closed() {
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    let flags = vec![mock!(FeatureFlag,
+        name: "Live flag".mock_into(),
+        id: 1,
+        key: "live-flag".mock_into(),
+        team_id: team.id,
+        filters: FlagFilters::default()
+    )];
+    let eval_metadata = EvaluationMetadata {
+        dependency_stages: vec![vec![1]],
+        flags_with_missing_deps: vec![],
+        transitive_deps: HashMap::from([(1, std::collections::HashSet::new())]),
+        ..Default::default()
+    };
+    let wrapper = HypercacheFlagsWrapper {
+        flags: flags.clone(),
+        evaluation_metadata: eval_metadata,
+        cohorts: None,
+    };
+    let json_string = serde_json::to_string(&wrapper).unwrap();
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
+        .await
+        .unwrap();
+
+    // The added flag depends on flag id 99999, which is in no list (e.g. a
+    // dependency deleted in the same bulk delete).
+    let override_def = json!({
+        "id": 2,
+        "team_id": team.id,
+        "name": "Reconstructed deleted flag",
+        "key": "deleted-flag",
+        "filters": { "groups": [{
+            "properties": [{
+                "key": "99999",
+                "type": "flag",
+                "value": "true",
+                "operator": "flag_evaluates_to",
+            }],
+            "rollout_percentage": 100,
+        }] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> =
+        HashMap::from([("deleted-flag".to_string(), override_def)]);
+
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    let added = result
+        .flags
+        .iter()
+        .find(|f| f.key == "deleted-flag")
+        .expect("added flag must be in the list");
+    assert!(
+        result
+            .evaluation_metadata
+            .flags_with_missing_deps
+            .contains(&added.id),
+        "added flag with an unresolvable dependency must be marked missing-deps (got {:?})",
+        result.evaluation_metadata.flags_with_missing_deps
+    );
+    let staged: Vec<i32> = result
+        .evaluation_metadata
+        .dependency_stages
+        .iter()
+        .flatten()
+        .copied()
+        .collect();
+    assert!(
+        staged.contains(&1),
+        "live flag must stay staged (stages: {staged:?})"
+    );
 }
 
 /// Two `fetch_and_filter` calls against a primed `FlagDefinitionsCache` must
@@ -1634,9 +2228,11 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
         .await
@@ -1666,9 +2262,11 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
         .await
@@ -1759,9 +2357,11 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_disabled.clone(),
         enable_realtime_cohort_evaluation: false,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     // Test with realtime cohort evaluation ENABLED
@@ -1797,9 +2397,11 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_enabled.clone(),
         enable_realtime_cohort_evaluation: true,
+        use_explicit_exact_matching: false,
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();

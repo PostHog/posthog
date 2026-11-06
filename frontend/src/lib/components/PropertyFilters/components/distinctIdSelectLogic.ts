@@ -2,10 +2,11 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { PersonType } from '~/types'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 export interface DistinctIdSelectLogicProps {
     /** Stable per-instance key so two pickers mounted side-by-side don't share state. */

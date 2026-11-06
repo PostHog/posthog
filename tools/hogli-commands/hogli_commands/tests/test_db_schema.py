@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import gzip
+import threading
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +90,77 @@ def test_select_ignores_invalid_artifacts(artifact: db_schema.SchemaArtifact) ->
     assert db_schema.select_newest_compatible_artifact([artifact]) is None
 
 
+class _FakeArtifactPage:
+    def __init__(self, artifacts: list[dict[str, Any]], *, has_next: bool) -> None:
+        self._artifacts = artifacts
+        self.links = {"next": {"url": "next"}} if has_next else {}
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict[str, Any]:
+        return {"artifacts": self._artifacts}
+
+
+class _FakeArtifactPagesSession:
+    def __init__(self, pages: list[list[dict[str, Any]]]) -> None:
+        self._pages = pages
+        self.get_count = 0
+
+    def get(self, url: str, *, params: dict[str, Any], headers: dict[str, str], timeout: int) -> _FakeArtifactPage:
+        self.get_count += 1
+        page = params["page"]
+        return _FakeArtifactPage(
+            self._pages[page - 1] if page <= len(self._pages) else [],
+            has_next=page < len(self._pages),
+        )
+
+
+def _raw_artifact(artifact_id: int, head_branch: str, *, head_repository_id: int | None = 1) -> dict[str, Any]:
+    return {
+        "id": artifact_id,
+        "name": db_schema.SCHEMA_ARTIFACT_NAME,
+        "expired": False,
+        "size_in_bytes": db_schema.MIN_SCHEMA_ARTIFACT_BYTES + 1,
+        "archive_download_url": f"https://api.github.com/artifacts/{artifact_id}/zip",
+        "created_at": "2026-01-01T00:00:00Z",
+        "workflow_run": {
+            "head_sha": "sha",
+            "head_branch": head_branch,
+            "repository_id": 1,
+            "head_repository_id": head_repository_id,
+        },
+    }
+
+
+@pytest.mark.parametrize("head_repository_id", [2, None])
+def test_find_skips_artifacts_from_another_repository(head_repository_id: int | None) -> None:
+    session = _FakeArtifactPagesSession(
+        [[_raw_artifact(2, "master", head_repository_id=head_repository_id), _raw_artifact(1, "master")]]
+    )
+
+    artifact = db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master")  # type: ignore[arg-type]
+
+    assert artifact is not None and artifact.id == 1
+
+
+def test_find_stops_at_first_page_with_compatible_candidate() -> None:
+    session = _FakeArtifactPagesSession([[_raw_artifact(1, "master")], [_raw_artifact(2, "master")]])
+
+    artifact = db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master")  # type: ignore[arg-type]
+
+    assert session.get_count == 1
+    assert artifact is not None and artifact.id == 1
+
+
+def test_find_caps_pages_when_no_candidate_matches() -> None:
+    pages = [[_raw_artifact(page, "some-pr-branch")] for page in range(1, 31)]
+    session = _FakeArtifactPagesSession(pages)
+
+    assert db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master") is None  # type: ignore[arg-type]
+    assert session.get_count == db_schema.MAX_ARTIFACT_PAGES
+
+
 def test_select_honors_custom_base_branch() -> None:
     master_artifact = _artifact(1, "sha-a", "2026-01-01T00:00:00Z", head_branch="master")
     release_artifact = _artifact(2, "sha-b", "2026-01-02T00:00:00Z", head_branch="release-26.1")
@@ -99,20 +173,82 @@ def test_select_honors_custom_base_branch() -> None:
     assert selected == release_artifact
 
 
-def test_download_diagnostics_on_no_compatible_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
-    artifacts = [
-        _artifact(10, "pr-sha", "2026-01-01T00:00:00Z", head_branch="some-pr"),
-        _artifact(11, "master-sha", "2026-01-02T00:00:00Z", head_branch="some-other-pr"),
-    ]
-    monkeypatch.setattr(db_schema, "github_token", lambda: "token")
-    monkeypatch.setattr(db_schema, "fetch_schema_artifacts", lambda **kwargs: artifacts)
+def test_find_emits_diagnostics_on_no_compatible_artifact(capsys: pytest.CaptureFixture[str]) -> None:
+    session = _FakeArtifactPagesSession([[_raw_artifact(10, "some-pr"), _raw_artifact(11, "some-other-pr")]])
 
-    split_runner = CliRunner(mix_stderr=False)
-    result = split_runner.invoke(db_schema.db_download_schema, [])
+    assert db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master") is None  # type: ignore[arg-type]
+
+    stderr = capsys.readouterr().err
+    assert "Fetched 2 migrated-schema artifact(s)" in stderr
+    assert "After name/expiry/size/branch filters: 0 candidate(s)" in stderr
+
+
+class _ScriptedStatusServer(HTTPServer):
+    statuses: list[int]
+    request_count: int
+
+
+class _ScriptedStatusHandler(BaseHTTPRequestHandler):
+    server: _ScriptedStatusServer
+
+    def do_GET(self) -> None:
+        index = min(self.server.request_count, len(self.server.statuses) - 1)
+        self.server.request_count += 1
+        self.send_response(self.server.statuses[index])
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+
+@pytest.fixture
+def scripted_status_server() -> Iterator[_ScriptedStatusServer]:
+    server = _ScriptedStatusServer(("127.0.0.1", 0), _ScriptedStatusHandler)
+    server.statuses = [200]
+    server.request_count = 0
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.mark.parametrize(
+    "statuses,expected_status,expected_requests",
+    [
+        ([500, 502, 200], 200, 3),
+        ([503], 503, db_schema.GITHUB_RETRY_TOTAL + 1),
+        ([404, 200], 404, 1),
+    ],
+    ids=["transient_5xx_recovers", "persistent_5xx_returns_last_response", "4xx_not_retried"],
+)
+def test_github_session_retries_only_server_errors(
+    scripted_status_server: _ScriptedStatusServer,
+    monkeypatch: pytest.MonkeyPatch,
+    statuses: list[int],
+    expected_status: int,
+    expected_requests: int,
+) -> None:
+    monkeypatch.setattr(db_schema, "GITHUB_RETRY_BACKOFF_FACTOR", 0)
+    scripted_status_server.statuses = statuses
+    session = db_schema._github_session()
+    session.mount("http://", session.get_adapter("https://"))
+
+    response = session.get(f"http://127.0.0.1:{scripted_status_server.server_port}/", timeout=5)
+
+    assert response.status_code == expected_status
+    assert scripted_status_server.request_count == expected_requests
+
+
+def test_download_fails_when_no_compatible_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(db_schema, "github_token", lambda: "token")
+    monkeypatch.setattr(db_schema, "find_newest_compatible_artifact", lambda **kwargs: None)
+
+    result = runner.invoke(db_schema.db_download_schema, [])
 
     assert result.exit_code != 0
-    assert "Fetched 2 migrated-schema artifact(s)" in result.stderr
-    assert "After name/expiry/size/branch filters: 0 candidate(s)" in result.stderr
 
 
 def test_effective_base_branch_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -161,7 +297,7 @@ def test_restore_schema_if_fresh_recreates_empty_db(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(db_schema, "restore_schema_dump", lambda **kwargs: restore_calls.append(kwargs))
 
     assert db_schema.restore_schema_if_fresh(target_db="posthog", mode="auto") is True
-    assert restore_calls == [{"target_db": "posthog", "recreate": True, "ensure_defaults": True}]
+    assert restore_calls == [{"target_db": "posthog", "recreate": True}]
 
 
 def test_restore_schema_if_fresh_skips_when_db_populated_after_download(
@@ -228,7 +364,6 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
     _write_schema(schema_path)
     commands: list[list[str]] = []
     restored: list[tuple[Path, str]] = []
-    defaults: list[str] = []
 
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
     monkeypatch.setattr(
@@ -236,14 +371,33 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
         "_run_psql_with_gzip_input",
         lambda gzip_path, target_db: restored.append((gzip_path, target_db)),
     )
-    monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: defaults.append(target_db))
 
     db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
 
     assert any("DROP DATABASE IF EXISTS test_posthog;" in command for call in commands for command in call)
     assert any("CREATE DATABASE test_posthog;" in command for call in commands for command in call)
     assert restored == [(schema_path, "test_posthog")]
-    assert defaults == ["test_posthog"]
+    assert not [command for command in commands if command[:2] == ["python", "manage.py"]]
+
+
+def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The dump comes from a database that routes product apps elsewhere, so it records their
+    # migrations as applied without ever creating their tables. Left in place, the next product
+    # migration is applied for real here and fails on the missing table. Nothing else may go: a
+    # forgotten row outside those apps makes the caller's migrate re-run DDL the dump already holds.
+    schema_path = tmp_path / "schema.sql.gz"
+    _write_schema(schema_path)
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
+    monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
+    monkeypatch.setattr(db_schema, "_product_routed_app_labels", lambda: ["stamphog", "visual_review"])
+
+    db_schema.restore_schema_dump(target_db="test_posthog", recreate=False, schema_path=schema_path)
+
+    deletes = [command[-1] for command in commands if "DELETE FROM django_migrations" in command[-1]]
+    assert deletes == ["DELETE FROM django_migrations WHERE app IN ('stamphog', 'visual_review');"]
+    assert not [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
 
 
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -256,11 +410,6 @@ def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, mo
         db_schema,
         "_run_psql_with_gzip_input",
         lambda gzip_path, target_db: (_ for _ in ()).throw(db_schema.SchemaRestoreError("restore failed")),
-    )
-    monkeypatch.setattr(
-        db_schema,
-        "_ensure_migration_defaults",
-        lambda target_db: pytest.fail("defaults should not run after restore failure"),
     )
 
     with pytest.raises(db_schema.SchemaRestoreError, match="restore failed"):
@@ -288,7 +437,6 @@ def test_restore_schema_dump_without_recreate_does_not_drop(tmp_path: Path, monk
 
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
     monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
-    monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: None)
 
     db_schema.restore_schema_dump(target_db="posthog", recreate=False, schema_path=schema_path)
 
@@ -342,7 +490,7 @@ def test_restore_schema_fresh_recreates_target_db(monkeypatch: pytest.MonkeyPatc
     result = runner.invoke(db_schema.db_restore_schema_fresh)
 
     assert result.exit_code == 0
-    assert calls == [{"target_db": "posthog_e2e_test", "recreate": True, "ensure_defaults": True}]
+    assert calls == [{"target_db": "posthog_e2e_test", "recreate": True}]
 
 
 @pytest.mark.parametrize(

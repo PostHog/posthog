@@ -91,10 +91,10 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
     return (
         <BindLogic logic={tableViewLogic} props={tableViewLogicProps}>
             <div className="flex items-center gap-2">
-                {currentView ? (
+                {views.length > 0 ? (
                     <LemonMenu items={menuItems} closeOnClickInside={true}>
                         <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                            {currentView.name ? (
+                            {currentView?.name ? (
                                 <>
                                     <ViewVisibilityIcon view={currentView} />{' '}
                                     <span className="ml-2">{currentView.name}</span>

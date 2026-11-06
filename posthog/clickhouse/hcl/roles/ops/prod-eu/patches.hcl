@@ -1,4 +1,4 @@
-# prod-eu deltas to coshared base objects.
+# prod-eu deltas to base objects.
 database "posthog" {
   patch_table "sharded_tophog" {
     engine "replicated_merge_tree" {

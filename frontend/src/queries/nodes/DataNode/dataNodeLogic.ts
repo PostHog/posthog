@@ -20,32 +20,51 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { ApiRequestTiming } from 'lib/apiRequestTiming'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
-import { uuid } from 'lib/utils/dom'
+import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { shouldCancelQuery } from 'lib/utils/requests'
+import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { getRegexFilterPatterns, hasInvalidRegexPattern } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
+import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
+import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import {
+    compareDataNodeQuery,
+    haveVariablesOrFiltersChanged,
+    validateQuery,
+} from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
 import {
-    ActorsQuery,
-    ActorsQueryResponse,
-    AnyResponseType,
-    DashboardFilter,
+    isActorsQuery,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+    isWebStatsTableQuery,
+} from '~/queries/schema/node-guards'
+import {
     AccountsQuery,
     AccountsQueryResponse,
     AccountsTableQuery,
     AccountsTableQueryResponse,
+    ActorsQuery,
+    ActorsQueryResponse,
+    AnyResponseType,
+    DashboardFilter,
     DataNode,
     DataVisualizationNode,
     ErrorTrackingQuery,
+    ErrorTrackingIssueEventsQuery,
+    ErrorTrackingIssueEventsQueryResponse,
     ErrorTrackingQueryResponse,
     EventsQuery,
     EventsQueryResponse,
@@ -60,6 +79,8 @@ import {
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
     PersonsNode,
+    QueryScanAnalysis,
+    QueryScanResponse,
     QueryStatus,
     QueryTiming,
     RefreshType,
@@ -75,20 +96,15 @@ import {
 import {
     isAccountsQuery,
     isAccountsTableQuery,
-    isActorsQuery,
+    isErrorTrackingIssueEventsQuery,
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
-    isDataVisualizationNode,
-    isHogQLQuery,
     isInsightActorsQuery,
-    isInsightQueryNode,
     isMarketingAnalyticsTableQuery,
-    isPersonsNode,
     isSessionQuery,
     isSessionsQuery,
     isTracesQuery,
-    isWebStatsTableQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
@@ -107,12 +123,24 @@ import type {
     TraceSpansTreeQueryResponse,
 } from '../../schema/schema-general'
 import type { DataNodeRegisteredProps } from './dataNodeCollectionLogic'
+import {
+    forgetRetainedResponse,
+    getInflightResponse,
+    getRetainedResponse,
+    isCompleteResponse,
+    reclaimReleasedQuery,
+    responseCacheKey,
+    retainResponse,
+    trackInflightResponse,
+} from './responseCache'
 
 export interface DataNodeLogicProps {
+    loadQueue?: TaskQueue
     key: string
     query: DataNode
     /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
     cachedResults?: AnyResponseType
+    retainResponseOnUnmount?: boolean
     /** Disabled data fetching and only allow cached results. */
     doNotLoad?: boolean
     /** Refresh behaviour for queries. */
@@ -137,6 +165,8 @@ export interface DataNodeLogicProps {
     autoLoad?: boolean
     /** Override the maximum pagination limit. */
     maxPaginationLimit?: number
+    /** Stop pagination after this many accumulated rows. */
+    maxPaginationRows?: number
     /** Limit context sent to the /query endpoint */
     limitContext?: 'posthog_ai'
 }
@@ -144,17 +174,72 @@ export interface DataNodeLogicProps {
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
-const concurrencyController = new ConcurrencyController(1)
+// Backoff before each ask for a slow run's scan, holding at 30 s: the job starts with the run, so
+// the early asks are close together.
+export const QUERY_SCAN_POLL_DELAYS_MS = [2000, 4000, 8000, 15000, 30000]
+// Stop asking this long after the run: a job that has not finished by then is not coming back, and
+// its pending slot expires into a 404 around the same time.
+export const QUERY_SCAN_POLL_DEADLINE_MS = 600000
+
+// Loading and error states render the query id, so a random id per load
+// makes Storybook visual regression captures differ on every run
+const STORYBOOK_QUERY_ID = '00000000-0000-4000-8000-000000000000'
+
+const VALID_REFRESH_TYPES: ReadonlySet<RefreshType> = new Set([
+    'async',
+    'async_except_on_cache_miss',
+    'blocking',
+    'force_async',
+    'force_blocking',
+    'force_cache',
+    'lazy_async',
+])
+
+// Guards against callers that wire `loadData` straight to an event handler, so a React
+// MouseEvent (or any other non-RefreshType value) never reaches the query request body.
+function sanitizeRefreshType(refresh: unknown): RefreshType | undefined {
+    return typeof refresh === 'string' && VALID_REFRESH_TYPES.has(refresh as RefreshType)
+        ? (refresh as RefreshType)
+        : undefined
+}
+
+export const concurrencyController = new ConcurrencyController(1)
+const accountsTableConcurrencyController = new ConcurrencyController(2)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
+const productAnalyticsHomeConcurrencyController = new ConcurrencyController(6, { batchStart: true })
+const notebookConcurrencyController = new ConcurrencyController(4)
+// The priority queue doesn't keep insertion order for equal priorities, so notebook loads count up instead.
+let notebookLoadOrder = 0
+
+export async function cancelQueryOnServer(teamId: number | null, queryId: string): Promise<void> {
+    try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+        await api.delete(`api/projects/${teamId}/query/${queryId}/`)
+    } catch (e) {
+        console.warn('Failed cancelling query', e)
+    }
+}
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
+    if (isAccountsTableQuery(query)) {
+        return accountsTableConcurrencyController
+    }
+
     const mountedSceneLogic = sceneLogic.findMounted()
     const activeScene = mountedSceneLogic?.values.activeSceneId
 
     if (activeScene === Scene.MarketingAnalytics) {
         return marketingAnalyticsConcurrencyController
+    }
+
+    if (activeScene === Scene.SavedInsights || activeScene === Scene.AnalyticsProductHome) {
+        return productAnalyticsHomeConcurrencyController
+    }
+
+    if (activeScene === Scene.Notebook) {
+        return notebookConcurrencyController
     }
 
     if (
@@ -272,6 +357,8 @@ export interface dataNodeLogicValues {
     queryLog: HogQLQueryResponse | null
     queryLogLoading: boolean
     queryLogQueryId: string | null
+    queryScan: QueryScanState | null
+    queryScanResult: QueryScanPollResult | null
     response:
         | ErrorTrackingQueryResponse
         | HogQLAutocompleteResponse
@@ -286,10 +373,12 @@ export interface dataNodeLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null
     responseError: string | null
     responseErrorObject: Record<string, any> | null
     responseLoading: boolean
+    serverDurationMs: number | null
     shouldCalculateCount: boolean
     timings: QueryTiming[] | null
     totalCount: number | null
@@ -300,14 +389,22 @@ export interface dataNodeLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface dataNodeLogicActions {
-    collectionNodeLoadData: (id: string) => {
+    collectionNodeLoadData: (
+        id: string,
+        kind?: string | undefined
+    ) => {
         id: string
+        kind: string | undefined
     } // dataNodeCollectionLogic
     collectionNodeLoadDataFailure: (id: string) => {
         id: string
     } // dataNodeCollectionLogic
-    collectionNodeLoadDataSuccess: (id: string) => {
+    collectionNodeLoadDataSuccess: (
+        id: string,
+        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+    ) => {
         id: string
+        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
     } // dataNodeCollectionLogic
     mountDataNode: (
         id: string,
@@ -384,8 +481,8 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
-            | null
-            | undefined,
+            | TraceSpansTreeQueryResponse
+            | null,
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
@@ -407,8 +504,8 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
-            | undefined
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
@@ -460,6 +557,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null,
         payload?: any
     ) => {
@@ -477,6 +575,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
         payload?: any
     }
@@ -503,6 +602,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null,
         payload?: any
     ) => {
@@ -520,6 +620,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
         payload?: any
     }
@@ -553,11 +654,18 @@ export interface dataNodeLogicActions {
         totalCount: number | null
         payload?: any
     }
+    pollQueryScan: () => {
+        value: true
+    }
     resetLoadingTimer: () => {
         value: true
     }
-    setElapsedTime: (elapsedTime: number) => {
+    setElapsedTime: (
+        elapsedTime: number,
+        serverDurationMs?: number | null
+    ) => {
         elapsedTime: number
+        serverDurationMs: number | null
     }
     setLoadingTime: (seconds: number) => {
         seconds: number
@@ -565,8 +673,18 @@ export interface dataNodeLogicActions {
     setPollResponse: (status: QueryStatus | null) => {
         status: QueryStatus | null
     }
+    setQueryId: (queryId: string) => {
+        queryId: string
+    }
     setQueryLogQueryId: (queryId: string) => {
         queryId: string
+    }
+    setQueryScanResult: (
+        analysis: QueryScanAnalysis,
+        cacheKey: string
+    ) => {
+        analysis: QueryScanAnalysis
+        cacheKey: string
     }
     setResponse: (
         response: Exclude<AnyResponseType, undefined>
@@ -699,6 +817,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => DataNode | null
         canLoadNewData: (newQuery: DataNode<Record<string, any>> | null, isShowingCachedResults: boolean) => boolean
@@ -718,11 +837,13 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             responseError: string | null,
             dataLoading: boolean,
             isShowingCachedResults: boolean,
-            arg: any
+            arg: any,
+            arg2: any
         ) => DataNode | null
         canLoadNextData: (nextQuery: DataNode<Record<string, any>> | null, isShowingCachedResults: boolean) => boolean
         hasMoreData: (
@@ -740,6 +861,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => boolean
         dataLimit: (
@@ -757,6 +879,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => number | null
         backToSourceQuery: (query: DataNode<Record<string, any>>) => InsightVizNode | null
@@ -776,6 +899,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => string | null
         nextAllowedRefresh: (
@@ -794,6 +918,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => string | null
         getInsightRefreshButtonDisabledReason: (
@@ -815,6 +940,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => QueryTiming[] | null
         numberOfRows: (
@@ -832,11 +958,32 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => number | null
         hasActiveFilters: (query: DataNode<Record<string, any>>) => boolean
         totalCountQuery: (query: DataNode<Record<string, any>>) => DataNode | null
         filteredCountQuery: (query: DataNode<Record<string, any>>, hasActiveFilters: boolean) => DataNode | null
+        queryScan: (
+            response:
+                | ErrorTrackingQueryResponse
+                | HogQLAutocompleteResponse
+                | HogQLMetadataResponse
+                | HogQLQueryResponse<any[]>
+                | HogQueryResponse
+                | LogAttributesQueryResponse
+                | LogValuesQueryResponse
+                | MetricsQueryResponse
+                | Record<string, any>
+                | SessionsQueryResponse
+                | TraceSpansAggregationQueryResponse
+                | TraceSpansAttributeBreakdownQueryResponse
+                | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
+                | null,
+            responseErrorObject: Record<string, any> | null,
+            queryScanResult: QueryScanPollResult | null
+        ) => QueryScanState | null
     }
 }
 
@@ -864,7 +1011,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -875,6 +1022,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             ignoreVisualizationOnlyChanges: true,
         })
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
+
+        // Insight logics can mount this node before the component supplies its query.
+        const retainedResponse =
+            (hasQueryChanged || props.retainResponseOnUnmount !== oldProps.retainResponseOnUnmount) &&
+            getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
+        if (retainedResponse) {
+            actions.loadData()
+            return
+        }
 
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
         if (hasQueryChanged && queryStatus?.complete === false) {
@@ -895,7 +1051,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ) {
             // For normal loads, use appropriate refresh type
             let refreshType: RefreshType
-            if (queryVarsHaveChanged) {
+            if (queryVarsHaveChanged || isAccountsTableQuery(props.query)) {
                 refreshType =
                     isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
             } else {
@@ -903,8 +1059,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
 
             actions.loadData(refreshType)
-        } else if (props.cachedResults) {
+        } else if (
+            props.cachedResults &&
+            !(
+                props.retainResponseOnUnmount &&
+                !hasQueryChanged &&
+                isCompleteResponse(values.response) &&
+                !isCompleteResponse(props.cachedResults)
+            )
+        ) {
             // Use cached results if available, otherwise this logic will load the data again
+            if (props.cachedResults !== oldProps.cachedResults) {
+                retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
+            }
             actions.setResponse(props.cachedResults)
         }
     }),
@@ -914,12 +1081,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             alreadyRunningQueryId?: string,
             overrideQuery?: DataNode<Record<string, any>>
         ) => ({
-            refresh,
-            queryId: alreadyRunningQueryId || uuid(),
+            refresh: sanitizeRefreshType(refresh),
+            queryId: alreadyRunningQueryId || (inStorybook() || inStorybookTestRunner() ? STORYBOOK_QUERY_ID : uuid()),
             pollOnly: !!alreadyRunningQueryId,
             overrideQuery,
         }),
         abortAnyRunningQuery: true,
+        setQueryId: (queryId: string) => ({ queryId }),
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
         setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
@@ -928,12 +1096,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         stopAutoLoad: true,
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
-        setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
+        setElapsedTime: (elapsedTime: number, serverDurationMs: number | null = null) => ({
+            elapsedTime,
+            serverDurationMs,
+        }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
         loadFilteredCount: true,
+        pollQueryScan: true,
+        setQueryScanResult: (analysis: QueryScanAnalysis, cacheKey: string) => ({ analysis, cacheKey }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -942,6 +1115,48 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
+                    actions.abortAnyRunningQuery()
+                    actions.setPollResponse(null)
+                    const key = responseCacheKey(
+                        overrideQuery ? { ...props, query: overrideQuery } : props,
+                        values.user?.id,
+                        values.currentTeamId
+                    )
+                    const retainedResponse = !pollOnly && !refreshArg?.startsWith('force_') && getRetainedResponse(key)
+                    // Do not extend the retained response's lifetime when displaying it again.
+                    cache.responseCacheKey = retainedResponse ? null : key
+                    if (retainedResponse) {
+                        await Promise.resolve()
+                        breakpoint()
+                        return retainedResponse
+                    }
+                    const inflightResponse =
+                        !pollOnly && !refreshArg?.startsWith('force_') ? getInflightResponse(key) : null
+                    if (inflightResponse) {
+                        inflightResponse.adopt()
+                        cache.inflightQuery = inflightResponse
+                        actions.setQueryId(inflightResponse.queryId)
+                        let data: AnyResponseType | null | undefined
+                        try {
+                            data = await inflightResponse.promise
+                        } catch (error: any) {
+                            // A query that never started because its node unmounted while queued is run again below.
+                            if (!isBreakpoint(error)) {
+                                error.queryId = inflightResponse.queryId
+                                if (shouldCancelQuery(error)) {
+                                    actions.abortQuery({ queryId: inflightResponse.queryId })
+                                }
+                                breakpoint()
+                                throw error
+                            }
+                        }
+                        breakpoint()
+                        if (data !== undefined) {
+                            cache.responseCacheKey = null
+                            return data
+                        }
+                    }
+                    forgetRetainedResponse(key)
                     const rawQuery = overrideQuery ?? props.query
                     if (!rawQuery || typeof rawQuery !== 'object' || !('kind' in rawQuery)) {
                         return null
@@ -957,7 +1172,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.doNotLoad) {
-                        return props.cachedResults
+                        return props.cachedResults ?? null
                     }
 
                     const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
@@ -990,47 +1205,104 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!validateQuery(query)) {
                         return null
                     }
+                    // Only a query with a regex filter waits for the RE2 engine.
+                    const regexPatterns = getRegexFilterPatterns(query)
+                    if (regexPatterns.length > 0) {
+                        const hasInvalidPattern = await hasInvalidRegexPattern(regexPatterns)
+                        // A newer load may have started during the engine load. This one must not touch its request.
+                        breakpoint()
+                        // A cancel during the engine load finds no request to abort yet.
+                        if (hasInvalidPattern || values.queryCancelled) {
+                            return null
+                        }
+                    }
 
-                    actions.abortAnyRunningQuery()
-                    actions.setPollResponse(null)
                     const abortController = new AbortController()
-                    cache.abortController = abortController
+                    // A retained query keeps running when the node unmounts, so a remount can pick it up.
+                    const keepRunningOnUnmount = !!key && !pollOnly
+                    if (!keepRunningOnUnmount) {
+                        cache.disposables.add(() => () => abortController.abort(), 'query', {
+                            pauseOnPageHidden: false,
+                        })
+                    }
+                    const requestTimings: ApiRequestTiming[] = []
                     const methodOptions: ApiMethodOptions = {
-                        signal: cache.abortController.signal,
+                        signal: abortController.signal,
+                        onRequestTiming: (timing) => requestTimings.push(timing),
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
-                        const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
-                            debugTag: query.kind,
-                            abortController,
-                            priority: props.loadPriority,
-                            fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
-                                const now = performance.now()
-                                try {
-                                    breakpoint()
-                                    const data =
-                                        (await performQuery<DataNode>(
-                                            addModifiers(query, props.modifiers),
-                                            methodOptions,
-                                            refresh,
-                                            queryId,
-                                            actions.setPollResponse,
-                                            props.filtersOverride,
-                                            props.variablesOverride,
-                                            pollOnly,
-                                            props.limitContext
-                                        )) ?? null
-                                    const duration = performance.now() - now
-                                    return { data, duration }
-                                } catch (error: any) {
-                                    const duration = performance.now() - now
-                                    error.duration = duration
-                                    throw error
+                        const queryConcurrencyController = getConcurrencyController(
+                            query,
+                            values.currentTeam as TeamType
+                        )
+                        if (
+                            queryConcurrencyController === notebookConcurrencyController &&
+                            queryConcurrencyController._current.length >= queryConcurrencyController._concurrencyLimit
+                        ) {
+                            reclaimReleasedQuery()
+                        }
+                        const runQuery = async (): Promise<{
+                            duration: number
+                            serverDurationMs: number | null
+                            data: Record<string, any>
+                        }> => {
+                            const now = performance.now()
+                            try {
+                                breakpoint()
+                                const data =
+                                    (await performQuery<DataNode>(
+                                        addModifiers(query, props.modifiers),
+                                        methodOptions,
+                                        refresh,
+                                        queryId,
+                                        actions.setPollResponse,
+                                        props.filtersOverride,
+                                        props.variablesOverride,
+                                        pollOnly,
+                                        props.limitContext
+                                    )) ?? null
+                                const duration = performance.now() - now
+                                const serverDurationMs = getSingleRequestServerMs(requestTimings, duration)
+                                return { data, duration, serverDurationMs }
+                            } catch (error: any) {
+                                const duration = performance.now() - now
+                                error.duration = duration
+                                throw error
+                            }
+                        }
+                        const responsePromise = props.loadQueue
+                            ? props.loadQueue.run(runQuery, abortController.signal)
+                            : queryConcurrencyController.run({
+                                  debugTag: query.kind,
+                                  abortController,
+                                  priority:
+                                      props.loadPriority ??
+                                      (queryConcurrencyController === notebookConcurrencyController
+                                          ? notebookLoadOrder++
+                                          : undefined),
+                                  fn: runQuery,
+                              })
+                        if (key && keepRunningOnUnmount) {
+                            const teamId = values.currentTeamId
+                            // The in-flight entry retains the result, so `loadDataSuccess` skips its copy.
+                            cache.responseCacheKey = null
+                            cache.inflightQuery = trackInflightResponse(
+                                key,
+                                responsePromise.then(({ data }) => data as AnyResponseType | null),
+                                {
+                                    queryId,
+                                    abort: () => abortController.abort(),
+                                    abandon: () => {
+                                        abortController.abort()
+                                        void cancelQueryOnServer(teamId, queryId)
+                                    },
                                 }
-                            },
-                        })
+                            )
+                        }
+                        const response = await responsePromise
                         breakpoint()
-                        actions.setElapsedTime(response.duration)
+                        actions.setElapsedTime(response.duration, response.serverDurationMs)
                         return response.data
                     } catch (error: any) {
                         if (error.duration) {
@@ -1098,6 +1370,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isTracesQuery(props.query) ||
                         isSessionQuery(props.query) ||
                         isErrorTrackingQuery(props.query) ||
+                        isErrorTrackingIssueEventsQuery(props.query) ||
                         isSessionsQuery(props.query) ||
                         isMarketingAnalyticsTableQuery(props.query) ||
                         isAccountsQuery(props.query) ||
@@ -1140,6 +1413,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             ...queryResponse,
                             results: results,
                             hasMore: newResponse?.hasMore,
+                            ...(isErrorTrackingIssueEventsQuery(props.query)
+                                ? {
+                                      nextCursor: (newResponse as ErrorTrackingIssueEventsQueryResponse | null)
+                                          ?.nextCursor,
+                                  }
+                                : {}),
                         }
                     } else if (isPersonsNode(props.query)) {
                         const newResponse =
@@ -1217,6 +1496,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             null as null | string,
             {
                 loadData: (_, { queryId }) => queryId,
+                setQueryId: (_, { queryId }) => queryId,
             },
         ],
         newDataLoading: [
@@ -1244,6 +1524,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNewData: () => false,
                 loadData: () => false,
                 cancelQuery: () => true,
+                clearResponse: () => false,
             },
         ],
         pollResponse: [
@@ -1296,6 +1577,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataSuccess: () => null,
             },
         ],
+        queryScanResult: [
+            null as QueryScanPollResult | null,
+            {
+                loadData: () => null,
+                setQueryScanResult: (_, { analysis, cacheKey }) => ({ cacheKey, analysis }),
+            },
+        ],
         responseError: [
             null as string | null,
             {
@@ -1323,6 +1611,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     response && 'error' in response ? (response.error ?? null) : null,
                 loadNewDataSuccess: (_, { response }) =>
                     response && 'error' in response ? (response.error ?? null) : null,
+            },
+        ],
+        serverDurationMs: [
+            null as number | null,
+            {
+                setElapsedTime: (_, { serverDurationMs }) => serverDurationMs,
+                loadData: () => null,
+                loadNewData: () => null,
+                loadNextData: () => null,
+                cancelQuery: () => null,
             },
         ],
         elapsedTime: [
@@ -1434,6 +1732,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1475,6 +1774,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 s.dataLoading,
                 s.isShowingCachedResults,
                 (_, props) => props.maxPaginationLimit,
+                (_, props) => props.maxPaginationRows,
             ],
             (
                 query: DataNode<Record<string, any>>,
@@ -1489,6 +1789,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1496,13 +1797,32 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 responseError: string | null,
                 dataLoading: boolean,
                 isShowingCachedResults: boolean,
-                maxPaginationLimit
+                maxPaginationLimit: number | undefined,
+                maxPaginationRows: number | undefined
             ): DataNode | null => {
                 if (isShowingCachedResults) {
                     return null
                 }
 
                 const effectivePaginationLimit = maxPaginationLimit ?? LOAD_MORE_ROWS_LIMIT
+                // The page's source query is nested, so the server's cursor goes onto `source.before`.
+                if (isErrorTrackingIssueEventsQuery(query)) {
+                    const issueEventsResponse = response as ErrorTrackingIssueEventsQueryResponse | null
+                    if (
+                        responseError ||
+                        dataLoading ||
+                        !issueEventsResponse?.hasMore ||
+                        !issueEventsResponse.nextCursor ||
+                        (maxPaginationRows !== undefined && issueEventsResponse.results.length >= maxPaginationRows)
+                    ) {
+                        return null
+                    }
+                    const nextIssueEventsQuery: ErrorTrackingIssueEventsQuery = {
+                        ...query,
+                        source: { ...query.source, before: issueEventsResponse.nextCursor },
+                    }
+                    return nextIssueEventsQuery
+                }
                 if (
                     (isEventsQuery(query) ||
                         isActorsQuery(query) ||
@@ -1518,22 +1838,28 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     !responseError &&
                     !dataLoading
                 ) {
-                    if (
-                        (
-                            response as
-                                | EventsQueryResponse
-                                | ActorsQueryResponse
-                                | GroupsQueryResponse
-                                | ErrorTrackingQueryResponse
-                                | TracesQueryResponse
-                                | SessionQueryResponse
-                                | SessionsQueryResponse
-                                | MarketingAnalyticsTableQueryResponse
-                                | AccountsQueryResponse
-                                | AccountsTableQueryResponse
-                                | WebStatsTableQueryResponse
-                        )?.hasMore
-                    ) {
+                    const paginatedResponse = response as
+                        | EventsQueryResponse
+                        | ActorsQueryResponse
+                        | GroupsQueryResponse
+                        | ErrorTrackingQueryResponse
+                        | TracesQueryResponse
+                        | SessionQueryResponse
+                        | SessionsQueryResponse
+                        | MarketingAnalyticsTableQueryResponse
+                        | AccountsQueryResponse
+                        | AccountsTableQueryResponse
+                        | WebStatsTableQueryResponse
+
+                    if (paginatedResponse?.hasMore) {
+                        const remainingPaginationRows =
+                            maxPaginationRows === undefined
+                                ? undefined
+                                : maxPaginationRows - (paginatedResponse.results?.length ?? 0)
+                        if (remainingPaginationRows !== undefined && remainingPaginationRows <= 0) {
+                            return null
+                        }
+
                         const sortKey =
                             isTracesQuery(query) || isSessionQuery(query) || isAccountsTableQuery(query)
                                 ? null
@@ -1553,9 +1879,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     const newQuery: EventsQuery = {
                                         ...query,
                                         before: lastUuid ? `${lastTimestamp}|${lastUuid}` : lastTimestamp,
-                                        limit: Math.max(
-                                            100,
-                                            Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                        limit: Math.min(
+                                            remainingPaginationRows ?? Number.POSITIVE_INFINITY,
+                                            Math.max(
+                                                100,
+                                                Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                            )
                                         ),
                                     }
                                     return newQuery
@@ -1580,6 +1909,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 ...query,
                                 offset: typedResults?.length || 0,
                                 limit: Math.min(
+                                    remainingPaginationRows ?? Number.POSITIVE_INFINITY,
                                     effectivePaginationLimit,
                                     Math.max(100, 2 * (typedResults?.length || 100))
                                 ),
@@ -1629,6 +1959,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1652,6 +1983,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1696,6 +2028,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1719,6 +2052,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1769,6 +2103,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1791,6 +2126,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1822,7 +2158,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
                 if (isEventsQuery(query)) {
                     return !!(
-                        query.event ||
                         (query.properties && query.properties.length > 0) ||
                         (query.where && query.where.length > 0) ||
                         (query.fixedProperties && query.fixedProperties.length > 0)
@@ -1855,8 +2190,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         orderBy: undefined,
                         limit: undefined,
                         offset: undefined,
-                        // Remove all filters for total count
-                        event: undefined,
+                        // Keep the selected event scope while removing property filters.
                         properties: undefined,
                         where: undefined,
                     } as EventsQuery
@@ -1949,39 +2283,93 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return null
             },
         ],
+        queryScan: [
+            (s) => [s.response, s.responseErrorObject, s.queryScanResult],
+            (
+                response:
+                    | ErrorTrackingQueryResponse
+                    | HogQLAutocompleteResponse
+                    | HogQLMetadataResponse
+                    | HogQLQueryResponse<any[]>
+                    | HogQueryResponse
+                    | LogAttributesQueryResponse
+                    | LogValuesQueryResponse
+                    | MetricsQueryResponse
+                    | Record<string, any>
+                    | SessionsQueryResponse
+                    | TraceSpansAggregationQueryResponse
+                    | TraceSpansAttributeBreakdownQueryResponse
+                    | TraceSpansQueryResponse
+                    | null,
+                responseErrorObject: Record<string, any> | null,
+                queryScanResult: QueryScanPollResult | null
+            ): QueryScanState | null => resolveQueryScan(response, responseErrorObject, queryScanResult),
+        ],
     })),
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-                cache.abortController = null
-            }
+            cache.disposables.dispose('query')
+            cache.inflightQuery?.abort()
+            cache.inflightQuery = null
         },
         abortQuery: async ({ queryId }) => {
-            try {
-                const { currentTeamId } = values
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}/`)
-            } catch (e) {
-                console.warn('Failed cancelling query', e)
-            }
+            await cancelQueryOnServer(values.currentTeamId, queryId)
         },
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
             actions.resetLoadingTimer()
         },
-        loadData: () => {
-            actions.collectionNodeLoadData(props.key)
+        loadData: ({ overrideQuery }) => {
+            actions.collectionNodeLoadData(props.key, (overrideQuery ?? props.query)?.kind)
             actions.resetLoadingTimer()
         },
         loadDataSuccess: ({ response }) => {
+            retainResponse(cache.responseCacheKey, response)
             props.onData?.(response as Record<string, unknown> | null | undefined)
-            actions.collectionNodeLoadDataSuccess(props.key)
+            actions.collectionNodeLoadDataSuccess(props.key, {
+                isCached: !!response && typeof response === 'object' && 'is_cached' in response && !!response.is_cached,
+                lastRefresh: values.lastRefresh,
+            })
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
+            actions.pollQueryScan()
         },
         loadDataFailure: () => {
             actions.collectionNodeLoadDataFailure(props.key)
+            actions.pollQueryScan()
+        },
+        pollQueryScan: async (_, breakpoint) => {
+            const scan = values.queryScan
+            const cacheKey = scan?.cacheKey
+            if (!scan || !cacheKey || !scan.summary.analysis_requested || scan.summary.analysis) {
+                return
+            }
+            // The analysis lands after the response, and an error never carries one. Ask on a backoff
+            // until it is stored, the run is too old to wait for, or a request fails: a 404 is what a
+            // dead job looks like once its claim expires.
+            const lastDelayMs = QUERY_SCAN_POLL_DELAYS_MS[QUERY_SCAN_POLL_DELAYS_MS.length - 1]
+            let elapsedMs = 0
+            for (let attempt = 0; ; attempt++) {
+                const delayMs = QUERY_SCAN_POLL_DELAYS_MS[attempt] ?? lastDelayMs
+                if (elapsedMs + delayMs > QUERY_SCAN_POLL_DEADLINE_MS) {
+                    return
+                }
+                elapsedMs += delayMs
+                await breakpoint(delayMs)
+                let stored: QueryScanResponse
+                try {
+                    stored = await api.queryScan.get(cacheKey)
+                } catch {
+                    // The analysis is advice, so a missing or failed scan leaves the run's numbers as they are.
+                    return
+                }
+                breakpoint()
+                if (stored.analysis) {
+                    actions.setQueryScanResult(stored.analysis, cacheKey)
+                    return
+                }
+            }
         },
         loadNewDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
@@ -2033,33 +2421,35 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props, cache }) => {
+    afterMount(({ actions, props, cache, values }) => {
         cache.localResults = {}
-        if (props.cachedResults) {
-            // Use cached results if available, otherwise this logic will load the data again.
-            // We need to set them here, as the propsChanged listener will not trigger on mount
-            // and if we never change the props, the cached results will never be used.
-            actions.setResponse(props.cachedResults)
-        } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
-            // Initial load should use non-force variant
-            const refreshType = isInsightQueryNode(props.query) ? 'async' : 'blocking'
-            actions.loadData(refreshType)
-        }
 
         actions.mountDataNode(props.key, {
             id: props.key,
             loadData: actions.loadData,
             cancelQuery: actions.cancelQuery,
         })
+
+        const retainedResponse = getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
+        if (retainedResponse) {
+            actions.loadData()
+        } else if (props.cachedResults) {
+            // Use cached results if available, otherwise this logic will load the data again.
+            // We need to set them here, as the propsChanged listener will not trigger on mount
+            // and if we never change the props, the cached results will never be used.
+            retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
+            actions.setResponse(props.cachedResults)
+        } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
+            // Initial load should use non-force variant
+            const refreshType = isInsightQueryNode(props.query) ? 'async' : 'blocking'
+            actions.loadData(refreshType)
+        }
     }),
-    beforeUnmount(({ actions, props, values }) => {
+    beforeUnmount(({ actions, props, values, cache }) => {
+        cache.inflightQuery?.release()
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
-        if (values.dataLoading) {
-            actions.abortAnyRunningQuery()
-        }
-
         actions.unmountDataNode(props.key)
         // Disposables plugin handles timer cleanup automatically
     }),

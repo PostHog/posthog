@@ -1,5 +1,7 @@
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString(arg))).join('') }
+function __lte (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a <= b }
+function __lt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a < b }
 function __STLToString(arg) {
     if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }
     else if (arg && __isHogDateTime(arg)) { return __DateTimeToString(arg); }
@@ -86,7 +88,7 @@ function mandelbrot(re, im, max_iter) {
     let z_re = 0.0;
     let z_im = 0.0;
     let n = 0;
-    while (!!((((z_re * z_re) + (z_im * z_im)) <= 4) && (n < max_iter))) {
+    while (!!(__lte(((z_re * z_re) + (z_im * z_im)), 4) && __lt(n, max_iter))) {
             let temp_re = (((z_re * z_re) - (z_im * z_im)) + re);
             let temp_im = (((2 * z_re) * z_im) + im);
             z_re = temp_re
@@ -108,10 +110,10 @@ function main() {
     let ymax = 1.0;
     let max_iter = 30;
     let y = 0;
-    while ((y < height)) {
+    while (__lt(y, height)) {
             let row = "";
             let x = 0;
-            while ((x < width)) {
+            while (__lt(x, width)) {
                         let re = (((x / width) * (xmax - xmin)) + xmin);
                         let im = (((y / height) * (ymax - ymin)) + ymin);
                         let letter = mandelbrot(re, im, max_iter);

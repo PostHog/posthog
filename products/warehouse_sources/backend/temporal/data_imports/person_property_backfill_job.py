@@ -1,15 +1,17 @@
 """Temporal workflow that backfills person properties from a warehouse table's full Delta data.
 
-Unlike the incremental sync (which reads only the rows a sync staged), this reads the whole table's
+Unlike the incremental sync (which reads only the rows a run staged), this reads the whole table's
 parquet from S3 so a newly-created or changed person mapping populates historical rows it never saw.
-It is keyed by schema, not source: one workflow reads the table once and upserts every enabled person
-source on it, so mapping several properties from one table runs a single backfill.
+It is keyed by binding, not source: one workflow reads the table once and upserts every enabled person
+source on it, so mapping several properties from one table runs a single backfill. The table is either
+an imported schema's or a materialized view's — the read is the same either way.
 
 Started from the customer_analytics facade (auto on mapping create/enable, or a manual "backfill"
-button) with a per-``{team, schema}`` workflow id so concurrent triggers for the same table coalesce.
-Runs on the DATA_WAREHOUSE_METADATA_TASK_QUEUE alongside the incremental sync so post-sync processing
-never competes with the sync workers. The snapshot diff still skips unchanged values, so a re-run is
-cheap and idempotent.
+button) with a per-``{team, binding}`` workflow id. Concurrent triggers replace one pending request,
+so an in-flight run is followed by a run that observes the latest committed mapping. Runs on the
+DATA_WAREHOUSE_METADATA_TASK_QUEUE alongside the incremental sync so post-sync processing never
+competes with the sync workers. The snapshot diff still skips unchanged values, so a re-run is cheap
+and idempotent.
 """
 
 import json
@@ -22,6 +24,7 @@ import structlog
 from prometheus_client import Counter, Histogram
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError, TimeoutError, TimeoutType
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
@@ -29,18 +32,27 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertyBackfillActivityInputs,
+    PersonPropertyFailedRunInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
+    failed_run_error,
+    is_worker_interruption,
+    progress_recorder,
     record_completed_runs,
     record_failed_runs,
+    record_started_runs,
     run_person_property_backfill,
 )
 
 logger = structlog.get_logger(__name__)
 
+INTERRUPTED_RUN_NEXT_STEP = "Click Backfill to continue from where it stopped."
+RECORD_FAILED_RUN_PATCH = "person-property-backfill-record-failed-run-2026-10"
+RETRY_INTERRUPTED_RUN_PATCH = "person-property-backfill-retry-interrupted-run-2026-10"
+
 PERSON_PROPERTY_BACKFILL_TOTAL = Counter(
     "warehouse_person_property_backfill_total",
-    "Person-property backfill activity attempts by outcome",
+    "Person-property backfill runs by outcome",
     labelnames=["team_id", "outcome"],
 )
 
@@ -48,6 +60,14 @@ PERSON_PROPERTY_BACKFILL_DURATION_SECONDS = Histogram(
     "warehouse_person_property_backfill_duration_seconds",
     "Duration of one person-property backfill activity run",
     buckets=(0.5, 1.0, 2.5, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0),
+)
+
+# Same funnel stages as the scheduled sync (warehouse_person_property_sync_rows_total), kept as a
+# separate metric so a large one-off backfill can't distort the steady-state sync funnel.
+PERSON_PROPERTY_BACKFILL_ROWS_TOTAL = Counter(
+    "warehouse_person_property_backfill_rows_total",
+    "Rows flowing through each stage of the person-property backfill funnel",
+    labelnames=["team_id", "stage"],
 )
 
 
@@ -58,29 +78,45 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
     log.info(f"Starting person-property backfill for {inputs.source_type}/{inputs.schema_name}")
     start = time.monotonic()
     started_at = datetime.now(UTC).isoformat()
+    binding = inputs.binding
+    await record_started_runs(
+        team_id=inputs.team_id,
+        binding=binding,
+        job_id=None,
+        trigger=inputs.trigger,
+        started_at=started_at,
+    )
     try:
         async with Heartbeater():
             result = await run_person_property_backfill(
-                team_id=inputs.team_id, schema_id=str(inputs.schema_id), trigger=inputs.trigger
+                team_id=inputs.team_id,
+                binding=binding,
+                trigger=inputs.trigger,
+                on_progress=progress_recorder(
+                    team_id=inputs.team_id, binding=binding, job_id=None, trigger=inputs.trigger
+                ),
             )
     except Exception as e:
-        PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         log.exception("Person-property backfill failed")
         capture_exception(e)
-        await record_failed_runs(
-            team_id=inputs.team_id,
-            schema_id=str(inputs.schema_id),
-            job_id=None,
-            trigger=inputs.trigger,
-            started_at=started_at,
-            finished_at=datetime.now(UTC).isoformat(),
-            error=str(e),
-        )
+        # A backfill run has no job_id, so a second failed record would reconcile a different
+        # running row. Record here only when the workflow will not.
+        if not inputs.workflow_records_failure:
+            PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+            await record_failed_runs(
+                team_id=inputs.team_id,
+                binding=binding,
+                job_id=None,
+                trigger=inputs.trigger,
+                started_at=started_at,
+                finished_at=datetime.now(UTC).isoformat(),
+                error=str(e),
+            )
         raise
 
     await record_completed_runs(
         team_id=inputs.team_id,
-        schema_id=str(inputs.schema_id),
+        binding=binding,
         job_id=None,
         trigger=inputs.trigger,
         started_at=started_at,
@@ -89,6 +125,15 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
     )
     PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="completed").inc()
     PERSON_PROPERTY_BACKFILL_DURATION_SECONDS.observe(time.monotonic() - start)
+    for stage, count in (
+        ("read", result.rows_read),
+        ("changed", result.changed),
+        ("existing", result.existing),
+        ("produced", result.produced),
+        ("skipped_missing_person", result.skipped_missing_person),
+    ):
+        if count:
+            PERSON_PROPERTY_BACKFILL_ROWS_TOTAL.labels(team_id=str(inputs.team_id), stage=stage).inc(count)
 
     log.info(
         "Person-property backfill finished",
@@ -102,8 +147,42 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
     return dataclasses.asdict(result)
 
 
+@activity.defn
+async def record_failed_person_property_backfill_runs_activity(inputs: PersonPropertyFailedRunInputs) -> None:
+    await record_failed_runs(
+        team_id=inputs.team_id,
+        binding=inputs.binding,
+        job_id=inputs.job_id,
+        trigger=inputs.trigger,
+        started_at=inputs.started_at,
+        finished_at=datetime.now(UTC).isoformat(),
+        error=inputs.error,
+        count_failure=inputs.count_failure,
+    )
+    PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+
+
 @workflow.defn(name="backfill-warehouse-person-properties")
 class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
+    @workflow.init
+    def __init__(self, inputs: PersonPropertyBackfillActivityInputs) -> None:
+        # Old executions were started directly with their activity input. Keeping that as the default
+        # initial request makes their histories replay unchanged after signal-with-start is deployed.
+        self._pending_inputs: PersonPropertyBackfillActivityInputs | None = None if inputs.skip_initial_run else inputs
+
+    @workflow.signal
+    async def request_backfill(self, inputs: PersonPropertyBackfillActivityInputs) -> None:
+        # A binding backfill always resolves source mappings from the database when its activity runs.
+        # Only the latest pending request is needed; replacing it coalesces bursts without losing the
+        # revision that must run after the current activity.
+        self._pending_inputs = dataclasses.replace(inputs, skip_initial_run=False)
+
+    @property
+    def _has_pending_request(self) -> bool:
+        """Whether a request is queued. A signal handler can queue one during any await, so read
+        this rather than the field: a narrowed field reads as empty for the rest of the run."""
+        return self._pending_inputs is not None
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> PersonPropertyBackfillActivityInputs:
         loaded = json.loads(inputs[0])
@@ -111,15 +190,73 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: PersonPropertyBackfillActivityInputs) -> None:
-        await workflow.execute_activity(
-            backfill_warehouse_person_properties_activity,
-            inputs,
-            start_to_close_timeout=timedelta(hours=6),
-            heartbeat_timeout=timedelta(minutes=5),
-            # A one-off full-table read: don't silently re-scan the whole table on a transient error.
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+        while True:
+            await workflow.wait_condition(lambda: self._pending_inputs is not None)
+            activity_inputs = self._pending_inputs
+            self._pending_inputs = None
+            assert activity_inputs is not None
+            started_at = workflow.now()
+            records_failure = workflow.patched(RECORD_FAILED_RUN_PATCH)
+            try:
+                max_attempts = 3 if workflow.patched(RETRY_INTERRUPTED_RUN_PATCH) else 1
+                for attempt in range(max_attempts):
+                    try:
+                        await workflow.execute_activity(
+                            backfill_warehouse_person_properties_activity,
+                            dataclasses.replace(activity_inputs, workflow_records_failure=records_failure),
+                            start_to_close_timeout=timedelta(hours=6),
+                            heartbeat_timeout=timedelta(minutes=5),
+                            # A full-table read must not retry application errors or the six-hour timeout.
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                        break
+                    except ActivityError as error:
+                        cause = error.cause
+                        can_retry = (isinstance(cause, ApplicationError) and cause.type == "WorkerShutdown") or (
+                            isinstance(cause, TimeoutError) and cause.type == TimeoutType.HEARTBEAT
+                        )
+                        if not can_retry or attempt == max_attempts - 1:
+                            raise
+            except ActivityError as e:
+                if records_failure:
+                    try:
+                        await workflow.execute_activity(
+                            record_failed_person_property_backfill_runs_activity,
+                            PersonPropertyFailedRunInputs(
+                                team_id=activity_inputs.team_id,
+                                schema_id=activity_inputs.schema_id,
+                                saved_query_id=activity_inputs.saved_query_id,
+                                job_id=None,
+                                trigger=activity_inputs.trigger,
+                                started_at=started_at.isoformat(),
+                                error=failed_run_error(e, INTERRUPTED_RUN_NEXT_STEP),
+                                count_failure=not is_worker_interruption(e),
+                            ),
+                            start_to_close_timeout=timedelta(minutes=5),
+                            # The recorder swallows its own errors. A retry could only follow a write
+                            # that already landed, and without a job_id it would add a second failed row.
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                    except ActivityError:
+                        # A lost failure record must not also drop a request queued behind this run.
+                        workflow.logger.exception("Failed to record the failed person-property backfill run")
+                # A request that arrived while the activity ran was reported to its caller as
+                # queued, so serve that before giving up — a mapping edit must not die with the run
+                # it happened to overlap. With nothing pending, fail the workflow as before.
+                await workflow.wait_condition(workflow.all_handlers_finished)
+                if not self._has_pending_request:
+                    raise
+                continue
+
+            # Drain signal handlers and re-check before completing. A signal racing the completion
+            # command makes Temporal replay this task; a signal after completion starts a fresh run.
+            await workflow.wait_condition(workflow.all_handlers_finished)
+            if not self._has_pending_request:
+                return
 
 
-PERSON_PROPERTY_BACKFILL_WORKFLOWS = [BackfillWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_BACKFILL_ACTIVITIES = [backfill_warehouse_person_properties_activity]
+PERSON_PROPERTY_BACKFILL_WORKFLOWS: list[type[PostHogWorkflow]] = [BackfillWarehousePersonPropertiesWorkflow]
+PERSON_PROPERTY_BACKFILL_ACTIVITIES = [
+    backfill_warehouse_person_properties_activity,
+    record_failed_person_property_backfill_runs_activity,
+]

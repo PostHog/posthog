@@ -3,9 +3,10 @@ import { useMemo } from 'react'
 
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { isOperatorMulti } from 'lib/utils/operators'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
 import type { GroupTypeIndex, PropertyFilterValue, PropertyOperator } from '~/types'
+
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 
 import { GroupInfoCard, GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
 import { groupKeySelectLogic } from './groupKeySelectLogic'

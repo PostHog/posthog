@@ -70,6 +70,10 @@ export interface UserBasicApi {
 export interface EndpointMaterializationApi {
     /** URL-safe endpoint name. */
     name: string
+    /** Whether materialization is enabled for this endpoint version. */
+    enabled: boolean
+    /** Whether a successful materialization is available to serve. */
+    ready: boolean
     /** Current materialization status (e.g. 'Completed', 'Running'). */
     status?: string
     /** Whether this endpoint query can be materialized. */
@@ -126,7 +130,7 @@ export interface EndpointResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
     data_freshness_seconds: number
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
@@ -283,7 +287,7 @@ export interface EndpointVersionResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
     data_freshness_seconds: number
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
@@ -430,6 +434,7 @@ export interface PatchedEndpointRequestApi {
 export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null
 
 export interface MaterializationPreviewRequestApi {
+    /** Endpoint version to preview. Defaults to the current version. */
     version?: number
     /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
@@ -438,62 +443,52 @@ export interface MaterializationPreviewRequestApi {
     bucket_overrides?: MaterializationPreviewRequestApiBucketOverrides
 }
 
-/**
- * Request body for the AI materialization-fix suggestion action.
- */
-export interface EndpointMaterializationSuggestionRequestApi {
-    /**
-     * Endpoint version to suggest a fix for. Defaults to the latest version.
-     * @nullable
-     */
-    version?: number | null
+export interface MaterializationPreviewRangePairApi {
+    /** Column the query buckets on. */
+    column: string
+    /** Query variables that filter on this column. */
+    variables: string[]
+    /** Bucket function applied to the column. */
+    bucket_fn: string
 }
 
-/**
- * * `ok` - ok
- * * `cannot_fix` - cannot_fix
- * * `invalid` - invalid
- * * `model_error` - model_error
- */
-export type SuggestionStatusEnumApi = (typeof SuggestionStatusEnumApi)[keyof typeof SuggestionStatusEnumApi]
+export interface MaterializationPreviewAggregateApi {
+    /** Aggregate expression in the transformed query. */
+    expression: string
+    /**
+     * Function that combines materialized partials again, or null when there is none.
+     * @nullable
+     */
+    reaggregate_fn: string | null
+}
 
-export const SuggestionStatusEnumApi = {
-    Ok: 'ok',
-    CannotFix: 'cannot_fix',
-    Invalid: 'invalid',
-    ModelError: 'model_error',
-} as const
-
-/**
- * AI-suggested query rewrite that would make the endpoint materializable.
- */
-export interface EndpointMaterializationSuggestionApi {
-    /** Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.
-     *
-     * * `ok` - ok
-     * * `cannot_fix` - cannot_fix
-     * * `invalid` - invalid
-     * * `model_error` - model_error */
-    suggestion_status: SuggestionStatusEnumApi
+export interface MaterializationPreviewResponseApi {
+    /** Whether the endpoint query can be materialized. */
+    can_materialize: boolean
     /**
-     * The complete rewritten SQL query, or null when no rewrite was produced.
+     * Why the query cannot be materialized, or null when it can.
      * @nullable
      */
-    suggested_query: string | null
+    reason: string | null
     /**
-     * User-facing explanation of what was changed and why, or why no fix exists.
+     * Query rewritten for materialization, when one could be produced.
      * @nullable
      */
-    explanation: string | null
-    /** How many suggest→validate rounds were used. */
-    attempts: number
+    transformed_query: string | null
     /**
-     * Last validation failure when the suggestion did not pass the checks.
+     * Query that would run against the materialized table.
      * @nullable
      */
-    error: string | null
-    /** The materialization blocker that triggered the suggestion. */
-    original_reason: string
+    execution_query: string | null
+    /**
+     * Execution query formatted for display.
+     * @nullable
+     */
+    display_execution_query: string | null
+    /** Bucketed columns and the variables that filter on them. */
+    range_pairs: MaterializationPreviewRangePairApi[]
+    /** Aggregate expressions and how to re-aggregate them. */
+    aggregates: MaterializationPreviewAggregateApi[]
 }
 
 /**
@@ -534,6 +529,7 @@ export const BreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -548,6 +544,7 @@ export const MultipleBreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -577,6 +574,13 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
+}
+
 export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
 
 export const IntervalTypeApi = {
@@ -589,6 +593,65 @@ export const IntervalTypeApi = {
     Quarter: 'quarter',
     Year: 'year',
 } as const
+
+export type MetricsFilterOpApi = (typeof MetricsFilterOpApi)[keyof typeof MetricsFilterOpApi]
+
+export const MetricsFilterOpApi = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export type MetricsAttributeScopeApi = (typeof MetricsAttributeScopeApi)[keyof typeof MetricsAttributeScopeApi]
+
+export const MetricsAttributeScopeApi = {
+    Resource: 'resource',
+    Attribute: 'attribute',
+    Auto: 'auto',
+} as const
+
+export interface MetricsQueryFilterApi {
+    key: string
+    op: MetricsFilterOpApi
+    scope?: MetricsAttributeScopeApi | null
+    value: string
+}
+
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+export type MetricsDashboardVariableSourceApi =
+    (typeof MetricsDashboardVariableSourceApi)[keyof typeof MetricsDashboardVariableSourceApi]
+
+export const MetricsDashboardVariableSourceApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface MetricsDashboardVariableApi {
+    /** The text that All puts in a PromQL query. `.*` when it is empty. */
+    allValue?: string | null
+    current?: MetricsDashboardVariableSelectionApi | null
+    /** The options when `source` is `custom`. */
+    customValues?: string[] | null
+    includeAll?: boolean | null
+    /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+    label?: string | null
+    multi?: boolean | null
+    /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+    name: string
+    /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+    query?: string | null
+    /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+    regex?: string | null
+    source: MetricsDashboardVariableSourceApi
+}
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
@@ -619,6 +682,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -694,6 +758,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -860,8 +928,65 @@ export interface WorkflowVariablePropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type BehavioralEventSourceApi = (typeof BehavioralEventSourceApi)[keyof typeof BehavioralEventSourceApi]
+
+export const BehavioralEventSourceApi = {
+    Events: 'events',
+    Actions: 'actions',
+} as const
+
+export type TimeUnitTypeApi = (typeof TimeUnitTypeApi)[keyof typeof TimeUnitTypeApi]
+
+export const TimeUnitTypeApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Year: 'year',
+} as const
+
+export type InlineBehavioralTypeApi = (typeof InlineBehavioralTypeApi)[keyof typeof InlineBehavioralTypeApi]
+
+export const InlineBehavioralTypeApi = {
+    PerformedEvent: 'performed_event',
+    PerformedEventMultiple: 'performed_event_multiple',
+} as const
+
+export interface BehavioralPropertyFilterApi {
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | HogQLPropertyFilterApi
+          )[]
+        | null
+    event_type: BehavioralEventSourceApi
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    label?: string | null
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean | null
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperatorApi | null
+    /** Count threshold for performed_event_multiple */
+    operator_value?: number | null
+    time_interval?: TimeUnitTypeApi | null
+    /** Relative time window size, paired with time_interval */
+    time_value?: number | null
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    type?: 'behavioral'
+    value: InlineBehavioralTypeApi
+}
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -869,6 +994,9 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
+    metricFilters?: MetricsQueryFilterApi[] | null
+    /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+    metricVariables?: MetricsDashboardVariableApi[] | null
     properties?:
         | (
               | EventPropertyFilterApi
@@ -894,6 +1022,7 @@ export interface DashboardFilterApi {
               | RevenueAnalyticsPropertyFilterApi
               | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
+              | BehavioralPropertyFilterApi
           )[]
         | null
 }
@@ -952,7 +1081,71 @@ export interface ClickhouseQueryProgressApi {
     time_elapsed: number
 }
 
+export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
+
+export const QueryScanFixLocationApi = {
+    Query: 'query',
+    Subquery: 'subquery',
+    View: 'view',
+    InsightDateRange: 'insight_date_range',
+    DashboardDateFilter: 'dashboard_date_filter',
+} as const
+
+export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
+
+export const QueryScanFindingKindApi = {
+    NoEventFilter: 'no_event_filter',
+    NoStartDate: 'no_start_date',
+    PersonsJoin: 'persons_join',
+} as const
+
+export interface QueryScanWarningApi {
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean | null
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string | null
+    /** The one fact the finding rests on. */
+    evidence?: string | null
+    /** What "Fix with AI" and the assistant are told to do. */
+    fix: string
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocationApi | null
+    kind: QueryScanFindingKindApi
+    /** Shown to the person: what happened and what to do. */
+    message: string
+}
+
+export interface QueryScanAnalysisApi {
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+    assistant_prompt?: string | null
+    /** Every finding, fixable or not. Empty when the analysis found none. */
+    findings: QueryScanWarningApi[]
+    /** How much of all the project's events the query read, 0 to 1. */
+    project_share?: number | null
+    /** How much of the project's events in the query's date range the query read, 0 to 1. */
+    range_share?: number | null
+}
+
+export interface QueryScanSummaryApi {
+    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+    analysis?: QueryScanAnalysisApi | null
+    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+    analysis_requested?: boolean | null
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: number
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean | null
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: number
+}
+
 export interface QueryStatusApi {
+    budget_remaining_bytes?: number | null
+    bytes_read?: number | null
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string | null
     /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
     dashboard_id?: number | null
@@ -960,7 +1153,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -972,6 +1165,7 @@ export interface QueryStatusApi {
     /** ONLY async queries use QueryStatus. */
     query_async?: true
     query_progress?: ClickhouseQueryProgressApi | null
+    query_scan?: QueryScanSummaryApi | null
     results?: unknown
     /** When was query execution task enqueued. */
     start_time?: string | null
@@ -981,16 +1175,6 @@ export interface QueryStatusApi {
 
 export interface QueryStatusResponseApi {
     query_status: QueryStatusApi
-}
-
-/**
- * The live materialization rules, for agents that want to rewrite a rejected query themselves.
- */
-export interface EndpointMaterializationConditionsApi {
-    /** Python source code of the checks that decide whether an endpoint query can be materialized, read from the running system — always matches what this instance enforces. Reason from it to rewrite a rejected query into a form that passes every check. */
-    conditions_source: string
-    /** Hard rules a rewrite must obey so it stays semantically equivalent to the original query (same results for all variable values, keep every variable placeholder unchanged). */
-    rewrite_contract: string
 }
 
 export type EndpointsListParams = {
@@ -1004,6 +1188,13 @@ export type EndpointsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EndpointsRetrieveParams = {
+    /**
+     * Endpoint version to act on. Defaults to the current version.
+     */
+    version?: number
 }
 
 export type EndpointsLogsRetrieveParams = {
@@ -1032,15 +1223,27 @@ export type EndpointsLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
     search?: string
 }
 
+export type EndpointsMaterializationStatusRetrieveParams = {
+    /**
+     * Endpoint version to act on. Defaults to the current version.
+     */
+    version?: number
+}
+
 export type EndpointsOpenapiSpecRetrieveParams = {
     /**
-     * Specific endpoint version to generate the spec for. Defaults to latest.
+     * Endpoint version to act on. Defaults to the current version.
      */
     version?: number
 }

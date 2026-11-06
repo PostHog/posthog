@@ -50,6 +50,10 @@ export class HostBridge {
         this.emit({ type: 'inactivity_periods', periods })
     }
 
+    publishFrameTimeline(frameSessionMs: number[]): void {
+        this.emit({ type: 'frame_timeline', frameSessionMs })
+    }
+
     // --- Config ---
 
     /**

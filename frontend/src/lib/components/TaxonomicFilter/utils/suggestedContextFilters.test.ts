@@ -50,6 +50,21 @@ describe('suggestedContextFilters', () => {
             ).toHaveLength(1)
         })
 
+        it('checks the whole filter when excluding a recent', () => {
+            const items = [
+                recent(EventProperties, 'date', {
+                    propertyFilter: { key: 'date', operator: PropertyOperator.IsSet, value: null },
+                }),
+                recent(EventProperties, 'name', {
+                    propertyFilter: { key: 'name', operator: PropertyOperator.IsSet, value: null },
+                }),
+            ]
+            const out = filterRecentsForContext(items, [EventProperties], {
+                [EventProperties]: (filter) => filter.key === 'date',
+            })
+            expect(names(out)).toEqual(['name', 'name'])
+        })
+
         it('drops a recent whose value is excluded for its group, keeping others', () => {
             const items = [recent(EventProperties, 'message'), recent(EventProperties, 'plan')]
             const out = filterRecentsForContext(items, [EventProperties], undefined, undefined, {
@@ -136,12 +151,34 @@ describe('suggestedContextFilters', () => {
     })
 
     describe.each([
-        ['only in-scope kept', [pinned(Events, 'a'), pinned(Cohorts, 'c')], [Events], ['a']],
-        ['all out-of-scope dropped', [pinned(Cohorts, 'c')], [Events], []],
-        ['empty input', [], [Events], []],
-    ])('filterPinnedForContext — %s', (_label, items, types, expected) => {
+        ['only in-scope kept', [pinned(Events, 'a'), pinned(Cohorts, 'c')], [Events], undefined, ['a']],
+        ['all out-of-scope dropped', [pinned(Cohorts, 'c')], [Events], undefined, []],
+        ['empty input', [], [Events], undefined, []],
+        // A pin outlives the picker it was made in, so without this the Pinned tab is a second door
+        // to selecting a value the exclusion forbids.
+        [
+            'excluded value dropped',
+            [pinned(Events, '$exception'), pinned(Events, 'checkout_started')],
+            [Events],
+            { [Events]: ['$exception'] },
+            ['checkout_started'],
+        ],
+        [
+            'exclusion applies only to its own group',
+            [pinned(Events, '$exception'), pinned(Cohorts, '$exception')],
+            [Events, Cohorts],
+            { [Events]: ['$exception'] },
+            ['$exception'],
+        ],
+    ])('filterPinnedForContext — %s', (_label, items, types, excludedProperties, expected) => {
         it('matches the expected in-scope set', () => {
-            expect(names(filterPinnedForContext(items, types))).toEqual(expected)
+            expect(names(filterPinnedForContext(items, types, excludedProperties))).toEqual(expected)
         })
+    })
+
+    it('drops a pinned value that is excluded for its group, keeping others', () => {
+        const items = [pinned(Events, '$feature_flag_called'), pinned(Events, '$pageview')]
+        const out = filterPinnedForContext(items, [Events], { [Events]: ['$feature_flag_called'] })
+        expect(names(out)).toEqual(['$pageview'])
     })
 })

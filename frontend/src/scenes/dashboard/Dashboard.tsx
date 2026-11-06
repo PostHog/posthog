@@ -1,15 +1,19 @@
 import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { Suspense } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
 import { NotFound } from 'lib/components/NotFound'
+import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
-import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
-import { DashboardItems } from 'scenes/dashboard/DashboardItems'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -19,19 +23,35 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
+import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
+import { DashboardFilterBar } from 'products/dashboards/frontend/DashboardFilters'
+import { DashboardFlagCalledBanner } from 'products/dashboards/frontend/DashboardFlagCalledBanner'
+import { DashboardEmbeddedShareButton } from 'products/dashboards/frontend/DashboardHeaderActions'
+import { DashboardItems } from 'products/dashboards/frontend/DashboardItems'
+import { DashboardModalLoading } from 'products/dashboards/frontend/DashboardModalLoading'
+import { dashboardPerformanceLogic } from 'products/dashboards/frontend/dashboardPerformanceLogic'
+import { DashboardQueryScanBanner } from 'products/dashboards/frontend/DashboardQueryScanBanner'
+import { DashboardRetentionBanner } from 'products/dashboards/frontend/DashboardRetentionBanner'
+import { dashboardSubscribeNudgeLogic } from 'products/dashboards/frontend/dashboardSubscribeNudgeLogic'
+import { DashboardWarehouseSyncBanner } from 'products/dashboards/frontend/DashboardWarehouseSyncBanner'
+import { DashboardZoomControl } from 'products/dashboards/frontend/DashboardZoomControl'
+import { EmptyDashboardComponent } from 'products/dashboards/frontend/EmptyDashboardComponent'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
 import { teamLogic } from '../teamLogic'
-import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
-import { DashboardOverridesBanner } from './DashboardOverridesBanner'
-import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
-import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
-import { DashboardZoomControl } from './DashboardZoomControl'
-import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+
+// The modal renders the saved insights list, which no dashboard needs until someone adds an insight.
+const AddInsightToDashboardModal = lazyWithRetry(() =>
+    import('products/dashboards/frontend/components/AddInsightToDashboardModal/AddInsightToDashboardModal').then(
+        (m) => ({
+            default: m.AddInsightToDashboardModal,
+        })
+    )
+)
 
 // Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
 function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }): null {
@@ -41,15 +61,30 @@ function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }
 
 interface DashboardProps {
     id?: string
-    dashboard?: DashboardType<QueryBasedInsightModel>
+    dashboard?: DashboardType
     placement?: DashboardPlacement
     themes?: DataColorThemeModel[]
     /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
+    /** Shows the dashboard without tile menus or drag-to-edit controls. */
+    readOnly?: boolean
+    /** Extra controls for the dashboard header, when a page shows the dashboard as its main content. */
+    headerActions?: JSX.Element
+    /** Uses less vertical space above the tiles, for a page where the dashboard is a product's home. */
+    compact?: boolean
+    /** The parent page reloads the dashboard when PostHog AI adds charts to it, so the header does not. */
+    parentReloadsOnAIChanges?: boolean
 }
 
-const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
+export const parseDashboardId = (id: string | undefined): number => {
+    if (!id || !/^\d+$/.test(id)) {
+        return NaN
+    }
+    // Reject "0" and all-zero variants: id 0 is the reserved internal sentinel, never a real dashboard.
+    const dashboardId = Number(id)
+    return dashboardId > 0 ? dashboardId : NaN
+}
 
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
 // DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
@@ -71,12 +106,22 @@ export function Dashboard({
     themes,
     backTo,
     showCreateAnomalyAlertButton,
+    readOnly,
+    headerActions,
+    compact,
+    parentReloadsOnAIChanges,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
-            <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
+        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard, readOnly }}>
+            <DashboardScene
+                backTo={backTo}
+                showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                headerActions={headerActions}
+                compact={compact}
+                parentReloadsOnAIChanges={parentReloadsOnAIChanges}
+            />
         </BindLogic>
     )
 }
@@ -84,9 +129,15 @@ export function Dashboard({
 function DashboardScene({
     backTo,
     showCreateAnomalyAlertButton,
+    headerActions,
+    compact,
+    parentReloadsOnAIChanges,
 }: {
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
+    headerActions?: JSX.Element
+    compact?: boolean
+    parentReloadsOnAIChanges?: boolean
 }): JSX.Element {
     const {
         placement,
@@ -94,15 +145,29 @@ function DashboardScene({
         canEditDashboard,
         tiles,
         itemsLoading,
+        dashboardLoading,
+        dashboardStreaming,
         layoutEditMode,
         dashboardFailedToLoad,
+        internetConnectionIssue,
         accessDeniedToDashboard,
         error404,
+        hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
+    const { id: dashboardId } = useMountedLogic(dashboardLogic).props
+    useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
+    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad, setLayoutZoom } =
+        useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
+    const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const closeAddInsightToDashboardModal = (): void => {
+        // Mirror AddInsightToDashboardModal.handleClose, so a close during the chunk load still
+        // emits this event. 'insight dashboard modal - closed' is a frozen event name; keep both in sync.
+        posthog.capture('insight dashboard modal - closed')
+        hideAddInsightToDashboardModal()
+    }
 
     useAttachedContext(
         dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
@@ -117,8 +182,8 @@ function DashboardScene({
     useOnMountEffect(() => {
         reportDashboardViewed()
 
-        // request cancellation of any running queries when this component is no longer in the dom
-        return () => abortAnyRunningQuery()
+        // request cancellation of any running insight, widget and tile group loads when this component is no longer in the dom
+        return () => cancelDashboardRefresh()
     })
 
     // `error404` only becomes true once a load has settled as a 404, so pending loads fall through to the empty/loading state
@@ -128,7 +193,9 @@ function DashboardScene({
                 object="dashboard"
                 caption={
                     <>
-                        It may have been deleted, or the link is out of date.{' '}
+                        {hasInvalidDashboardId
+                            ? 'This dashboard link is not valid.'
+                            : 'It may have been deleted, or the link is out of date.'}{' '}
                         <Link to={urls.dashboards()}>Go to your dashboards</Link>.
                     </>
                 }
@@ -141,18 +208,51 @@ function DashboardScene({
     }
 
     return (
-        <SceneContent className={cn('dashboard')}>
+        <SceneContent className={cn('dashboard', compact && 'gap-y-2')}>
             {placement == DashboardPlacement.Dashboard && (
-                <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
+                <DashboardHeader
+                    loading={!dashboard && !dashboardFailedToLoad}
+                    extraActions={headerActions}
+                    reloadOnAIChanges={!parentReloadsOnAIChanges}
+                />
             )}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}
-            {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
-            <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
+            {canEditDashboard && addInsightToDashboardModalVisible && (
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={addInsightToDashboardModalVisible}
+                            onClose={closeAddInsightToDashboardModal}
+                            label="Loading insights"
+                        />
+                    }
+                >
+                    <AddInsightToDashboardModal />
+                </Suspense>
+            )}
+            {/* Lets a tile copied as a PNG be annotated before it is shared. Export placement renders headlessly. */}
+            {placement !== DashboardPlacement.Export && (
+                <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
+            )}
+            <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
+            {/* Outside the tile-count branches: a dashboard can keep subscriptions and delivery history after its tiles are removed. */}
+            {placement === DashboardPlacement.Dashboard && !!dashboard?.id && (
+                <SubscriptionSummaries dashboardId={dashboard.id} className="mt-2 mb-2" />
+            )}
 
-            {dashboardFailedToLoad ? (
-                <InsightErrorState title="There was an error loading this dashboard" supportOnly />
+            {dashboardFailedToLoad && !tiles?.length ? (
+                <InsightErrorState
+                    title={
+                        internetConnectionIssue
+                            ? "We couldn't connect to PostHog. Check your connection and try again."
+                            : 'There was an error loading this dashboard'
+                    }
+                    onRetry={placement === DashboardPlacement.Export ? undefined : retryDashboardLoad}
+                    retryLoading={dashboardLoading || dashboardStreaming}
+                    placement={placement}
+                />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (
@@ -161,9 +261,30 @@ function DashboardScene({
                         '-mt-4': placement == DashboardPlacement.ProjectHomepage,
                     })}
                 >
-                    <DashboardOverridesBanner />
+                    {dashboardFailedToLoad && (
+                        <LemonBanner
+                            type="warning"
+                            className="mb-4"
+                            action={
+                                placement === DashboardPlacement.Export
+                                    ? undefined
+                                    : {
+                                          children: 'Try again',
+                                          onClick: retryDashboardLoad,
+                                          loading: dashboardLoading || dashboardStreaming,
+                                          'data-attr': 'dashboard-load-retry',
+                                      }
+                            }
+                        >
+                            This dashboard couldn't finish loading.
+                        </LemonBanner>
+                    )}
+                    <DashboardRetentionBanner />
+                    <DashboardFlagCalledBanner />
+                    <DashboardQueryScanBanner />
+                    <DashboardWarehouseSyncBanner />
 
-                    <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
+                    <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
                         <DashboardFilterBar backTo={backTo} />
                         {layoutEditMode &&
                             canEditDashboard &&

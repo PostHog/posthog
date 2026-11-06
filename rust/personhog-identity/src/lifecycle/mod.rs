@@ -1,16 +1,16 @@
-//! Lifecycle sagas: person-destroying operations (delete now, merge case 3
-//! later) run as durable sagas with all state in the lifecycle_op tables on
-//! the persons primary. Self-contained on purpose — no imports from the
-//! get-or-create side; anything shared belongs in personhog-common.
+//! Lifecycle sagas: person-destroying operations run as durable sagas with
+//! all state in the lifecycle_op tables on the persons primary. The merge
+//! saga's step handler lives in [`merge`]; the entrance that drives it
+//! lives in [`crate::service::merge`].
 //!
 //! The [`engine`] carries everything op types share (op persistence, lease,
-//! drive loop, sweeper, GC); [`delete`] carries the delete saga's step
-//! handlers. The service here is dispatch-only: validate, hand the request
-//! to the engine, and translate the recorded outcome back to the proto
-//! contract.
+//! drive loop, sweeper, GC); [`delete`] and [`merge`] carry their sagas'
+//! step handlers.
 
 pub mod delete;
+pub mod detach;
 pub mod engine;
+pub(crate) mod leader_calls;
 pub mod merge;
 pub mod validation;
 
@@ -18,11 +18,14 @@ use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
 
+use personhog_coordination::changelog::LiveChangelog;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{
     DeletePersonOutcome, DeletePersonResult, DeletePersonsRequest, DeletePersonsResponse,
 };
 
+use crate::config::OutboxWrites;
+use crate::leader::LifecycleLeader;
 use crate::lifecycle::delete::{
     DeleteDriver, DeleteOutcome, OUTCOME_DELETED, OUTCOME_NOT_FOUND, OUTCOME_SKIPPED_CONFLICT,
 };
@@ -35,13 +38,28 @@ pub struct PersonHogLifecycleService {
 }
 
 impl PersonHogLifecycleService {
-    pub fn new(engine: Arc<Engine>) -> Self {
+    pub fn new(
+        engine: Arc<Engine>,
+        leader: Arc<dyn LifecycleLeader>,
+        tables: crate::config::IdentityTables,
+        leader_call_concurrency: usize,
+        changelog: LiveChangelog,
+        outbox_writes: OutboxWrites,
+    ) -> Self {
         Self {
             engine,
-            delete_driver: DeleteDriver,
+            delete_driver: DeleteDriver::new(
+                leader,
+                tables,
+                leader_call_concurrency,
+                changelog,
+                outbox_writes,
+            ),
         }
     }
 }
+
+const DELETE_PERSONS_PER_CALL: &str = "personhog_lifecycle_delete_persons_per_call";
 
 /// Translate a terminal op row's recorded outcome into the proto response.
 /// The recorded outcome is the single source of truth — a retried call gets
@@ -72,6 +90,7 @@ fn delete_response(row: &OpRow) -> Result<DeletePersonsResponse, Status> {
             DeletePersonResult {
                 person_id: record.person_id,
                 outcome: outcome.into(),
+                person_version: record.person_version,
             }
         })
         .collect();
@@ -90,6 +109,11 @@ impl PersonHogLifecycle for PersonHogLifecycleService {
     ) -> Result<Response<DeletePersonsResponse>, Status> {
         let request = request.into_inner();
         let op_id = validate_delete_persons(&request)?;
+        common_metrics::histogram(
+            DELETE_PERSONS_PER_CALL,
+            &[],
+            request.person_ids.len() as f64,
+        );
 
         let frozen = serde_json::to_value(delete::DeleteRequest {
             person_ids: request.person_ids,

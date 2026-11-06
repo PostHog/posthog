@@ -10,6 +10,7 @@ import pyarrow.compute as pc
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     PartitionMode,
     SourceResponse,
 )
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -29,6 +31,27 @@ PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at", "createdAt"]
 
 # Bucket for rows whose numerical partition key is null — they can't be bucketed arithmetically.
 NULL_NUMERICAL_PARTITION = "null"
+
+DATE_CURSOR_TYPES = frozenset(
+    {IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date}
+)
+
+
+def append_cursor_partition_keys(schema: ExternalDataSchema, *, table_is_replaced: bool = False) -> list[str] | None:
+    """The cursor column of an append-only schema, when a new table can be partitioned by its date.
+
+    An append-only sync never merges rows, so a hash of the primary key helps no read and no write.
+    Its cursor only moves forward, so date partitions on the cursor let a query that filters on it
+    skip every other partition. A schema that already has partitioning keys keeps them, unless the
+    run deletes the table and loads it again: the saved keys then describe a table that is gone.
+    """
+    if not schema.is_append or schema.partitioning_keys_override:
+        return None
+    if schema.partitioning_keys and not table_is_replaced:
+        return None
+    if schema.incremental_field and schema.incremental_field_type in DATE_CURSOR_TYPES:
+        return [schema.incremental_field]
+    return None
 
 
 async def setup_partitioning(
@@ -52,6 +75,11 @@ async def setup_partitioning(
     )
     partition_format = schema.partition_format or resource.partition_format
     partition_mode = schema.partition_mode_override or schema.partition_mode or resource.partition_mode
+
+    if partition_mode is None:
+        cursor_keys = append_cursor_partition_keys(schema)
+        if cursor_keys:
+            partition_keys, partition_mode = cursor_keys, "datetime"
 
     if not partition_keys:
         logger.debug("No partition keys, skipping partitioning")
@@ -80,22 +108,34 @@ async def setup_partitioning(
     )
 
     if partition_result is not None:
-        pa_table, partition_mode, partition_format, updated_partition_keys = partition_result
+        pa_table = partition_result.table
 
         if (
             not schema.partitioning_enabled
-            or schema.partition_mode != partition_mode
-            or schema.partition_format != partition_format
-            or schema.partitioning_keys != updated_partition_keys
+            or schema.partition_mode != partition_result.partition_mode
+            or schema.partition_format != partition_result.partition_format
+            or schema.partitioning_keys != partition_result.partition_keys
         ):
             logger.debug(
-                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
+                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_result.partition_mode}. partition_format={partition_result.partition_format}"
             )
             await database_sync_to_async_pool(schema.set_partitioning_enabled)(
-                updated_partition_keys, partition_count, partition_size, partition_mode, partition_format
+                partition_result.partition_keys,
+                partition_count,
+                partition_size,
+                partition_result.partition_mode,
+                partition_result.partition_format,
             )
 
     return pa_table
+
+
+@frozen
+class PartitionedTable:
+    table: pa.Table
+    partition_mode: PartitionMode
+    partition_format: PartitionFormat | None
+    partition_keys: list[str]
 
 
 def append_partition_key_to_table(
@@ -106,7 +146,7 @@ def append_partition_key_to_table(
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
-) -> None | tuple[pa.Table, PartitionMode, PartitionFormat | None, list[str]]:
+) -> PartitionedTable | None:
     """
     Partitions the pyarrow table via one of three methods:
     - md5: Hashes the primary keys into a fixed number of buckets, the least efficient method of partitioning
@@ -175,7 +215,15 @@ def append_partition_key_to_table(
 
     partition_array: list[str] = []
 
-    for batch in table.to_batches():
+    # The bucket of a row depends on its key columns alone. A row dict of every column costs one
+    # Python object per cell, which is most of the time and memory of this function on a wide table.
+    key_column_indices = [
+        table.schema.get_all_field_indices(key)[-1]
+        for key in dict.fromkeys(normalized_partition_keys)
+        if key in table.column_names
+    ]
+
+    for batch in table.select(key_column_indices).to_batches():
         for row in batch.to_pylist():
             if mode == "md5":
                 assert partition_count is not None, "append_partition_key_to_table: partition_count is None"
@@ -227,8 +275,11 @@ def append_partition_key_to_table(
                     date_format = "%Y-%m"
 
                 if isinstance(date, int):
-                    date = datetime.datetime.fromtimestamp(date)
-                    partition_array.append(date.strftime(date_format))
+                    try:
+                        partition_array.append(datetime.datetime.fromtimestamp(date).strftime(date_format))
+                    except (ValueError, OverflowError, OSError):
+                        # Not a timestamp in seconds, for example one in milliseconds.
+                        partition_array.append("1970-01")
                 elif isinstance(date, datetime.datetime):
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.date):
@@ -250,4 +301,29 @@ def append_partition_key_to_table(
 
     new_column = pa.array(partition_array, type=pa.string())
 
-    return table.append_column(PARTITION_KEY, new_column), mode, partition_format, normalized_partition_keys
+    return PartitionedTable(
+        table=table.append_column(PARTITION_KEY, new_column),
+        partition_mode=mode,
+        partition_format=partition_format,
+        partition_keys=normalized_partition_keys,
+    )
+
+
+# Delta's fixed marker for a Hive-style partition directory whose column value is null.
+HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
+
+
+def partition_key_from_add_path(path: str) -> str | None:
+    """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
+
+    Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
+    `null` sentinel, or a datetime tier like "2024-01" — is plain ASCII with nothing that needs
+    percent-encoding, so splitting the path recovers the same value `get_add_actions`'s
+    `partition.<key>` column would give.
+    """
+    prefix = f"{PARTITION_KEY}="
+    for segment in path.split("/"):
+        if segment.startswith(prefix):
+            value = segment[len(prefix) :]
+            return None if value == HIVE_NULL_PARTITION else value
+    return None

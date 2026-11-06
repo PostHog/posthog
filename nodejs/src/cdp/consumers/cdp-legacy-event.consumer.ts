@@ -5,9 +5,10 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/cons
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
-import { LazyLoader } from '~/common/utils/lazy-loader'
+import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { validTeamIds } from '~/common/utils/team-manager'
 
 import {
     HealthCheckResult,
@@ -16,6 +17,7 @@ import {
     PostIngestionEvent,
     ProjectId,
     RawClickHouseEvent,
+    Team,
 } from '../../types'
 import { LegacyWebhookService } from '../legacy-webhooks/legacy-webhook-service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
@@ -28,7 +30,7 @@ import type {
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { parseBatch } from './message-parsing'
 
 export type LightweightPluginConfig = {
     id: number
@@ -45,14 +47,19 @@ export type LightweightPluginConfig = {
 }
 
 type PluginConfigHogFunction = {
-    pluginConfigId: number
+    /** Null once the plugin config has been migrated and the hog function row is the source of truth */
+    pluginConfigId: number | null
     hogFunction: HogFunctionType
 }
+
+type TeamWithPluginConfigs = { team: Team; pluginConfigs: PluginConfigHogFunction[] }
 
 const legacyPluginExecutionResultCounter = new Counter({
     name: 'cdp_legacy_event_consumer_execution_result_total',
     help: 'The number of times we have executed a legacy plugin',
-    labelNames: ['result', 'template_id'],
+    // `source` says which representation the consumer picked, so a migration can be watched as the
+    // share moving from plugin_config to hog_function while result stays where it was
+    labelNames: ['result', 'template_id', 'source'],
 })
 
 export type CdpLegacyEventsConsumerConfig = CdpConsumerBaseConfig &
@@ -69,6 +76,9 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     protected kafkaConsumer: KafkaConsumerInterface
 
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
+    // Execution reads the plugin configs that _parseKafkaBatch loaded. A second lookup could fail after this
+    // batch's webhooks start, and reading the batch again would then send those webhooks twice.
+    private pluginConfigsByGlobals = new WeakMap<HogFunctionInvocationGlobals, PluginConfigHogFunction[]>()
     private legacyPluginExecutor: LegacyPluginExecutorService
     private legacyWebhookService: LegacyWebhookService
 
@@ -92,10 +102,19 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             refreshAgeMs: 600000, // 10 minutes
             refreshBackgroundAgeMs: 300000, // 5 minutes
             bufferMs: 10, // 10ms buffer for batching
+            loaderRetry: DEFAULT_LOADER_RETRY,
+        })
+
+        // This loader caches the combined plugin-config and migrated-function view, so the manager
+        // invalidating its own copy is not enough: enabling or deleting a migrated row has to change
+        // which of the two runs straight away, not at the next refresh.
+        deps.pubSub.on<{ teamId: number }>('reload-hog-functions', ({ teamId }) => {
+            this.pluginConfigsLoader.markForRefresh(teamId.toString())
         })
     }
 
     private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
+        const numericTeamIds = validTeamIds(teamIds)
         const { rows } = await this.deps.postgres.query(
             PostgresUse.COMMON_READ,
             `SELECT
@@ -114,7 +133,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                 AND posthog_pluginconfig.enabled = 't'
                 AND (posthog_pluginconfig.deleted IS NULL OR posthog_pluginconfig.deleted != 't')
                 AND posthog_plugin.capabilities->'methods' @> '["onEvent"]'::jsonb`,
-            [teamIds.map((id) => parseInt(id))],
+            [numericTeamIds],
             'loadPluginConfigHogFunctions'
         )
 
@@ -212,6 +231,43 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             }
         }
 
+        return this.preferMigratedHogFunctions(results, await this.loadMigratedHogFunctions(numericTeamIds))
+    }
+
+    private async loadMigratedHogFunctions(teamIds: number[]): Promise<Record<string, HogFunctionType[]>> {
+        const byTeam = await this.hogFunctionManager.getHogFunctionsForTeams(teamIds, ['legacy_destination'])
+
+        return Object.fromEntries(Object.entries(byTeam).map(([teamId, fns]) => [teamId, fns]))
+    }
+
+    // Both representations would run the same processor. Production has at most one enabled onEvent
+    // plugin config per team and plugin, so the template id identifies the pair and the migrated row wins.
+    private preferMigratedHogFunctions(
+        fromPluginConfigs: Record<string, PluginConfigHogFunction[]>,
+        fromHogFunctions: Record<string, HogFunctionType[]>
+    ): Record<string, PluginConfigHogFunction[]> {
+        const results: Record<string, PluginConfigHogFunction[]> = {}
+
+        for (const [teamId, pluginConfigFns] of Object.entries(fromPluginConfigs)) {
+            // Nothing in the database stops two migrated rows sharing a template, and running both
+            // would send every event twice. Keep the oldest and ignore the rest.
+            const byTemplate = new Map<string, HogFunctionType>()
+            for (const fn of [...(fromHogFunctions[teamId] ?? [])].sort((a, b) => a.id.localeCompare(b.id))) {
+                const templateId = fn.template_id ?? ''
+                if (!byTemplate.has(templateId)) {
+                    byTemplate.set(templateId, fn)
+                }
+            }
+
+            const migrated = [...byTemplate.values()]
+            const migratedTemplateIds = new Set(migrated.map((fn) => fn.template_id))
+
+            results[teamId] = [
+                ...pluginConfigFns.filter((x) => !migratedTemplateIds.has(x.hogFunction.template_id)),
+                ...migrated.map((hogFunction) => ({ pluginConfigId: null, hogFunction })),
+            ]
+        }
+
         return results
     }
 
@@ -242,11 +298,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                     inputs[key] = { value }
                 }
             }
-        }
-
-        // Add legacy_plugin_config_id for plugins that use legacy storage
-        if (pluginId === 'customerio-plugin') {
-            inputs.legacy_plugin_config_id = { value: pluginConfig.id }
         }
 
         // Create a HogFunctionType
@@ -286,29 +337,31 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         const invocations = await this.getLegacyPluginHogFunctionInvocations(invocation)
 
         const results = await Promise.all(
-            invocations.map(async (invocation) => this.legacyPluginExecutor.execute(invocation))
+            invocations.map(async ({ invocation, pluginConfigId }) =>
+                this.legacyPluginExecutor.execute(invocation).then((result) => ({ result, pluginConfigId }))
+            )
         )
 
-        for (const result of results) {
-            const pluginConfigId = parseInt(result.invocation.hogFunction.id.replace('legacy-', ''))
+        for (const { result, pluginConfigId } of results) {
             const error = result.error
 
             legacyPluginExecutionResultCounter
                 .labels({
                     result: error ? 'error' : 'success',
                     template_id: result.invocation.hogFunction.template_id,
+                    source: pluginConfigId !== null ? 'plugin_config' : 'hog_function',
                 })
                 .inc()
 
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
                     team_id: event.teamId,
-                    app_source_id: String(pluginConfigId),
+                    app_source_id: pluginConfigId !== null ? String(pluginConfigId) : result.invocation.hogFunction.id,
                     metric_kind: error ? 'failure' : 'success',
                     metric_name: error ? 'failed' : 'succeeded',
                     count: 1,
                 },
-                'legacy_plugin'
+                pluginConfigId !== null ? 'legacy_plugin' : 'hog_function'
             )
         }
     }
@@ -331,48 +384,51 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     // This consumer always parses from kafka
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
-
-                    const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
-
-                    if (!team) {
-                        return
-                    }
-
-                    const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(team.id.toString())
-
-                    if (!pluginConfigHogFunctions?.length) {
-                        return
-                    }
-
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+        return await parseBatch<TeamWithPluginConfigs>(messages, {
+            errorLog: 'Error parsing message',
+            parse: (message) => {
+                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                return {
+                    teamId: clickHouseEvent.team_id,
+                    toGlobals: ({ team, pluginConfigs }) => {
+                        const globals = convertToHogFunctionInvocationGlobals(
+                            clickHouseEvent,
+                            team,
+                            this.config.SITE_URL
+                        )
+                        this.pluginConfigsByGlobals.set(globals, pluginConfigs)
+                        return globals
+                    },
                 }
-            })
-        )
-
-        return events
+            },
+            loadTeam: async (teamId) => {
+                const team = await this.deps.teamManager.getTeam(teamId)
+                if (!team) {
+                    return null
+                }
+                const pluginConfigs = await this.pluginConfigsLoader.get(team.id.toString())
+                return pluginConfigs?.length ? { team, pluginConfigs } : null
+            },
+        })
     }
 
     private async getLegacyPluginHogFunctionInvocations(
         invocation: HogFunctionInvocationGlobals
-    ): Promise<CyclotronJobInvocationHogFunction[]> {
-        const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(invocation.project.id.toString())
+    ): Promise<{ invocation: CyclotronJobInvocationHogFunction; pluginConfigId: number | null }[]> {
+        // The batch handler always finds the configs that _parseKafkaBatch stored, so it never makes a second lookup.
+        // Only callers that build their own globals reach the loader call.
+        const pluginConfigHogFunctions =
+            this.pluginConfigsByGlobals.get(invocation) ??
+            (await this.pluginConfigsLoader.get(invocation.project.id.toString()))
 
         if (!pluginConfigHogFunctions) {
             return []
         }
 
-        return pluginConfigHogFunctions.map(({ hogFunction }) => {
-            // Plugin configs are always static { value: any } so we can just convert to a record of strings
-            const inputs = Object.entries(hogFunction.inputs || {}).reduce(
+        return pluginConfigHogFunctions.map(({ hogFunction, pluginConfigId }) => {
+            // Plugin configs are always static { value: any } so we can just convert to a record of strings.
+            // A migrated row keeps its secrets in encrypted_inputs, which the manager decrypts separately.
+            const inputs = Object.entries({ ...hogFunction.inputs, ...hogFunction.encrypted_inputs }).reduce(
                 (acc, [key, value]) => {
                     acc[key] = value?.value
                     return acc
@@ -380,13 +436,16 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                 {} as Record<string, string>
             )
 
-            return createInvocation(
-                {
-                    ...invocation,
-                    inputs,
-                },
-                hogFunction
-            )
+            return {
+                pluginConfigId,
+                invocation: createInvocation(
+                    {
+                        ...invocation,
+                        inputs,
+                    },
+                    hogFunction
+                ),
+            }
         })
     }
 
@@ -400,10 +459,14 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             })
 
             return await instrumentFn('cdpLegacyConsumer.handleEachBatch', async () => {
-                const [webhookBatch, pluginBatch] = await Promise.all([
-                    this.legacyWebhookService.processBatch(messages),
-                    this._parseKafkaBatch(messages).then((invocations) => this.processBatch(invocations)),
+                // Both parses finish before either side sends. A parse lookup error then fails the batch
+                // before it sends a webhook or a plugin call, so reading the batch again does not repeat one.
+                const [webhookEvents, invocations] = await Promise.all([
+                    this.legacyWebhookService.parseBatch(messages),
+                    this._parseKafkaBatch(messages),
                 ])
+                const webhookBatch = this.legacyWebhookService.processEvents(webhookEvents)
+                const pluginBatch = await this.processBatch(invocations)
                 return {
                     backgroundTask: Promise.all([webhookBatch.backgroundTask, pluginBatch.backgroundTask]).then(() =>
                         this.invocationResultsService.flush()

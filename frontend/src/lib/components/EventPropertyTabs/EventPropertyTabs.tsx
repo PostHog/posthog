@@ -8,9 +8,10 @@ import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElem
 import { dayjs } from 'lib/dayjs'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
 import { isKeyOf } from 'lib/utils/guards'
+import { isSurveyResponseEvent } from 'scenes/surveys/utils'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
-import { EventType, RecordingEventType, SurveyEventProperties } from '~/types'
+import { EventType, RecordingEventType } from '~/types'
 
 import { AutocaptureImageTab, hasAutocaptureImage } from '../AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorEventType } from '../Errors/types'
@@ -59,7 +60,7 @@ export const EventPropertyTabs = ({
     const isAITagEvent = event.event === '$ai_tag'
 
     const isErrorEvent = event.event === '$exception'
-    const isSurveyResponseEvent = event.event === 'survey sent' && !!event.properties?.[SurveyEventProperties.SURVEY_ID]
+    const hasSurveyResponse = isSurveyResponseEvent(event.event, event.properties || {})
     const isMcpEvent =
         typeof event.event === 'string' &&
         (event.event.startsWith('mcp_') || event.event.startsWith('$mcp_') || event.event.startsWith('mcp '))
@@ -75,7 +76,7 @@ export const EventPropertyTabs = ({
                 ? 'tag'
                 : isErrorEvent
                   ? 'error_display'
-                  : isSurveyResponseEvent
+                  : hasSurveyResponse
                     ? 'survey_response'
                     : isMcpEvent
                       ? 'mcp'
@@ -121,7 +122,7 @@ export const EventPropertyTabs = ({
             label: 'Exception',
             content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'error_display' }),
         },
-        isSurveyResponseEvent && {
+        hasSurveyResponse && {
             key: 'survey_response',
             label: 'Survey response',
             content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'survey_response' }),

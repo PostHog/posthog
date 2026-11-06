@@ -1,450 +1,48 @@
 import re
-import json
-import base64
-from typing import Any, Literal, TypedDict, Union, cast
-
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.http.response import HttpResponse
-from django.urls.base import reverse
+from typing import Any, Literal, TypedDict, cast
 
 import jwt
 import structlog
-import posthoganalytics
 from jwt.algorithms import RSAAlgorithm
-from onelogin.saml2.xml_utils import OneLogin_Saml2_XML
 from rest_framework import authentication
-from rest_framework.decorators import api_view
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
-from social_core.backends.google import GoogleOAuth2
-from social_core.backends.saml import (
-    OID_COMMON_NAME,
-    OID_GIVEN_NAME,
-    OID_MAIL,
-    OID_SURNAME,
-    OID_USERID,
-    SAMLAuth,
-    SAMLIdentityProvider,
-)
-from social_core.exceptions import AuthFailed, AuthMissingParameter
-from social_django.models import UserSocialAuth
-from social_django.strategy import DjangoStrategy
-from social_django.utils import load_backend, load_strategy
 
+from posthog.api.sso import (
+    CustomGoogleOAuth2 as _CustomGoogleOAuth2,
+    MultitenantSAMLAuth as _MultitenantSAMLAuth,
+)
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 
 from ee import settings
-from ee.api.scim.utils import mask_email
 from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
 from ee.api.vercel.utils import get_vercel_jwks
 
-saml_logger = structlog.get_logger("posthog.auth.saml")
-
-
-def _saml_log_context(email: str, organization_domain: OrganizationDomain | None = None) -> dict[str, Any]:
-    from posthog.models.user import User
-
-    ctx: dict[str, Any] = {
-        "masked_email": mask_email(email),
-        "email_domain": email.split("@")[-1].lower(),
-    }
-
-    try:
-        user = User.objects.filter(email__iexact=email).first()
-        if user:
-            ctx["user_id"] = str(user.id)
-            if organization_domain:
-                membership = user.organization_memberships.filter(
-                    organization_id=organization_domain.organization_id,
-                ).first()
-                ctx["membership_level"] = membership.get_level_display() if membership else "none"
-        else:
-            ctx["user_id"] = "unknown"
-    except Exception:
-        pass
-
-    return ctx
-
-
-@api_view(["GET"])
-def saml_metadata_view(request, *args, **kwargs):
-    if (
-        not request.user.organization_memberships.get(organization=request.user.organization).level
-        >= OrganizationMembership.Level.ADMIN
-    ):
-        raise PermissionDenied("You need to be an administrator or owner to access this resource.")
-
-    complete_url = reverse("social:complete", args=("saml",))
-    saml_backend = load_backend(load_strategy(request), "saml", redirect_uri=complete_url)
-    metadata, errors = saml_backend.generate_metadata_xml()
-
-    if not errors:
-        return HttpResponse(content=metadata, content_type="text/xml")
-
-
-class MultitenantSAMLAuth(SAMLAuth):
-    """
-    Implements our own version of SAML auth that supports multitenancy. Instead of relying on instance-based config via env vars,
-    each organization can have multiple verified domains each with its own SAML configuration.
-    """
-
-    def auth_complete(self, *args, **kwargs):
-        # attempt to recover from missing relay state in idp-initiated SAML
-        self._recover_idp_initiated_relay_state()
-
-        try:
-            result = super().auth_complete(*args, **kwargs)
-            saml_logger.info("saml_auth_complete")
-            return result
-        except Exception as e:
-            posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
-            saml_logger.warning("saml_auth_complete_failed", error=str(e))
-            raise
-
-    def _recover_idp_initiated_relay_state(self) -> None:
-        """
-        SP-initiated logins carry a RelayState holding the `OrganizationDomain` UUID, which
-        is how we route an assertion to the right tenant. IdP-initiated logins don't: the IdP
-        either omits RelayState (Azure AD) or sends its own value (e.g. an app URL). When the
-        RelayState doesn't map to a verified domain, recover the tenant from the Response's
-        <Issuer> (the IdP entity ID, stored on the linked `IdentityProviderConfig` as
-        `saml_entity_id`) and inject a RelayState so the rest of the flow — including signature
-        validation — proceeds unchanged.
-        """
-        data = self.strategy.request_data()
-        saml_response = data.get("SAMLResponse")
-        if not saml_response:
-            return
-
-        if self._relay_state_points_to_domain(data.get("RelayState")):
-            return  # SP-initiated: RelayState already identifies the tenant
-
-        issuer = self._extract_response_issuer(saml_response)
-        if not issuer:
-            return
-
-        # `saml_entity_id` has no uniqueness constraint, so only act on an unambiguous match —
-        # never guess which tenant an unsolicited assertion belongs to. The IdP config is the
-        # source of truth for SAML settings, so match the issuer against its `saml_entity_id`.
-        matches = list(
-            # nosemgrep: idor-lookup-without-org (pre-auth SAML routing by IdP entity id; the assertion signature is verified afterwards)
-            OrganizationDomain.objects.verified_domains().filter(identity_provider_config__saml_entity_id=issuer)
-        )
-        if len(matches) != 1:
-            if len(matches) > 1:
-                saml_logger.warning("saml_idp_initiated_ambiguous_issuer", issuer=issuer, count=len(matches))
-            return
-
-        organization_domain = matches[0]
-        if not organization_domain.has_saml:
-            return
-
-        saml_logger.info(
-            "saml_idp_initiated_relay_state_recovered",
-            domain=organization_domain.domain,
-            organization_id=str(organization_domain.organization_id),
-        )
-        # Inject the resolved RelayState so the standard flow routes (and labels the response
-        # with) the correct tenant. Work on a mutable copy via the public QueryDict API.
-        strategy = cast(DjangoStrategy, self.strategy)
-        mutable_post = strategy.request.POST.copy()
-        mutable_post["RelayState"] = str(organization_domain.id)
-        # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
-        strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-
-    def _relay_state_points_to_domain(self, relay_state_str: str | None) -> bool:
-        if not relay_state_str:
-            return False
-        candidate = self.parse_relay_state(relay_state_str).get("idp")
-        if not candidate:
-            return False
-        try:
-            # nosemgrep: idor-lookup-without-org (pre-auth SAML routing check by domain UUID)
-            return OrganizationDomain.objects.verified_domains().filter(id=candidate).exists()
-        except (DjangoValidationError, ValueError):
-            return False  # not a valid UUID (e.g. an IdP-supplied URL)
-
-    @staticmethod
-    def _extract_response_issuer(saml_response_b64: str) -> str | None:
-        # POST-binding SAMLResponse is base64-encoded (not deflated). Parsing is XXE-safe
-        # (onelogin forbids DTDs/entities); the signature is still verified afterwards.
-        try:
-            document = OneLogin_Saml2_XML.to_etree(base64.b64decode(saml_response_b64))
-            issuer_nodes = OneLogin_Saml2_XML.query(document, "/samlp:Response/saml:Issuer")
-        except Exception:
-            return None
-        if not issuer_nodes:
-            return None
-        return (OneLogin_Saml2_XML.element_text(issuer_nodes[0]) or "").strip() or None
-
-    def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str, None]) -> SAMLIdentityProvider:
-        if organization_domain_or_id is None:
-            saml_logger.warning("saml_idp_lookup_failed", idp_id="None")
-            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
-
-        try:
-            organization_domain = (
-                organization_domain_or_id
-                if isinstance(organization_domain_or_id, OrganizationDomain)
-                # nosemgrep: idor-lookup-without-org (pre-auth SAML flow, lookup by UUID on verified domains)
-                else OrganizationDomain.objects.verified_domains().get(id=organization_domain_or_id)
-            )
-        except (OrganizationDomain.DoesNotExist, DjangoValidationError):
-            saml_logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
-            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
-
-        if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
-            saml_logger.warning(
-                "saml_license_missing",
-                domain=organization_domain.domain,
-                organization_id=str(organization_domain.organization_id),
-            )
-            raise AuthFailed(
-                self,
-                "Your organization does not have the required license to use SAML.",
-            )
-
-        idp_config = organization_domain.idp_config
-        return SAMLIdentityProvider(
-            self,
-            str(organization_domain.id),
-            entity_id=idp_config.saml_entity_id,
-            url=idp_config.saml_acs_url,
-            x509cert=idp_config.saml_x509_cert,
-        )
-
-    def auth_url(self):
-        """
-        Overridden to use the config from the relevant OrganizationDomain
-        Get the URL to which we must redirect in order to
-        authenticate the user
-        """
-        email = self.strategy.request_data().get("email")
-
-        if not email:
-            raise AuthMissingParameter(self, "email")
-
-        instance = OrganizationDomain.objects.get_verified_for_email_address(email=email)
-
-        if not instance or not instance.has_saml:
-            saml_logger.warning("saml_not_configured", **_saml_log_context(email))
-            raise AuthFailed(self, "SAML not configured for this user.")
-
-        saml_logger.info(
-            "saml_auth_redirect",
-            domain=instance.domain,
-            organization_id=str(instance.organization_id),
-            **_saml_log_context(email, instance),
-        )
-        auth = self._create_saml_auth(idp=self.get_idp(instance))
-        # `return_to` sets the RelayState, a value the IdP echoes back in its POST to the
-        # (shared) auth_complete URL. The session cookie is SameSite=Lax and so is dropped on
-        # the IdP's cross-site POST, which would otherwise lose `next` and send the user to `/`;
-        # carrying it in RelayState lets the base `auth_complete` recover it for the post-login
-        # redirect. `idp` carries the OrganizationDomain id since multiple IdPs share the URL.
-        # We deliberately omit the session key that upstream `SAMLAuth.auth_url` also packs into
-        # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
-        # redirect, and `next` alone is enough to recover the redirect without it.
-        relay_state = {"idp": str(instance.id), "next": self.data.get("next")}
-        return auth.login(return_to=json.dumps(relay_state))
-
-    def _get_attr(
-        self,
-        response_attributes: dict[str, Any],
-        attribute_names: list[str],
-        optional: bool = False,
-    ) -> str:
-        """
-        Fetches a specific attribute from the SAML response, attempting with multiple different attribute names.
-        We attempt multiple attribute names to make it easier for admins to configure SAML (less configuration to set).
-        """
-        output: str | list[str] | None = None
-        for _attr in attribute_names:
-            if _attr in response_attributes:
-                output = response_attributes[_attr]
-                break
-
-        if not output and not optional:
-            raise AuthMissingParameter(self, attribute_names[0])
-
-        if isinstance(output, list):
-            output = output[0]
-
-        return output or ""
-
-    def get_user_details(self, response) -> dict[str, str | None]:
-        """
-        Overridden to find attributes across multiple possible names.
-        """
-        attributes = response["attributes"]
-        email = self._get_attr(
-            attributes,
-            [
-                "email",
-                "EMAIL",
-                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
-                OID_MAIL,
-            ],
-        )
-
-        self._validate_email_domain(response, email)
-
-        return {
-            "fullname": self._get_attr(
-                attributes,
-                ["full_name", "FULL_NAME", "fullName", OID_COMMON_NAME],
-                optional=True,
-            ),
-            "first_name": self._get_attr(
-                attributes,
-                [
-                    "first_name",
-                    "FIRST_NAME",
-                    "firstName",
-                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname",
-                    OID_GIVEN_NAME,
-                ],
-                optional=True,
-            ),
-            "last_name": self._get_attr(
-                attributes,
-                [
-                    "last_name",
-                    "LAST_NAME",
-                    "lastName",
-                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname",
-                    OID_SURNAME,
-                ],
-                optional=True,
-            ),
-            "email": email,
-        }
-
-    def _validate_email_domain(self, response: dict, email: str) -> None:
-        """
-        Ensures the email domain from the SAML assertion is consistent with
-        the OrganizationDomain that owns this IdP configuration.
-        """
-        idp_name = response.get("idp_name")
-        if not idp_name:
-            saml_logger.warning(
-                "saml_email_domain_validation_failed",
-                reason="missing_idp_name",
-                **_saml_log_context(email),
-            )
-            raise AuthFailed(self, "Authentication request is invalid. Missing IdP identifier.")
-
-        try:
-            # nosemgrep: idor-lookup-without-org (pre-auth SAML validation, UUID from IdP round-trip)
-            organization_domain = OrganizationDomain.objects.verified_domains().get(id=idp_name)
-        except (OrganizationDomain.DoesNotExist, DjangoValidationError):
-            saml_logger.warning(
-                "saml_email_domain_validation_failed",
-                reason="invalid_idp",
-                idp_id=str(idp_name),
-                **_saml_log_context(email),
-            )
-            raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
-
-        if email.split("@")[-1].lower() != organization_domain.domain.lower():
-            saml_logger.warning(
-                "saml_email_domain_mismatch",
-                configured_domain=organization_domain.domain,
-                organization_id=str(organization_domain.organization_id),
-                **_saml_log_context(email, organization_domain),
-            )
-            raise AuthFailed(
-                self,
-                "Authentication failed. The email domain from your identity provider does not match the configured domain.",
-            )
-
-    def get_user_id(self, details, response):
-        """
-        Overridden to find user ID across multiple attribute names.
-        Get the permanent ID for this user from the response.
-        """
-        USER_ID_ATTRIBUTES = ["name_id", "NAME_ID", "nameId", OID_USERID]
-        uid = self._get_attr(response["attributes"], USER_ID_ATTRIBUTES)
-        return f"{response['idp_name']}:{uid}"
-
-
-class CustomGoogleOAuth2(GoogleOAuth2):
-    def auth_extra_arguments(self):
-        extra_args = super().auth_extra_arguments()
-        is_reauth = self.strategy.request_get().get("reauth") == "true"
-        if not is_reauth:
-            prompt_tokens = [token for token in str(extra_args.get("prompt", "")).split() if token]
-            if "select_account" not in prompt_tokens:
-                prompt_tokens.append("select_account")
-            extra_args["prompt"] = " ".join(prompt_tokens)
-
-        email = self.strategy.request_get().get("email")
-
-        if email:
-            extra_args["login_hint"] = email
-
-        return extra_args
-
-    def get_user_id(self, details, response):
-        """
-        Retrieve and migrate Google OAuth user identification.
-
-        Note: While social-auth-core supports using Google's sub claim via
-        settings.USE_UNIQUE_USER_ID = True, this setting was not enabled historically
-        in our application. This led to emails being stored as uids instead of the
-        more stable Google sub identifier.
-
-        'sub' (subject identifier) is part of OpenID Connect and is guaranteed to be a
-        stable, unique identifier for the user within Google's system. It's designed
-        specifically for authentication purposes and won't change even if the user changes
-        their email or other profile details.
-
-        This method handles two types of user identification:
-        1. Legacy users: Originally stored with email as their uid (due to missing USE_UNIQUE_USER_ID)
-        2. New users: Using Google's sub claim (unique identifier) as uid
-
-        The method first checks if a user exists with the sub as uid. If not found,
-        it looks for a legacy user with email as uid and migrates them to use sub.
-        This ensures a smooth transition from email-based to sub-based identification
-        while maintaining backward compatibility.
-
-        Args:
-            details: User details dictionary from OAuth response
-            response: Full OAuth response from Google
-
-        Returns:
-            str: The Google sub claim to be used as uid
-        """
-        email = response.get("email")
-        sub = response.get("sub")
-
-        if not sub:
-            raise ValueError("Google OAuth response missing 'sub' claim")
-
-        try:
-            # First try: Find user by sub (preferred method)
-            social_auth = UserSocialAuth.objects.get(provider="google-oauth2", uid=sub)
-            return sub
-        except UserSocialAuth.DoesNotExist:
-            pass
-
-        try:
-            # Second try: Find and migrate legacy user using email as uid
-            social_auth = UserSocialAuth.objects.get(provider="google-oauth2", uid=email)
-            # Migrate user from email to sub
-            social_auth.uid = sub
-            social_auth.save()
-            return sub
-        except UserSocialAuth.DoesNotExist:
-            # No existing user found - use sub for new account
-            return sub
-
-
 logger = structlog.get_logger(__name__)
+
+
+class MultitenantSAMLAuth(_MultitenantSAMLAuth):
+    """Legacy alias for sessions created before SAML auth moved to posthog.api.sso.
+
+    `django.contrib.auth.get_user()` only restores a session if its stored backend path is in
+    `AUTHENTICATION_BACKENDS`. `authenticate()` returns None so no new session adopts this path.
+    """
+
+    name = "saml-legacy"
+
+    def authenticate(self, request, *args, **kwargs):
+        return None
+
+
+class CustomGoogleOAuth2(_CustomGoogleOAuth2):
+    """Legacy alias for sessions created before Google auth moved to posthog.api.sso."""
+
+    name = "google-oauth2-legacy"
+
+    def authenticate(self, request, *args, **kwargs):
+        return None
 
 
 def _get_bearer_token(request: Request) -> str | None:
@@ -456,7 +54,7 @@ def _get_bearer_token(request: Request) -> str | None:
     return None
 
 
-class VercelAuthentication(authentication.BaseAuthentication):
+class VercelAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Implements Vercel Marketplace API authentication.
     This authentication uses the OpenID Connect Protocol (OIDC).
@@ -467,6 +65,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
     https://vercel.com/docs/integrations/create-integration/marketplace-api#marketplace-partner-api-authentication
     """
 
+    activity_credential_type = "vercel"
     VercelAuthType = Literal["user", "system"]
 
     VERCEL_AUTH_TYPES: tuple[VercelAuthType, ...] = ("user", "system")
@@ -483,6 +82,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         try:
             payload = self._validate_jwt_token(token, auth_type)
+            self.record_activity_actor(None, str(payload.installation_id))
             return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
             logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e), integration="vercel")
@@ -530,6 +130,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
                 user_avatar_url=payload.get("user_avatar_url"),
                 user_name=payload.get("user_name"),
                 user_email=payload.get("user_email"),
+                user_email_verified=payload.get("user_email_verified", payload.get("email_verified")),
             )
         elif auth_type == "system":
             self._validate_system_claims(payload)
@@ -612,7 +213,7 @@ class BillingServiceUser:
         return True
 
 
-class BillingServiceAuthentication(authentication.BaseAuthentication):
+class BillingServiceAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates requests from the billing service to PostHog.
 
@@ -620,6 +221,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
     uses when calling the billing service, but in reverse direction).
     """
 
+    activity_credential_type = "billing_service"
     EXPECTED_AUDIENCE = "billing:posthog-proxy"
 
     def authenticate(self, request: Request) -> tuple[BillingServiceUser, None] | None:
@@ -648,6 +250,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
             logger.warning("Billing service token missing organization_id")
             raise AuthenticationFailed("Missing organization_id in token")
 
+        self.record_activity_actor(None)
         return BillingServiceUser(organization_id=organization_id), None
 
     def _validate_jwt_token(self, token: str) -> BillingServiceJWTPayload:
@@ -673,30 +276,3 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
         )
 
         return cast(BillingServiceJWTPayload, decoded_payload)
-
-
-def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
-    email = details.get("email")
-    # Check if SSO enforcement is enabled for this email address
-    sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)
-    if sso_enforcement is None or sso_enforcement == backend.name:
-        return
-
-    saml_logger.warning(
-        "sso_enforcement_blocked_login",
-        attempted_backend=backend.name,
-        enforced_backend=sso_enforcement,
-        **(_saml_log_context(email) if email else {"masked_email": "unknown"}),
-    )
-
-    if sso_enforcement == "saml":
-        raise AuthFailed(backend, "saml_sso_enforced")
-    elif sso_enforcement == "google-oauth2":
-        raise AuthFailed(backend, "google_sso_enforced")
-    elif sso_enforcement == "github":
-        raise AuthFailed(backend, "github_sso_enforced")
-    elif sso_enforcement == "gitlab":
-        raise AuthFailed(backend, "gitlab_sso_enforced")
-    else:
-        # catch-all in case we missed a case above
-        raise AuthFailed(backend, "sso_enforced", email)

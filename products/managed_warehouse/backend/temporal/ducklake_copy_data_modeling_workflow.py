@@ -22,11 +22,12 @@ from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     _server_to_catalog_config,
     attach_catalog,
+    ducklake_data_modeling_schema,
+    ducklake_data_modeling_table_name,
     get_config,
     get_duckgres_server_by_team_org,
     get_duckgres_server_for_organization,
     is_dev_mode,
-    sanitize_ducklake_identifier,
 )
 from products.managed_warehouse.backend.logic.verification import (
     DuckLakeCopyVerificationParameter,
@@ -104,6 +105,14 @@ async def ducklake_copy_workflow_gate_activity(inputs: DuckLakeCopyWorkflowGateI
         await logger.aerror("Team does not exist when evaluating DuckLake copy workflow gate")
         return False
 
+    from products.managed_warehouse.backend.facade.access import (  # noqa: PLC0415
+        background_loading_configured,
+        internal_loading_enabled,
+    )
+
+    if await database_sync_to_async(background_loading_configured)(team.organization_id):
+        return await database_sync_to_async(internal_loading_enabled)(team.organization_id)
+
     try:
         return feature_enabled_or_false(
             "ducklake-data-modeling-copy-workflow",
@@ -172,8 +181,8 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 saved_query_name=saved_query.name,
                 normalized_name=normalized_name,
                 source_table_uri=model.table_uri,
-                schema_name=f"posthog_data_modeling_team_{inputs.team_id}",
-                table_name=sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
+                schema_name=ducklake_data_modeling_schema(inputs.team_id),
+                table_name=ducklake_data_modeling_table_name(model.model_label, normalized_name),
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
                 partition_column=partition_column,
                 staging_uri=staging_uri,
@@ -489,10 +498,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
                 except Exception:
-                    workflow.logger.warning(
-                        "Failed to clean up staging files",
-                        staging_uri=staging_uri,
-                    )
+                    workflow.logger.warning("Failed to clean up staging files", extra={"staging_uri": staging_uri})
 
         if not failed:
             get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
@@ -524,7 +530,7 @@ def _copy_data_modeling_via_duckgres(inputs: DuckLakeCopyActivityInputs, logger)
     schema = inputs.model.schema_name
     table = f"{schema}.{inputs.model.table_name}"
 
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, application_name="ducklake-copy-modeling") as conn:
         setup_duckgres_session(conn)
         create_staging_read_secret(conn, bucket)
         logger.info(

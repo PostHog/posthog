@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
+from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
+from posthog.temporal.ai_observability.message_utils import (
+    extract_text_from_messages,
+    format_tool_definitions,
+    last_message_text,
+)
 
 
 class TestExtractTextFromMessages:
@@ -57,6 +62,177 @@ class TestExtractTextFromMessages:
         result = extract_text_from_messages(messages)
         assert expected_substring in result
         assert result != ""
+
+    @pytest.mark.parametrize(
+        ("block", "marker"),
+        [
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fjpeg"}},
+                "[image 1]",
+                id="openai_offloaded_pointer",
+            ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}},
+                "[image 1]",
+                id="openai_inline_data_uri",
+            ),
+            pytest.param(
+                {"type": "input_image", "image_url": "https://example.com/cat.jpg"},
+                "[image: https://example.com/cat.jpg]",
+                id="openai_responses_customer_link",
+            ),
+            pytest.param(
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}},
+                "[image 1]",
+                id="anthropic_base64",
+            ),
+            pytest.param(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": "[base64 image redacted]"},
+                },
+                "[image, not attached]",
+                id="anthropic_redacted",
+            ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,[base64 image redacted]"}},
+                "[image, not attached]",
+                id="openai_redacted_data_uri",
+            ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," * 3 + "aGk="}},
+                "[image, not attached]",
+                id="nested_data_uri",
+            ),
+            pytest.param({"inline_data": {"mime_type": "image/png", "data": "aGk="}}, "[image 1]", id="gemini_inline"),
+            pytest.param(
+                {"type": "image", "inline_data": {"mime_type": "image/png", "data": "aGk="}},
+                "[image 1]",
+                id="gemini_posthog_sdk",
+            ),
+            pytest.param(
+                {"type": "image", "data": "aGk=", "mime_type": "image/png"}, "[image 1]", id="gemini_interactions"
+            ),
+            pytest.param({"inlineData": {"mimeType": "audio/wav", "data": "aGk="}}, "[audio 1]", id="gemini_audio"),
+            pytest.param(
+                {"type": "input_audio", "input_audio": {"data": "aGk=", "format": "wav"}},
+                "[audio 1]",
+                id="openai_audio_wav",
+            ),
+            pytest.param({"inline_data": {"mime_type": "video/mp4", "data": "aGk="}}, "[video 1]", id="gemini_video"),
+            pytest.param(
+                {"type": "file", "mediaType": "video/mp4", "file": f"phaiblob://v1/sha256/{'c' * 64}?mime=video%2Fmp4"},
+                "[video 1]",
+                id="vercel_video",
+            ),
+            pytest.param(
+                {
+                    "type": "input_audio",
+                    "input_audio": {"data": f"phaiblob://v1/sha256/{'b' * 64}?mime=audio%2Fmp3", "format": "mp3"},
+                },
+                "[audio 1]",
+                id="openai_audio_offloaded",
+            ),
+            pytest.param(
+                {"type": "input_audio", "input_audio": {"data": "aGk="}}, "[audio, not attached]", id="openai_audio"
+            ),
+            pytest.param(
+                {"type": "document", "source": {"type": "base64", "data": "aGk="}}, "[file, not attached]", id="file"
+            ),
+            pytest.param(
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "aGk="}},
+                "[file 1]",
+                id="anthropic_pdf",
+            ),
+            pytest.param(
+                {"type": "file", "file": {"filename": "a.pdf", "file_data": "data:application/pdf;base64,aGk="}},
+                "[file 1]",
+                id="openai_chat_pdf",
+            ),
+            pytest.param(
+                {"type": "input_file", "filename": "a.pdf", "file_data": "data:application/pdf;base64,aGk="},
+                "[file 1]",
+                id="openai_responses_pdf",
+            ),
+            pytest.param(
+                {"type": "file", "file": {"file_id": "file-abc"}},
+                "[file, not attached]",
+                id="openai_uploaded_file_without_bytes",
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "image/png", "file": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng"},
+                "[image 1]",
+                id="vercel_image",
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "application/pdf", "data": "data:application/pdf;base64,aGk="},
+                "[file 1]",
+                id="vercel_pdf",
+            ),
+            pytest.param(
+                {"type": "document", "mime_type": "application/pdf", "data": "aGk="}, "[file 1]", id="gemini_pdf"
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "application/pdf", "data": "data:application/octet-stream;base64,aGk="},
+                "[file 1]",
+                id="declared_pdf_beats_a_generic_data_uri",
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "APPLICATION/OCTET-STREAM", "data": "data:application/pdf;base64,aGk="},
+                "[file 1]",
+                id="data_uri_pdf_beats_a_generic_declared_type",
+            ),
+            pytest.param(
+                {"type": "file", "file": {"filename": "report.PDF", "file_data": "aGk="}},
+                "[file 1]",
+                id="pdf_known_only_by_its_filename",
+            ),
+            pytest.param(
+                {"type": "image", "uri": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng"},
+                "[image 1]",
+                id="otel_style_image_uri",
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "image/png", "file": "raw files not supported"},
+                "[image, not attached]",
+                id="vercel_sdk_placeholder",
+            ),
+        ],
+    )
+    def test_judge_attachments_replace_media_blocks_with_markers(self, block, marker):
+        messages = [{"role": "user", "content": [block, {"type": "text", "text": "What does this chart show?"}]}]
+
+        assert (
+            extract_text_from_messages(messages, JudgeAttachments(team_id=7).marker)
+            == f"user: {marker} What does this chart show?"
+        )
+
+    def test_judge_attachments_number_otel_parts_and_tool_result_images(self):
+        pointer = f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"
+        image = {"type": "image_url", "image_url": {"url": pointer}}
+        messages = [
+            {
+                "role": "user",
+                "parts": [{"type": "blob", "modality": "image", "mime_type": "image/png", "content": pointer}],
+            },
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [image]}]},
+            {
+                "type": "function_call_output",
+                "call_id": "c1",
+                "output": [{"type": "input_image", "image_url": pointer}],
+            },
+        ]
+
+        assert (
+            extract_text_from_messages(messages, JudgeAttachments(team_id=7).marker)
+            == "user: [image 1]\nuser: [image 1]\ntool[c1]: [image 1]"
+        )
+        assert extract_text_from_messages(messages).startswith("user: [image]\n")
+
+    def test_media_blocks_keep_their_text_without_judge_attachments(self):
+        block = {"type": "file", "file": {"filename": "report.pdf"}}
+
+        assert "report.pdf" in extract_text_from_messages([{"role": "user", "content": [block]}])
 
     def test_mixed_content_blocks(self):
         messages = [
@@ -357,7 +533,10 @@ class TestExtractTextFromMessages:
                 ],
             }
         ]
-        assert extract_text_from_messages(messages) == "assistant: The warranty lasts three years."
+        result = extract_text_from_messages(messages)
+        assert result.splitlines()[0] == "assistant: The warranty lasts three years."
+        assert "thinking: thinking it through" in result
+        assert "thinking: more thinking" in result
 
     def test_otel_parts_multiple_text_parts_join(self):
         messages = [
@@ -365,7 +544,22 @@ class TestExtractTextFromMessages:
         ]
         assert extract_text_from_messages(messages) == "user: First. Second."
 
-    def test_otel_parts_agentic_conversation_correlates_calls_and_results(self):
+    @pytest.mark.parametrize(
+        "response_part",
+        [
+            pytest.param({"type": "tool_call_response", "id": "call_1", "response": "-10C"}, id="schema_response_key"),
+            pytest.param({"type": "tool_call_response", "id": "call_1", "result": "-10C"}, id="example_result_key"),
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "response": "-10C", "result": "stale"},
+                id="response_wins_over_result",
+            ),
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "response": None, "result": "-10C"},
+                id="null_response_falls_back_to_result",
+            ),
+        ],
+    )
+    def test_otel_parts_agentic_conversation_correlates_calls_and_results(self, response_part):
         messages = [
             {"role": "user", "parts": [{"type": "text", "content": "Weather in Montreal?"}]},
             {
@@ -380,7 +574,7 @@ class TestExtractTextFromMessages:
                     },
                 ],
             },
-            {"role": "tool", "parts": [{"type": "tool_call_response", "id": "call_1", "result": "-10C"}]},
+            {"role": "tool", "parts": [response_part]},
             {"role": "assistant", "parts": [{"type": "text", "content": "It is -10C."}]},
         ]
         result = extract_text_from_messages(messages)
@@ -388,11 +582,30 @@ class TestExtractTextFromMessages:
         assert '[tool_call call_1: get_weather({"location": "Montreal"})]' in result
         assert "tool[call_1]: -10C" in result
         assert "assistant: It is -10C." in result
-        assert "need the weather tool" not in result
+        assert "thinking: need the weather tool" in result
+        assert "stale" not in result
 
-    def test_otel_parts_dict_tool_call_response_result_is_stringified(self):
+    @pytest.mark.parametrize(
+        "response_part",
+        [
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "response": "", "result": "stale"},
+                id="empty_string_response_wins_over_result",
+            ),
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "result": None},
+                id="null_result_renders_empty_not_null",
+            ),
+        ],
+    )
+    def test_otel_parts_tool_call_response_null_and_empty_values(self, response_part):
+        messages = [{"role": "tool", "parts": [response_part]}]
+        assert extract_text_from_messages(messages) == "tool[call_1]:"
+
+    @pytest.mark.parametrize("field", ["response", "result"])
+    def test_otel_parts_dict_tool_call_response_is_stringified(self, field):
         messages = [
-            {"role": "tool", "parts": [{"type": "tool_call_response", "id": "call_1", "result": {"temperature": 25}}]}
+            {"role": "tool", "parts": [{"type": "tool_call_response", "id": "call_1", field: {"temperature": 25}}]}
         ]
         assert extract_text_from_messages(messages) == 'tool[call_1]: {"temperature": 25}'
 
@@ -400,15 +613,94 @@ class TestExtractTextFromMessages:
         messages = [{"role": "user", "content": "flat wins", "parts": [{"type": "text", "content": "ignored"}]}]
         assert extract_text_from_messages(messages) == "user: flat wins"
 
-    def test_otel_parts_only_reasoning_preserves_role_slot(self):
+    def test_otel_parts_only_reasoning_renders_thinking_without_empty_slot(self):
         messages = [
             {"role": "user", "parts": [{"type": "text", "content": "hi"}]},
             {"role": "assistant", "parts": [{"type": "reasoning", "content": "hmm"}]},
         ]
+        assert extract_text_from_messages(messages) == "user: hi\nthinking: hmm"
+
+    def test_otel_parts_server_tool_conversation_correlates_calls_and_results(self):
+        messages = [
+            {"role": "user", "parts": [{"type": "text", "content": "Weather in Montreal?"}]},
+            {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "server_tool_call",
+                        "id": "st_1",
+                        "name": "web_search",
+                        "server_tool_call": {"type": "web_search", "query": "Montreal weather"},
+                    }
+                ],
+            },
+            {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "server_tool_call_response",
+                        "id": "st_1",
+                        "server_tool_call_response": {"type": "web_search", "status": "completed"},
+                    }
+                ],
+            },
+            {"role": "assistant", "parts": [{"type": "text", "content": "It is -10C."}]},
+        ]
         result = extract_text_from_messages(messages)
-        assert "user: hi" in result
-        assert "assistant:" in result
-        assert "hmm" not in result
+        assert '[tool_call st_1: web_search({"type": "web_search", "query": "Montreal weather"})]' in result
+        assert 'tool[st_1]: {"type": "web_search", "status": "completed"}' in result
+        assert "assistant: It is -10C." in result
+
+    @pytest.mark.parametrize(
+        ("part", "marker"),
+        [
+            pytest.param(
+                {"type": "blob", "modality": "image", "mime_type": "image/png", "content": "aGVsbG8="},
+                "[image]",
+                id="image_blob_renders_marker_not_base64",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "image", "uri": "https://example.com/cat.jpg"},
+                "[image: https://example.com/cat.jpg]",
+                id="image_uri",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "document", "uri": "https://example.com/doc.pdf"},
+                "[document: https://example.com/doc.pdf]",
+                id="document_uri",
+            ),
+            pytest.param({"type": "file", "file_id": "file_123"}, "[file: file_123]", id="file_reference"),
+            pytest.param({"type": "blob", "content": "aGVsbG8="}, "[media]", id="blob_without_modality"),
+            pytest.param(
+                {"type": "blob", "mime_type": "audio/wav", "content": "aGVsbG8="},
+                "[audio]",
+                id="modality_from_mime_type",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "image", "mime_type": "image/png", "uri": "gs://bucket/a.png"},
+                "[image]",
+                id="uri_nobody_else_can_fetch",
+            ),
+        ],
+    )
+    def test_otel_parts_media_render_markers(self, part, marker):
+        messages = [{"role": "user", "parts": [{"type": "text", "content": "Look at this."}, part]}]
+        assert extract_text_from_messages(messages) == f"user: Look at this.\nuser: {marker}"
+
+    @pytest.mark.parametrize(
+        ("compaction_part", "expected"),
+        [
+            pytest.param(
+                {"type": "compaction", "id": "c1", "content": "Earlier turns covered pricing."},
+                "user: Earlier turns covered pricing.",
+                id="summary_present",
+            ),
+            pytest.param({"type": "compaction", "id": "c1"}, "user: [conversation compacted]", id="summary_absent"),
+        ],
+    )
+    def test_otel_parts_compaction_renders_summary(self, compaction_part, expected):
+        messages = [{"role": "user", "parts": [compaction_part]}]
+        assert extract_text_from_messages(messages) == expected
 
     @pytest.mark.parametrize(
         "parts",
@@ -417,7 +709,7 @@ class TestExtractTextFromMessages:
             pytest.param([{"type": "text"}], id="text_part_without_content"),
             pytest.param([{"type": "tool_call"}], id="tool_call_without_name"),
             pytest.param([{"no_type": True}], id="part_without_type"),
-            pytest.param([{"type": "file", "data": "aGVsbG8="}], id="unknown_part_type"),
+            pytest.param([{"type": "tool_approval_response", "approved": True}], id="unknown_part_type"),
         ],
     )
     def test_malformed_or_unknown_parts_do_not_crash(self, parts):
@@ -658,3 +950,34 @@ class TestFormatToolDefinitions:
         # rather than silently dropped — the judge can still see something.
         result = format_tool_definitions(tools)
         assert result == json.dumps(tools, default=str)
+
+
+@pytest.mark.parametrize(
+    "messages,role,expected",
+    [
+        (
+            [
+                {"role": "system", "content": "You are a support agent."},
+                {"role": "user", "content": "First question"},
+                {"role": "assistant", "content": "First answer"},
+                {"role": "user", "content": [{"type": "text", "text": "Second question"}]},
+            ],
+            "user",
+            "Second question",
+        ),
+        (
+            [
+                {"role": "user", "content": "What is the weather in Paris?"},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "weather", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "18C sunny"}]},
+            ],
+            "user",
+            "What is the weather in Paris?",
+        ),
+        ([{"role": "assistant", "content": "The answer"}], "assistant", "The answer"),
+        ([{"role": "system", "content": "Only a system prompt"}], "user", "system: Only a system prompt"),
+        ("A plain string", "user", "A plain string"),
+    ],
+)
+def test_last_message_text(messages, role, expected):
+    assert last_message_text(messages, role) == expected

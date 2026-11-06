@@ -1,5 +1,6 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 
+import { NotFound } from 'lib/components/NotFound'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -28,19 +29,27 @@ export function SavedInsight({
     attachTo,
     editMode,
 }: InsightProps): JSX.Element {
-    const insightProps: InsightLogicProps = { dashboardItemId: propsQuery.shortId }
-    const { insight, insightLoading } = useValues(insightLogic(insightProps))
+    const insightProps: InsightLogicProps = {
+        dashboardItemId: propsQuery.shortId,
+        retainResponseOnUnmount: context?.insightProps?.retainResponseOnUnmount,
+    }
+    const { insight, insightLoading, insightMissing } = useValues(insightLogic(insightProps))
     const { query: dataQuery } = useValues(insightDataLogic(insightProps))
 
     useAttachedLogic(insightLogic(insightProps), attachTo)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
-    if (insightLoading) {
+    // A remounted notebook node starts from the retained insight, so it renders while the insight loads again.
+    if (insightLoading && !insight.query) {
         return (
             <div className="flex flex-col flex-1 justify-center items-center w-full h-full">
                 <LoadingBar />
             </div>
         )
+    }
+
+    if (insightMissing) {
+        return <NotFound object="insight" />
     }
 
     // `showResults` is reapplied only when the caller set it: a stored query carrying an explicit
@@ -55,8 +64,9 @@ export function SavedInsight({
 
     return (
         <Query
+            attachTo={attachTo}
             query={query}
-            cachedResults={insight}
+            cachedResults={insightProps.retainResponseOnUnmount ? undefined : insight}
             context={{ ...context, insightProps }}
             embedded={embedded}
             readOnly={readOnly}

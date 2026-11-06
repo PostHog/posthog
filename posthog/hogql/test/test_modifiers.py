@@ -6,10 +6,13 @@ from unittest.mock import patch
 from django.conf import settings
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgMaxVersion, PersonsOnEventsMode
 
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import json_dynamic_read_sql
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -17,7 +20,7 @@ from products.cohorts.backend.models.cohort import Cohort
 class TestModifiers(BaseTest):
     def _expected_browser_select(self, materialization_mode: MaterializationMode) -> str:
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            column = "events.properties.`$browser`"
+            column = json_dynamic_read_sql("events.properties", ["$browser"])
             source = "events_json AS events"
             return f"SELECT {column} AS `$browser` FROM {source}"
         elif materialization_mode == MaterializationMode.DISABLED:
@@ -60,6 +63,23 @@ class TestModifiers(BaseTest):
         )
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
+    @parameterized.expand([(None, False, None), (None, True, True), (False, True, False)])
+    def test_cte_rollout_respects_explicit_kill_switch(
+        self, explicit: bool | None, flag: bool, expected: bool | None
+    ) -> None:
+        with (
+            patch("posthog.hogql.modifiers.is_cloud", return_value=True),
+            patch(
+                "posthog.ph_client.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-materialize-repeated-ctes" and flag,
+            ),
+        ):
+            modifiers = create_default_modifiers_for_team(
+                self.team, HogQLQueryModifiers(materializeRepeatedCTEs=explicit)
+            )
+        assert modifiers.materializeRepeatedCTEs is expected
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_team_modifiers_override(self):
         assert self.team.modifiers is None
         modifiers = create_default_modifiers_for_team(self.team)
@@ -78,10 +98,37 @@ class TestModifiers(BaseTest):
             == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED  # no change here
         )
 
-        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
+        # A modifier removed from the schema can stay stored on a project.
+        self.team.modifiers = {
+            "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            "useNewEventsCluster": True,
+        }
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+
+    def test_unparseable_custom_bot_definitions_are_dropped(self):
+        # modifiers is hand-editable JSON (e.g. Django admin), so an entry that is not a rule object
+        # can reach here. It has to be dropped, not kept — a non-dict entry would otherwise crash
+        # every classification query when compile_definitions reads its fields.
+        self.team.modifiers = {
+            "customBotDefinitions": [
+                "not-a-rule",
+                {"pattern": "no name so invalid"},
+                {
+                    "id": "1",
+                    "name": "Acme",
+                    "combiner": "AND",
+                    "items": [{"id": "c1", "key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"}],
+                },
+            ]
+        }
+        self.team.save()
+
+        modifiers = create_default_modifiers_for_team(self.team)
+
+        assert modifiers.customBotDefinitions is not None
+        assert [d.name for d in modifiers.customBotDefinitions] == ["Acme"]
 
     @patch(
         # _person_on_events_person_id_override_properties_on_events is normally determined by feature flag
@@ -303,7 +350,10 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
+            modifiers=HogQLQueryModifiers(
+                optimizeJoinedFilters=False,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ),
         )
         # "ilike" shows up once in the response
         assert response is not None
@@ -314,7 +364,10 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
+            modifiers=HogQLQueryModifiers(
+                optimizeJoinedFilters=True,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ),
         )
         # "ilike" shows up twice in the response
         assert response is not None

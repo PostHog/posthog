@@ -29,16 +29,36 @@ services/              # Independent services NOT owned by any one product
   stripe-app/          # Stripe integration app
 
 packages/              # Libraries shared across more than one product/service (e.g. quill)
+  owners/              # owners.yaml resolver (owners_yaml) — Python uv workspace member, RUNTIME dependency
+  agent/               # Agent runtime: a standalone pnpm workspace (@posthog/agent and the packages it bundles) plus agent-shadow/, the Go observer the sandbox base image builds
 
 common/                # Shared code — holding pen, NOT a destination (goal: shrink it)
   hogql_parser/        # HogQL parser
 
-tools/                 # Developer/CI tooling, not imported by runtime code
+tools/                 # Developer/CI tooling
   hogli/               # Developer CLI framework (PyPI-publishable; uv workspace member)
   hogli-commands/      # PostHog-specific hogli commands (consumed via hogli.yaml)
 
+cli/                   # posthog-cli v0: the Rust CLI for symbol uploads and agent API tools, being replaced by hog/
+hog/                   # hog v1: the TypeScript PostHog CLI, successor to cli/
+
 devenv/                # Developer environment config (intent map, process model)
 ```
+
+`tools/` is developer and CI tooling: code no runtime process imports.
+`packages/owners-yaml` is the counterexample that used to sit there.
+It is installed into the production venv, because stamphog's digest resolves a team's Slack channel
+through `owners_yaml` rather than reparsing `owners.yaml` itself.
+It is also copied into the production image as source, alongside stamphog's review engine at
+`products/stamphog/packages/pr-approval-agent/`, because stamphog ships both into its review sandbox
+at runtime.
+
+Inside that sandbox the engine is written to `<checkout>/tools/pr-approval-agent` with the resolver
+beside it at `<checkout>/tools/owners`, and that placement is a contract rather than a leftover: the
+engine finds its repo root by walking up from its own file, so the path decides which policy it
+reads, and downstream repos vendor the two directories in exactly that arrangement.
+The engine resolves the resolver by fixed offsets from its own file, `packages/owners-yaml` first and the
+sibling `owners/` second, so the monorepo and the vendored layout both work.
 
 ### Products
 
@@ -50,25 +70,31 @@ User-facing features with their own backend (Django app) and frontend (React). E
 
 See [products/README.md](/products/README.md) for how to create products. For new isolated products, see [products/architecture.md](/products/architecture.md) for design principles (DTOs, facades, isolation rules).
 
-One exception to the Django-plus-React shape: `products/desktop/` is the PostHog desktop app (Electron, plus mobile and web hosts), imported from the PostHog/code repo. It is a nested standalone pnpm workspace with its own lockfile, Node version and Biome toolchain, deliberately excluded from the root pnpm workspace, with its own `desktop-*` CI. Its `AGENTS.md` covers the architecture and its `MIGRATION.md` covers the resync contract with PostHog/code. Day to day, drive it through `hogli desktop:*` commands, or `cd products/desktop` and use pnpm directly.
+One exception to the Django-plus-React shape: `products/desktop/` is the PostHog desktop app (Electron, plus a web host), imported from the PostHog/code repo. It is a nested standalone pnpm workspace with its own lockfile, Node version and Biome toolchain, deliberately excluded from the root pnpm workspace, with its own `desktop-*` CI. Its `AGENTS.md` covers the architecture. Day to day, drive it through `hogli desktop:*` commands, or `cd products/desktop` and use pnpm directly.
+
+The agent runtime the desktop app bundles is a second nested workspace at `packages/agent/` (`@posthog/agent` plus `agent-contracts`, `enricher`, `git` and `harness`), because cloud task sandboxes boot the published agent without the desktop app.
+Desktop depends on it through `link:` paths, since turbo rejects a workspace member outside its root.
+Turbo cannot hash files behind a path link, so `products/desktop/scripts/build-agent-workspace.mjs` builds that workspace and writes a stamp that desktop's `turbo.json` lists as a global dependency.
 
 #### What a product can own
 
 Most products are a Django app plus React scenes — and most already carry more: an `mcp/` directory of MCP tool definitions, often a `skills/` directory of agent skills. A product can own anything attributable to it, runtime and tooling alike. Nest it under the product instead of scattering it across top-level dirs:
 
-- `products/<product>/mcp/` — MCP tool definitions (`tools.yaml`) and UI apps (most products)
-- `products/<product>/skills/` — agent skills for the product (many products)
+- `products/<product>/mcp/` — MCP tool definitions (`tools.yaml`) and UI apps (most products). Hand-written tool hooks stay in `services/mcp/src/tools/`, because `tools.yaml` resolves `hooks:` paths there.
+- `products/<product>/skills/` — published agent skills for the product (many products). A skill that needs a checkout of this repository goes in `.agents/skills/`, even when one product owns it (see `/writing-skills`).
 - `products/<product>/services/<svc>/` — a service or worker the product deploys
 - `products/<product>/packages/<lib>/` — a library or CLI the product owns
 - dev/CI/backfill scripts, benchmarks, audits, fixtures and dummy-data generators, a standalone console — same idea
 
-Top-level `services/`, `packages/`, `tools/`, and `cli/` are for things no single product owns. Keep package names (`@posthog/<name>`) independent of location — pnpm resolves by name, so relocating later is a path move with no import churn.
+Top-level `services/`, `packages/`, `tools/`, `cli/`, and `hog/` are for things no single product owns. Keep package names (`@posthog/<name>`) independent of location — pnpm resolves by name, so relocating later is a path move with no import churn.
 
 Nest because tooling boundaries become path-scoped (`products/<product>/**` for CODEOWNERS, CI filters, lint) instead of hand-synced `<product>-*` prefixes. A prefix doing a folder's job is the signal to nest.
 
 ### Packages
 
-This covers **pnpm workspace packages** (JS/TS). Python and Rust differ — there, location and import name matter directly (a top-level Python package can even shadow a stdlib module, which is why there's no top-level `platform/`), so these rules don't apply.
+Anything under `packages/` is a workspace member of its ecosystem: `package.json` for pnpm, `pyproject.toml` for uv.
+The placement rules below are about **pnpm workspace packages** (JS/TS).
+Rust differs, and Python has its own section after them, because there location and import name matter directly (a top-level Python package can even shadow a stdlib module, which is why there's no top-level `platform/`).
 
 For pnpm packages, location doesn't gate who can import them (pnpm resolves by name), so location is an ownership signal, not access control. Place by current ownership:
 
@@ -77,6 +103,25 @@ For pnpm packages, location doesn't gate who can import them (pnpm resolves by n
 - Promote nested → root only when a second consumer actually depends on it — on real usage, not intent. It's a path rename with a stable package name (no import churn), so don't pay the "shared" cost before it's true.
 
 `pnpm-workspace.yaml` globs are explicit (`products/*`, `packages/quill`, …) and don't yet match nested `products/<product>/packages/*` or a new top-level `packages/<name>/` — so register the package's path there when you add it, or `workspace:*` deps, filters, and scripts won't resolve.
+
+#### Python packages
+
+A Python package under `packages/<name>/` is a uv workspace member with its own `pyproject.toml`, registered in the root `pyproject.toml` under `[tool.uv.workspace].members` and `[tool.uv.sources]`.
+Its import name is independent of its location (`packages/owners-yaml` ships `owners_yaml`), so a move is a path rename with no import churn, the same property pnpm packages have.
+
+Reach for one only when a consumer must install it outside the monorepo venv: a bare-python CI step, the review sandbox, another repo, PyPI.
+Reuse inside the app is not a reason on its own.
+What puts it in `packages/` rather than `tools/` is that runtime code imports it.
+A distribution only CI and developer workflows use belongs in `tools/`, like `hogli`.
+
+Rules that follow from being a distribution rather than a module:
+
+- It is a leaf: no imports of `posthog/`, `ee/`, `products/`, `common/`, Django, or DRF. tach resolves a uv distribution as third-party and cannot police this, so each package gets a `forbidden` contract in the root `pyproject.toml` under `[tool.importlinter]` (see `packages/owners-yaml is a leaf`), which resolves by installed import name.
+- It carries a `package.json` (`@posthog/<name>`, private) and a `turbo.json` whose `backend:test` inputs cover its sources, so turbo can tell when it changed. The manifest also declares `pythonImportName`. `turbo-discover` reads that name, scans `products/` for imports of it, and re-tests the importers plus their tach dependents. Consumers declare nothing.
+- Its own tests are a step in `ci-python.yml`, not a matrix entry: `turbo-discover` treats it as a cascade source only.
+- Core (`posthog/`, `ee/`, `common/`) should not import it, so that a package change re-tests its product consumers rather than the Django suite. `turbo-discover` scans those trees too, and runs the full suite when one of them imports it.
+- Register its path in `pnpm-workspace.yaml`, in `.dockerignore` (an allowlist), and in the Dockerfile bind-mount list, because `uv sync` validates workspace membership at build time.
+- Same nest-then-promote rule as pnpm packages: promote on a second real consumer, not on intent.
 
 ### Services
 

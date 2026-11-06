@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,7 +9,8 @@ use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
 use feature_flags::team::team_models::Team;
 use feature_flags::utils::test_utils::team_token_hypercache_key;
-use lifecycle::Manager;
+use governor::clock;
+use lifecycle::{Manager, ManagerBuilder, PrestopAction};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
@@ -17,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use feature_flags::cohorts::membership::NoOpCohortMembershipProvider;
 use feature_flags::config::Config;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
-use feature_flags::server::{register_components, serve};
+use feature_flags::server::{register_components, serve_with_rate_limiter_clock};
 
 pub struct ServerHandle {
     pub addr: SocketAddr,
@@ -33,13 +35,11 @@ impl ServerHandle {
     }
 }
 
-fn build_test_manager(token: CancellationToken) -> Manager {
+fn test_manager_builder() -> ManagerBuilder {
     Manager::builder("feature-flags-test")
         .with_trap_signals(false)
         .with_prestop_check(false)
-        .with_shutdown_token(token)
         .with_global_shutdown_timeout(Duration::from_secs(10))
-        .build()
 }
 
 impl ServerHandle {
@@ -55,21 +55,80 @@ impl ServerHandle {
         config: Config,
         flags_with_cohorts_s3: Option<Arc<dyn common_hypercache::S3Client + Send + Sync>>,
     ) -> ServerHandle {
+        Self::for_config_with_s3_and_rate_limiter_clock(
+            config,
+            test_manager_builder(),
+            flags_with_cohorts_s3,
+            clock::DefaultClock::default(),
+        )
+        .await
+    }
+
+    /// Like `for_config`, but the server drains once `prestop_path` exists, as in production.
+    #[allow(dead_code)]
+    pub async fn for_config_with_prestop_drain(
+        config: Config,
+        prestop_path: &Path,
+    ) -> ServerHandle {
+        let manager_builder = test_manager_builder()
+            .with_prestop_path(prestop_path)
+            .with_prestop_action(PrestopAction::Drain {
+                // Longer than any test, so the drain limit never starts shutdown mid-test.
+                max: Duration::from_secs(60),
+            });
+        Self::for_config_with_s3_and_rate_limiter_clock(
+            config,
+            manager_builder,
+            None,
+            clock::DefaultClock::default(),
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn for_config_with_rate_limiter_clock<C>(
+        config: Config,
+        rate_limiter_clock: C,
+    ) -> ServerHandle
+    where
+        C: clock::Clock + Clone + Send + Sync + 'static,
+    {
+        Self::for_config_with_s3_and_rate_limiter_clock(
+            config,
+            test_manager_builder(),
+            None,
+            rate_limiter_clock,
+        )
+        .await
+    }
+
+    async fn for_config_with_s3_and_rate_limiter_clock<C>(
+        config: Config,
+        manager_builder: ManagerBuilder,
+        flags_with_cohorts_s3: Option<Arc<dyn common_hypercache::S3Client + Send + Sync>>,
+        rate_limiter_clock: C,
+    ) -> ServerHandle
+    where
+        C: clock::Clock + Clone + Send + Sync + 'static,
+    {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let shutdown = CancellationToken::new();
-        let mut manager = build_test_manager(shutdown.clone());
+        let mut manager = manager_builder
+            .with_shutdown_token(shutdown.clone())
+            .build();
         let handles = register_components(&mut manager);
         let monitor_guard = manager.monitor_background();
 
         let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
-            serve(
+            serve_with_rate_limiter_clock(
                 config,
                 listener,
                 rayon_dispatcher,
                 handles,
                 flags_with_cohorts_s3,
+                rate_limiter_clock,
             )
             .await;
             // Drain the lifecycle monitor after serve returns so the supervisor
@@ -123,7 +182,9 @@ impl ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let shutdown = CancellationToken::new();
-        let mut manager = build_test_manager(shutdown.clone());
+        let mut manager = test_manager_builder()
+            .with_shutdown_token(shutdown.clone())
+            .build();
         // `monitor_background()` is intentionally not called in this path:
         // ReadinessHandler reads the token directly and `trap_signals=false`
         // means no supervisor is required. `manager` is dropped at the end of
@@ -503,21 +564,53 @@ impl Drop for ServerHandle {
     }
 }
 
-/// Poll `HGET key field` for up to ~1s, returning the value as soon as the
-/// key exists. Panics on timeout. Use for the positive ("the write should
-/// land") case in billing aggregator tests — for the negative case, sleep
-/// one flush window and check.
+/// Poll for a billing counter across every bucket field in `first_bucket..=last_bucket`,
+/// returning the first value found. Panics on timeout. Use for the positive ("the write
+/// should land") case in billing aggregator tests — for the negative case, sleep one flush
+/// window and check. The server captures the bucket inside `record()` while it handles the
+/// request, so a request that straddles a 2-minute bucket boundary lands the increment in
+/// either the bucket seen before or after the roundtrip. Pass both ends of the range to poll
+/// for the counter without racing the boundary.
 #[allow(dead_code)]
-pub async fn poll_for_billing_counter(
+pub async fn poll_for_billing_counter_across_buckets(
     client: &Arc<dyn common_redis::Client + Send + Sync>,
     key: &str,
-    field: &str,
+    first_bucket: u64,
+    last_bucket: u64,
 ) -> String {
     for _ in 0..40 {
-        if let Ok(v) = client.hget(key.to_string(), field.to_string()).await {
-            return v;
+        for bucket in first_bucket..=last_bucket {
+            if let Ok(v) = client.hget(key.to_string(), bucket.to_string()).await {
+                return v;
+            }
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    panic!("billing counter at {key}:{field} did not appear within 1s");
+    panic!(
+        "billing counter at {key} did not appear within 1s for buckets {first_bucket}..={last_bucket}"
+    );
+}
+
+/// Poll until `last_used_at` is set for the given project secret API key, or panic after ~4s.
+#[allow(dead_code)]
+pub async fn poll_for_psak_last_used_at(
+    context: &feature_flags::utils::test_utils::TestContext,
+    key_id: &str,
+    message: &str,
+) {
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    for _ in 0..80 {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM posthog_projectsecretapikey WHERE id = $1 AND last_used_at IS NOT NULL",
+        )
+        .bind(key_id)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        if count.0 > 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{message}");
 }

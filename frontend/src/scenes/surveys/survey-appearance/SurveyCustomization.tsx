@@ -49,7 +49,6 @@ export function Customization({
     deleteBranchingLogic,
     validationErrors,
     disabledReason,
-    onTranslationsChange,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -60,7 +59,7 @@ export function Customization({
     return (
         <div className="flex flex-col divide-y divide-border [&>*]:py-5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
             {!surveysStylingAvailable && (
-                <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
+                <PayGateMini feature={AvailableFeature.SURVEYS_STYLING} featureDetail="survey-customization">
                     <></>
                 </PayGateMini>
             )}
@@ -134,7 +133,6 @@ export function Customization({
                         disabledReason={disabledReason}
                         hasBranchingLogic={hasBranchingLogic}
                         deleteBranchingLogic={deleteBranchingLogic}
-                        onTranslationsChange={onTranslationsChange}
                     />
                 </div>
                 {survey.type !== SurveyType.ExternalSurvey && (

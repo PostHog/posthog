@@ -1,4 +1,6 @@
 import {
+    MAX_CATEGORY_LABEL_WIDTH,
+    type Series,
     type TooltipContext,
     type TrendLineConfig,
     type ValueLabelContext,
@@ -12,7 +14,7 @@ import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
-import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { AxisBreakdownSeries, EmptyBreakdownSeries } from '../seriesBreakdownLogic'
 import { SqlChartProps } from './SqlChart'
 import {
     AREA_FILL_OPACITY,
@@ -20,6 +22,7 @@ import {
     type SqlLineYSeries,
     barLayoutForDisplay,
     buildBarChartConfig,
+    buildBarValueChartConfig,
     buildComboChartConfig,
     buildLineChartConfig,
     buildSeries,
@@ -32,6 +35,7 @@ import {
     hasAxisTickFormatting,
     hasMixedSeriesTypes,
     seriesDisplayType,
+    sqlChartData,
     sqlChartKind,
 } from './sqlLineGraphAdapter'
 
@@ -74,6 +78,7 @@ describe('sqlLineGraphAdapter', () => {
             ['line graph', ChartDisplayType.ActionsLineGraph, 'line'],
             ['area graph', ChartDisplayType.ActionsAreaGraph, 'line'],
             ['bar graph', ChartDisplayType.ActionsBar, 'bar'],
+            ['horizontal bar graph', ChartDisplayType.ActionsBarValue, 'bar'],
             ['stacked bar graph', ChartDisplayType.ActionsStackedBar, 'bar'],
             // Pie never reaches dispatch — PieChart wraps it separately.
             ['pie graph', ChartDisplayType.ActionsPie, 'line'],
@@ -210,6 +215,7 @@ describe('sqlLineGraphAdapter', () => {
             ['auto on a line graph is a line', ChartDisplayType.ActionsLineGraph, {}, 'line'],
             ['auto on an area graph is an area', ChartDisplayType.ActionsAreaGraph, {}, 'area'],
             ['auto on a bar graph is a bar', ChartDisplayType.ActionsBar, {}, 'bar'],
+            ['auto on a horizontal bar graph is a bar', ChartDisplayType.ActionsBarValue, {}, 'bar'],
             ['auto on a stacked bar graph is a bar', ChartDisplayType.ActionsStackedBar, {}, 'bar'],
             [
                 "the 'auto' display type defers to the chart type",
@@ -307,6 +313,39 @@ describe('sqlLineGraphAdapter', () => {
         })
     })
 
+    describe('sqlChartData', () => {
+        const xData = (data: string[]): AxisSeries<string> => ({
+            column: { name: 'week', type: { name: 'DATE', isNumerical: false }, label: 'week', dataIndex: 0 },
+            data,
+        })
+
+        it('sums rows that share an x value so they do not overlap in one slot', () => {
+            const result = sqlChartData(
+                EmptyBreakdownSeries,
+                xData(['2026-10-05', '2026-10-05', '2026-10-12', '2026-10-12']),
+                [ySeries('rows_written', [100, 300, null, 400])],
+                ChartDisplayType.ActionsBar
+            )
+            expect(result.xData?.data).toEqual(['2026-10-05', '2026-10-12'])
+            expect(result.yData.map((series) => series.data)).toEqual([[400, 400]])
+        })
+
+        it('keeps the data unchanged when x values are unique', () => {
+            const x = xData(['2026-10-05', '2026-10-12'])
+            const yData = [ySeries('rows_written', [100, 300])]
+            expect(sqlChartData(EmptyBreakdownSeries, x, yData, ChartDisplayType.ActionsBar)).toEqual({
+                xData: x,
+                yData,
+            })
+        })
+
+        it('keeps one bar per row on a bar value chart', () => {
+            const x = xData(['a', 'a'])
+            const yData = [ySeries('count', [1, 2])]
+            expect(sqlChartData(EmptyBreakdownSeries, x, yData, ChartDisplayType.ActionsBarValue).xData).toBe(x)
+        })
+    })
+
     describe('capYSeriesData', () => {
         it('returns null for missing data', () => {
             expect(capYSeriesData(undefined as unknown as SqlChartProps['yData'])).toBeNull()
@@ -335,7 +374,30 @@ describe('sqlLineGraphAdapter', () => {
                 ChartDisplayType.ActionsLineGraph
             )
             expect(percent.visibility).toEqual({ total: false })
-            expect(plain.visibility).toBeUndefined()
+            expect(plain.visibility).toEqual({})
+        })
+
+        it.each<[string, AxisSeries<number | null>['settings'], Series['visibility']]>([
+            ['keeps an excluded series out of the total', { display: { excludeFromTotal: true } }, { total: false }],
+            ['hides value labels for the series', { display: { valueLabels: 'hide' } }, { valueLabel: false }],
+            [
+                'combines both flags',
+                { display: { excludeFromTotal: true, valueLabels: 'hide' } },
+                { total: false, valueLabel: false },
+            ],
+        ])('%s', (_name, settings, expected) => {
+            const [series] = buildSeries([ySeries('target', [5], settings)], ChartDisplayType.ActionsStackedBar, true)
+            expect(series.visibility).toEqual(expected)
+        })
+
+        it('labels only the series that opted in when the chart setting is off', () => {
+            const [bars, target] = buildSeries(
+                [ySeries('bars', [1]), ySeries('target', [5], { display: { valueLabels: 'show' } })],
+                ChartDisplayType.ActionsStackedBar,
+                false
+            )
+            expect(bars.visibility).toEqual({ valueLabel: false })
+            expect(target.visibility).toEqual({})
         })
 
         it('only pins an explicit color, leaving palette assignment to quill otherwise', () => {
@@ -374,9 +436,18 @@ describe('sqlLineGraphAdapter', () => {
             expect(series.fill).toBeUndefined()
         })
 
-        it('keys breakdown series by breakdown value', () => {
-            const [series] = buildSeries([breakdownSeries('chrome', [1])], ChartDisplayType.ActionsLineGraph)
-            expect(series.key).toBe('chrome')
+        it('keeps measures with the same breakdown value distinct, including their trend lines', () => {
+            const yData = [
+                { ...breakdownSeries('chrome', [1], { display: { trendLine: true } }), name: 'count - chrome' },
+                { ...breakdownSeries('chrome', [2]), name: 'revenue - chrome' },
+            ]
+            const series = buildSeries(yData, ChartDisplayType.ActionsStackedBar)
+            expect(new Set(series.map(({ key }) => key)).size).toBe(2)
+            expect(Object.fromEntries(series.map(({ key, data }) => [key, data]))).toEqual({
+                '["count - chrome","chrome"]': [1],
+                '["revenue - chrome","chrome"]': [2],
+            })
+            expect(buildTrendLineConfigs(yData)).toEqual([{ seriesKey: series[0].key, kind: 'linear' }])
         })
 
         it('honors a custom display label, falling back to the column name', () => {
@@ -452,7 +523,7 @@ describe('sqlLineGraphAdapter', () => {
             [
                 'breakdown trend lines keyed by breakdown value',
                 [breakdownSeries('chrome', [1], { display: { trendLine: true } })],
-                [{ seriesKey: 'chrome', kind: 'linear' }],
+                [{ seriesKey: '["chrome","chrome"]', kind: 'linear' }],
             ],
         ])('builds %s', (_name, ySeriesData, expected) => {
             expect(buildTrendLineConfigs(ySeriesData)).toEqual(expected)
@@ -467,8 +538,8 @@ describe('sqlLineGraphAdapter', () => {
             const seriesKeys = buildSeries(yData, ChartDisplayType.ActionsLineGraph).map((s) => s.key)
             const trendLineKeys = buildTrendLineConfigs(yData).map((t) => t.seriesKey)
             // Both derive from getSeriesKey on the same array, so the trend lines are the opt-in subset.
-            expect(seriesKeys).toEqual(['a-0', 'b-1', 'chrome'])
-            expect(trendLineKeys).toEqual(['b-1', 'chrome'])
+            expect(seriesKeys).toEqual(['a-0', 'b-1', '["chrome","chrome"]'])
+            expect(trendLineKeys).toEqual(['b-1', '["chrome","chrome"]'])
         })
 
         it('uses array-position indexing, so keys stay aligned with buildSeries however the cap slices', () => {
@@ -574,6 +645,14 @@ describe('sqlLineGraphAdapter', () => {
             ])
             expect(config.totalFormatter!(15059)).toBe('$15059')
         })
+
+        it('formats the total with the first column in the sum, skipping an excluded column', () => {
+            const config = buildSqlTooltipConfig({}, [
+                ySeries('target', [1], { display: { excludeFromTotal: true }, formatting: { suffix: ' goal' } }),
+                ySeries('revenue', [1], { formatting: { prefix: '$' } }),
+            ])
+            expect(config.totalFormatter!(15059)).toBe('$15059')
+        })
     })
 
     describe('buildLineChartConfig', () => {
@@ -586,14 +665,35 @@ describe('sqlLineGraphAdapter', () => {
             data: ['a', 'b'],
         }
 
-        it('adds an x-axis tick formatter for date axes', () => {
+        it('passes the timezone for date axes', () => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
-            expect(config.xAxis?.tickFormatter).toBeInstanceOf(Function)
+            expect(config.xAxis?.timezone).toBe('UTC')
         })
 
-        it('omits the tick formatter for non-date axes', () => {
+        it.each(['YYYY-MM-DD', 'MMM YYYY', 'DD/MM/YYYY'])(
+            'formats date ticks with %s without changing their values',
+            (format) => {
+                const config = buildLineChartConfig({
+                    xData: dateXData,
+                    chartSettings: { xAxisDateFormat: format },
+                    timezone: 'America/Los_Angeles',
+                })
+                const expected = { 'YYYY-MM-DD': '2026-01-01', 'MMM YYYY': 'Jan 2026', 'DD/MM/YYYY': '01/01/2026' }
+                expect(config.xAxis?.tickFormatter?.('2026-01-01', 0)).toBe(expected[format as keyof typeof expected])
+                const hidden = buildLineChartConfig({
+                    xData: dateXData,
+                    chartSettings: { xAxisLabel: 'Date', showXAxisTicks: false, xAxisDateFormat: format },
+                    timezone: 'UTC',
+                })
+                expect(hidden.xAxis?.label).toBe('Date')
+                expect(hidden.xAxis?.hide).toBe(false)
+                expect(hidden.xAxis?.tickFormatter?.('2026-01-01', 0)).toBe('')
+            }
+        )
+
+        it('omits the timezone for non-date axes', () => {
             const config = buildLineChartConfig({ xData: stringXData, chartSettings: {}, timezone: 'UTC' })
-            expect(config.xAxis?.tickFormatter).toBeUndefined()
+            expect(config.xAxis?.timezone).toBeUndefined()
             expect(config.xAxis?.tickLabelRotation).toBeUndefined()
         })
 
@@ -602,7 +702,7 @@ describe('sqlLineGraphAdapter', () => {
                 leftYAxisSettings: { label: 'Count', scale: 'logarithmic', showGridLines: false, showTicks: false },
             }
             const config = buildLineChartConfig({ xData: dateXData, chartSettings, timezone: 'UTC' })
-            expect(config.yAxis).toMatchObject({ label: 'Count', scale: 'log', showGrid: false, hide: true })
+            expect(config.yAxis).toMatchObject({ label: 'Count', scale: 'log', showGrid: false, hide: false })
         })
 
         it('defaults to a linear scale with grid shown', () => {
@@ -718,6 +818,29 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.legend).toEqual({ show: expected, position: 'top', interactive: true })
         })
 
+        it.each([
+            ['defaults to the top', undefined, 'top'],
+            ['follows legendPosition', 'bottom', 'bottom'],
+        ] as const)('%s for the legend position', (_name, legendPosition, expected) => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: { showLegend: true, legendPosition },
+                timezone: 'UTC',
+            })
+            expect(config.legend?.position).toBe(expected)
+        })
+
+        it('forwards legendRenderItem, which carries the row right-click menu', () => {
+            const legendRenderItem = jest.fn()
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: { showLegend: true },
+                timezone: 'UTC',
+                legendRenderItem,
+            })
+            expect(config.legend?.renderItem).toBe(legendRenderItem)
+        })
+
         it('wires goalLines through schemaGoalLinesToConfigs', () => {
             const goalLines: GoalLine[] = [{ label: 'Target', value: 100 }]
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', goalLines })
@@ -725,9 +848,12 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.goalLines?.[0]).toMatchObject({ value: 100, label: 'Target' })
         })
 
-        it('omits value labels unless showValuesOnSeries is set', () => {
-            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
-            expect(config.valueLabels).toBeUndefined()
+        it.each<[string, SqlLineYSeries[] | undefined, boolean]>([
+            ['no series opts in', [ySeries('a', [1])], false],
+            ['a series opts in', [ySeries('a', [1], { display: { valueLabels: 'show' } })], true],
+        ])('with showValuesOnSeries off, builds value labels only when %s', (_name, ySeriesData, enabled) => {
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
+            expect(config.valueLabels !== undefined).toBe(enabled)
         })
 
         it('formats each value label from its own series column when showValuesOnSeries is set', () => {
@@ -798,6 +924,7 @@ describe('sqlLineGraphAdapter', () => {
             })
 
             expect(config.xAxis?.tickLabelRotation).toBe(expected)
+            expect(config.maxCategoryLabelWidth).toBe(MAX_CATEGORY_LABEL_WIDTH)
         })
 
         it('forces a linear y-axis scale for percent-stacked bars', () => {
@@ -924,6 +1051,83 @@ describe('sqlLineGraphAdapter', () => {
         })
     })
 
+    describe('buildBarValueChartConfig', () => {
+        const xData: AxisSeries<string> = {
+            column: { name: 'path', type: { name: 'STRING', isNumerical: false }, label: 'path', dataIndex: 0 },
+            data: ['/pricing', '/signup'],
+        }
+
+        it('maps SQL category and value settings onto horizontal chart axes', () => {
+            const config = buildBarValueChartConfig({
+                xData,
+                chartSettings: {
+                    xAxisLabel: 'Page',
+                    showXAxisTicks: false,
+                    showXAxisBorder: false,
+                    leftYAxisSettings: { label: 'Revenue', showTicks: false },
+                },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBarValue,
+                ySeriesData: [ySeries('revenue', [1200, 1800], { formatting: { prefix: '$' } })],
+                goalLines: [{ label: 'Target', value: 2000 }],
+                series: buildSeries(
+                    [ySeries('revenue', [1200, 1800], { formatting: { prefix: '$' } })],
+                    ChartDisplayType.ActionsBarValue
+                ),
+                embedded: true,
+            })
+
+            expect(config).toMatchObject({
+                axisOrientation: 'horizontal',
+                barLayout: 'grouped',
+                hideXAxis: false,
+                hideYAxis: false,
+                xAxisLabel: 'Revenue',
+                yAxisLabel: 'Page',
+                showAxisLines: { x: true, y: false },
+                maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
+                bars: { fitToHeight: true, valueDomain: { include: [2000] } },
+            })
+            expect(config.xTickFormatter!('0', 0)).toBe('')
+            expect(config.yTickFormatter!(1200)).toBe('')
+            expect(config.tooltip!.labelFormatter!('1')).toBe('/signup')
+            expect(config.referenceLines).toEqual([
+                expect.objectContaining({ label: 'Target', value: 2000, axisOrientation: 'horizontal' }),
+            ])
+        })
+
+        it.each([true, false])('keeps custom date tooltip headings with ticks %s', (showXAxisTicks) => {
+            const config = buildBarValueChartConfig({
+                xData: {
+                    column: { name: 'date', type: { name: 'DATE', isNumerical: false }, label: 'date', dataIndex: 0 },
+                    data: ['2024-01-01'],
+                },
+                chartSettings: { showXAxisTicks, xAxisDateFormat: 'MMM YYYY' },
+                timezone: 'America/Los_Angeles',
+                visualizationType: ChartDisplayType.ActionsBarValue,
+            })
+            expect(config.xTickFormatter!('0', 0)).toBe(showXAxisTicks ? 'Jan 2024' : '')
+            expect(config.tooltip!.labelFormatter!('0')).toBe('Jan 2024')
+        })
+
+        it.each([
+            { category: null, label: '0', expected: '[No value]' },
+            { category: undefined, label: '0', expected: '[No value]' },
+            { category: 42, label: '0', expected: '42' },
+            { category: '/pricing', label: 'invalid', expected: 'invalid' },
+        ])('formats $expected when a category is $category', ({ category, label, expected }) => {
+            const config = buildBarValueChartConfig({
+                xData: { ...xData, data: [category] as unknown as string[] },
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBarValue,
+            })
+
+            expect(config.xTickFormatter!(label, 0)).toBe(expected)
+            expect(config.tooltip!.labelFormatter!(label)).toBe(expected)
+        })
+    })
+
     describe('buildComboChartConfig', () => {
         const dateXData: AxisSeries<string> = {
             column: { name: 'day', type: { name: 'DATE', isNumerical: false }, label: 'day', dataIndex: 0 },
@@ -979,7 +1183,7 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.showAxisLines).toEqual({ x: true, y: false })
         })
 
-        it('wires goal lines, legend, and a date x-axis formatter', () => {
+        it('wires goal lines, legend, and the date x-axis timezone', () => {
             const config = buildComboChartConfig({
                 xData: dateXData,
                 chartSettings: { showLegend: true },
@@ -987,7 +1191,7 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
                 goalLines: [{ label: 'Target', value: 100 }],
             })
-            expect(config.xAxis?.tickFormatter).toBeInstanceOf(Function)
+            expect(config.xAxis?.timezone).toBe('UTC')
             expect(config.goalLines).toHaveLength(1)
             expect(config.legend).toEqual({ show: true, position: 'top', interactive: true })
             expect(config.tooltip).toMatchObject({ enabled: true, pinnable: true })

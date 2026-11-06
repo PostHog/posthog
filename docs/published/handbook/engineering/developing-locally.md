@@ -48,7 +48,9 @@ This approach gives you fast iteration on the code you're developing while keepi
 > It is also technically possible to run PostHog in Docker completely, but syncing code changes is then much slower, and for development you need PostHog dependencies installed on the host anyway (such as formatting or typechecking tools).
 > The other way around – everything on the host, is not practical due to significant complexities involved in instantiating Kafka or ClickHouse from scratch.
 
-The instructions here assume you're running macOS or the current Ubuntu Linux LTS (24.04).
+The instructions here assume you're running macOS on Apple silicon or the current Ubuntu Linux LTS (24.04).
+
+Macs with Intel processors aren't supported. PostHog employees on an Intel Mac can use [Coder workspaces](#option-2-developing-with-coder-workspaces-posthog-employees-only) instead.
 
 For other Linux distros, adjust the steps as needed (e.g. use `dnf` or `pacman` in place of `apt`).
 
@@ -63,8 +65,19 @@ This is the recommended option for most developers.
 ### Prerequisites
 
 **GitHub access.**
-Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
+Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github).
 Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
+The signing key must live in your Mac's Secure Enclave.
+A signing key in 1Password doesn't meet this, because 1Password syncs it off the Mac.
+On macOS 26 or later, `hogli git:signing-key` creates a Secure Enclave signing key. Secretive works too.
+It's an SSH key used only for signing, so no GPG key is involved, and SSH logins and pushes keep using your current agent.
+The key can't be copied off the Mac, so each Mac needs its own key.
+It signs without a prompt, also while the screen is locked, so agents can commit while you're away.
+If you commit from a devbox, keep your previous signing key on GitHub.
+A devbox signs through your forwarded SSH agent, which can't hold a Secure Enclave key, so it keeps signing with the previous key.
+Otherwise, once no repository signs with your previous key, remove it from your GitHub settings, so it can't sign verified commits anymore. Commits you already pushed stay verified.
+
+PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) attach to the PR description through `gh pr edit --attach` when the branch has an open PR and your gh supports `--attach`. Otherwise they upload to the public PostHog/pr-assets repo, and prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 
 #### macOS
 
@@ -105,7 +118,13 @@ Clone the [PostHog repo](https://github.com/posthog/posthog). All future command
 git clone --filter=blob:none https://github.com/PostHog/posthog && cd posthog/
 ```
 
-**Performance tip:** The `--filter=blob:none` flag downloads all commit history and tree structure, but defers file contents (blobs) until needed. This reduces the clone from ~3 GB to a few hundred MB and makes the initial clone **15-17x faster**. You still get full git history for commands like `git log` and `git diff` – blobs are fetched on demand as you use them.
+**Performance tip:** The `--filter=blob:none` flag downloads all commit history and tree structure, but defers file contents (blobs) until needed.
+File contents are about 95% of this repository, so the clone is a few hundred MB instead of several GB, and it finishes much faster.
+You still get full git history for commands like `git log` and `git diff`. Blobs are fetched on demand as you use them.
+
+`hogli start` keeps a blobless clone healthy, because git does not consolidate the pack files these on-demand fetches create.
+It repacks in the background when they build up. Run `hogli doctor:git` to do it yourself.
+If `git fetch` fails with `Could not read <sha>`, the clone is missing commits. Run `hogli doctor:git --fix` to download them again.
 
 > The `feature-flags` container relies on the presence of the GeoLite cities
 > database in the `/share` directory. If you haven't run `hogli start` this database may not exist.
@@ -122,11 +141,17 @@ Flox manages your development environment. The `manifest.toml` file declares all
 
 To get PostHog running in a dev environment:
 
-1. Once you have cloned the repo and installed OrbStack, install Flox:
+1. Once you have cloned the repo and installed OrbStack, install Flox. On a PostHog-managed Mac, open Fleet Desktop > My device > Self-service and select Flox. Fleet supplies the approved version and upgrades older installations.
+
+   If Flox is not listed, or you are using an unmanaged Mac, install it with Homebrew:
 
    ```bash
    brew install flox
    ```
+
+   Use Flox 1.19.1 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
+
+   The repository's minimum CLI version only warns about older installations. Pulling the repository or running `flox activate` does not upgrade Flox itself or its Nix daemon.
 
 2. From the root of the repository, activate the environment. (On first activation, you'll be prompted if you'd like the environment to be activated automatically using `direnv`.)
 
@@ -153,6 +178,8 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 ### Customizing which services run
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
+
+The session replay video export worker builds a Docker image on its first start, then reuses the cached image. It runs in development mode to accept Django's default development key. The launcher translates HTTP loopback storage URLs to `host.docker.internal`, preserving optional ports and paths. It maps that hostname to Docker's host gateway so the container can reach host object storage on native Linux too. A worker startup failure returns a nonzero exit code.
 
 ### Setting environment variables
 
@@ -256,6 +283,11 @@ The first time you run typegen, it may get stuck. Cancel it (`Ctrl+C`), run `git
 **"layout.html is not defined" error**
 This happens on first startup. Wait for the frontend to finish compiling and try accessing the app again.
 
+**Vite cannot resolve an installed Tiptap package**
+Files under `products/*/frontend` cannot resolve packages installed only in `frontend/node_modules` through their parent directories.
+Shared Tiptap packages, including `@tiptap/extension-image`, have individual aliases in `frontend/vite.config.mts`.
+Check those aliases if an installed package fails to resolve from a product directory.
+
 **Kafka segfaults on ARM**
 Kafka is an x86 container and may segfault randomly on ARM machines. Simply restart it when that happens.
 
@@ -285,7 +317,7 @@ When running `uv sync`, you may see a `Failed to parse` warning related to `pypr
 
 ## Option 2: Developing with Coder workspaces (PostHog employees only)
 
-If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md).
+If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md). We call a Coder workspace a devbox, and `hogli` manages it.
 
 If you drive your workflow with a coding agent (Claude Code, Cursor, etc.), the `setting-up-devbox` skill walks the agent through the whole flow — the tailnet prerequisite, `hogli devbox:setup`, starting a box, storing auth as Coder user secrets, and running commands on the box with `hogli devbox:exec`. Just ask it to set up your devbox.
 
@@ -307,11 +339,14 @@ You can narrow the run down to only files under matching paths:
 hogli test frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
-To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `hogli storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
+CI takes the visual regression snapshots of every Storybook story, and you approve changed ones in the visual review run on your PR.
+To look at stories locally, run `pnpm storybook`. Set `STORYBOOK_STORIES` to a directory or a story file to load only those:
 
 ```bash
-hogli storybook:test
+STORYBOOK_STORIES=frontend/src/toolbar pnpm storybook
 ```
+
+The [Storybook README](https://github.com/PostHog/posthog/blob/master/common/storybook/README.md) covers the local snapshot runner, writing stories, and mocking data.
 
 ### Backend
 
@@ -387,6 +422,16 @@ No other personal API key is ever shown in full: the dev key is the only one who
 The PostHog repository includes [VS Code launch options for debugging](https://github.com/PostHog/posthog/blob/master/.vscode/launch.json). Simply go to the `Run and Debug` tab in VS Code, select the desired service you want to debug, and run it. Once it starts up, you can set breakpoints and step through code to see exactly what is happening. There are also debug launch options for frontend and backend tests if you're dealing with a tricky test failure.
 
 > **Note:** You can debug all services using the main "PostHog" launch option. If you are running most services with `hogli start` and only want to debug one (e.g. the backend), use `hogli dev:setup` to exclude that service so it doesn't conflict with the VS Code debugger.
+
+## Extra: Opening a component's source from the browser
+
+You can hold `Option+Shift` (macOS) or `Alt+Shift` (Windows and Linux) and click an element in the app. Your editor then opens the file and line that renders it. [code-inspector-plugin](https://github.com/zh-lx/code-inspector) adds this feature. It runs only with the Vite dev server, so production builds do not include it.
+
+The feature is off by default. To turn it on, add `DEV_CODE_INSPECTOR=1` to your `.env.local` and restart `hogli start`. The Vite dev server and Django both read this value.
+
+The click sends a request to a local server on port 5678. This server has no authentication and accepts requests from all interfaces and all origins. While it runs, another page in your browser or another device on your network can make your editor open a file in the repo. Turn the feature off when you do not use it, and do not turn it on for a devbox.
+
+The plugin finds your editor from the running processes. If the wrong editor opens, set `CODE_EDITOR` in `.env.local`, for example `CODE_EDITOR=cursor`. If another process uses port 5678, the plugin moves to the next free port and the click does nothing.
 
 ## Extra: Debugging the backend in PyCharm
 
@@ -546,6 +591,8 @@ The AI assistant uses the MCP tools to query phrocs directly and provide you wit
 ## Extra: Developing paid features (PostHog employees only)
 
 If you're a PostHog employee, you can get access to paid features on your local instance to make development easier. [Learn how to do so in our internal billing guide](https://github.com/PostHog/billing?tab=readme-ov-file#licensing-your-local-instance).
+
+Instance licenses are configured through `PATCH /api/billing/license/`. The legacy `/api/license/` activation and deactivation endpoints are no longer available.
 
 ## Extra: Resetting your local database
 

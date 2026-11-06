@@ -1,17 +1,18 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
 
-import { CompatMessage } from '../types'
+import { CompatMessage, MultiModalContentItem } from '../types'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
     ImageMessageDisplay,
     LLMMessageDisplay,
 } from './ConversationMessagesDisplay'
+import { messageActionsMenuLogic } from './messageActionsMenuLogic'
 
 // react-json-view is loaded via React.lazy, so the first render suspends on a code-split chunk.
 // Under CI contention that resolve can exceed waitFor's 1s default, so give it headroom.
@@ -134,6 +135,163 @@ describe('LLMMessageDisplay', () => {
         )
 
         expect(container.querySelector('img')?.getAttribute('src')).toBe(expectedSrc)
+    })
+
+    it('replaces a redacted sentinel reaching the JSON-string image path with a placeholder', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: JSON.stringify({ type: 'image', content: { type: 'image', image: '[base64 image redacted]' } }),
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(container.textContent).not.toContain('https://example.com/hidden.png')
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+    })
+
+    describe.each([
+        { minimal: false, encode: true },
+        { minimal: true, encode: true },
+        { minimal: false, encode: false },
+        { minimal: true, encode: false },
+    ])('redacted image content (minimal=$minimal, JSON-string=$encode)', ({ minimal, encode }) => {
+        it.each([
+            [
+                'image field',
+                {
+                    type: 'image',
+                    image: 'https://example.com/hidden.png',
+                    inlineData: { data: '[base64 image redacted]' },
+                },
+            ],
+            ['URI field', { type: 'image', uri: 'https://example.com/hidden.png', data: '[base64 image redacted]' }],
+            [
+                'legacy content field',
+                {
+                    type: 'image',
+                    content: {
+                        type: 'image',
+                        image: 'https://example.com/hidden.png',
+                        source: { data: '[base64 image redacted]' },
+                    },
+                },
+            ],
+        ])('redacts %s before choosing a source', (_label, content) => {
+            const { container } = render(
+                <Provider>
+                    <LLMMessageDisplay
+                        message={{
+                            role: 'assistant',
+                            content: encode
+                                ? JSON.stringify(content)
+                                : (content as unknown as CompatMessage['content']),
+                        }}
+                        show
+                        minimal={minimal}
+                    />
+                </Provider>
+            )
+            expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+            expect(container.querySelector('img')).toBeNull()
+            expect(container.textContent).not.toContain('https://example.com/hidden.png')
+        })
+
+        it.each([
+            { type: 'image', uri: 'https://example.com/hidden.png', data: '[base64 image redacted]' },
+            {
+                type: 'image',
+                uri: 'https://example.com/hidden.png',
+                content: {
+                    image: 'https://example.com/hidden.png',
+                    source: { data: '[base64 image redacted]' },
+                },
+            },
+            {
+                type: 'image',
+                content: {
+                    image: 'https://example.com/hidden.png',
+                    inlineData: { data: '[base64 image redacted]' },
+                },
+            },
+            { type: 'image', content: { image: '[base64 image redacted]', uri: 'https://example.com/hidden.png' } },
+        ])('keeps adjacent text while hiding redacted image sources in content arrays: %j', async (image) => {
+            const content = [{ type: 'text', text: 'a readable neighboring sentence' }, image]
+            const { container } = render(
+                <Provider>
+                    <LLMMessageDisplay
+                        message={{
+                            role: 'assistant',
+                            content: encode ? JSON.stringify(content) : (content as MultiModalContentItem[]),
+                        }}
+                        show
+                        minimal={minimal}
+                    />
+                </Provider>
+            )
+            await waitFor(() => expect(container.textContent).toContain('a readable neighboring sentence'), {
+                timeout: JSON_VIEWER_TIMEOUT_MS,
+            })
+            expect(container.textContent).not.toContain('https://example.com/hidden.png')
+            expect(container.querySelector('img')).toBeNull()
+            if (!minimal) {
+                expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+            }
+        })
+    })
+
+    it.each(['[{"status":"complete"}]', '["a readable JSON value"]'])(
+        'preserves an ordinary JSON array in the minimal preview: %s',
+        (content) => {
+            const { container } = render(
+                <Provider>
+                    <LLMMessageDisplay message={{ role: 'assistant', content }} show minimal />
+                </Provider>
+            )
+            expect(container.textContent).toContain(content)
+        }
+    )
+
+    it('keeps the transcript when redacted audio replaces the player', () => {
+        const message: CompatMessage = {
+            role: 'user',
+            content: [
+                {
+                    type: 'audio',
+                    data: '[base64 audio redacted]',
+                    transcript: 'a spoken sentence',
+                    id: 'aud_1',
+                    expires_at: 0,
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('audio')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText('a spoken sentence')).toBeInTheDocument()
+    })
+
+    it('keeps the filename when a redacted file replaces the download link', () => {
+        const message: CompatMessage = {
+            role: 'user',
+            content: [{ type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText('doc.pdf')).toBeInTheDocument()
     })
 
     it('renders OpenAI Responses input_text/input_image content parts as text and an image', () => {
@@ -416,6 +574,230 @@ describe('ConversationMessagesDisplay', () => {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
         }
     })
+
+    it('mounts one message actions menu only after a trigger is used', async () => {
+        const { container, rerender } = render(
+            <Provider>
+                <ConversationMessagesDisplay
+                    inputNormalized={inputNormalized}
+                    outputNormalized={outputNormalized}
+                    errorData={null}
+                    raisedError={false}
+                    eventId="event-1"
+                />
+            </Provider>
+        )
+
+        const triggers = container.querySelectorAll<HTMLButtonElement>('[data-attr="llma-message-actions-trigger"]')
+
+        expect(triggers).toHaveLength(5)
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(5)
+        expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(0)
+
+        triggers[0].focus()
+        fireEvent.click(triggers[0])
+
+        expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(1)
+        expect(document.activeElement).toBe(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[0])
+        expect(await screen.findByText('Translate')).toBeInTheDocument()
+
+        fireEvent.click(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[1])
+
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(5)
+        expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(1)
+        expect(document.activeElement).toBe(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[1])
+
+        rerender(
+            <Provider>
+                <ConversationMessagesDisplay
+                    inputNormalized={inputNormalized}
+                    outputNormalized={outputNormalized}
+                    errorData={null}
+                    raisedError={false}
+                    eventId="event-2"
+                />
+            </Provider>
+        )
+
+        // A different conversation must clear the active menu key, or its matching
+        // message would mount with the menu already open and steal focus.
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(5)
+        expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(0)
+    })
+
+    it('keeps a translation when the shared menu moves to another message and back', () => {
+        const { container } = render(
+            <Provider>
+                <ConversationMessagesDisplay
+                    inputNormalized={inputNormalized}
+                    outputNormalized={outputNormalized}
+                    errorData={null}
+                    raisedError={false}
+                />
+            </Provider>
+        )
+        const getTriggers = (): NodeListOf<HTMLButtonElement> =>
+            container.querySelectorAll<HTMLButtonElement>('[data-attr="llma-message-actions-trigger"]')
+        const translation = { translation: 'contenido de entrada del sistema', targetLanguage: 'es' as const }
+
+        fireEvent.click(getTriggers()[0])
+        messageActionsMenuLogic.findMounted({ content: 'system input content' })?.actions.translateSuccess(translation)
+
+        fireEvent.click(getTriggers()[1])
+        fireEvent.click(getTriggers()[0])
+
+        expect(messageActionsMenuLogic.findMounted({ content: 'system input content' })?.values.translation).toEqual(
+            translation
+        )
+    })
+
+    it.each<[string, unknown, unknown, unknown, unknown, string | null]>([
+        [
+            'only output tokens were billed',
+            2048,
+            undefined,
+            undefined,
+            undefined,
+            'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'only reasoning tokens were billed',
+            undefined,
+            442,
+            undefined,
+            undefined,
+            'The provider reported 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
+        ],
+        [
+            'reasoning matches the billed output exactly',
+            442,
+            442,
+            undefined,
+            undefined,
+            'The provider reported 442 output tokens but no content was captured. All of them may have been reasoning.',
+        ],
+        [
+            'reasoning exceeds the output count, so the output is missing content',
+            400,
+            500,
+            undefined,
+            undefined,
+            'The provider reported 400 output tokens and 500 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'a provider reported the count as a string',
+            '512',
+            undefined,
+            undefined,
+            undefined,
+            'The provider reported 512 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'a provider spelled the token limit in upper case',
+            2048,
+            undefined,
+            undefined,
+            'MAX_TOKENS',
+            'The provider reported 2,048 output tokens but no content was captured. The response hit its token limit.',
+        ],
+        [
+            'the stop reason outranks the reasoning-token guess',
+            undefined,
+            442,
+            undefined,
+            'length',
+            'The provider reported 442 reasoning tokens but no content was captured. The response hit its token limit.',
+        ],
+        [
+            'the provider blocked the response without billing anything',
+            0,
+            0,
+            undefined,
+            'PROHIBITED_CONTENT',
+            'The provider blocked the response.',
+        ],
+        [
+            'the stop reason describes a normal ending',
+            2048,
+            undefined,
+            undefined,
+            'end_turn',
+            'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'reasoning is only a fraction of the billed output',
+            2048,
+            12,
+            undefined,
+            undefined,
+            'The provider reported 2,048 output tokens and 12 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'the text-token split says none of the output was text',
+            169,
+            56,
+            0,
+            undefined,
+            'The provider reported 169 output tokens and 56 reasoning tokens but no content was captured. None of them were text.',
+        ],
+        [
+            'the text-token split says text was billed too',
+            442,
+            442,
+            113,
+            undefined,
+            'The provider reported 442 output tokens and 442 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'a provider hyphenated the stop reason',
+            2048,
+            undefined,
+            undefined,
+            'content-filter',
+            'The provider reported 2,048 output tokens but no content was captured. The provider blocked the response.',
+        ],
+        [
+            'an older SDK sent the count as an object',
+            { total: 10585, noCache: 10585, cacheRead: 0 },
+            undefined,
+            undefined,
+            undefined,
+            'The provider reported 10,585 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        ['the provider billed nothing', 0, 0, undefined, undefined, null],
+        ['no token counts arrived', undefined, undefined, undefined, undefined, null],
+    ])(
+        'empty output explains the gap when %s',
+        (_label, outputTokens, reasoningTokens, textOutputTokens, stopReason, expected) => {
+            const { container } = render(
+                <Provider>
+                    <ConversationMessagesDisplay
+                        inputNormalized={inputNormalized}
+                        outputNormalized={[]}
+                        errorData={null}
+                        raisedError={false}
+                        outputTokens={outputTokens}
+                        reasoningTokens={reasoningTokens}
+                        textOutputTokens={textOutputTokens}
+                        stopReason={stopReason}
+                    />
+                </Provider>
+            )
+
+            expect(screen.getByText('No output')).toBeInTheDocument()
+            const explanation = container.querySelector('[data-attr="ai-empty-output-explanation"]')
+            if (expected !== null) {
+                expect(explanation).toHaveTextContent(expected)
+                // The notice names a cause and the link carries the fix. A typo'd anchor dead-ends there.
+                expect(explanation!.querySelector('a')).toHaveAttribute(
+                    'href',
+                    'https://posthog.com/docs/ai-observability/troubleshooting#why-does-my-generation-show-no-output'
+                )
+            } else {
+                expect(explanation).toBeNull()
+            }
+        }
+    )
 })
 
 describe('ImageMessageDisplay', () => {
@@ -451,5 +833,301 @@ describe('ImageMessageDisplay', () => {
         const image = container.querySelector('img')
         expect(image).not.toBeNull()
         expect(image).toHaveAttribute('data-attr', 'ai-message-image')
+    })
+
+    it('renders a Gemini Interactions image with top-level data and mime_type', () => {
+        const imageData = 'iVBORw0KGgo='
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', data: imageData, mime_type: 'image/png' } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-image"]')).toHaveAttribute(
+            'src',
+            `data:image/png;base64,${imageData}`
+        )
+        expect(container.textContent).not.toContain(imageData)
+    })
+
+    it('shows a placeholder for a redacted Gemini Interactions image', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                { type: 'image', data: '[base64 image/png redacted]', mime_type: 'image/png' } as MultiModalContentItem,
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.getByText('Image not captured.')).toBeInTheDocument()
+        expect(container.textContent).not.toContain('[base64 image/png redacted]')
+    })
+
+    it('renders a Gemini Interactions image from an HTTPS URI', () => {
+        const uri = 'https://example.com/image.png'
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', uri } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-image"]')).toHaveAttribute('src', uri)
+    })
+
+    it('renders a Gemini Interactions image from an offloaded blob URI', () => {
+        const uri = `phaiblob://v1/sha256/${'a'.repeat(64)}?mime=image%2Fpng&size=131072`
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', uri } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-image"]')).not.toBeNull()
+        expect(container.textContent).not.toContain(uri)
+    })
+
+    it.each<[string, { type: string } & Record<string, unknown>, string]>([
+        ['unsupported Gemini URI', { type: 'image', uri: 'javascript:alert(1)' }, 'javascript:alert(1)'],
+        ['MIME-less Gemini data', { type: 'image', data: 'iVBORw0KGgo=' }, 'iVBORw0KGgo='],
+        ['MIME-less nested Gemini data', { type: 'image', inline_data: { data: 'iVBORw0KGgo=' } }, 'iVBORw0KGgo='],
+        [
+            'unsupported OpenAI URL',
+            { type: 'image_url', image_url: { url: 'javascript:alert(1)' } },
+            'javascript:alert(1)',
+        ],
+        ['unsupported Vercel URL', { type: 'image', image: 'gs://example/image.png' }, 'gs://example/image.png'],
+        [
+            'unsupported input_image URL',
+            { type: 'input_image', image_url: 'gs://example/image.png' },
+            'gs://example/image.png',
+        ],
+    ])('keeps %s inspectable without labeling it redacted', async (_label, part, payload) => {
+        const message: CompatMessage = { role: 'assistant', content: [part as MultiModalContentItem] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.queryByText('Image not captured.')).not.toBeInTheDocument()
+        await waitFor(() => expect(container.textContent).toContain(payload), { timeout: JSON_VIEWER_TIMEOUT_MS })
+        expect(container.querySelector('a[href^="javascript:"]')).toBeNull()
+        expect(container.querySelector('a[href^="gs:"]')).toBeNull()
+    })
+
+    it.each<[string, { type: string } & Record<string, unknown>]>([
+        ['Gemini URI', { type: 'image', uri: 'https://example.com/image.png' }],
+        ['OpenAI URL', { type: 'image_url', image_url: { url: 'https://example.com/image.png' } }],
+        ['Vercel image', { type: 'image', image: 'https://example.com/image.png' }],
+        ['input_image', { type: 'input_image', image_url: 'https://example.com/image.png' }],
+        [
+            'Anthropic data',
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+        ],
+        ['Gemini inline data', { type: 'image', data: 'iVBORw0KGgo=', mime_type: 'image/png' }],
+    ])('shows captured content when the %s image fails to load', async (_label, part) => {
+        const message: CompatMessage = { role: 'assistant', content: [part as MultiModalContentItem] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        const image = container.querySelector('img')!
+        expect(image).not.toBeNull()
+        fireEvent.error(image)
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.queryByText('Image not captured.')).not.toBeInTheDocument()
+        await waitFor(() => expect(container.querySelector('.react-json-view')).not.toBeNull(), {
+            timeout: JSON_VIEWER_TIMEOUT_MS,
+        })
+        expect(container.textContent).toContain('type')
+        expect(container.textContent).toContain(
+            _label.includes('data') ? 'iVBORw0KGgo=' : 'https://example.com/image.png'
+        )
+    })
+
+    it('retries the image preview when a mounted message receives a new source', () => {
+        const message = (uri: string): CompatMessage => ({
+            role: 'assistant',
+            content: [{ type: 'image', uri } as MultiModalContentItem],
+        })
+        const { container, rerender } = render(
+            <Provider>
+                <LLMMessageDisplay message={message('https://example.com/first.png')} show />
+            </Provider>
+        )
+        fireEvent.error(container.querySelector('img')!)
+        expect(container.querySelector('img')).toBeNull()
+        rerender(
+            <Provider>
+                <LLMMessageDisplay message={message('https://example.com/second.png')} show />
+            </Provider>
+        )
+        expect(container.querySelector('img')).toHaveAttribute('src', 'https://example.com/second.png')
+        rerender(
+            <Provider>
+                <LLMMessageDisplay message={message('https://example.com/first.png')} show />
+            </Provider>
+        )
+        expect(container.querySelector('img')).toHaveAttribute('src', 'https://example.com/first.png')
+    })
+
+    it('does not reveal a URI when a Gemini Interactions image has redacted data', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'image',
+                    data: '[base64 image/png redacted]',
+                    mime_type: 'image/png',
+                    uri: 'https://example.com/image.png',
+                } as MultiModalContentItem,
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.getByText('Image not captured.')).toBeInTheDocument()
+        expect(container.textContent).not.toContain('https://example.com/image.png')
+    })
+
+    it('does not use a Gemini Interactions image URI when MIME-less data was redacted', () => {
+        const uri = 'https://example.com/image.png'
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [{ type: 'image', data: '[base64 image redacted]', uri } as MultiModalContentItem],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(screen.getByText('Image not captured.')).toBeInTheDocument()
+        expect(container.textContent).not.toContain(uri)
+    })
+
+    const REDACTED = '[base64 image redacted]'
+    const redactedParts: [string, MultiModalContentItem, string][] = [
+        ['python image sentinel', { type: 'image_url', image_url: { url: REDACTED } }, 'Image'],
+        ['Gemini URI sentinel', { type: 'image', uri: REDACTED } as MultiModalContentItem, 'Image'],
+        ['node image sentinel', { type: 'image_url', image_url: { url: '[base64 image/png redacted]' } }, 'Image'],
+        ['data-uri-wrapped sentinel', { type: 'image_url', image_url: { url: `data:;base64,${REDACTED}` } }, 'Image'],
+        ['vercel image sentinel', { type: 'image', image: REDACTED }, 'Image'],
+        ['input_image sentinel', { type: 'input_image', image_url: REDACTED }, 'Image'],
+        [
+            'anthropic image sentinel',
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        [
+            'gemini snake_case image sentinel',
+            { type: 'image', inline_data: { mime_type: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        [
+            'gemini camelCase image sentinel',
+            { type: 'image', inlineData: { mimeType: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        [
+            'MIME-less nested sentinel with URI',
+            {
+                type: 'image',
+                inline_data: { data: REDACTED },
+                uri: 'https://example.com/hidden.png',
+            } as MultiModalContentItem,
+            'Image',
+        ],
+        [
+            'MIME-less camelCase sentinel with URI',
+            {
+                type: 'image',
+                inlineData: { data: REDACTED },
+                uri: 'https://example.com/hidden.png',
+            } as MultiModalContentItem,
+            'Image',
+        ],
+        [
+            'MIME-less Anthropic sentinel with URI',
+            {
+                type: 'image',
+                source: { data: REDACTED },
+                uri: 'https://example.com/hidden.png',
+            } as MultiModalContentItem,
+            'Image',
+        ],
+        ['file sentinel', { type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }, 'File'],
+        [
+            'anthropic document sentinel',
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: REDACTED } },
+            'File',
+        ],
+        [
+            'gemini document sentinel',
+            { type: 'document', inline_data: { mime_type: 'application/pdf', data: REDACTED } },
+            'File',
+        ],
+        [
+            'audio sentinel',
+            { type: 'audio', data: '[base64 audio redacted]', transcript: '', id: 'aud_1', expires_at: 0 },
+            'Audio',
+        ],
+    ]
+
+    it.each(redactedParts)('replaces %s with a placeholder instead of a broken media element', (_name, part, label) => {
+        const message: CompatMessage = { role: 'user', content: [part] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(container.textContent).not.toContain('https://example.com/hidden.png')
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText(`${label} not captured.`)).toBeInTheDocument()
+        expect(screen.getByRole('link')).toHaveAttribute(
+            'href',
+            'https://posthog.com/docs/ai-observability/large-events'
+        )
+    })
+
+    it.each([
+        ['inline data uri', 'data:image/png;base64,iVBORw0KGgo='],
+        ['offloaded blob pointer', `phaiblob://v1/sha256/${'a'.repeat(64)}?mime=image%2Fpng&size=131072`],
+        ['plain remote https url', 'https://example.com/a.png'],
+    ])('keeps rendering an image for %s', (_name, url) => {
+        const message: CompatMessage = { role: 'user', content: [{ type: 'image_url', image_url: { url } }] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).not.toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).toBeNull()
     })
 })

@@ -1,34 +1,60 @@
+from datetime import datetime, timedelta
 from textwrap import dedent
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 import structlog
+from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
-from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
+from posthog.schema import (
+    EventsNode,
+    FilterLogicalOperator,
+    MaxRecordingEventFilter,
+    MaxRecordingUniversalFilters,
+    RecordingsQuery,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models import Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.queries.utils import SessionRecordingQueryResult
+from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
+from posthog.session_recordings.queries.utils import SessionRecordingQueryResult, expand_test_account_filters
 from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
 
 from products.replay.backend.prompts import (
     DATE_FIELDS_PROMPT,
+    EVENT_NEGATION_SUPPORTED_PROMPT,
+    EVENT_NEGATION_UNSUPPORTED_PROMPT,
     FILTER_EXAMPLES_PROMPT,
     FILTER_FIELDS_TAXONOMY_PROMPT,
     PRODUCT_DESCRIPTION_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
 )
 
+from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tools.replay import empty_result_diagnosis as diagnosis
+from ee.hogai.tools.replay.empty_result_diagnosis import EventSessionLinkage
+from ee.hogai.utils.feature_flags import has_replay_negative_event_filters_feature_flag
+from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import NodePath
+from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
 
+DIAGNOSIS_MAX_EXECUTION_TIME = 30
 
-class FilterSessionRecordingsToolArgs(BaseModel):
-    recordings_filters: MaxRecordingUniversalFilters = Field(
-        description=dedent(f"""
+
+def _recordings_filters_description(event_negation_prompt: str) -> str:
+    return dedent(f"""
         User's question converted into a recordings query.
 
         {PRODUCT_DESCRIPTION_PROMPT}
@@ -110,6 +136,10 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         ## Test Accounts
         - **filter_test_accounts**: true (recommended, exclude test accounts), false/null (include all)
 
+        ## Specific Recordings
+        - **session_ids**: array of session ids, to pin the result to exactly those recordings. Use it to show the sessions you are already talking about, for example the ones you just summarized.
+        - `$session_id` is not a session property, so never filter on it in `filter_group` — pass the ids in `session_ids` instead.
+
         # Operators by Data Type
         **String**: "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "is_set", "is_not_set"
         **Numeric**: "exact", "is_not", "gt", "gte", "lt", "lte", "is_set", "is_not_set"
@@ -124,6 +154,8 @@ class FilterSessionRecordingsToolArgs(BaseModel):
 
         {FILTER_EXAMPLES_PROMPT}
 
+        {event_negation_prompt}
+
         # Critical Reminders
 
         1. **Property discovery**: ALWAYS use read_taxonomy to discover ALL properties and events before creating filters - never assume they exist
@@ -136,6 +168,17 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         8. **Silence**: Do not output when performing taxonomy exploration, just use the tools
         9. **Recording properties are NOT events**: `keypress_count`, `click_count`, `console_error_count`, `mouse_activity_count`, `activity_score` always use `type: "recording"`. Events like `$keypress` or `$click` do not exist.
         """).strip()
+
+
+class FilterSessionRecordingsToolArgs(BaseModel):
+    recordings_filters: MaxRecordingUniversalFilters = Field(
+        description=_recordings_filters_description(EVENT_NEGATION_UNSUPPORTED_PROMPT)
+    )
+
+
+class FilterSessionRecordingsWithEventNegationToolArgs(BaseModel):
+    recordings_filters: MaxRecordingUniversalFilters = Field(
+        description=_recordings_filters_description(EVENT_NEGATION_SUPPORTED_PROMPT)
     )
 
 
@@ -156,12 +199,49 @@ class FilterSessionRecordingsTool(MaxTool):
         """).strip()
     context_prompt_template: str = "Current recordings filters are: {{{current_filters}}}.\nCurrent session ID being viewed: {{{current_session_id}}}."
 
+    _allow_event_negation: bool = PrivateAttr(default=False)
+
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        node_path: tuple[NodePath, ...] | None = None,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
+    ) -> Self:
+        # Event negation stays behind the same flag as the "Did not perform" option in the replay filters UI
+        allow_event_negation = await database_sync_to_async(has_replay_negative_event_filters_feature_flag)(team, user)
+        tool = cls(
+            team=team,
+            user=user,
+            node_path=node_path,
+            state=state,
+            config=config,
+            context_manager=context_manager,
+            args_schema=(
+                FilterSessionRecordingsWithEventNegationToolArgs
+                if allow_event_negation
+                else FilterSessionRecordingsToolArgs
+            ),
+        )
+        tool._allow_event_negation = allow_event_negation
+        return tool
+
     def get_required_resource_access(self):
         return [("session_recording", "viewer")]
 
     async def _arun_impl(
         self, recordings_filters: MaxRecordingUniversalFilters
     ) -> tuple[str, ToolMessagesArtifact | None]:
+        if not self._allow_event_negation and self._has_negated_event(recordings_filters):
+            raise MaxToolRetryableError(
+                "Excluding sessions by event is not available. Remove `negation` from every event filter, "
+                "and tell the user that this filter is not available."
+            )
+
         # Convert filters to recordings query and execute
         recordings_query = convert_filters_to_recordings_query(recordings_filters.model_dump(exclude_none=True))
 
@@ -176,17 +256,117 @@ class FilterSessionRecordingsTool(MaxTool):
             total_count = len(query_results.results)
             if total_count == 0:
                 content = "✅ Filtered session recordings. No recordings found matching these criteria."
+                content += await self._diagnose_empty_result(recordings_query)
             elif total_count == 1:
                 content = "✅ Filtered session recordings. Found 1 recording matching these criteria:\n\n"
-                content += self._format_recording_metadata(query_results.results[0])
+                content += as_untrusted_data("recordings", [self._format_recording_metadata(query_results.results[0])])
             else:
                 content = f"✅ Filtered session recordings. Found {total_count} recordings matching these criteria:\n\n"
                 # Include metadata for up to first 5 recordings
-                for i, recording in enumerate(query_results.results[:5]):
-                    content += f"{i + 1}. {self._format_recording_metadata(recording)}\n"
+                lines = [
+                    f"{i + 1}. {self._format_recording_metadata(recording)}"
+                    for i, recording in enumerate(query_results.results[:5])
+                ]
+                # Session ids, distinct ids and URLs come from the end user's SDK, so they are fenced as data.
+                content += as_untrusted_data("recordings", lines) + "\n"
                 if total_count > 5:
                     content += f"\n...and {total_count - 5} more recordings"
         return content, None
+
+    @staticmethod
+    def _has_negated_event(recordings_filters: MaxRecordingUniversalFilters) -> bool:
+        return any(
+            isinstance(value, MaxRecordingEventFilter) and value.negation
+            for group in recordings_filters.filter_group.values
+            for value in group.values
+        )
+
+    async def _diagnose_empty_result(self, recordings_query: RecordingsQuery) -> str:
+        try:
+            linkages = await database_sync_to_async(self._get_event_session_linkage, thread_sensitive=False)(
+                recordings_query
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.warning("failed_to_diagnose_empty_recordings_result", error=str(e))
+            return ""
+        if not linkages:
+            return ""
+
+        return diagnosis.describe(
+            diagnosis.diagnose(
+                linkages,
+                match_any=recordings_query.operand == FilterLogicalOperator.OR_,
+                recording_enabled=self._team.session_recording_opt_in,
+            )
+        )
+
+    def _get_event_session_linkage(self, recordings_query: RecordingsQuery) -> tuple[EventSessionLinkage, ...]:
+        """Count, per filtered event, how many events matched the filter and how many carry a session id.
+
+        Reuses the search's own entity predicates and event date bounds so the counts describe the
+        rows the search actually scanned. Actions and "any event" entries are skipped.
+        """
+        events_query = ReplayFiltersEventsSubQuery(team=self._team, query=recordings_query)
+        entities = [e for e in events_query.event_entities if isinstance(e, EventsNode) and e.event is not None]
+        if not entities:
+            return ()
+
+        predicates = events_query._event_predicates(entities, self._team)
+        has_session_id = ast.Call(name="notEmpty", args=[ast.Field(chain=["properties", "$session_id"])])
+        select: list[ast.Expr] = []
+        for predicate in predicates:
+            select.append(ast.Call(name="countIf", args=[predicate]))
+            select.append(ast.Call(name="countIf", args=[ast.And(exprs=[predicate, has_session_id])]))
+
+        where: list[ast.Expr] = [
+            ast.Or(exprs=predicates) if len(predicates) > 1 else predicates[0],
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq, left=ast.Field(chain=["timestamp"]), right=ast.Call(name="now", args=[])
+            ),
+        ]
+        if (date_from := events_query._events_date_from()) is not None:
+            where.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_from),
+                )
+            )
+        if recordings_query.date_to:
+            where.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=events_query.query_date_range.date_to() + timedelta(days=1)),
+                )
+            )
+        if recordings_query.filter_test_accounts:
+            where.append(property_to_expr(expand_test_account_filters(self._team), team=self._team))
+
+        with tags_context(
+            product=Product.MAX_AI,
+            feature=Feature.POSTHOG_AI,
+            team_id=self._team.pk,
+            org_id=self._team.organization_id,
+        ):
+            response = execute_hogql_query(
+                query_type="FilterSessionRecordingsEmptyResultDiagnosis",
+                query=ast.SelectQuery(
+                    select=select,
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    where=ast.And(exprs=where),
+                ),
+                team=self._team,
+                user=self._user,
+                settings=HogQLGlobalSettings(max_execution_time=DIAGNOSIS_MAX_EXECUTION_TIME),
+            )
+
+        row = response.results[0] if response.results else [0] * len(select)
+        return tuple(
+            EventSessionLinkage(event=entity.name or str(entity.event), total=row[2 * i], linked=row[2 * i + 1])
+            for i, entity in enumerate(entities)
+        )
 
     def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> SessionRecordingQueryResult:
         """Get recordings from DB with filters"""
@@ -203,9 +383,12 @@ class FilterSessionRecordingsTool(MaxTool):
 
     def _format_recording_metadata(self, recording: dict[str, Any]) -> str:
         """Format recording metadata for display."""
-        from datetime import datetime
-
         parts = []
+
+        # Follow-up tools take the session id, so it must reach the model's text, not only the frontend.
+        session_id = recording.get("session_id")
+        if session_id:
+            parts.append(f"session_id={session_id}")
 
         # Person/distinct_id
         distinct_id = recording.get("distinct_id", "Unknown")

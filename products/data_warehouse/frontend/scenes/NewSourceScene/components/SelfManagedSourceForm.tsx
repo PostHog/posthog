@@ -7,8 +7,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ManualLinkSourceType } from '~/types'
 
+import { storageProviderFromUrl } from '../../../shared/storageProvider'
 import { selfManagedSourceLogic } from '../selfManagedSourceLogic'
-import { sourceWizardLogic } from '../sourceWizardLogic'
 
 const ProviderMappings: Record<
     ManualLinkSourceType,
@@ -38,23 +38,26 @@ const ProviderMappings: Record<
         accessSecretLabel: 'Access secret',
     },
     azure: {
+        // The host names the storage account and the first path segment names the container. They
+        // are two different values, so the example has to keep them visibly distinct. Account names
+        // allow no hyphens, container names do.
         fileUrlPatternPlaceholder:
-            'https://your-storage-container.blob.core.windows.net/airbyte/stripe/invoices/*.parquet',
-        accessKeyPlaceholder: 'your-storage-container',
+            'eg: https://yourstorageaccount.blob.core.windows.net/your-container/stripe/invoices/*.parquet',
+        accessKeyPlaceholder: 'eg: yourstorageaccount',
         accessKeyLabel: 'Storage account name',
         accessSecretLabel: 'Account key',
     },
 }
 
 interface Props {
-    onUpdate?: () => void
+    onUpdate: () => void
 }
 
 export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
-    const { manualLinkingProvider } = useValues(sourceWizardLogic)
     const { table } = useValues(selfManagedSourceLogic)
 
-    const provider = manualLinkingProvider ?? 'aws'
+    // A saved table stores no provider: the backend reads it from the URL host, so the form does too.
+    const provider = storageProviderFromUrl(table?.url_pattern) ?? 'aws'
     const isCsvFormat = table?.format === 'CSV' || table?.format === 'CSVWithNames'
 
     return (
@@ -133,15 +136,14 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                                         { label: 'RFC 4180 double quotes', value: true },
                                         { label: 'Literal quotes', value: false },
                                     ]}
-                                    value={value ?? false}
+                                    value={value ?? true}
                                     onChange={onChange}
                                 />
                             )}
                         </LemonField>
                         <div className="mb-4 text-xs text-secondary">
                             Pick RFC 4180 if your CSV wraps values in double quotes (the usual way to keep commas inside
-                            a field). If import fails with a column count mismatch, switching to RFC 4180 usually fixes
-                            it.
+                            a field). If the file doesn't parse, the error says what to change.
                         </div>
                     </>
                 )}
@@ -176,6 +178,13 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                         />
                     )}
                 </LemonField>
+                {provider === 'azure' && (
+                    <div className="text-xs text-secondary">
+                        Find your storage account name and account key in the Azure portal, under the storage account's{' '}
+                        <strong>Security + networking → Access keys</strong>. The storage account name is the first part
+                        of the blob URL above, and the container is the segment right after it.
+                    </div>
+                )}
                 {provider === 'google-cloud' && (
                     <div className="text-xs text-secondary">
                         We use HMAC keys to access your Google Cloud Storage. Find more about generating them{' '}
@@ -185,13 +194,11 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                     </div>
                 )}
             </div>
-            {!!onUpdate && (
-                <div className="flex justify-end">
-                    <LemonButton type="primary" onClick={onUpdate}>
-                        Save
-                    </LemonButton>
-                </div>
-            )}
+            <div className="flex justify-end">
+                <LemonButton type="primary" onClick={onUpdate}>
+                    Save
+                </LemonButton>
+            </div>
         </Form>
     )
 }

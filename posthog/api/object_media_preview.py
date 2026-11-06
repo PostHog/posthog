@@ -1,10 +1,16 @@
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import SAFE_METHODS
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
+from posthog.models import ObjectMediaPreview, UploadedMedia
+from posthog.permissions import is_scout_sandbox_request
+from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
+
+from products.event_definitions.backend.models import EventDefinition
 
 
 class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
@@ -94,6 +100,11 @@ class ObjectMediaPreviewViewSet(
     serializer_class = ObjectMediaPreviewSerializer
     queryset = ObjectMediaPreview.objects.all()
 
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if request.method not in SAFE_METHODS:
+            refuse_scout_taxonomy_write(is_scout_sandbox_request(request))
+
     def safely_get_queryset(self, queryset):
         # Filter by event_definition if provided
         event_definition_id = self.request.query_params.get("event_definition")
@@ -101,10 +112,12 @@ class ObjectMediaPreviewViewSet(
             return (
                 queryset.filter(event_definition_id=event_definition_id)
                 .select_related("uploaded_media", "exported_asset", "event_definition")
-                .order_by("-updated_at")
+                .order_by("-updated_at", "-id")
             )
 
-        return queryset.select_related("uploaded_media", "exported_asset", "event_definition").order_by("-updated_at")
+        return queryset.select_related("uploaded_media", "exported_asset", "event_definition").order_by(
+            "-updated_at", "-id"
+        )
 
     @action(methods=["GET"], detail=False, url_path="preferred_for_event")
     def preferred_for_event(self, request, *args, **kwargs):
@@ -125,7 +138,7 @@ class ObjectMediaPreviewViewSet(
                 uploaded_media__isnull=False,
             )
             .select_related("uploaded_media", "event_definition")
-            .order_by("-updated_at")
+            .order_by("-updated_at", "-id")
             .first()
         )
 
@@ -141,7 +154,7 @@ class ObjectMediaPreviewViewSet(
                 exported_asset__isnull=False,
             )
             .select_related("exported_asset", "event_definition")
-            .order_by("-updated_at")
+            .order_by("-updated_at", "-id")
             .first()
         )
 

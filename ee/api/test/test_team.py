@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import FuzzyInt
 from unittest.mock import patch
 
@@ -14,8 +14,9 @@ from posthog.models.team import Team
 from posthog.models.team.team_caching import get_team_in_cache
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
 
 
 def team_enterprise_api_test_factory():
@@ -105,23 +106,6 @@ def team_enterprise_api_test_factory():
 
         # Updating projects
 
-        def test_can_update_and_retrieve_person_property_names_excluded_from_correlation(self):
-            response = self.client.patch(
-                f"/api/environments/@current/",
-                {"correlation_config": {"excluded_person_property_names": ["$os"]}},
-            )
-            self.assertEqual(response.status_code, HTTP_200_OK)
-
-            response = self.client.get(f"/api/environments/@current/")
-            self.assertEqual(response.status_code, HTTP_200_OK)
-
-            response_data = response.json()
-
-            self.assertLessEqual(
-                {"correlation_config": {"excluded_person_property_names": ["$os"]}}.items(),
-                response_data.items(),
-            )
-
         # Fetching projects
 
         def test_fetch_team_as_org_admin_works(self):
@@ -179,7 +163,7 @@ def team_enterprise_api_test_factory():
             self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
             self.assertEqual(self.not_found_response(), response_data)
 
-        @freeze_time("2022-02-08")
+        @time_machine.travel("2022-02-08", tick=False)
         def test_team_update_is_in_activity_log(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -325,6 +309,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore
                     "is_demo": False,
                     "timezone": "UTC",
                     "access_control": False,
+                    "tags": [],
                 }
             ],
         )
@@ -345,6 +330,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore
                     "is_demo": False,
                     "timezone": "UTC",
                     "access_control": False,
+                    "project_group": None,
                 }
             ],
         )

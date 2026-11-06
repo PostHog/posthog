@@ -11,6 +11,7 @@ import { LemonButton, LemonCheckbox, ProfilePicture, SpinnerOverlay, lemonToast 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -23,7 +24,6 @@ import { adminLoginAs } from '~/layout/navigation/ImpersonationNotice/adminLogin
 import { ImpersonationReasonModal } from '~/layout/navigation/ImpersonationNotice/ImpersonationReasonModal'
 import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
 
-import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { supportLogic } from '../Support/supportLogic'
 
 export interface NotFoundProps {
@@ -34,9 +34,10 @@ export interface NotFoundProps {
         urlId?: string
     }
     className?: string
+    style?: React.CSSProperties
 }
 
-export function NotFound({ object, caption, meta, className }: NotFoundProps): JSX.Element {
+export function NotFound({ object, caption, meta, className, style }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -51,6 +52,7 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
     return (
         <div
             className={cn('NotFoundComponent', className)}
+            style={style}
             data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}
         >
             {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}

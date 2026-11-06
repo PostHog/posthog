@@ -10,7 +10,12 @@ import {
     createFlushBatchStoresStep,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
-import { BatchingPipeline, BeforeBatchInput, FeedResult } from '~/ingestion/framework/batching-pipeline'
+import {
+    BatchingContext,
+    BatchingPipeline,
+    BeforeBatchInput,
+    FeedResult,
+} from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
@@ -68,7 +73,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
  *   model. Creates multiple in-flight batches WITHOUT concurrent next() calls,
  *   isolating pure ordering semantics deterministically.
  * - Concurrent drivers: N "handlers" each doing feed → drain-until-null →
- *   waitForAll (a copy of ingestion-api-server's handleIngestRequest), guarded
+ *   waitForAll (a copy of the ingestion API server's stream driver), guarded
  *   by a Semaphore(concurrentBatches) playing the Rust consumer's per-worker
  *   semaphore. This is the INGESTION_WORKER_CONCURRENT_BATCHES > 1 rollout model.
  *
@@ -277,7 +282,7 @@ class Harness {
     public scheduler = new PromiseScheduler()
     /** Accepted batches in batchId order: which events went into which batch. */
     public submissions: { batchId: number; specs: EventSpec[] }[] = []
-    public pipeline: BatchingPipeline<In, ProcessedEvent, Ctx, StoreBatchContext, Ctx & { messageId: number }, never>
+    public pipeline: BatchingPipeline<In, ProcessedEvent, Ctx, StoreBatchContext, Ctx & BatchingContext, never>
 
     private gates = new Map<string, Deferred>()
     private nextOffset = 0
@@ -406,7 +411,7 @@ class Harness {
             const message = this.makeMessage(spec)
             return createOkContext<In, Ctx>({ message }, { message })
         })
-        return this.pipeline.feed(batch)
+        return this.pipeline.feed(batch, {})
     }
 
     /** Drain the pipeline like the consumer/API server: next() until null, scheduling side effects. */
@@ -420,7 +425,7 @@ class Harness {
         }
     }
 
-    /** Mirrors ingestion-api-server's handleIngestRequest: feed a batch, then drain. */
+    /** Mirrors the ingestion API server's stream driver: feed a batch, then drain. */
     async run(events: EventSpec[]): Promise<void> {
         const feedResult = await this.feed(events)
         if (!feedResult.ok) {

@@ -4,12 +4,13 @@ import { useMemo } from 'react'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { groupLogic } from 'scenes/groups/groupLogic'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, CustomerProfileScope, Group, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { groupLogic } from 'products/groups/frontend/logics/groupLogic'
 
 import { customerProfileLogic } from '../customerProfileLogic'
 import { CustomerProfileMenu } from './CustomerProfileMenu'

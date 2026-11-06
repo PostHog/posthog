@@ -1,5 +1,7 @@
 from rest_framework import permissions
 
+from products.access_control.backend.models.role import RoleMembership
+
 
 class CanApprove(permissions.BasePermission):
     """
@@ -41,17 +43,16 @@ class CanApprove(permissions.BasePermission):
         # Check role membership
         approver_roles = policy_snapshot.get("roles", [])
         if approver_roles:
-            try:
-                from ee.models.rbac.role import RoleMembership
-            except ImportError:
-                return False
-
             user_roles = {
                 str(rid)
-                for rid in RoleMembership.objects.filter(
-                    user=user,
-                    role__organization=change_request.organization,
-                ).values_list("role_id", flat=True)
+                for rid in (
+                    RoleMembership.objects.filter(
+                        user=user,
+                        role__organization=change_request.organization,
+                    )
+                    .valid_for_authorization()
+                    .values_list("role_id", flat=True)
+                )
             }
 
             if user_roles & {str(r) for r in approver_roles}:

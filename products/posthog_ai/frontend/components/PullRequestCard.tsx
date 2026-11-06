@@ -3,6 +3,9 @@ import { memo } from 'react'
 import { IconCheckCircle, IconExternal, IconPullRequest } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { QuillPullRequestRow } from './quill/QuillPullRequestRow'
+import { useQuillThread } from './quill/quillThreadContext'
+
 /**
  * Post-turn "Pull request opened" card for a sandbox coding run — the web port of PostHog Desktop's
  * `GitActionResult`, adapted to LemonUI. Plain props, `React.memo`'d — `prUrl` is required, so the
@@ -17,6 +20,9 @@ export const PullRequestCard = memo(function PullRequestCard({
     prUrl: string
     branch?: string
 }): JSX.Element {
+    if (useQuillThread()) {
+        return <QuillPullRequestRow prUrl={prUrl} branch={branch} />
+    }
     return (
         <div
             className="flex flex-col gap-2 rounded-lg border border-success bg-success-highlight p-3"

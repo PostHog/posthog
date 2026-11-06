@@ -1,13 +1,21 @@
 import './SessionRecordingPlayer.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ObservationsDock } from 'products/replay_vision/frontend/components/ObservationsDock'
+import { SessionRecordingSidebarStacking } from '~/types'
 
+import { SummarizeRecordingBar } from 'products/replay_vision/frontend/components/SummarizeRecordingBar'
+import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
+
+import { DebugReplayButton } from './player-meta/DebugReplayButton'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { PurePlayer } from './PurePlayer'
@@ -16,6 +24,9 @@ import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
+import { useLinkedIssuesAvailable } from './sidebar/useLinkedIssuesAvailable'
+import { debugTabKeys } from './watch/DebugTabBar'
+import { WatchPanel } from './watch/WatchPanel'
 
 export { createPlaybackSpeedKey } from './PurePlayer'
 
@@ -46,6 +57,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         onRecordingDeleted,
         playNextRecording,
         skipToFirstMatchingEvent,
+        exposureSkipExperimentId,
+        watchLayout,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -67,6 +80,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         onRecordingDeleted,
         playNextRecording,
         skipToFirstMatchingEvent,
+        exposureSkipExperimentId,
+        watchLayout,
     }
 
     return (
@@ -74,7 +89,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             <SessionRecordingPlayerInternal
                 noMeta={noMeta}
                 noBorder={noBorder}
-                noDock={noDock}
                 withSidebar={withSidebar}
                 playerRef={playerRef}
             />
@@ -85,22 +99,56 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 function SessionRecordingPlayerInternal({
     noMeta,
     noBorder,
-    noDock,
     withSidebar,
     playerRef,
 }: {
     noMeta: boolean
     noBorder: boolean
-    noDock: boolean
     withSidebar: boolean
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
-    const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const showVisionDock =
-        !noMeta &&
-        !noDock &&
-        (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
+    const { isVerticallyStacked, sidebarOpen, debugMode, replayLayout, watchDebugDock, watchPanelCollapsed } =
+        useValues(playerSettingsLogic)
+    const { setWatchDebugDock } = useActions(playerSettingsLogic)
+    const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
+    const linkedIssuesAvailable = useLinkedIssuesAvailable()
+    const showDebugReplayButton = featureFlags[FEATURE_FLAGS.REPLAY_DEBUG_WITH_AI] || user?.is_impersonated
+    // The player modal covers the side panel, so the conversation would open out of sight.
+    const debugReplayAction = showDebugReplayButton && logicProps.playerKey !== 'modal' ? <DebugReplayButton /> : null
+
+    if (playerUsesWatchLayout(replayLayout, logicProps)) {
+        const rightDock = debugMode && watchDebugDock === 'right' && !isFullScreen
+        return (
+            <div
+                ref={playerRef}
+                className={clsx('SessionRecordingPlayerWrapper SessionRecordingPlayerWrapper--watch', {
+                    'SessionRecordingPlayerWrapper--watch-right-dock': rightDock,
+                    'SessionRecordingPlayerWrapper--watch-panel-collapsed': watchPanelCollapsed,
+                })}
+            >
+                <div className="SessionRecordingPlayerWrapper__column">
+                    <div
+                        className={clsx(
+                            'SessionRecordingPlayerWrapper__player',
+                            isFullScreen && 'SessionRecordingPlayerWrapper__player--fullscreen'
+                        )}
+                    >
+                        <PurePlayer noMeta={noMeta} noBorder={noBorder} />
+                    </div>
+                    {!isFullScreen && <WatchPanel />}
+                </div>
+                {rightDock && (
+                    <PlayerSidebar
+                        tabs={debugTabKeys(linkedIssuesAvailable)}
+                        stacking={SessionRecordingSidebarStacking.Horizontal}
+                        onToggleStacking={() => setWatchDebugDock('bottom')}
+                    />
+                )}
+            </div>
+        )
+    }
 
     return (
         <div
@@ -109,9 +157,9 @@ function SessionRecordingPlayerInternal({
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
             })}
         >
-            <div className="flex flex-col flex-1 min-w-0 min-h-0">
+            <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
-                {showVisionDock && <ObservationsDock />}
+                {visionSurfaceShown(logicProps) && <SummarizeRecordingBar extraActions={debugReplayAction} />}
             </div>
             {withSidebar && <PlayerSidebar />}
         </div>

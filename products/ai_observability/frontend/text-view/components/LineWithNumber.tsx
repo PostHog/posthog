@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
-import { commentsLogic } from 'scenes/comments/commentsLogic'
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'

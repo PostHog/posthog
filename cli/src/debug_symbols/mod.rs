@@ -66,6 +66,7 @@ impl DebugSymbolFile {
         self,
         release_id: Option<String>,
         include_source: bool,
+        source_root: Option<&Path>,
     ) -> Result<SymbolSetUpload> {
         use std::io::{Cursor, Write};
 
@@ -81,11 +82,11 @@ impl DebugSymbolFile {
             if include_source {
                 match source_bundle::extract_source_paths_from_dwarf_bytes(&self.data) {
                     Ok(all_paths) => {
-                        let filtered = filter_native_source_paths(&all_paths);
-                        info!(
-                            "Found {} source paths in DWARF ({} after filtering)",
-                            all_paths.len(),
-                            filtered.len()
+                        let filtered = source_bundle::filter_source_paths_for_upload(
+                            &all_paths,
+                            source_root,
+                            &self.path,
+                            is_native_source_path,
                         );
                         if !filtered.is_empty() {
                             match source_bundle::collect_source_files(&filtered) {
@@ -121,32 +122,27 @@ impl DebugSymbolFile {
             chunk_id: self.debug_id,
             release_id,
             data: wrapped,
+            content_hash: None,
         })
     }
 }
 
-/// Filter DWARF source paths for native (Rust/C/C++) builds: on top of the
-/// shared system-path filters, drop registry/toolchain sources that aren't
-/// part of the user's project tree. Go toolchain sources are already trimmed
-/// inside the shared extraction (see `filter_go_toolchain_sources`).
-fn filter_native_source_paths(paths: &[String]) -> Vec<&str> {
-    source_bundle::filter_source_paths(paths)
-        .into_iter()
-        .filter(|path| {
-            const EXCLUDED: &[&str] = &[
-                "/.cargo/registry/",
-                "/.cargo/git/",
-                "/rustc/",
-                "/.rustup/toolchains/",
-                "/vendor/",
-            ];
-            if EXCLUDED.iter().any(|sub| path.contains(sub)) {
-                tracing::debug!("Filtered out (native toolchain): {}", path);
-                return false;
-            }
-            true
-        })
-        .collect()
+/// Drop native registry/toolchain sources outside the user's project tree.
+/// Go toolchain sources are already trimmed inside the shared extraction
+/// (see `filter_go_toolchain_sources`).
+fn is_native_source_path(path: &str) -> bool {
+    const EXCLUDED: &[&str] = &[
+        "/.cargo/registry/",
+        "/.cargo/git/",
+        "/rustc/",
+        "/.rustup/toolchains/",
+        "/vendor/",
+    ];
+    if EXCLUDED.iter().any(|sub| path.contains(sub)) {
+        tracing::debug!("Filtered out (native toolchain): {}", path);
+        return false;
+    }
+    true
 }
 
 /// Walk `directory` and classify everything that looks like native debug
@@ -439,10 +435,14 @@ pub fn report_problems(report: &DiscoveryReport, directory: &Path) -> Result<()>
 ///
 /// Uploads come back with no release id; the caller stamps one (if any) after it
 /// knows there is something to upload, so a fully-skipped run leaves no release.
-pub fn package_dsym_bundles(bundles: &[PathBuf], include_source: bool) -> Vec<SymbolSetUpload> {
+pub fn package_dsym_bundles(
+    bundles: &[PathBuf],
+    include_source: bool,
+    source_root: Option<&Path>,
+) -> Vec<SymbolSetUpload> {
     let mut uploads = Vec::new();
     for bundle in bundles {
-        match DsymFile::new(bundle, include_source) {
+        match DsymFile::new(bundle, include_source, source_root) {
             Ok(dsym_file) => {
                 info!(
                     "Processing dSYM {} (UUIDs: {})",
@@ -460,30 +460,6 @@ pub fn package_dsym_bundles(bundles: &[PathBuf], include_source: bool) -> Vec<Sy
         }
     }
     uploads
-}
-
-/// Coalesce uploads that share a chunk_id, keeping the first occurrence.
-///
-/// ELF chunk_ids are lowercase (derived by `symbolic`) and Mach-O chunk_ids —
-/// executables and dSYMs alike — are uppercase (to match what the SDKs emit),
-/// so the two formats never collide; this merges the same Mach-O UUID
-/// appearing both as a binary and in a dSYM bundle, or a dSYM UUID appearing
-/// in more than one bundle. Casing is preserved exactly and must never be
-/// normalized: the SDK matches chunk_ids case-sensitively, per format.
-pub fn dedup_uploads_by_chunk_id(uploads: Vec<SymbolSetUpload>) -> Vec<SymbolSetUpload> {
-    let mut seen = std::collections::HashSet::new();
-    let mut deduped = Vec::with_capacity(uploads.len());
-    for upload in uploads {
-        if seen.insert(upload.chunk_id.clone()) {
-            deduped.push(upload);
-        } else {
-            warn!(
-                "Duplicate chunk id {} across symbol sets; keeping the first",
-                upload.chunk_id
-            );
-        }
-    }
-    deduped
 }
 
 /// Extract the debug id of an ELF file, e.g. for testing parity with the SDK.

@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { SignalReport } from '../../types'
 import { deriveHeadline, parsePrUrlParts } from '../../utils/reportPresentation'
+import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 import { resolveRunVariant, RunStatusIndicator, type RunVariant } from './runStatusVariant'
 
@@ -48,14 +49,14 @@ function prRef(prUrl: string | null | undefined): string | null {
 
 export function AgentRunCard({ report }: { report: SignalReport }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
-    const pr = prRef(report.implementation_pr_url)
+    const pr = prRef(primaryReportPullRequest(report).url)
     const variant = resolveRunVariant(report.status)
     const timestampSource = pickTimestamp(report, variant)
     const headline = deriveHeadline(report.summary)
 
     return (
         <Link
-            to={urls.inboxReport('runs', report.id)}
+            to={urls.inboxReport('reports', report.id)}
             className="group flex w-full items-start gap-3 rounded border border-primary bg-surface-primary px-4 py-3.5 text-left text-inherit no-underline transition-colors duration-150 hover:border-primary hover:bg-surface-secondary"
         >
             <RunStatusIndicator variant={variant} className="mt-0.5" />

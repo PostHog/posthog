@@ -9,8 +9,18 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
+
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import MetricQuality, PRLifecycleEventKind, PRState
+from products.engineering_analytics.backend.facade.contracts import (
+    CIStatusRollup,
+    MetricQuality,
+    PRLifecycleEventKind,
+    PRState,
+    PullRequestList,
+)
+from products.engineering_analytics.backend.logic.queries import pull_request_list
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
@@ -49,7 +59,7 @@ class TestPRLifecycleMapping(BaseTest):
     def test_assembles_ordered_events_and_marks_partial(self) -> None:
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
         runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp([(*row, "github_actions") for row in runs])]):
             lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
@@ -78,7 +88,7 @@ class TestPRLifecycleMapping(BaseTest):
             # both timestamps null -> both events dropped
             (2002, "Deploy", "completed", "success", None, None),
         ]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp([(*row, "github_actions") for row in runs])]):
             lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
@@ -127,7 +137,10 @@ class TestPRLifecycleTransitionsMapping(BaseTest):
             ("ready_for_review", _dt("2026-01-11T08:00:00"), "bob"),
         ]
         runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(transitions), _resp(runs)]):
+        with mock.patch(
+            _RUN_QUERY,
+            side_effect=[_resp([header]), _resp(transitions), _resp([(*row, "github_actions") for row in runs])],
+        ):
             lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
@@ -171,19 +184,18 @@ class TestPullRequestEndpointMapping(BaseTest):
             None,
             None,
             ["bug", "p1"],
-            3,
+            4,
             2,
             1,
             0,
+            1,
             ["E2E CI"],
-            5,
-            2,
         )
         # The query returns newest-first (its per-PR LIMIT BY keeps the most recent pushes); the mapper
         # reverses to the oldest-first contract, so the mock is ordered newest-first to match.
         push_rows = [
-            ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1),
-            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0),
+            ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1, 5, 2),
+            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0, 5, 2),
         ]
         with mock.patch(_RUN_QUERY, side_effect=_pr_list_run([row], push_rows)):
             result = api.list_pull_requests(team=self.team, date_from="-30d")
@@ -198,7 +210,13 @@ class TestPullRequestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert item.ready_to_merge_seconds is None
-        assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+        assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending, item.ci.inconclusive) == (
+            4,
+            2,
+            1,
+            0,
+            1,
+        )
         assert item.ci.failing_workflows == ["E2E CI"]
         assert (item.pushes, item.rerun_cycles) == (5, 2)
         assert item.estimated_cost_usd is None
@@ -229,9 +247,8 @@ class TestPullRequestEndpointMapping(BaseTest):
             0,
             0,
             0,
+            0,
             list[str](),
-            0,
-            0,
         )
         with (
             mock.patch(f"{_PR_LIST}._LIMIT", 2),
@@ -242,6 +259,20 @@ class TestPullRequestEndpointMapping(BaseTest):
         assert result.truncated is True
         assert result.limit == 2
         assert len(result.items) == 2
+
+    @parameterized.expand(
+        [
+            ("limit_zero", {"limit": 0}),
+            ("limit_over_cap", {"limit": 1001}),
+            ("negative_offset", {"offset": -1}),
+            ("unknown_state", {"state": "draft"}),
+            ("date_to_before_date_from", {"date_from": "-7d", "date_to": "-14d"}),
+        ]
+    )
+    def test_pull_request_list_rejects_invalid_paging(self, _name: str, kwargs: dict[str, Any]) -> None:
+        with mock.patch(_RUN_QUERY) as run, self.assertRaises(ValueError):
+            api.list_pull_requests(team=self.team, **kwargs)
+        run.assert_not_called()
 
 
 class TestResolveBranchMapping(BaseTest):
@@ -275,13 +306,23 @@ class TestResolveBranchMapping(BaseTest):
 class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
     """PR-scoped end-to-end aggregates over the shared seeded warehouse tables."""
 
-    def test_ci_cards_counts(self) -> None:
+    def test_ci_cards_and_attention_list_agree(self) -> None:
         self._seed()
         cards = api.get_ci_cards(team=self.team)
         assert cards.open_prs == 5  # 10, 11, 12, 13, 16
         assert cards.repos == 1  # all PostHog/posthog
         assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 and 16 bots)
         assert cards.failing_ci == 1  # only 10 has a failing latest run
+
+        attention = api.list_attention_pull_requests(team=self.team)
+        assert [item.number for item in attention.items] == [10, 11]  # failing first, then stuck
+        assert attention.total == 2
+        assert attention.items[0].push_history  # enriched like the full list
+
+        with mock.patch.object(pull_request_list, "_ATTENTION_LIMIT", 1):
+            capped = api.list_attention_pull_requests(team=self.team)
+        assert [item.number for item in capped.items] == [10]
+        assert capped.total == 2  # counts past the cap
 
     def test_pull_request_list_window_and_rollup(self) -> None:
         self._seed()
@@ -298,18 +339,25 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # its head SHA is a rebase the queue made, so it must not inflate the author's push count.
         assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
         assert {sample.head_sha for sample in by_number[10].push_history} == {"sha10", "sha10b"}
+        with mock.patch.object(pull_request_list, "_PUSH_HISTORY_LIMIT", 1):
+            capped = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 10)
+        assert [sample.head_sha for sample in capped.push_history] == ["sha10"]
+        assert (capped.pushes, capped.rerun_cycles) == (2, 1)  # counts include the push the cap dropped
         assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
         assert by_number[12].pushes == 0  # no runs attributed to this PR
         assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure
         # No issue-events source seeded: the column degrades to NULL (never 0) and the query still runs.
         assert by_number[14].merged_at is not None and by_number[14].ready_to_merge_seconds is None
 
-    def test_pull_request_list_includes_cost_when_jobs_synced(self) -> None:
+    def test_pull_request_list_includes_cost_and_reuses_it(self) -> None:
         # With the jobs source synced, the list carries per-PR cost + billable minutes.
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
-            [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70")],
+            [
+                _pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70"),
+                _pr_row(71, "bob", "open", 0, _ago(1), head_sha="sha71"),
+            ],
         )
         self._create_table(
             "github_workflow_runs",
@@ -321,55 +369,66 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             WORKFLOW_JOBS_COLUMNS,
             [_job_row(94000, 9400, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
         )
-        item = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 70)
-        assert item.estimated_cost_usd is not None and item.estimated_cost_usd > 0
-        assert item.billable_minutes is not None and item.billable_minutes > 0
+
+        def list_counting_cost_queries() -> tuple[PullRequestList, int]:
+            with mock.patch.object(CuratedGitHubSource, "run", autospec=True, wraps=CuratedGitHubSource.run) as run:
+                result = api.list_pull_requests(team=self.team)
+            queries = [
+                call for call in run.call_args_list if call.kwargs.get("query_type") == "engineering_analytics.pr_costs"
+            ]
+            return result, len(queries)
+
+        result, cost_queries = list_counting_cost_queries()
+        assert cost_queries == 1
+        item = next(i for i in result.items if i.number == 70)
+        # One 120s job on a 4-vCPU tier: 2 min x $0.004 x 2.
+        assert item.estimated_cost_usd == pytest.approx(0.016)
+        assert item.billable_minutes == pytest.approx(2.0)
+
+        repeat, cost_queries = list_counting_cost_queries()
+        assert cost_queries == 0
+        assert next(i for i in repeat.items if i.number == 70).estimated_cost_usd == pytest.approx(0.016)
+        with mock.patch.object(Database, "is_table_access_denied", return_value=True):
+            _, cost_queries = list_counting_cost_queries()
+        assert cost_queries == 1
 
     def test_ready_to_merge_semantics(self) -> None:
         # PR 20: only the LAST ready counts. PR 21: no transitions, whole life inside the window ->
         # open-to-merge fallback. PR 22: created pre-window -> NULL. PR 23: re-drafted -> NULL.
         # PR 24: same-second flip, the event id breaks the tie -> the higher-id ready wins.
         # PR 25: merged past the window end (events not synced yet) -> NULL, never a wrong number.
-        # One clock base for every row: _ago re-reads the clock per call, so the seconds-exact
-        # dateDiff assertions below would drift by 1 whenever table-creation I/O straddles a
-        # second boundary between the PR seed and the events seed.
-        base = timezone.now()
-
-        def ago(days: int) -> str:
-            return (base - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
             [
-                _pr_row(20, "alice", "closed", 0, ago(10), merged_at=ago(1), head_sha="sha20"),
-                _pr_row(21, "alice", "closed", 0, ago(5), merged_at=ago(1), head_sha="sha21"),
-                _pr_row(22, "alice", "closed", 0, ago(40), merged_at=ago(1), head_sha="sha22"),
-                _pr_row(23, "alice", "open", 1, ago(6), head_sha="sha23"),
-                _pr_row(24, "alice", "closed", 0, ago(10), merged_at=ago(1), head_sha="sha24"),
-                _pr_row(25, "alice", "closed", 0, ago(5), merged_at=ago(0), head_sha="sha25"),
+                _pr_row(20, "alice", "closed", 0, _ago(10), merged_at=_ago(1), head_sha="sha20"),
+                _pr_row(21, "alice", "closed", 0, _ago(5), merged_at=_ago(1), head_sha="sha21"),
+                _pr_row(22, "alice", "closed", 0, _ago(40), merged_at=_ago(1), head_sha="sha22"),
+                _pr_row(23, "alice", "open", 1, _ago(6), head_sha="sha23"),
+                _pr_row(24, "alice", "closed", 0, _ago(10), merged_at=_ago(1), head_sha="sha24"),
+                _pr_row(25, "alice", "closed", 0, _ago(5), merged_at=_ago(0), head_sha="sha25"),
             ],
         )
         self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
-            [_run_row(9500, "CI", "sha20", "completed", "success", ago(1), ago(1), pr_number=20)],
+            [_run_row(9500, "CI", "sha20", "completed", "success", _ago(1), _ago(1), pr_number=20)],
         )
         self._create_table(
             "github_issue_events",
             ISSUE_EVENTS_COLUMNS,
             [
                 # The window must come from the WHOLE table, not the filtered transitions view.
-                _issue_event_row(5000, "labeled", 20, ago(20)),
-                _issue_event_row(5001, "ready_for_review", 20, ago(9)),
-                _issue_event_row(5002, "convert_to_draft", 20, ago(8)),
-                _issue_event_row(5003, "ready_for_review", 20, ago(2)),
-                _issue_event_row(5004, "ready_for_review", 23, ago(4)),
-                _issue_event_row(5005, "convert_to_draft", 23, ago(3)),
-                _issue_event_row(5006, "convert_to_draft", 24, ago(2)),
-                _issue_event_row(5007, "ready_for_review", 24, ago(2)),
+                _issue_event_row(5000, "labeled", 20, _ago(20)),
+                _issue_event_row(5001, "ready_for_review", 20, _ago(9)),
+                _issue_event_row(5002, "convert_to_draft", 20, _ago(8)),
+                _issue_event_row(5003, "ready_for_review", 20, _ago(2)),
+                _issue_event_row(5004, "ready_for_review", 23, _ago(4)),
+                _issue_event_row(5005, "convert_to_draft", 23, _ago(3)),
+                _issue_event_row(5006, "convert_to_draft", 24, _ago(2)),
+                _issue_event_row(5007, "ready_for_review", 24, _ago(2)),
                 # PR 21's merge event: proves the window covers its merge, arming the fallback.
-                _issue_event_row(5008, "merged", 21, ago(1)),
+                _issue_event_row(5008, "merged", 21, _ago(1)),
             ],
         )
         by_number = {item.number: item for item in api.list_pull_requests(team=self.team).items}
@@ -458,6 +517,42 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert {i.number for i in api.list_pull_requests(team=self.team, author="alice").items} == {81}
         assert {i.number for i in api.list_pull_requests(team=self.team, author="bob").items} == {82}
 
+    def test_pull_request_list_pages_merged_prs_by_merged_at(self) -> None:
+        # PR 21 was opened long ago but merged recently: it must lead the merged page, not sink below
+        # the open backlog. 22 and 23 merge in the same second, so only the number tie-breaker keeps
+        # them from swapping across pages.
+        tied_merge = _ago(3)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(20, "alice", "open", 0, _ago(1), head_sha="sha20"),
+                _pr_row(21, "alice", "closed", 0, _ago(40), merged_at=_ago(2), head_sha="sha21"),
+                _pr_row(22, "bob", "closed", 0, _ago(5), merged_at=tied_merge, head_sha="sha22"),
+                _pr_row(23, "bob", "closed", 0, _ago(4), merged_at=tied_merge, head_sha="sha23"),
+                _pr_row(24, "carol", "closed", 0, _ago(5), closed_at=_ago(2), head_sha="sha24"),
+                _pr_row(25, "carol", "closed", 0, _ago(30), merged_at=_ago(20), head_sha="sha25"),
+                _pr_row(26, "carol", "closed", 0, _ago(1), merged_at=_ago(0), head_sha="sha26"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(2100, "CI", "sha21", "completed", "success", _ago(2), _ago(2), pr_number=21)],
+        )
+        first = api.list_pull_requests(
+            team=self.team, state="merged", date_from="-14d", date_to=_ago(1), limit=2, offset=0
+        )
+        second = api.list_pull_requests(
+            team=self.team, state="merged", date_from="-14d", date_to=_ago(1), limit=2, offset=2
+        )
+
+        assert ([i.number for i in first.items], first.truncated) == ([21, 23], True)
+        assert ([i.number for i in second.items], second.truncated) == ([22], False)
+        assert first.items[0].ci.passing == 1
+        closed = api.list_pull_requests(team=self.team, state="closed", date_from="-14d")
+        assert [i.number for i in closed.items] == [24]
+
     def test_resolve_branch_orders_open_first(self) -> None:
         # The branch path matches the PR head ref (head.ref); open PRs come before merged/closed ones,
         # and PRs on other branches are excluded.
@@ -512,11 +607,43 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
                 _run_row(9300, "CI", "shaA", "completed", "success", _ago(2), _ago(2), pr_number=70),
                 _run_row(9301, "CI", "shaB", "completed", "failure", _ago(1), _ago(1), pr_number=70),
                 _run_row(9302, "CI", "shaC", "completed", "success", _ago(1), _ago(1), pr_number=71),
+                # The queue's gate attempt is credited to PR 70 through its branch and flagged, so the
+                # detail page can keep it as CI without counting its rebase SHA as a push.
+                _run_row(
+                    9303,
+                    "CI",
+                    "shaQ",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=9001,
+                    head_branch="trunk-merge/pr-70/7c1c3f4e-2d0a-4b7e-9e1f-0a5b6c7d8e9f",
+                    actor="trunk-io[bot]",
+                ),
             ],
         )
         runs = api.list_pr_runs(team=self.team, pr_number=70, repo="PostHog/posthog")
-        assert {r.id for r in runs} == {9300, 9301}  # only PR 70's runs
-        assert {r.head_sha for r in runs} == {"shaA", "shaB"}  # across two commits
+        assert {r.id: r.is_merge_queue for r in runs} == {9300: False, 9301: False, 9303: True}
+        assert {r.head_sha for r in runs} == {"shaA", "shaB", "shaQ"}  # across every commit
+
+    def test_pull_request_list_rollup_partitions_runs_without_a_verdict(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9400, "CI", "sha80", "completed", "cancelled", _ago(1), _ago(1), pr_number=80),
+                _run_row(9401, "Lint", "sha80", "completed", "skipped", _ago(1), _ago(1), pr_number=80),
+                _run_row(9402, "Deploy", "sha80", "completed", None, _ago(1), _ago(1), pr_number=80),
+            ],
+        )
+        [item] = api.list_pull_requests(team=self.team).items
+        assert item.ci == CIStatusRollup(runs=3, passing=0, failing=0, pending=0, inconclusive=3)
 
     def test_pr_cost_aggregates_billable_jobs_across_runs(self) -> None:
         # PR cost sums the jobs of all the PR's runs (across commits), counting only billable Linux
@@ -570,7 +697,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
     def test_pull_request_list_rollup_is_repo_qualified(self) -> None:
         # PR numbers restart per repo. Two repos share PR #10; the per-PR push / re-run rollup must
         # attribute each repo's runs to its own PR, not merge them on number alone. (The head-SHA CI
-        # rollup is already repo-safe; this proves the runs_by_pr join is too.) A resolved source is
+        # rollup is already repo-safe; this proves the push-activity rollup is too.) A resolved source is
         # one repo today, so this is the defensive guarantee, exercised by seeding both into one.
         self._create_table(
             "github_pull_requests",
@@ -619,7 +746,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
 class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
     """LLM token spend attributed to a PR by git branch, over a real warehouse PR row plus
-    $ai_generation events. Skips when object storage is unreachable."""
+    $ai_generation events."""
 
     def _generation(
         self,
@@ -629,6 +756,8 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         cost: float,
         input_tokens: int = 0,
         output_tokens: int = 0,
+        cache_read_tokens: int | None = 0,
+        cache_creation_tokens: int | None = 0,
         repo: str | None = None,
         session: str | None = None,
         trace: str | None = None,
@@ -641,6 +770,10 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
             "$ai_input_tokens": input_tokens,
             "$ai_output_tokens": output_tokens,
         }
+        if cache_read_tokens is not None:
+            props["$ai_cache_read_input_tokens"] = cache_read_tokens
+        if cache_creation_tokens is not None:
+            props["$ai_cache_creation_input_tokens"] = cache_creation_tokens
         if branch is not None:
             props["$ai_git_branch"] = branch
         if repo is not None:
@@ -688,9 +821,33 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         self._seed_pr(80, branch)
         # Matches: on-branch, in-window; one with no repo stamped, one with the repo stamped in clone-URL
         # casing (the repo compare is case-insensitive, like GitHub repo names).
-        self._generation(branch=branch, days_ago=4, cost=1.0, input_tokens=100, output_tokens=50)
         self._generation(
-            branch=branch, days_ago=10, cost=2.0, input_tokens=200, output_tokens=80, repo="posthog/POSTHOG"
+            branch=branch,
+            days_ago=4,
+            cost=1.0,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_tokens=5000,
+            cache_creation_tokens=700,
+        )
+        self._generation(
+            branch=branch,
+            days_ago=10,
+            cost=2.0,
+            input_tokens=200,
+            output_tokens=80,
+            cache_read_tokens=3000,
+            cache_creation_tokens=2000,
+            repo="posthog/POSTHOG",
+        )
+        # An agent that reports no cache usage omits both cache properties; it still sets the peak.
+        self._generation(
+            branch=branch,
+            days_ago=3,
+            cost=4.0,
+            input_tokens=9000,
+            cache_read_tokens=None,
+            cache_creation_tokens=None,
         )
         # Excluded: wrong repo, wrong branch, before the lead window, after merge, wrong event type.
         self._generation(branch=branch, days_ago=4, cost=99.0, repo="other/repo")
@@ -702,10 +859,130 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
 
         cost = api.get_pr_cost(team=self.team, pr_number=80, repo="PostHog/posthog")
         assert cost.llm_spend is not None
-        assert cost.llm_spend.generations == 2
-        assert cost.llm_spend.cost_usd == pytest.approx(3.0)
-        assert cost.llm_spend.input_tokens == 300
+        assert cost.llm_spend.generations == 3
+        assert cost.llm_spend.cost_usd == pytest.approx(7.0)
+        assert cost.llm_spend.input_tokens == 9300
         assert cost.llm_spend.output_tokens == 130
+        assert cost.llm_spend.cache_read_input_tokens == 8000
+        assert cost.llm_spend.cache_creation_input_tokens == 2700
+        assert cost.llm_spend.peak_context_tokens == 9000
+
+    def _seed_stacked_prs(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    91,
+                    "alice",
+                    "closed",
+                    0,
+                    _ago(5),
+                    merged_at=_ago(1),
+                    head_sha="sha91",
+                    head_ref="feat/a",
+                    base_ref="master",
+                ),
+                _pr_row(92, "alice", "open", 0, _ago(4), head_sha="sha92", head_ref="feat/b", base_ref="feat/a"),
+                _pr_row(93, "bob", "open", 0, _ago(3), head_sha="sha93", head_ref="feat/c", base_ref="master"),
+                # #94 closed before the coverage window; its older open snapshot must not keep it open.
+                _pr_row(94, "bob", "open", 0, _ago(50), head_sha="sha94", head_ref="feat/stale", base_ref="master"),
+                {
+                    **_pr_row(
+                        94,
+                        "bob",
+                        "closed",
+                        0,
+                        _ago(50),
+                        closed_at=_ago(40),
+                        head_sha="sha94",
+                        head_ref="feat/stale",
+                        base_ref="master",
+                    ),
+                    "updated_at": _ago(40),
+                },
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9100, "CI", "sha91", "completed", "success", _ago(4), _ago(4), pr_number=91)],
+        )
+        repo = "PostHog/posthog"
+        # One session builds feat/a off master, then stacks feat/b on it. For #92 the base is feat/a, so its
+        # first feature stamp is the master one and it takes no prefix; for #91 the prefix is the master stamp.
+        self._generation(branch="master", days_ago=10, cost=1.0, session="s1", repo=repo)
+        self._generation(branch="feat/a", days_ago=9, cost=2.0, session="s1", repo=repo)
+        self._generation(branch=None, days_ago=8.5, cost=4.0, session="s1", repo=repo)
+        self._generation(branch="feat/b", days_ago=8, cost=8.0, session="s1", repo=repo)
+        self._generation(branch=None, days_ago=7, cost=16.0, session="s1", repo=repo)
+        self._generation(branch="feat/c", days_ago=2, cost=32.0, session="s2", repo=repo)
+        self._generation(branch="scratch", days_ago=2, cost=64.0, repo=repo)
+        self._generation(branch="feat/stale", days_ago=5, cost=256.0, repo=repo)
+        # No repo stamp: the repo guard still credits it to #91, but coverage cannot place it in a repo.
+        self._generation(branch="feat/a", days_ago=6, cost=128.0)
+        flush_persons_and_events()
+
+    def test_author_llm_spend_matches_per_pr_attribution_across_stacked_bases(self) -> None:
+        self._seed_stacked_prs()
+
+        result = api.list_author_llm_spend(team=self.team, author="alice", repo="PostHog/posthog")
+
+        assert [(item.number, item.head_branch) for item in result.items] == [(92, "feat/b"), (91, "feat/a")]
+        spend = {item.number: item.llm_spend for item in result.items}
+        assert {number: s.generations for number, s in spend.items() if s} == {91: 4, 92: 2}
+        assert {number: s.cost_usd for number, s in spend.items() if s} == pytest.approx({91: 135.0, 92: 24.0})
+        for number in (91, 92):
+            assert spend[number] == api.get_pr_cost(team=self.team, pr_number=number, repo="PostHog/posthog").llm_spend
+
+    @parameterized.expand([("canonical_casing", "PostHog/posthog"), ("lowercase", "posthog/posthog")])
+    def test_author_llm_spend_matches_per_pr_attribution_across_pr_windows(self, _name: str, repo: str) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(95, "alice", "closed", 0, _ago(5), merged_at=_ago(1), head_ref="feat/x", base_ref="master"),
+                # An older PR stretches the batch scan back past #95's window.
+                _pr_row(96, "alice", "closed", 0, _ago(28), closed_at=_ago(26), head_ref="feat/y", base_ref="master"),
+                # #97 closed, then reopened: the newest snapshot has no closure date.
+                _pr_row(97, "alice", "closed", 0, _ago(10), closed_at=_ago(8), head_ref="feat/z", base_ref="master"),
+                {
+                    **_pr_row(97, "alice", "open", 0, _ago(10), head_ref="feat/z", base_ref="master"),
+                    "updated_at": _ago(3),
+                },
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9500, "CI", "sha95", "completed", "success", _ago(4), _ago(4), pr_number=95)],
+        )
+        # A feat/x stamp before #95's window must not decide #95's first feature stamp, so the master
+        # exploration inside the window stays #95's prefix.
+        self._generation(branch="feat/x", days_ago=22, cost=1.0, session="s1")
+        self._generation(branch="master", days_ago=15, cost=2.0, session="s1")
+        self._generation(branch="feat/x", days_ago=10, cost=4.0, session="s1")
+        self._generation(branch="feat/z", days_ago=5, cost=8.0, session="s2")
+        flush_persons_and_events()
+
+        result = api.list_author_llm_spend(team=self.team, author="alice", repo=repo)
+
+        assert [item.number for item in result.items] == [95, 97, 96]
+        spend = {item.number: item.llm_spend for item in result.items}
+        assert {number: s.generations for number, s in spend.items() if s} == {95: 2, 97: 1}
+        assert {number: s.cost_usd for number, s in spend.items() if s} == pytest.approx({95: 6.0, 97: 8.0})
+        for number in (95, 97):
+            assert spend[number] == api.get_pr_cost(team=self.team, pr_number=number, repo="PostHog/posthog").llm_spend
+
+    @parameterized.expand([("canonical_casing", "PostHog/posthog"), ("lowercase", "posthog/posthog")])
+    def test_llm_spend_coverage_counts_repo_stamped_generations_once(self, _name: str, repo: str) -> None:
+        self._seed_stacked_prs()
+
+        coverage = api.get_llm_spend_coverage(team=self.team, repo=repo)
+
+        assert (coverage.generations, coverage.attributed_generations) == (8, 6)
+        assert coverage.cost_usd == pytest.approx(383.0)
+        assert coverage.attributed_cost_usd == pytest.approx(63.0)
 
     def test_llm_spend_none_when_head_is_base(self) -> None:
         self._seed_pr(84, "master", base_ref="master")
@@ -852,8 +1129,7 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
 
 class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
     """The recently-merged discovery seam over real warehouse tables: only PRs merged at or after
-    `since` in the scoped repo surface, each with its branch-tip head SHA. Skips when object storage
-    is unreachable."""
+    `since` in the scoped repo surface, each with its branch-tip head SHA."""
 
     def test_returns_merged_prs_since_cutoff_scoped_to_repo(self) -> None:
         self._create_table(

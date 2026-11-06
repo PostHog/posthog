@@ -1,18 +1,25 @@
 import type { CloudRegion } from "@posthog/shared";
-import { Callout, Flex, Spinner } from "@radix-ui/themes";
-import posthogIcon from "./assets/posthog-icon.svg";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
+import { Callout } from "@radix-ui/themes";
+import { CustomCloudFields } from "./CustomCloudFields";
 import { RegionSelect } from "./RegionSelect";
+import { useCustomCloud } from "./useCustomCloud";
 import { useOAuthFlow } from "./useOAuthFlow";
 
 interface OAuthControlsProps {
   onAuthInitiated?: (region: CloudRegion) => void;
+  /** Defaults to the dev build, where development targets are available. */
   includeDevRegion?: boolean;
 }
 
 export function OAuthControls({
   onAuthInitiated,
-  includeDevRegion = false,
+  includeDevRegion = import.meta.env.DEV ||
+    import.meta.env.VITE_POSTHOG_BUILD_CHANNEL === "test",
 }: OAuthControlsProps = {}) {
+  const { customCloud: hostHoldsCustomCloud } = useHostCapabilities();
+  const includeCustomRegion = includeDevRegion && hostHoldsCustomCloud;
   const {
     region,
     handleAuth,
@@ -21,25 +28,21 @@ export function OAuthControls({
     isPending,
     errorMessage,
   } = useOAuthFlow();
+  const customCloud = useCustomCloud({ enabled: includeCustomRegion });
+  const showCustomCloud = includeCustomRegion && region === "custom";
 
-  const handleClick = () => {
+  const handleClick = async () => {
     if (isPending) {
       void handleCancel();
       return;
     }
+    if (showCustomCloud && !(await customCloud.commit())) return;
     onAuthInitiated?.(region);
     handleAuth();
   };
 
   return (
-    <Flex direction="column" gap="3" className="w-full">
-      <RegionSelect
-        region={region}
-        onRegionChange={handleRegionChange}
-        disabled={isPending}
-        includeDevRegion={includeDevRegion}
-      />
-
+    <div className="flex w-full flex-col gap-3">
       {errorMessage && (
         <Callout.Root color="red" size="1">
           <Callout.Text>{errorMessage}</Callout.Text>
@@ -54,8 +57,8 @@ export function OAuthControls({
 
       <button
         type="button"
-        onClick={handleClick}
-        disabled={false}
+        onClick={() => void handleClick()}
+        disabled={customCloud.isSaving}
         className="flex h-[44px] w-full cursor-pointer items-center justify-center gap-[8px] rounded-[6px] font-medium text-[15px]"
         style={{
           border: isPending
@@ -67,13 +70,27 @@ export function OAuthControls({
           transition: "opacity 150ms ease, box-shadow 100ms ease",
         }}
       >
-        {isPending ? (
-          <Spinner size="1" />
-        ) : (
-          <img src={posthogIcon} alt="" className="h-[20px] w-[20px]" />
-        )}
-        {isPending ? "Cancel" : "Sign in / sign up with PostHog"}
+        {isPending && <Spinner size="sm" />}
+        {isPending ? "Cancel" : "Sign in with PostHog"}
       </button>
-    </Flex>
+
+      <RegionSelect
+        region={region}
+        onRegionChange={handleRegionChange}
+        disabled={isPending}
+        includeDevRegion={includeDevRegion}
+        includeCustomRegion={includeCustomRegion}
+      />
+
+      {showCustomCloud && (
+        <CustomCloudFields
+          draft={customCloud.draft}
+          onChange={customCloud.updateDraft}
+          onBlur={() => void customCloud.commit()}
+          error={customCloud.error}
+          disabled={isPending || customCloud.isSaving}
+        />
+      )}
+    </div>
   );
 }

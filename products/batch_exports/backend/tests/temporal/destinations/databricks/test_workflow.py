@@ -22,8 +22,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 from products.batch_exports.backend.service import (
     BaseBatchExportInputs,
+    BatchExportEventsModel,
     BatchExportField,
-    BatchExportModel,
+    BatchExportPersonsModel,
     DatabricksBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
@@ -53,11 +54,8 @@ REQUIRED_ENV_VARS = (
 
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials(*REQUIRED_ENV_VARS),
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        not all(env_var in os.environ for env_var in REQUIRED_ENV_VARS),
-        reason=f"Databricks required env vars are not set: {', '.join(REQUIRED_ENV_VARS)}",
-    ),
 ]
 
 
@@ -290,14 +288,13 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         run of the workflow. We expect the new entries to have replaced the old ones in Databricks after
         the second run.
         """
-        batch_export_model = BatchExportModel(name="persons", schema=None)
+        batch_export_model = BatchExportPersonsModel()
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=None,
             batch_export=batch_export_for_destination,
         )
 
@@ -386,8 +383,10 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
                     ("event", "STRING"),
                     ("properties", "VARIANT"),
                     ("distinct_id", "STRING"),
+                    ("person_id", "STRING"),
                     ("team_id", "BIGINT"),
                     ("timestamp", "TIMESTAMP"),
+                    ("created_at", "TIMESTAMP"),
                     ("databricks_ingested_timestamp", "TIMESTAMP"),
                 ],
                 id="events-missing-person_properties",
@@ -444,14 +443,13 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         with destination_test.cursor(ateam.pk, integration) as cursor:
             cursor.execute(query)
 
-        batch_export_model = BatchExportModel(name=model_name, schema=None)
+        batch_export_model = BatchExportPersonsModel() if model_name == "persons" else BatchExportEventsModel()
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=None,
             batch_export=batch_export_for_destination,
             use_automatic_schema_evolution=use_automatic_schema_evolution,
         )
@@ -519,14 +517,13 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         with destination_test.cursor(ateam.pk, integration) as cursor:
             cursor.execute(query)
 
-        batch_export_model = BatchExportModel(name="persons", schema=None)
+        batch_export_model = BatchExportPersonsModel()
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=None,
             batch_export=batch_export_for_destination,
         )
 
@@ -559,14 +556,13 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         "Cannot perform Merge as multiple source rows matched and attempted to modify the same target row in the Delta
         table in possibly conflicting ways"
         """
-        batch_export_model = BatchExportModel(name="persons", schema=None)
+        batch_export_model = BatchExportPersonsModel()
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
             data_interval_end=data_interval_end,
             interval=interval,
             batch_export_model=batch_export_model,
-            batch_export_schema=None,
             batch_export=batch_export_for_destination,
         )
 

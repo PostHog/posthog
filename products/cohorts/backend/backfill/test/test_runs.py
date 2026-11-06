@@ -1,15 +1,23 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.hogql_queries.hogql_cohort_query import FlagCallReads
+
 from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
+    BackfillRefusalReason,
+    BackfillRunAttempt,
+    attempt_backfill_run_for_cohort,
+    attempt_person_backfill_run_for_cohort,
+    cancel_runs,
     create_backfill_run_for_cohort,
     create_person_backfill_run_for_cohort,
     create_person_team_backfill_run,
@@ -26,6 +34,13 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillScope,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
 
 
 @override_settings(
@@ -44,11 +59,12 @@ class TestBackfillRuns(BaseTest):
                         "key": event,
                         "event_type": "events",
                         "value": "performed_event_multiple",
-                        "conditionHash": f"hash-{event}",
+                        "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
                         "time_value": window_days,
                         "time_interval": "day",
                         "operator": "gte",
                         "operator_value": 2,
+                        "bytecode": _BYTECODE,
                     }
                 ],
             }
@@ -134,6 +150,53 @@ class TestBackfillRuns(BaseTest):
         self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
 
+    def test_attempt_names_active_participation_and_a_missing_cohort(self) -> None:
+        cohort = self._cohort()
+        created = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        self.assertIsNotNone(created.run)
+        self.assertIsNone(created.reason)
+
+        blocked = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+        self.assertIsNone(blocked.run)
+        self.assertEqual(blocked.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
+
+        missing = attempt_backfill_run_for_cohort(self.team.id, cohort.id + 10_000, "cohort_edited")
+        self.assertEqual(missing.reason, BackfillRefusalReason.COHORT_MISSING)
+
+    @parameterized.expand(
+        [
+            ("behavioral", attempt_backfill_run_for_cohort),
+            ("person_property", attempt_person_backfill_run_for_cohort),
+        ]
+    )
+    def test_attempt_names_a_team_outside_the_realtime_allowlist(
+        self, _name: str, attempt: Callable[[int, int, str], BackfillRunAttempt]
+    ) -> None:
+        # A team dropping out of the allowlist is the first gate either creator hits. Unlabelled it
+        # lands in the flat `refused` bucket, which reads as an unclassified refusal.
+        cohort = self._cohort()
+
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none"):
+            self.assertEqual(
+                attempt(self.team.id, cohort.id, "cohort_created").reason,
+                BackfillRefusalReason.TEAM_NOT_REALTIME,
+            )
+
+    def test_failed_run_frees_the_per_cohort_slot(self) -> None:
+        # The seeder fails a run whose chunk exhausted its retry budget. That only unwedges the
+        # cohort if `failed` stops counting as active here: otherwise the uniqueness slot stays
+        # taken and no replacement run can ever be created for that cohort.
+        cohort = self._cohort()
+        first = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert first is not None
+        self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+        first.status = CohortBackfillRunStatus.FAILED
+        first.save(update_fields=["status"])
+
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 2)
+
     def test_active_team_run_prevents_overlapping_cohort_run(self) -> None:
         cohort = self._cohort()
         create_team_backfill_run(self.team.id, "team_enablement")
@@ -147,6 +210,103 @@ class TestBackfillRuns(BaseTest):
 
         with self.assertRaisesMessage(ValueError, "Cohorts already have active backfill runs"):
             create_team_backfill_run(self.team.id, "team_enablement")
+
+    def _unseedable_cohort(self, *leaves: dict) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="unseedable",
+            cohort_type=CohortType.REALTIME,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+        )
+
+    # The UI never writes a behavioral leaf without a time window, but the API accepts one.
+    _WINDOWLESS_LEAF = {
+        "type": "behavioral",
+        "key": "navbar starred item added",
+        "event_type": "events",
+        "value": "performed_event",
+        "conditionHash": "c8236865303eb463",
+        "event_filters": [{"key": "item_type", "type": "event", "value": "insight", "operator": "exact"}],
+        "bytecode": _BYTECODE,
+    }
+    _WINDOWED_LEAF = {
+        "type": "behavioral",
+        "key": "$pageview",
+        "event_type": "events",
+        "value": "performed_event",
+        "conditionHash": "hash-$pageview00",
+        "time_value": 7,
+        "time_interval": "day",
+        "bytecode": _BYTECODE,
+    }
+
+    @parameterized.expand(
+        [
+            ("windowless_performed_event", [_WINDOWLESS_LEAF]),
+            ("action_keyed", [{**_WINDOWED_LEAF, "event_type": "actions", "key": 42}]),
+            (
+                "sub_day_multiple",
+                [
+                    {
+                        **_WINDOWED_LEAF,
+                        "value": "performed_event_multiple",
+                        "time_interval": "hour",
+                        "operator": "gte",
+                        "operator_value": 2,
+                    }
+                ],
+            ),
+            ("hashless", [{k: v for k, v in _WINDOWED_LEAF.items() if k != "conditionHash"}]),
+            ("short_hash", [{**_WINDOWED_LEAF, "conditionHash": "tooshort"}]),
+            ("bytecodeless", [{k: v for k, v in _WINDOWED_LEAF.items() if k != "bytecode"}]),
+            ("one_seedable_sibling", [_WINDOWED_LEAF, _WINDOWLESS_LEAF]),
+            # The dropped leaf is not behavioral, so a gate reading behavioral leaves alone admits
+            # this cohort while the catalog classifies it `excluded_has_dropped_leaf` whole.
+            (
+                "person_metadata_sibling",
+                [_WINDOWED_LEAF, {"type": "person_metadata", "key": "created_at", "value": "2026-01-01"}],
+            ),
+            (
+                "bytecodeless_person_sibling",
+                [_WINDOWED_LEAF, {"type": "person", "key": "email", "conditionHash": "person0000000001"}],
+            ),
+            # Every leaf is kept, so only the tree tells these cohorts apart from a seedable one.
+            ("negated_root", [{**_WINDOWED_LEAF, "negation": True}]),
+            ("empty_group", [_WINDOWED_LEAF, {"type": "OR", "values": []}]),
+        ]
+    )
+    def test_unseedable_behavioral_cohort_is_refused(self, _name: str, leaves: list[dict]) -> None:
+        # The processor excludes a cohort with any dropped leaf, so a partly seedable one is
+        # refused whole.
+        cohort = self._unseedable_cohort(*leaves)
+
+        with self.assertLogs("products.cohorts.backend.backfill.runs", level="INFO") as logs:
+            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.COHORT_INELIGIBLE)
+        self.assertIn("the realtime catalog", "\n".join(logs.output))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    def test_team_run_excludes_an_unseedable_cohort_and_refuses_it_by_id(self) -> None:
+        seedable = self._cohort()
+        unseedable = self._unseedable_cohort(self._WINDOWLESS_LEAF)
+        unclassified = self._cohort("$autocapture")
+        Cohort.objects.filter(id=unclassified.id).update(condition_type=None)
+
+        for refused in (unseedable, unclassified):
+            with self.assertRaisesMessage(ValueError, "not eligible realtime behavioral cohorts"):
+                create_team_backfill_run(self.team.id, "team_enablement", [refused.id])
+
+        run = create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(
+            set(
+                CohortBackfillRunCohort.objects.for_team(self.team.id)
+                .filter(run=run)
+                .values_list("cohort_id", flat=True)
+            ),
+            {seedable.id},
+        )
 
     def test_editing_the_cohort_supersedes_its_active_run(self) -> None:
         # rust/cohort-seeder claims run rows and replays history from the filters the run pinned, so
@@ -164,6 +324,219 @@ class TestBackfillRuns(BaseTest):
         self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
 
 
+_FLAG_KEY_FILTER = {"key": "$feature_flag", "type": "event", "value": "beta-feature", "operator": "exact"}
+_ANY_FLAG_CALL_LEAF = {
+    "type": "behavioral",
+    "key": "$feature_flag_called",
+    "event_type": "events",
+    "value": "performed_event",
+    "conditionHash": "flagcall00000001",
+    "time_value": 30,
+    "time_interval": "day",
+    "bytecode": _BYTECODE,
+}
+_FLAG_CALL_LEAF = {**_ANY_FLAG_CALL_LEAF, "event_filters": [_FLAG_KEY_FILTER]}
+_PAGEVIEW_LEAF = {
+    "type": "behavioral",
+    "key": "$pageview",
+    "event_type": "events",
+    "value": "performed_event",
+    "conditionHash": "pageview00000001",
+    "time_value": 7,
+    "time_interval": "day",
+    "bytecode": _BYTECODE,
+}
+_UNPARSEABLE_FILTER = {"key": "properties.x = (", "type": "hogql"}
+_TEN_DAYS_AGO = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%d")
+_120_DAYS_AGO = (datetime.now(UTC) - timedelta(days=120)).strftime("%Y-%m-%d")
+_FLAG_CALL_TABLE_CASES = [
+    ("swapped", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, "flag_evaluations"),
+    ("events_mode", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.EVENTS, "events"),
+    # The run can only read events here, so a batch query that fails to compile does not refuse it.
+    (
+        "events_mode_batch_query_does_not_compile",
+        ({**_FLAG_CALL_LEAF, "event_filters": [_FLAG_KEY_FILTER, _UNPARSEABLE_FILTER]},),
+        FlagEvaluationsMode.EVENTS,
+        "events",
+    ),
+    ("no_flag_key", (_ANY_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, "events"),
+    (
+        "window_past_coverage",
+        ({**_FLAG_CALL_LEAF, "time_value": 120},),
+        FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        "events",
+    ),
+    # The batch calculation swaps this range today. The range does not move with the run's boundary. Its first day
+    # can leave flag_evaluations before the seeder scans it.
+    (
+        "fixed_range",
+        ({**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},),
+        FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        "events",
+    ),
+    (
+        "only_in_flag_evaluations",
+        (_ANY_FLAG_CALL_LEAF,),
+        FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+        "flag_evaluations",
+    ),
+    # events holds no new flag calls in this mode. flag_evaluations is the only table that has any of them.
+    (
+        "fixed_range_only_in_flag_evaluations",
+        ({**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},),
+        FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+        "flag_evaluations",
+    ),
+    ("no_flag_calls", (_PAGEVIEW_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, "events"),
+    (
+        "sliding_and_fixed_range_in_one_cohort",
+        (_FLAG_CALL_LEAF, {**_FLAG_CALL_LEAF, "conditionHash": "flagcall00000002", "explicit_datetime": _TEN_DAYS_AGO}),
+        FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        "events",
+    ),
+]
+
+
+# The batch calculation swaps flag calls to flag_evaluations in READ_FLAG_EVALUATIONS mode only on the legacy events
+# table. These cases pin that table, so they do not depend on which events schema CI runs.
+@override_settings(
+    REALTIME_COHORT_TEAM_ALLOWLIST="all",
+    BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+)
+class TestBackfillRunFlagCallsTable(BaseTest):
+    def _cohort(self, *leaves: dict) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="flag callers",
+            cohort_type=CohortType.REALTIME,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+        )
+
+    def _set_flag_evaluations_mode(self, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
+    @parameterized.expand(
+        [
+            (f"{scope}_{name}", scope, leaves, mode, expected)
+            for scope in ("cohort", "team")
+            for name, leaves, mode, expected in _FLAG_CALL_TABLE_CASES
+        ]
+    )
+    def test_run_pins_the_table_the_batch_calculation_reads_flag_calls_from(
+        self,
+        _name: str,
+        scope: str,
+        leaves: tuple[dict, ...],
+        mode: FlagEvaluationsMode,
+        expected: str,
+    ) -> None:
+        self._set_flag_evaluations_mode(mode)
+        cohort = self._cohort(*leaves)
+
+        if scope == "team":
+            run: CohortBackfillRun | None = create_team_backfill_run(self.team.id, "team_enablement")
+        else:
+            run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        assert run is not None
+        # cohort-seeder reads a missing key as events. Every run must state the table.
+        self.assertEqual(run.pinned["flag_calls_table"], expected)
+        self.assertEqual(run.pinned["schema_version"], 1)
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_run_pins_events_when_the_batch_calculation_reads_the_native_json_events_table(self) -> None:
+        # The batch calculation keeps reading events_json in this mode, so the seeder must read events too.
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        cohort = self._cohort(_FLAG_CALL_LEAF)
+
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        assert run is not None
+        self.assertEqual(run.pinned["flag_calls_table"], "events")
+
+    @parameterized.expand(
+        [
+            ("with_a_cohort_without_flag_calls", _PAGEVIEW_LEAF, "flag_evaluations"),
+            ("with_a_flag_call_cohort_that_reads_events", _ANY_FLAG_CALL_LEAF, "events"),
+        ]
+    )
+    def test_team_run_pins_flag_evaluations_only_when_every_flag_call_cohort_reads_it(
+        self, _name: str, other_leaf: dict, expected: str
+    ) -> None:
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self._cohort(_FLAG_CALL_LEAF)
+        self._cohort({**other_leaf, "conditionHash": "othercohort00001"})
+
+        run = create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(run.pinned["flag_calls_table"], expected)
+
+    @parameterized.expand(
+        [
+            (
+                "batch_query_does_not_compile",
+                {
+                    **_FLAG_CALL_LEAF,
+                    "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
+                },
+            ),
+            # A placeholder fails in the HogQL VM, outside the compile errors the guard names.
+            (
+                "batch_query_raises_outside_the_compile_errors",
+                {**_FLAG_CALL_LEAF, "event_filters": [_FLAG_KEY_FILTER, {"key": "{x}", "type": "hogql"}]},
+            ),
+            # The seeder fails a run that scans a day older than the flag_evaluations TTL.
+            ("sliding_window_past_the_ttl", {**_FLAG_CALL_LEAF, "time_value": 120}),
+            ("fixed_range_past_the_ttl", {**_FLAG_CALL_LEAF, "explicit_datetime": _120_DAYS_AGO}),
+        ]
+    )
+    def test_a_flag_call_cohort_that_no_table_can_backfill_gets_no_run(self, _name: str, leaf: dict) -> None:
+        # Pinning events instead would give the cohort an empty flag-call history that still counts as backfilled.
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        cohort = self._cohort(leaf)
+
+        attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        with self.assertRaisesMessage(ValueError, f"cohort {cohort.id}"):
+            create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    def test_a_flag_call_cohort_that_still_reads_events_when_events_has_no_new_flag_calls_gets_no_run(self) -> None:
+        # A scan the rewrite cannot swap reads a table that holds no new flag calls, so pinning events there would
+        # give the cohort an empty flag-call history that still counts as backfilled.
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        cohort = self._cohort(_FLAG_CALL_LEAF)
+
+        with mock.patch(
+            "posthog.hogql_queries.hogql_cohort_query.batch_flag_call_reads",
+            return_value=FlagCallReads(only_in_flag_evaluations=True, reads_from_events=1),
+        ):
+            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
+
+    @parameterized.expand(
+        [
+            ("database_timeout", OperationalError("canceling statement due to statement timeout")),
+            ("connection_failure", ConnectionError("connection reset by peer")),
+        ]
+    )
+    def test_an_error_that_may_pass_on_a_retry_reaches_the_caller(self, _name: str, error: Exception) -> None:
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        cohort = self._cohort(_FLAG_CALL_LEAF)
+
+        with mock.patch("posthog.hogql_queries.hogql_cohort_query.batch_flag_call_reads", side_effect=error):
+            with self.assertRaises(type(error)):
+                attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+
 @override_settings(
     REALTIME_COHORT_TEAM_ALLOWLIST="all",
     BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
@@ -178,6 +551,7 @@ class TestPersonBackfillRuns(BaseTest):
         *,
         person_hashes: tuple[str | None, ...] = ("person0000000001",),
         behavioral: bool = True,
+        windowless: bool = False,
         person_metadata: bool = False,
     ) -> dict:
         values: list[dict] = [
@@ -187,21 +561,25 @@ class TestPersonBackfillRuns(BaseTest):
                 "value": ["person@example.com"],
                 "operator": "exact",
                 "conditionHash": condition_hash,
+                "bytecode": _BYTECODE,
             }
             for condition_hash in person_hashes
         ]
         if behavioral:
-            values.append(
-                {
-                    "type": "behavioral",
-                    "key": "$pageview",
-                    "event_type": "events",
-                    "value": "performed_event",
-                    "conditionHash": "behavior00000001",
-                    "time_value": 7,
-                    "time_interval": "day",
-                }
-            )
+            leaf = {
+                "type": "behavioral",
+                "key": "$pageview",
+                "event_type": "events",
+                "value": "performed_event",
+                "conditionHash": "behavior00000001",
+                "time_value": 7,
+                "time_interval": "day",
+                "bytecode": _BYTECODE,
+            }
+            if windowless:
+                # The API accepts a behavioral leaf with no time window; the catalog drops it.
+                del leaf["time_value"], leaf["time_interval"]
+            values.append(leaf)
         if person_metadata:
             values.append(
                 {
@@ -375,6 +753,49 @@ class TestPersonBackfillRuns(BaseTest):
         estimate.assert_not_called()
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
 
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_both_budget_gates_report_over_budget(self, estimate: mock.Mock) -> None:
+        # The budget refuses in two places — before the sizing scan when in-flight runs already ate
+        # it, and after when the estimate pushes the total over. Both have to name the budget, or
+        # the alert only sees whichever one the team happens to hit.
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_001)
+        first = self._cohort()
+        second = Cohort.objects.create(
+            team=self.team,
+            name="second person cohort",
+            cohort_type=CohortType.REALTIME,
+            filters=self._filters(),
+        )
+
+        post_scan = attempt_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created")
+        self.assertIsNone(post_scan.run)
+        self.assertEqual(post_scan.reason, BackfillRefusalReason.OVER_BUDGET)
+
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_000)
+        self.assertIsNotNone(create_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created"))
+        estimate.reset_mock()
+        pre_scan = attempt_person_backfill_run_for_cohort(self.team.id, second.id, "cohort_created")
+
+        estimate.assert_not_called()
+        self.assertIsNone(pre_scan.run)
+        self.assertEqual(pre_scan.reason, BackfillRefusalReason.OVER_BUDGET)
+
+    def test_attempt_reports_the_occupied_slot_and_success(self) -> None:
+        cohort = self._cohort()
+
+        with mock.patch(
+            "products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes",
+            return_value=self._estimate(),
+        ):
+            created = attempt_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+            self.assertIsNotNone(created.run)
+            self.assertIsNone(created.reason)
+
+            blocked = attempt_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+
+        self.assertIsNone(blocked.run)
+        self.assertEqual(blocked.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
+
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS=0)
     def test_cohort_run_warns_and_refuses_pinning_cap(self) -> None:
         cohort = self._cohort()
@@ -485,6 +906,10 @@ class TestPersonBackfillRuns(BaseTest):
             ("non_realtime", {"cohort_type": CohortType.BEHAVIORAL}),
             ("hashless", {"filters": "hashless"}),
             ("person_metadata", {"filters": "person_metadata"}),
+            # The seeder fails a person run for this cohort on its first tick, so a person gate
+            # admitting it would create one failed run per save.
+            ("windowless_behavioral_sibling", {"filters": "windowless"}),
+            ("negated_root", {"filters": "negated_root"}),
         ]
     )
     def test_ineligible_cohort_is_refused(self, _name: str, overrides: dict[str, object]) -> None:
@@ -495,6 +920,11 @@ class TestPersonBackfillRuns(BaseTest):
             filters = self._filters(person_hashes=(None,), behavioral=False)
         elif _name == "person_metadata":
             filters = self._filters(person_metadata=True)
+        elif _name == "windowless_behavioral_sibling":
+            filters = self._filters(windowless=True)
+        elif _name == "negated_root":
+            filters = self._filters(behavioral=False)
+            filters["properties"]["values"][0]["negation"] = True
         cohort_type = overrides.pop("cohort_type", CohortType.REALTIME)
         cohort = Cohort.objects.create(
             team=self.team,
@@ -613,3 +1043,138 @@ class TestPersonBackfillRuns(BaseTest):
 
         with self.settings(**{setting_name: False}), self.assertRaisesMessage(ValueError, expected_error):
             create_person_team_backfill_run(self.team.id, "team_enablement", 30)
+
+
+@override_settings(
+    REALTIME_COHORT_TEAM_ALLOWLIST="all",
+    BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
+    BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+)
+class TestCancelRuns(BaseTest):
+    def _cohort(self, event: str = "$pageview") -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name=event,
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": event,
+                            "event_type": "events",
+                            "value": "performed_event_multiple",
+                            "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
+                            "time_value": 7,
+                            "time_interval": "day",
+                            "operator": "gte",
+                            "operator_value": 2,
+                            "bytecode": _BYTECODE,
+                        }
+                    ],
+                }
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("cohort_scoped", CohortBackfillScope.COHORT),
+            ("team_scoped", CohortBackfillScope.TEAM),
+        ]
+    )
+    def test_cancel_frees_the_active_uniqueness_slot(self, _name: str, scope: str) -> None:
+        cohort = self._cohort()
+        if scope == CohortBackfillScope.COHORT:
+            run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        else:
+            run = create_team_backfill_run(self.team.id, "team_enablement")
+        assert run is not None
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.SEEDING
+        )
+        self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="wedged in seeding")
+
+        run.refresh_from_db()
+        self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+        self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)
+        self.assertIsNotNone(run.finished_at)
+        self.assertEqual(run.error, "wedged in seeding")
+        # Releasing the partial unique constraint is the whole point: a run nobody can finish
+        # otherwise blocks its cohort or team from ever backfilling again.
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+    def test_cancel_refuses_a_run_whose_readiness_was_already_stamped(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run_id=run.id).update(
+            stamped_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="sweep")
+
+        run.refresh_from_db()
+        # A stamp is one way and the flags service already reads it, so a cancel behind one would
+        # leave the cohort marked ready by a run claiming it was abandoned.
+        self.assertEqual(outcome.refused, ((run.id, "stamped"),))
+        self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
+    @parameterized.expand([("refused", False), ("allowed", True)])
+    def test_cancel_only_touches_a_finalizable_run_on_request(self, _name: str, allow: bool) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.RECONCILING, reconcile_observed_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="sweep", allow_finalizable=allow)
+
+        run.refresh_from_db()
+        # The seeder may have observed the run since the operator listed it, and this one is a
+        # finished backfill the finalizer would legitimately complete.
+        if allow:
+            self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+            self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)
+        else:
+            self.assertEqual(outcome.refused, ((run.id, "finalizable"),))
+            self.assertEqual(run.status, CohortBackfillRunStatus.RECONCILING)
+
+    def test_cancel_keeps_an_earlier_supersession_message(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        supersede_active_runs(self.team.id, [cohort.id], kind=CohortBackfillKind.BEHAVIORAL)
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.SEEDING
+        )
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run_id=run.id)
+
+        cancel_runs([(run.id, self.team.id)], reason="operator sweep")
+
+        participation.refresh_from_db()
+        # The edit-time supersession is why this backfill stopped mattering; operator text must not
+        # overwrite that provenance.
+        self.assertEqual(participation.error, "Cohort definition changed during backfill")
+
+    def test_cancel_drains_an_observed_run_whose_participations_are_all_resolved(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run_id=run.id).update(
+            superseded_at=datetime.now(UTC)
+        )
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.RECONCILING, reconcile_observed_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="orphaned sweep")
+
+        run.refresh_from_db()
+        # The inventory classifies this `orphaned`, not `finalizable`, because the finalizer would
+        # only terminalize it. Refusing it here would leave nothing able to release its slot.
+        self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+        self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)

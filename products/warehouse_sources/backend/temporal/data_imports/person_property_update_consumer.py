@@ -16,6 +16,7 @@ import json
 import time
 import signal
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from django.conf import settings
@@ -33,6 +34,7 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
 )
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import Team
 from posthog.settings import CONSTANCE_CONFIG
 
 logger = structlog.get_logger(__name__)
@@ -50,8 +52,16 @@ _RATE_KEY = f"{_RATE_DOMAIN}:global"
 # pods just run slower, never faster). Keep in sync with charts ``autoscaling.maxPods``.
 _IN_MEMORY_DIVIDER = 6
 
-SENT_TOTAL = Counter("warehouse_person_property_sent_total", "person-property $set events sent to capture")
-DLQ_TOTAL = Counter("warehouse_person_property_dlq_total", "person-property update messages routed to DLQ")
+SENT_TOTAL = Counter(
+    "warehouse_person_property_sent_total",
+    "person-property update events sent to capture ($set for persons, $groupidentify for groups)",
+    labelnames=["kind"],
+)
+DLQ_TOTAL = Counter(
+    "warehouse_person_property_dlq_total",
+    "person-property update messages routed to DLQ",
+    labelnames=["reason"],
+)
 DLQ_FAILED_TOTAL = Counter(
     "warehouse_person_property_dlq_failed_total", "person-property DLQ writes that failed to deliver"
 )
@@ -100,7 +110,8 @@ def _current_rate() -> float:
 def _rate_policy(_key: str) -> RatePolicy:
     """Resolve the live global budget. Registered as a provider so a constance change to the rate
     takes effect without a restart (read on each acquire, not frozen at import)."""
-    return RatePolicy(limits=((max(1, int(_current_rate())), 1.0),), in_memory_divider=_IN_MEMORY_DIVIDER)
+    # Flat: this consumer is the budget's only caller, so no higher lane needs reserved headroom.
+    return RatePolicy(limits=((max(1, int(_current_rate())), 1.0),), in_memory_divider=_IN_MEMORY_DIVIDER, reserve={})
 
 
 register_policy(_RATE_DOMAIN, _rate_policy)
@@ -131,22 +142,30 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
         group_key = payload.get("group_key")
         if not group_type or not group_key:
             raise InvalidPersonPropertyMessage("group message missing group_type or group_key")
-        # Mirror the canonical group-identify write (ee/clickhouse/views/groups.py::trigger_group_identify):
-        # distinct_id is the team-uuid placeholder, group type is the name, process_person_profile=False.
+        # distinct_id is the team-uuid placeholder, group type is the name. Person processing must
+        # stay on: ingestion drops any $groupidentify whose $process_person_profile is false
+        # (warning invalid_event_when_process_person_profile_is_false) and gates the group upsert
+        # on it, so with false the write silently never happens. The cost is one placeholder
+        # person per team — the same trade the server SDKs' group_identify makes per group.
         return {
             "token": token,
             "event_name": "$groupidentify",
             "event_source": event_source,
             "distinct_id": str(distinct_id),
-            "properties": {"$group_type": group_type, "$group_key": str(group_key), "$group_set": properties},
-            "process_person_profile": False,
+            "properties": {
+                "$group_type": group_type,
+                "$group_key": str(group_key),
+                "$group_set": properties,
+                "$geoip_disable": True,
+            },
+            "process_person_profile": True,
         }
     return {
         "token": token,
         "event_name": "$set",
         "event_source": event_source,
         "distinct_id": str(distinct_id),
-        "properties": {"$set": properties},
+        "properties": {"$set": properties, "$geoip_disable": True},
         "process_person_profile": True,
     }
 
@@ -158,11 +177,37 @@ DLQ = "dlq"
 RETRY = "retry"
 
 
+def _dlq_reason_label(reason: str) -> str:
+    """Collapse a DLQ reason to a bounded metric label: drop per-message detail after ':' (status
+    codes) and replace spaces so the validation sentences become stable slugs."""
+    return reason.split(":", 1)[0].replace(" ", "_")
+
+
 def _is_permanent_client_error(status_code: object) -> bool:
     """True for a 4xx that can never succeed on retry (bad/stale token, validation) -> DLQ. The
     retryable 4xx (408 timeout, 429 throttled) are excluded so a client hammering capture into
     timeouts can't get queued updates dropped instead of retried."""
     return isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in _RETRYABLE_CLIENT_STATUSES
+
+
+# One worker, so a hung cache or database call blocks later lookups instead of piling up threads.
+# Each caller still waits at most the timeout, then logs without a team.
+_TEAM_LOOKUP_TIMEOUT_SECONDS = 2.0
+_team_lookup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dlq-team-lookup")
+
+
+def _team_id_for_token(token: object) -> int | None:
+    """Best-effort team lookup so a DLQ log line can name the affected team. Never raises and never
+    waits past the timeout: a slow or failed lookup must not stall or retry a DLQ write."""
+    if not isinstance(token, str):
+        return None
+    try:
+        team = _team_lookup_executor.submit(Team.objects.get_team_from_cache_or_token, token).result(
+            timeout=_TEAM_LOOKUP_TIMEOUT_SECONDS
+        )
+    except Exception:
+        return None
+    return team.id if team else None
 
 
 class PersonPropertyUpdateConsumer:
@@ -202,16 +247,17 @@ class PersonPropertyUpdateConsumer:
             self._dlq_producer = get_producer(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ)
         return self._dlq_producer
 
-    def _dlq(self, value: bytes, reason: str) -> str:
+    def _dlq(self, value: bytes, reason: str, token: object = None) -> str:
         """Route a poison message to the DLQ. Returns ``DLQ`` only once the write is confirmed
         delivered; a failed DLQ write returns ``RETRY`` so the source offset stays uncommitted and
         the message is redelivered rather than silently dropped from both topics."""
-        logger.warning("person_property_update.dlq", reason=reason)
+        logger.warning("person_property_update.dlq", reason=reason, team_id=_team_id_for_token(token))
         producer = self._get_dlq_producer()
         result = producer.produce(
             topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
             data={"raw": value.decode("utf-8", "replace"), "reason": reason},
         )
+        reason_label = _dlq_reason_label(reason)
         # Bound the flush: an unavailable DLQ broker must not block past the liveness timeout and get
         # the pod killed mid-write. Heartbeat either side so a slow-but-progressing write stays live.
         self._health_reporter()
@@ -223,7 +269,7 @@ class PersonPropertyUpdateConsumer:
             DLQ_FAILED_TOTAL.inc()
             logger.exception("person_property_update.dlq_delivery_failed", reason=reason)
             return RETRY
-        DLQ_TOTAL.inc()
+        DLQ_TOTAL.labels(reason=reason_label).inc()
         return DLQ
 
     def _acquire_slot(self) -> bool:
@@ -285,22 +331,22 @@ class PersonPropertyUpdateConsumer:
             # 0 (transport/client-side), retryable 4xx (408/429), and 5xx stay transient -> uncommitted.
             status_code = getattr(exc, "status_code", None)
             if _is_permanent_client_error(status_code):
-                return self._dlq(value, f"capture_client_error:{status_code}")
+                return self._dlq(value, f"capture_client_error:{status_code}", kwargs["token"])
             RETRY_TOTAL.inc()
             logger.exception("person_property_update.capture_error")
             return RETRY
         if result.succeeded():
-            SENT_TOTAL.inc()
+            SENT_TOTAL.labels(kind="group" if kwargs["event_name"] == "$groupidentify" else "person").inc()
             return SENT
         # A drop is terminal: capture rejected the event permanently (e.g. invalid/stale token,
         # validation failure), so it's poison. DLQ it rather than redelivering forever.
         if result.dropped:
-            return self._dlq(value, "capture_dropped")
+            return self._dlq(value, "capture_dropped", kwargs["token"])
         # A permanent whole-request 4xx is likewise poison (bad/stale token, validation), so DLQ it
         # too. Everything else (exhausted retries, unaccounted, retryable 4xx, 5xx, transport) is
         # transient -> retry.
         if result.error and _is_permanent_client_error(result.status_code):
-            return self._dlq(value, f"capture_error:{result.status_code}")
+            return self._dlq(value, f"capture_error:{result.status_code}", kwargs["token"])
         RETRY_TOTAL.inc()
         return RETRY
 

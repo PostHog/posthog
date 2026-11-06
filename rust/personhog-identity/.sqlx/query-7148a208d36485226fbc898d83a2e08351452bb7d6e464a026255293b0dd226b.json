@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_create_or_attach' */ \n            INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (op_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7148a208d36485226fbc898d83a2e08351452bb7d6e464a026255293b0dd226b"
+}

@@ -13,9 +13,10 @@ from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
@@ -35,9 +36,39 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert len(response["results"]) == 1
         assert response["results"][0]["content"] == "hello world!"
 
+    def test_paginated_list_is_stable_when_annotations_share_a_date_marker(self) -> None:
+        # Insertion order is the reverse of the order the endpoint must return, so a page walk that
+        # falls back to row order returns a different sequence.
+        earlier = [
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                content=f"earlier {index}",
+                date_marker=datetime(2024, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+            )
+            for index in range(2)
+        ]
+        later = [
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                content=f"later {index}",
+                date_marker=datetime(2024, 1, 2, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+            )
+            for index in range(2)
+        ]
+
+        paged_ids = []
+        for offset in (0, 2):
+            response = self.client.get(f"/api/projects/{self.team.id}/annotations/?limit=2&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids += [result["id"] for result in response.json()["results"]]
+
+        assert paged_ids == [later[1].id, later[0].id, earlier[1].id, earlier[0].id]
+
     @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture: MagicMock) -> None:
-        with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 0
 
@@ -49,7 +80,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 1
 
@@ -61,9 +92,27 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 2
+
+        # Annotations that point at a dashboard must not add a query each: the serializer reads
+        # `dashboard_name` through the `dashboard` relation, so the queryset has to select it.
+        dashboard = Dashboard.objects.create(team=self.team, name="A dashboard")
+        for index in range(2):
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                created_at="2020-01-04T12:00:00Z",
+                created_by=User.objects.create_and_join(self.organization, f"dash-{index}", ""),
+                content=now().isoformat(),
+                dashboard=dashboard,
+                scope=Annotation.Scope.PROJECT,
+            )
+
+        with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
+            response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
+            assert len(response["results"]) == 4
 
     def test_org_scoped_annotations_are_returned_between_projects(self) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
@@ -327,7 +376,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         instance = Annotation.objects.create(organization=self.organization, team=self.team, created_by=self.user)
         self.client.force_login(new_user)
 
-        with patch("posthog.api.team.report_user_action"):
+        with patch("posthog.api.team.viewsets.report_user_action"):
             response = self.client.delete(f"/api/projects/{self.team.id}/annotations/{instance.pk}/")
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
@@ -461,6 +510,39 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == 400
         assert response.json()["detail"] == f"Invalid date range: {error_message}"
 
+    @parameterized.expand([("dashboard", "dashboard_id"), ("dashboard_item", "dashboard_item")])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_attaching_needs_viewer_access_to_the_parent(self, scope: str, field: str) -> None:
+        parent: Dashboard | Insight
+        if scope == "dashboard":
+            parent = Dashboard.objects.create(team=self.team, name="Restricted")
+            AccessControl.objects.create(
+                team=self.team, resource="dashboard", resource_id=str(parent.id), access_level="none"
+            )
+            stored = Annotation.objects.create(
+                organization=self.organization, team=self.team, scope=scope, dashboard=parent
+            )
+        else:
+            parent = Insight.objects.create(team=self.team, name="Restricted")
+            AccessControl.objects.create(
+                team=self.team, resource="insight", resource_id=str(parent.id), access_level="none"
+            )
+            stored = Annotation.objects.create(
+                organization=self.organization, team=self.team, scope=scope, dashboard_item=parent
+            )
+        self.client.force_login(self._create_user("annotation-member@example.com"))
+        payload = {"content": "x", "scope": scope, "date_marker": "2024-01-01T00:00:00.000000Z", field: parent.id}
+
+        created = self.client.post(f"/api/projects/{self.team.id}/annotations/", payload)
+        edited = self.client.patch(f"/api/projects/{self.team.id}/annotations/{stored.id}/", payload)
+
+        assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
+        assert created.json()["attr"] == field
+        assert Annotation.objects.filter(team=self.team).count() == 1
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+
     def test_creating_annotation_with_dashboard_from_same_team(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
 
@@ -562,6 +644,64 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == self.validation_error_response("Dashboard not found.", attr="dashboard_id")
 
+    @parameterized.expand(
+        [
+            ("create_insight_scope", None, {"scope": "dashboard_item"}, "dashboard_item"),
+            ("create_dashboard_scope", None, {"scope": "dashboard"}, "dashboard_id"),
+            ("patch_to_insight_scope", "project", {"scope": "dashboard_item"}, "dashboard_item"),
+            ("patch_to_dashboard_scope", "project", {"scope": "dashboard"}, "dashboard_id"),
+            ("patch_clears_insight", "insight", {"scope": "dashboard_item", "dashboard_item": None}, "dashboard_item"),
+            ("patch_keeps_stored_insight", "insight", {"scope": "dashboard_item"}, None),
+            ("patch_keeps_stored_dashboard", "dashboard", {"scope": "dashboard"}, None),
+            ("patch_without_scope_on_default_row", "none", {"content": "edited"}, None),
+            ("patch_clears_dashboard_without_scope", "dashboard", {"dashboard_id": None}, "dashboard_id"),
+            ("patch_clears_insight_without_scope", "insight", {"dashboard_item": None}, "dashboard_item"),
+            (
+                "ui_edit_of_default_row",
+                "none",
+                {"content": "edited", "scope": "dashboard_item", "dashboard_item": None, "dashboard_id": None},
+                None,
+            ),
+            (
+                "ui_edit_of_detached_dashboard_row",
+                "detached_dashboard",
+                {"content": "edited", "scope": "dashboard", "dashboard_item": None, "dashboard_id": None},
+                None,
+            ),
+        ]
+    )
+    def test_insight_and_dashboard_scopes_require_the_matching_id(
+        self, _name: str, existing_parent: str | None, payload: dict[str, Any], error_attr: str | None
+    ) -> None:
+        if existing_parent is None:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/annotations/",
+                {"content": "Scoped annotation", "date_marker": "2024-01-01T00:00:00.000000Z", **payload},
+            )
+        else:
+            annotation = Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                created_by=self.user,
+                content="Original annotation",
+                scope={
+                    "dashboard": Annotation.Scope.DASHBOARD,
+                    "detached_dashboard": Annotation.Scope.DASHBOARD,
+                    "project": Annotation.Scope.PROJECT,
+                }.get(existing_parent, Annotation.Scope.INSIGHT),
+                dashboard_item=Insight.objects.create(team=self.team) if existing_parent == "insight" else None,
+                dashboard=Dashboard.objects.create(team=self.team) if existing_parent == "dashboard" else None,
+            )
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/annotations/{annotation.id}/", payload, format="json"
+            )
+
+        if error_attr is None:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["attr"] == error_attr
+
     def test_creating_annotation_with_insight_from_different_team_returns_400(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         other_insight = Insight.objects.create(team=other_team, name="Other Insight")
@@ -659,6 +799,58 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
         assert annotation.id in {a["id"] for a in list_response.json()["results"]}
 
+    @parameterized.expand(
+        [
+            ("project_scope_deleted_dashboard", Annotation.Scope.PROJECT, "dashboard"),
+            ("project_scope_deleted_insight", Annotation.Scope.PROJECT, "insight"),
+            ("organization_scope_deleted_dashboard", Annotation.Scope.ORGANIZATION, "dashboard"),
+        ]
+    )
+    def test_project_and_org_scoped_annotations_survive_a_soft_deleted_parent(
+        self, _name: str, scope: str, parent_kind: str
+    ) -> None:
+        insight = Insight.objects.create(team=self.team, name="My Insight")
+        dashboard = Dashboard.objects.create(team=self.team, name="My Dashboard")
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Rolled out the new checkout",
+            scope=scope,
+            dashboard_item=insight,
+            dashboard=dashboard,
+        )
+
+        parent = dashboard if parent_kind == "dashboard" else insight
+        parent.deleted = True
+        parent.save()
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert annotation.id in {a["id"] for a in list_response.json()["results"]}
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{annotation.id}/")
+        assert retrieve_response.status_code == status.HTTP_200_OK
+
+        # The UI echoes both parent IDs back on every write, so editing and deleting have to tolerate
+        # the stale pointer to the now-deleted parent.
+        echoed_parents = {"dashboard_item": insight.id, "dashboard_id": dashboard.id}
+
+        edit_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"content": "Rolled back the new checkout", **echoed_parents},
+        )
+        assert edit_response.status_code == status.HTTP_200_OK
+        assert edit_response.json()["content"] == "Rolled back the new checkout"
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"deleted": True, **echoed_parents},
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert annotation.id not in {a["id"] for a in list_response.json()["results"]}
+
     def test_creating_annotation_with_nonexistent_insight_returns_400(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
@@ -673,6 +865,71 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_item"
         assert response.json()["code"] == "does_not_exist"
+
+    def _create_soft_deleted_parent(self, parent_kind: str) -> Insight | Dashboard:
+        name = f"Soft deleted {parent_kind}"
+        parent: Insight | Dashboard = (
+            Insight.objects.create(team=self.team, name=name)
+            if parent_kind == "insight"
+            else Dashboard.objects.create(team=self.team, name=name)
+        )
+        parent.deleted = True
+        parent.save()
+        return parent
+
+    @parameterized.expand(
+        [
+            ("insight_scope", "insight", Annotation.Scope.INSIGHT, "dashboard_item"),
+            ("dashboard_scope", "dashboard", Annotation.Scope.DASHBOARD, "dashboard_id"),
+            ("project_scope_insight_pointer", "insight", Annotation.Scope.PROJECT, "dashboard_item"),
+            ("project_scope_dashboard_pointer", "dashboard", Annotation.Scope.PROJECT, "dashboard_id"),
+        ]
+    )
+    def test_creating_an_annotation_pointing_at_a_soft_deleted_parent_returns_400(
+        self, _name: str, parent_kind: str, scope: str, attr: str
+    ) -> None:
+        parent = self._create_soft_deleted_parent(parent_kind)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Rolled out the new checkout",
+                "scope": scope,
+                "date_marker": "2024-01-01T00:00:00.000000Z",
+                attr: parent.id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+        assert parent.name not in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("insight", "dashboard_item"),
+            ("dashboard", "dashboard_id"),
+        ]
+    )
+    def test_repointing_an_annotation_at_an_unrelated_soft_deleted_parent_returns_400(
+        self, parent_kind: str, attr: str
+    ) -> None:
+        parent = self._create_soft_deleted_parent(parent_kind)
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Rolled out the new checkout",
+            scope=Annotation.Scope.PROJECT,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {attr: parent.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+        assert parent.name not in response.content.decode()
 
     def test_creating_annotation_with_insight_from_same_team(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My Insight")

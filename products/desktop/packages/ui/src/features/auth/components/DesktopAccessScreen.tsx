@@ -1,0 +1,370 @@
+import {
+  ArrowClockwise,
+  CaretDown,
+  Coins,
+  GameController,
+  HourglassMedium,
+  RocketLaunch,
+  SignOut,
+  WarningCircle,
+} from "@phosphor-icons/react";
+import type { DesktopAccess, OrgProjectsMap } from "@posthog/core/auth/schemas";
+import {
+  Button,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Field,
+  FieldLabel,
+} from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { track } from "@posthog/ui/shell/analytics";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import {
+  FIELD_CONTENT_CLASS,
+  FIELD_TRIGGER_CLASS,
+} from "@posthog/ui/styles/fieldTrigger";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+interface OrganizationOption {
+  id: string;
+  name: string;
+}
+
+interface ProjectOption {
+  id: number;
+  name: string;
+}
+
+const BLOCKED_CONTENT = {
+  startup_plan: {
+    icon: <RocketLaunch />,
+    title: "Desktop isn't available for this organization",
+    description:
+      "Organizations in the Startup or YC program can't use PostHog Desktop. Select another organization to continue.",
+  },
+  prepaid_credits: {
+    icon: <Coins />,
+    title: "Desktop isn't available with prepaid credits",
+    description:
+      "Organizations with pending or active prepaid credits can't use PostHog Desktop. Select another organization to continue. To discuss access, contact your PostHog account executive. If you don't have one, email sales@posthog.com.",
+  },
+} as const;
+
+// The server blocks with a null reason only while new sign-ups are paused. It sends no
+// dedicated reason, because older Desktop builds and the LLM gateway reject unknown reasons.
+const SIGNUPS_PAUSED_CONTENT = {
+  icon: <HourglassMedium />,
+  title: "Desktop sign-ups are paused",
+  description:
+    "Sorry, we aren't letting new accounts into PostHog Desktop at the moment. Not ideal, we know.",
+};
+
+const POSTHOG_GAMES_URL = "https://posthog.com/sparks-joy";
+
+function openGames(): void {
+  track(ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED, { link: "games" });
+  openExternalUrl(POSTHOG_GAMES_URL);
+}
+
+interface DesktopAccessScreenProps {
+  access: DesktopAccess;
+  orgProjectsMap: OrgProjectsMap;
+  currentOrgId: string | null;
+  currentProjectId: number | null;
+  isSwitching: boolean;
+  isRetrying: boolean;
+  isLoggingOut: boolean;
+  switchError: string | null;
+  onSelectOrganization: (organizationId: string) => void;
+  onSelectProject: (projectId: number) => void;
+  onRetry: () => void;
+  onLogout: () => void;
+  onOpenSupport: () => void;
+}
+
+export function DesktopAccessScreen({
+  access,
+  orgProjectsMap,
+  currentOrgId,
+  currentProjectId,
+  isSwitching,
+  isRetrying,
+  isLoggingOut,
+  switchError,
+  onSelectOrganization,
+  onSelectProject,
+  onRetry,
+  onLogout,
+  onOpenSupport,
+}: DesktopAccessScreenProps) {
+  const [organizationOpen, setOrganizationOpen] = useState(false);
+  const [projectOpen, setProjectOpen] = useState(false);
+  const organizationAnchorRef = useRef<HTMLButtonElement>(null);
+  const projectAnchorRef = useRef<HTMLButtonElement>(null);
+
+  const organizations = useMemo<OrganizationOption[]>(
+    () =>
+      Object.entries(orgProjectsMap)
+        .map(([id, organization]) => ({ id, name: organization.orgName }))
+        .sort((first, second) => first.name.localeCompare(second.name)),
+    [orgProjectsMap],
+  );
+  const projects = useMemo<ProjectOption[]>(
+    () =>
+      (currentOrgId
+        ? (orgProjectsMap[currentOrgId]?.projects ?? [])
+        : []
+      ).toSorted((first, second) => first.name.localeCompare(second.name)),
+    [currentOrgId, orgProjectsMap],
+  );
+  const selectedOrganization =
+    organizations.find((organization) => organization.id === currentOrgId) ??
+    null;
+  const selectedProject =
+    projects.find((project) => project.id === currentProjectId) ?? null;
+  const controlsDisabled = isSwitching || access.status === "checking";
+
+  useEffect(() => {
+    if (access.status !== "blocked" && access.status !== "error") return;
+    track(ANALYTICS_EVENTS.DESKTOP_ACCESS_SCREEN_SHOWN, {
+      status: access.status,
+      reason: access.reason,
+    });
+  }, [access.status, access.reason]);
+
+  const blockedContent = access.reason
+    ? BLOCKED_CONTENT[access.reason]
+    : SIGNUPS_PAUSED_CONTENT;
+  const isTechnicalError = access.status === "error";
+  const icon = isTechnicalError ? <WarningCircle /> : blockedContent?.icon;
+  const title = isTechnicalError
+    ? "Couldn't check Desktop access"
+    : blockedContent?.title;
+  const description = isTechnicalError
+    ? "Try again, or select another organization or project."
+    : blockedContent?.description;
+  const isSignupsPaused = access.status === "blocked" && !access.reason;
+
+  const footerRight = (
+    <Button
+      variant="link-muted"
+      size="sm"
+      loading={isLoggingOut}
+      disabled={isLoggingOut || isSwitching || isRetrying}
+      onClick={onLogout}
+      data-attr="desktop-access-logout"
+    >
+      <SignOut />
+      Log out
+    </Button>
+  );
+
+  return (
+    <FullScreenLayout footerRight={footerRight} onOpenSupport={onOpenSupport}>
+      <div className="h-full overflow-y-auto px-8 py-20">
+        <div className="flex min-h-full items-center justify-center">
+          <Empty className="w-full max-w-xl">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">{icon}</EmptyMedia>
+              <EmptyTitle>{title}</EmptyTitle>
+              <EmptyDescription
+                className={
+                  isSignupsPaused ? "text-destructive-foreground" : undefined
+                }
+              >
+                {isSignupsPaused && (
+                  <WarningCircle
+                    aria-hidden="true"
+                    className="mr-1 inline-block align-text-bottom"
+                  />
+                )}
+                {description}
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent className="w-full max-w-md gap-4">
+              {isSignupsPaused && (
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  onClick={openGames}
+                  data-attr="desktop-access-games"
+                >
+                  <GameController />
+                  Play a hedgehog game instead
+                </Button>
+              )}
+
+              <div className="flex w-full flex-col gap-4">
+                <Field className="min-w-0">
+                  <FieldLabel htmlFor="desktop-access-organization">
+                    Organization
+                  </FieldLabel>
+                  <Combobox<OrganizationOption>
+                    items={organizations}
+                    value={selectedOrganization}
+                    onValueChange={(value) => {
+                      if (value && value.id !== currentOrgId) {
+                        onSelectOrganization(value.id);
+                      }
+                      setOrganizationOpen(false);
+                    }}
+                    open={organizationOpen}
+                    onOpenChange={setOrganizationOpen}
+                    itemToStringLabel={(organization) => organization.name}
+                    itemToStringValue={(organization) => organization.id}
+                    disabled={controlsDisabled}
+                  >
+                    <ComboboxTrigger
+                      nativeButton
+                      render={
+                        <button
+                          ref={organizationAnchorRef}
+                          id="desktop-access-organization"
+                          type="button"
+                          className={FIELD_TRIGGER_CLASS}
+                          data-attr="desktop-access-organization-switcher"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-left">
+                            {selectedOrganization?.name ??
+                              "Select organization"}
+                          </span>
+                          {isSwitching ? (
+                            <Spinner />
+                          ) : (
+                            <CaretDown
+                              size={14}
+                              className="shrink-0 text-muted"
+                            />
+                          )}
+                        </button>
+                      }
+                    />
+                    <ComboboxContent
+                      anchor={organizationAnchorRef}
+                      side="bottom"
+                      align="start"
+                      sideOffset={4}
+                      className={FIELD_CONTENT_CLASS}
+                    >
+                      <ComboboxInput
+                        placeholder="Search organizations..."
+                        showTrigger={false}
+                      />
+                      <ComboboxEmpty>No organizations found.</ComboboxEmpty>
+                      <ComboboxList>
+                        {(organization: OrganizationOption) => (
+                          <ComboboxItem
+                            key={organization.id}
+                            value={organization}
+                          >
+                            {organization.name}
+                          </ComboboxItem>
+                        )}
+                      </ComboboxList>
+                    </ComboboxContent>
+                  </Combobox>
+                </Field>
+
+                <Field className="min-w-0">
+                  <FieldLabel htmlFor="desktop-access-project">
+                    Project
+                  </FieldLabel>
+                  <Combobox<ProjectOption>
+                    items={projects}
+                    value={selectedProject}
+                    onValueChange={(value) => {
+                      if (value && value.id !== currentProjectId) {
+                        onSelectProject(value.id);
+                      }
+                      setProjectOpen(false);
+                    }}
+                    open={projectOpen}
+                    onOpenChange={setProjectOpen}
+                    itemToStringLabel={(project) => project.name}
+                    itemToStringValue={(project) => String(project.id)}
+                    disabled={controlsDisabled}
+                  >
+                    <ComboboxTrigger
+                      nativeButton
+                      render={
+                        <button
+                          ref={projectAnchorRef}
+                          id="desktop-access-project"
+                          type="button"
+                          className={FIELD_TRIGGER_CLASS}
+                          data-attr="desktop-access-project-switcher"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-left">
+                            {selectedProject?.name ?? "Select project"}
+                          </span>
+                          {isSwitching ? (
+                            <Spinner />
+                          ) : (
+                            <CaretDown
+                              size={14}
+                              className="shrink-0 text-muted"
+                            />
+                          )}
+                        </button>
+                      }
+                    />
+                    <ComboboxContent
+                      anchor={projectAnchorRef}
+                      side="bottom"
+                      align="start"
+                      sideOffset={4}
+                      className={FIELD_CONTENT_CLASS}
+                    >
+                      <ComboboxInput
+                        placeholder="Search projects..."
+                        showTrigger={false}
+                      />
+                      <ComboboxEmpty>No projects found.</ComboboxEmpty>
+                      <ComboboxList>
+                        {(project: ProjectOption) => (
+                          <ComboboxItem key={project.id} value={project}>
+                            {project.name}
+                          </ComboboxItem>
+                        )}
+                      </ComboboxList>
+                    </ComboboxContent>
+                  </Combobox>
+                </Field>
+              </div>
+
+              {switchError && (
+                <p role="alert" className="text-destructive text-sm">
+                  {switchError}
+                </p>
+              )}
+
+              <Button
+                variant={isSignupsPaused ? "outline" : "primary"}
+                loading={isRetrying}
+                disabled={isRetrying || isSwitching}
+                onClick={onRetry}
+                data-attr="desktop-access-retry"
+              >
+                <ArrowClockwise />
+                {isTechnicalError ? "Try again" : "Check again"}
+              </Button>
+            </EmptyContent>
+          </Empty>
+        </div>
+      </div>
+    </FullScreenLayout>
+  );
+}

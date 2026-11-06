@@ -1,10 +1,16 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import * as takeOwnership from 'lib/components/openTakeOwnershipDialog'
+import { urls } from 'scenes/urls'
 
 import { AlertState } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
+
+import * as generatedApi from 'products/alerts/frontend/generated/api'
 
 import { AlertType } from '../types'
 import { alertsLogic } from './alertsLogic'
@@ -41,8 +47,53 @@ describe('alertsLogic', () => {
         updateSpy?.mockRestore()
     })
 
-    it('deletes an alert and reloads the list', async () => {
+    it('keeps the creator filter and URL in sync', async () => {
+        router.actions.push(
+            urls.alerts(),
+            { tab: 'insights', alert_id: alert.id, created_by: 'creator-from-link' },
+            { section: 'alerts' }
+        )
+        const logic = alertsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(listSpy).toHaveBeenCalledTimes(1)
+        expect(hogFunctionsListSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.filters.createdBy).toEqual('creator-from-link')
+        expect(listSpy).toHaveBeenLastCalledWith(
+            undefined,
+            expect.objectContaining({ created_by: 'creator-from-link' })
+        )
+
+        await expectLogic(logic, () => logic.actions.setFilters({ createdBy: 'creator-1' })).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({
+            tab: 'insights',
+            alert_id: alert.id,
+            created_by: 'creator-1',
+        })
+        expect(router.values.hashParams).toEqual({ section: 'alerts' })
+        expect(listSpy).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ created_by: 'creator-1' }))
+
+        await expectLogic(logic, () => logic.actions.setFilters({ createdBy: 'All users' })).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({ tab: 'insights', alert_id: alert.id })
+        expect(listSpy.mock.lastCall?.[1]).not.toHaveProperty('created_by')
+
+        await expectLogic(logic, () => router.actions.push(urls.alerts(), { created_by: 'creator-2' }))
+            .toFinishAllListeners()
+            .toMatchValues({ filters: { search: '', createdBy: 'creator-2' } })
+
+        await expectLogic(logic, () => router.actions.push(urls.alerts()))
+            .toFinishAllListeners()
+            .toMatchValues({ filters: { search: '', createdBy: 'All users' } })
+        logic.unmount()
+    })
+
+    it('keeps a deleted alert out of a reloaded list', async () => {
         deleteSpy = jest.spyOn(api.alerts, 'delete').mockResolvedValue()
+        const nextAlert = { ...alert, id: 'alert-2', name: 'Newer alert' }
+        listSpy.mockReset()
+        listSpy
+            .mockResolvedValueOnce({ results: [alert], count: 1 })
+            .mockResolvedValueOnce({ results: [alert, nextAlert], count: 2 })
 
         const logic = alertsLogic()
         logic.mount()
@@ -52,6 +103,7 @@ describe('alertsLogic', () => {
 
         expect(deleteSpy).toHaveBeenCalledWith(alert.id)
         expect(listSpy).toHaveBeenCalledTimes(2)
+        expect(logic.values.alertsResponse).toEqual({ results: [nextAlert], count: 1 })
 
         logic.unmount()
     })
@@ -73,6 +125,38 @@ describe('alertsLogic', () => {
         resolveDelete()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ deletingAlertIds: new Set() })
+        logic.unmount()
+    })
+
+    it('offers to take ownership when enabling is refused for the owner, then reloads', async () => {
+        updateSpy = jest
+            .spyOn(api.alerts, 'update')
+            .mockRejectedValue(new ApiError('refused', 400, undefined, { code: 'owner_lost_access' }))
+        const takeSpy = jest.spyOn(generatedApi, 'alertsTakeOwnershipCreate').mockResolvedValue({} as any)
+        const dialogSpy = jest
+            .spyOn(takeOwnership, 'openTakeOwnershipDialog')
+            .mockImplementation(async ({ takeOwnership: take }) => {
+                await take()
+                return true
+            })
+
+        const logic = alertsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        listSpy.mockClear()
+
+        logic.actions.toggleAlertEnabled({ ...alert, enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dialogSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ resourceLabel: 'alert', resourceId: alert.id, cause: 'lost_access' })
+        )
+        expect(takeSpy).toHaveBeenCalledWith(expect.any(String), alert.id)
+        expect(listSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.togglingAlertIds).toEqual(new Set())
+
+        takeSpy.mockRestore()
+        dialogSpy.mockRestore()
         logic.unmount()
     })
 

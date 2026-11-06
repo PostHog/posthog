@@ -6,7 +6,7 @@ import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'
 import { useScrollSync } from 'lib/components/heatmaps/useScrollSync'
 import { cn } from 'lib/utils/css-classes'
 
-import { HeatmapElement } from '~/toolbar/types'
+import { HeatmapElement } from '~/toolbar/shared/types'
 
 export const scrollDepthColor = (count: number, maxCount: number, heatmapColorPalette: string | null): string => {
     const value = 1 - count / maxCount
@@ -89,9 +89,9 @@ function ScrollDepthMouseInfo({
 }): JSX.Element | null {
     const { heatmapElements, rawHeatmapLoading } = useValues(heatmapDataLogic({ context, exportToken }))
 
-    const { y: mouseY } = useMousePosition()
+    const mouseY = useMousePosition()?.y
 
-    if (!mouseY) {
+    if (mouseY === undefined) {
         return null
     }
 

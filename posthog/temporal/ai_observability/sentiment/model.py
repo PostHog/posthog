@@ -29,6 +29,8 @@ from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 logger = structlog.get_logger(__name__)
 
 _model_lock = threading.Lock()
+# The Rust fast tokenizer is not thread-safe, and asyncio.to_thread callers share one pipeline.
+_inference_lock = threading.Lock()
 _pipeline_cache: dict[str, Any] = {}
 
 
@@ -111,5 +113,6 @@ def classify(texts: list[str]) -> list[SentimentResult]:
 
     pipe = _load_pipeline()
     # Pipeline with top_k=None returns list of list[dict] for batch input
-    batch_results = pipe(texts, batch_size=CLASSIFY_BATCH_SIZE)
+    with _inference_lock:
+        batch_results = pipe(texts, batch_size=CLASSIFY_BATCH_SIZE)
     return [_parse_single_result(result) for result in batch_results]

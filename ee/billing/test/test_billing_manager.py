@@ -1,11 +1,15 @@
+import copy
 import hmac
 import json
 import math
 import hashlib
 import datetime
+from email.message import Message
 from types import SimpleNamespace
 from typing import Any, cast
+from urllib.request import Request as UrllibRequest
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -17,19 +21,32 @@ from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+
+from products.logs.backend.models import LogsRetentionRule
 
 from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
     BillingManager,
+    BillingServiceRateLimited,
+    BillingServiceResponseError,
+    FundingStatusUnavailable,
+    OrganizationFundingStatus,
+    OrganizationHasNoOwnerError,
+    PrepaidCreditState,
     _get_user_organization_role,
+    _parse_funding_status,
     build_billing_token,
+    handle_billing_service_error,
+    http_session,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 from ee.models.license import License, LicenseManager
 
 
@@ -58,9 +75,63 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
     return data
 
 
+class TestFundingStatusParsing(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "normal",
+                {"startup_program_label": None, "prepaid_credit_state": "none"},
+                OrganizationFundingStatus(
+                    startup_program_label=None,
+                    prepaid_credit_state=PrepaidCreditState.NONE,
+                ),
+            ),
+            (
+                "startup_active",
+                {"startup_program_label": "Startup", "prepaid_credit_state": "active"},
+                OrganizationFundingStatus(
+                    startup_program_label="Startup",
+                    prepaid_credit_state=PrepaidCreditState.ACTIVE,
+                ),
+            ),
+            (
+                "yc_expired",
+                {"startup_program_label": "YC", "prepaid_credit_state": "expired"},
+                OrganizationFundingStatus(
+                    startup_program_label="YC",
+                    prepaid_credit_state=PrepaidCreditState.EXPIRED,
+                ),
+            ),
+        ]
+    )
+    def test_parses_funding_status(
+        self, _name: str, payload: dict[str, str | None], expected: OrganizationFundingStatus
+    ) -> None:
+        self.assertEqual(_parse_funding_status(payload), expected)
+
+    @parameterized.expand(
+        [
+            ("not_an_object", []),
+            (
+                "invalid_program_label",
+                {"startup_program_label": "Growth", "prepaid_credit_state": "none"},
+            ),
+            ("missing_program_label", {"prepaid_credit_state": "none"}),
+            ("missing_credit_state", {"startup_program_label": None}),
+            (
+                "invalid_credit_state",
+                {"startup_program_label": None, "prepaid_credit_state": "paid"},
+            ),
+        ]
+    )
+    def test_rejects_invalid_funding_status(self, _name: str, payload: object) -> None:
+        with self.assertRaises(FundingStatusUnavailable):
+            _parse_funding_status(payload)
+
+
 class TestBillingManager(BaseTest):
     @patch(
-        "ee.billing.billing_manager.requests.get",
+        "ee.billing.billing_manager.http_session.get",
         return_value=MagicMock(
             status_code=200, json=MagicMock(return_value={"products": create_default_products_response()})
         ),
@@ -74,6 +145,41 @@ class TestBillingManager(BaseTest):
         billing_patch_request_mock.assert_called_with(
             "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
         )
+
+    def test_get_billing_adds_todays_usage_to_usage_summary(self):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        self.organization.usage = {
+            "posthog_code_token_credits": {"usage": 1200, "todays_usage": 34, "limit": None},
+            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+        }
+        manager = BillingManager(license)
+        billing_response = {
+            "customer": {
+                "products": [],
+                "usage_summary": {
+                    "posthog_code_token_credits": {"usage": 1200, "limit": None},
+                    "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+                },
+            }
+        }
+
+        with (
+            patch.object(manager, "_get_billing", return_value=billing_response),
+            patch.object(manager, "update_org_details"),
+            patch.object(manager, "get_default_products", return_value={"products": []}),
+        ):
+            response = manager.get_billing(self.organization)
+
+        assert response["usage_summary"]["posthog_code_token_credits"] == {
+            "usage": 1200,
+            "limit": None,
+            "todays_usage": 34,
+        }
+        assert response["usage_summary"]["period"] == ["2022-10-07T11:12:48", "2022-11-07T11:12:48"]
 
     @parameterized.expand(
         [
@@ -94,8 +200,82 @@ class TestBillingManager(BaseTest):
         if expect_header:
             assert headers["X-PostHog-Actor-IP"] == ip_address
 
+    @patch("ee.billing.billing_manager.BILLING_SERVICE_URL", "https://billing.posthog.com")
+    @patch("ee.billing.billing_manager.cache")
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_get_funding_status_uses_organization_scoped_billing_token(
+        self, mock_get: MagicMock, mock_cache: MagicMock
+    ) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        payload = {"startup_program_label": None, "prepaid_credit_state": "none"}
+        mock_cache.get.return_value = None
+        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value=payload))
+
+        result = BillingManager(license, self.user).get_funding_status(self.organization)
+
+        assert result == OrganizationFundingStatus(
+            startup_program_label=None,
+            prepaid_credit_state=PrepaidCreditState.NONE,
+        )
+        mock_get.assert_called_once()
+        call = mock_get.call_args
+        assert call.args[0] == "https://billing.posthog.com/api/billing/funding-status/"
+        assert call.kwargs["headers"]["Authorization"].startswith("Bearer ")
+        assert call.kwargs["timeout"] == 5
+        mock_cache.set.assert_called_once_with(
+            f"organization_funding_status:{self.organization.id}", payload, timeout=30
+        )
+
+    @patch("ee.billing.billing_manager.cache")
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_get_funding_status_uses_cached_value(self, mock_get: MagicMock, mock_cache: MagicMock) -> None:
+        mock_cache.get.return_value = {"startup_program_label": "YC", "prepaid_credit_state": "expired"}
+
+        result = BillingManager(MagicMock(), self.user).get_funding_status(self.organization)
+
+        assert result == OrganizationFundingStatus(
+            startup_program_label="YC",
+            prepaid_credit_state=PrepaidCreditState.EXPIRED,
+        )
+        mock_get.assert_not_called()
+
+    @patch("ee.billing.billing_manager.cache")
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_get_funding_status_ignores_cache_failure(self, mock_get: MagicMock, mock_cache: MagicMock) -> None:
+        payload = {"startup_program_label": None, "prepaid_credit_state": "active"}
+        mock_cache.get.side_effect = RuntimeError("cache unavailable")
+        mock_cache.set.side_effect = RuntimeError("cache unavailable")
+        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value=payload))
+
+        manager = BillingManager(MagicMock(), self.user)
+        with patch.object(manager, "get_auth_headers", return_value={}):
+            result = manager.get_funding_status(self.organization)
+
+        assert result.prepaid_credit_state == PrepaidCreditState.ACTIVE
+
+    @patch("ee.billing.billing_manager.cache")
+    @patch("ee.billing.billing_manager.http_session.get", side_effect=requests.Timeout)
+    def test_get_funding_status_caches_billing_failure(self, mock_get: MagicMock, mock_cache: MagicMock) -> None:
+        cached_values: list[object | None] = [None]
+        mock_cache.get.side_effect = lambda _key: cached_values[-1]
+        mock_cache.set.side_effect = lambda _key, value, timeout: cached_values.append(value)
+
+        manager = BillingManager(MagicMock(), self.user)
+        with patch.object(manager, "get_auth_headers", return_value={}):
+            with self.assertRaises(FundingStatusUnavailable):
+                manager.get_funding_status(self.organization)
+            with self.assertRaises(FundingStatusUnavailable):
+                manager.get_funding_status(self.organization)
+
+        mock_get.assert_called_once()
+        assert mock_cache.set.call_args.kwargs["timeout"] == 5
+
     @patch(
-        "ee.billing.billing_manager.requests.patch",
+        "ee.billing.billing_manager.http_session.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
     )
     def test_update_billing_organization_users(self, billing_patch_request_mock: MagicMock):
@@ -123,7 +303,7 @@ class TestBillingManager(BaseTest):
         ]
 
     @patch(
-        "ee.billing.billing_manager.requests.patch",
+        "ee.billing.billing_manager.http_session.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
     )
     def test_update_billing_organization_users_with_multiple_members(self, billing_patch_request_mock: MagicMock):
@@ -227,6 +407,7 @@ class TestBillingManager(BaseTest):
                     "feature_flag_requests": {"usage": 25, "limit": 300},
                     "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
                     "llm_events": {"usage": 50, "limit": 1000},
+                    "mcp_events": {"usage": 30, "limit": 500},
                     "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
                     "survey_responses": {"usage": 10, "limit": 100},
                     "cdp_trigger_events": {"usage": 10, "limit": 100},
@@ -264,8 +445,10 @@ class TestBillingManager(BaseTest):
             "rows_exported": {"usage": 10, "limit": 1000, "todays_usage": 5},
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
+            "mcp_events": {"usage": 30, "limit": 500, "todays_usage": 0},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "signals_credits": {},
+            "signals_spend_credits": {},
             "replay_vision_credits": {},
             "posthog_code_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
@@ -398,13 +581,19 @@ class TestBillingManager(BaseTest):
         ]
         assert self.team.logs_settings == {"retention_days": 30}
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_update_available_product_features_resets_revoked_logs_retention(self, mock_get: MagicMock):
         organization = self.organization
         organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
         organization.save()
         self.team.logs_settings = {"retention_days": 30}
         self.team.save()
+        rule = LogsRetentionRule.objects.create(
+            team=self.team,
+            name="keep api logs",
+            enabled=True,
+            config={"retention_days": 90, "filter_group": {"type": "AND", "values": []}},
+        )
 
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
@@ -424,8 +613,12 @@ class TestBillingManager(BaseTest):
         self.team.refresh_from_db()
         assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
         assert self.team.logs_settings == {"retention_days": 14}
+        rule.refresh_from_db()
+        assert rule.config == {"retention_days": 14, "filter_group": {"type": "AND", "values": []}}
+        assert rule.enabled is True
+        assert rule.version == 2
 
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_update_available_product_features_reconciles_events_retention(self, mock_get: MagicMock):
         organization = self.organization
         Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)
@@ -525,7 +718,7 @@ class TestBillingManager(BaseTest):
         assert organization.customer_trust_scores == {"events": 7}
 
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.http_session.post",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"success": True})),
     )
     def test_deauthorize_calls_billing_service(self, billing_post_request_mock: MagicMock):
@@ -547,7 +740,7 @@ class TestBillingManager(BaseTest):
         assert "Authorization" in call_args[1]["headers"]
 
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.http_session.post",
         return_value=MagicMock(
             status_code=400,
             json=MagicMock(return_value={"error": "Customer billing provider mismatch"}),
@@ -568,7 +761,7 @@ class TestBillingManager(BaseTest):
         assert "400" in str(context.exception)
 
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.http_session.post",
         return_value=MagicMock(
             status_code=404,
             json=MagicMock(return_value={"detail": "Not found."}),
@@ -588,7 +781,7 @@ class TestBillingManager(BaseTest):
         assert "404" in str(context.exception)
 
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.http_session.post",
         return_value=MagicMock(
             status_code=409,
             json=MagicMock(
@@ -616,7 +809,7 @@ class TestBillingManager(BaseTest):
         assert "unpaid invoice" in str(context.exception)
 
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.http_session.post",
         return_value=MagicMock(
             status_code=409,
             json=MagicMock(side_effect=requests.JSONDecodeError("", "", 0)),
@@ -640,7 +833,7 @@ class TestBillingManager(BaseTest):
         assert "409" in str(context.exception)
 
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.http_session.post",
         return_value=MagicMock(
             status_code=409,
             json=MagicMock(return_value={"code": "some_other_error", "error_message": "Something else"}),
@@ -664,7 +857,7 @@ class TestBillingManager(BaseTest):
         assert "409" in str(context.exception)
 
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.http_session.post",
         return_value=MagicMock(
             status_code=409,
             json=MagicMock(return_value={"code": "open_invoices_error"}),
@@ -685,16 +878,332 @@ class TestBillingManager(BaseTest):
 
         assert "Open invoices must be resolved first" in str(context.exception)
 
+    def test_update_org_details_persists_has_active_subscription(self):
+        organization = self.organization
+        billing_status = {
+            "customer": {
+                "has_active_subscription": False,
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+        assert organization.has_active_subscription is False
+
+    def test_update_org_details_missing_key_keeps_existing_has_active_subscription(self):
+        organization = self.organization
+        organization.has_active_subscription = False
+        organization.save()
+        billing_status = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+        assert organization.has_active_subscription is False
+
+    @parameterized.expand(
+        [
+            ("downgrade", True, False),
+            ("upgrade", False, True),
+        ]
+    )
+    def test_update_org_details_syncs_has_active_subscription_transition(self, _name, before, after):
+        organization = self.organization
+        organization.has_active_subscription = before
+        organization.save()
+        billing_status = {
+            "customer": {
+                "has_active_subscription": after,
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+        assert organization.has_active_subscription is after
+
+    @parameterized.expand(
+        [
+            ("active_trial_counts_as_paid", "2027-01-01T00:00:00Z", True),
+            ("expired_trial_counts_as_free", "2026-01-01T00:00:00Z", False),
+            ("naive_timestamp_treated_as_utc", "2027-01-01T00:00:00", True),
+        ]
+    )
+    def test_update_org_details_trial_handling(self, _name, free_trial_until, expected):
+        organization = self.organization
+        billing_status = {
+            "customer": {
+                "has_active_subscription": False,
+                "free_trial_until": free_trial_until,
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        with time_machine.travel("2026-08-13", tick=False):
+            BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+        assert organization.has_active_subscription is expected
+
+    def _billing_status(
+        self,
+        computed_at: str | None,
+        events_usage: int,
+        *,
+        events_limit: int | None = None,
+        latest_usage_report_date: str = "2026-08-02",
+    ) -> BillingStatus:
+        billing_status: dict[str, Any] = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": events_usage, "limit": events_limit},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        if computed_at:
+            billing_status["computed_at"] = computed_at
+            billing_status["latest_usage_report_date"] = latest_usage_report_date
+        return cast(BillingStatus, billing_status)
+
+    @time_machine.travel("2026-08-03T04:00:00Z", tick=False)
+    def test_status_after_a_report_keeps_todays_count_in_the_quota_check(self):
+        self.organization.usage = {
+            "events": {
+                "usage": 500,
+                "limit": 1000,
+                "todays_usage": 400,
+                "daily_usage": {"2026-08-02": 200, "2026-08-03": 400},
+            },
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+            "billing_status_computed_at": "2026-08-02T04:00:00+00:00",
+            "billing_latest_usage_report_date": "2026-08-01",
+        }
+        self.organization.save()
+
+        # Billing's total now includes 2026-08-02, but not today.
+        BillingManager(license=None).update_org_details(
+            self.organization,
+            self._billing_status("2026-08-03T04:00:00Z", events_usage=700, events_limit=1000),
+        )
+
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    @parameterized.expand(
+        [
+            ("newer_status_applies", "2026-08-03T00:00:00Z", 1000, "2026-08-03T00:00:00+00:00", "2026-08-02"),
+            ("redelivered_status_applies", "2026-08-02T00:00:00Z", 1000, "2026-08-02T00:00:00+00:00", "2026-08-02"),
+            ("older_status_is_skipped", "2026-08-01T00:00:00Z", 500, "2026-08-02T00:00:00+00:00", None),
+            ("status_without_stamp_applies_and_drops_the_stamps", None, 1000, None, None),
+        ]
+    )
+    def test_update_org_details_skips_a_status_older_than_the_last_applied(
+        self, _name, status_computed_at, expected_events_usage, expected_computed_at, expected_report_date
+    ):
+        organization = self.organization
+        organization.usage = {
+            "events": {"usage": 500, "limit": None, "todays_usage": 0},
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+            "billing_status_computed_at": "2026-08-02T00:00:00+00:00",
+        }
+        organization.save()
+
+        BillingManager(license=None).update_org_details(
+            organization, self._billing_status(status_computed_at, events_usage=1000)
+        )
+
+        organization.refresh_from_db()
+        assert organization.usage is not None
+        assert organization.usage["events"]["usage"] == expected_events_usage
+        assert organization.usage.get("billing_status_computed_at") == expected_computed_at
+        assert organization.usage.get("billing_latest_usage_report_date") == expected_report_date
+
+    def test_update_org_details_writes_nothing_for_a_status_that_changes_only_the_stamp(self):
+        manager = BillingManager(license=None)
+        manager.update_org_details(self.organization, self._billing_status("2026-08-02T00:00:00Z", events_usage=1000))
+        assert self.organization.usage is not None
+        usage_written_by_quota_run = copy.deepcopy(self.organization.usage)
+        usage_written_by_quota_run["events"]["todays_usage"] = 25
+        Organization.objects.filter(id=self.organization.id).update(usage=usage_written_by_quota_run)
+
+        with patch("ee.billing.billing_manager.update_org_billing_quotas") as update_org_billing_quotas:
+            manager.update_org_details(
+                self.organization, self._billing_status("2026-08-03T00:00:00Z", events_usage=1000)
+            )
+
+        update_org_billing_quotas.assert_not_called()
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["events"]["todays_usage"] == 25
+
+    @parameterized.expand(
+        [
+            ("activate_trial", {"type": "autosubscribe", "target": "boost"}, 6, None),
+            ("cancel_trial", {}, None, 6),
+            ("switch_plan", {"from_product_key": "boost", "to_product_key": "scale"}, 6, None),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_plan_change_skips_a_status_queued_before_it(
+        self,
+        manager_method: str,
+        data: dict[str, Any],
+        limit_before: int | None,
+        limit_after: int | None,
+        mock_post: MagicMock,
+        mock_get: MagicMock,
+    ):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        def features(projects_limit: int | None) -> list[dict[str, Any]]:
+            return [{"key": "organizations_projects", "name": "Projects", "limit": projects_limit}]
+
+        def status(computed_at: str, projects_limit: int | None) -> BillingStatus:
+            billing_status = cast(dict[str, Any], self._billing_status(computed_at, events_usage=500))
+            billing_status["customer"]["available_product_features"] = features(projects_limit)
+            return cast(BillingStatus, billing_status)
+
+        organization = self.organization
+        organization.usage = {
+            "events": {"usage": 500, "limit": None, "todays_usage": 0},
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+        }
+        organization.available_product_features = features(limit_before)
+        organization.save()
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {}
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = status("2026-08-03T00:00:00Z", projects_limit=limit_after)
+
+        manager = BillingManager(license)
+        getattr(manager, manager_method)(organization, data)
+        manager.update_org_details(organization, status("2026-08-02T00:00:00Z", projects_limit=limit_before))
+
+        organization.refresh_from_db()
+        assert organization.available_product_features == features(limit_after)
+        assert organization.usage is not None
+        assert organization.usage["billing_status_computed_at"] == "2026-08-03T00:00:00+00:00"
+
+
+class TestBillingSession(SimpleTestCase):
+    def test_the_session_keeps_no_cookies(self):
+        # Every call to billing is server-to-server and carries a bearer token for one
+        # organization. A cookie set on one response must not ride along on the next request,
+        # which would be another organization's.
+        self.addCleanup(http_session.cookies.clear)
+        headers = Message()
+        headers["Set-Cookie"] = "sessionid=abc123; Path=/"
+        response = SimpleNamespace(info=lambda: headers)
+        http_session.cookies.extract_cookies(
+            cast(Any, response), UrllibRequest("https://billing.example/api/v2/billing/subscription/")
+        )
+
+        self.assertEqual(len(http_session.cookies), 0)
+
+
+def _response(status_code: int, headers: dict[str, str] | None = None, body: Any = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response.headers.update(headers or {})
+    response._content = b"" if body is None else json.dumps(body).encode()
+    response.raw = MagicMock()
+    return response
+
+
+class TestHandleBillingServiceError(SimpleTestCase):
+    def test_handle_billing_service_error_raises_rate_limited_on_429(self):
+        res = _response(429, headers={"Retry-After": "30"}, body={"detail": "x"})
+
+        with self.assertRaises(BillingServiceRateLimited) as context:
+            handle_billing_service_error(res)
+
+        assert context.exception.status_code == 429
+        assert context.exception.wait == 30
+        assert context.exception.args == ()
+
+    def test_rate_limited_response_is_closed(self):
+        res = _response(429, headers={"Retry-After": "30"})
+
+        with patch.object(res, "close", wraps=res.close) as close, self.assertRaises(BillingServiceRateLimited):
+            handle_billing_service_error(res)
+
+        close.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("not_a_number", {"Retry-After": "soon"}),
+            ("nan", {"Retry-After": "nan"}),
+            ("negative", {"Retry-After": "-5"}),
+        ]
+    )
+    def test_rate_limited_without_retry_after_has_no_wait(self, _name, headers):
+        with self.assertRaises(BillingServiceRateLimited) as context:
+            handle_billing_service_error(_response(429, headers=headers))
+
+        assert context.exception.wait is None
+
+    def test_other_bad_statuses_still_raise_response_error(self):
+        res = _response(500, body={"detail": "boom"})
+
+        with self.assertRaises(BillingServiceResponseError) as context:
+            handle_billing_service_error(res)
+
+        assert context.exception.status_code == 500
+        assert context.exception.body == {"detail": "boom"}
+
 
 class TestBillingProviderWebhookSigning(SimpleTestCase):
     def setUp(self):
         self.license = SimpleNamespace(key="license_id::license_secret")
         self.organization = cast(Organization, SimpleNamespace(id="org_123", name="Test Org"))
+        self.enterContext(patch("ee.billing.billing_manager.get_billing_lock_partner", return_value=None))
 
     @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
     @patch("ee.billing.billing_manager.time.time", return_value=1700000000)
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.http_session.post",
         return_value=MagicMock(status_code=200, ok=True, text="", json=MagicMock(return_value={"status": "ok"})),
     )
     def test_handle_billing_provider_webhook_signs_forwarded_body(
@@ -731,7 +1240,7 @@ class TestBillingProviderWebhookSigning(SimpleTestCase):
         assert "Authorization" in call_kwargs["headers"]
 
     @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="")
-    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.http_session.post")
     def test_handle_billing_provider_webhook_requires_signature_secret(self, billing_post_request_mock: MagicMock):
         with self.assertRaises(ValueError) as context:
             BillingManager(self.license).handle_billing_provider_webhook(
@@ -752,7 +1261,7 @@ class TestBillingProviderWebhookSigning(SimpleTestCase):
         ]
     )
     @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
-    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.http_session.post")
     def test_handle_billing_provider_webhook_rejects_non_finite_numbers(
         self, _name: str, non_finite_number: float, billing_post_request_mock: MagicMock
     ):
@@ -788,6 +1297,7 @@ class TestBuildBillingToken(BaseTest):
         assert decoded["organization_name"] == self.organization.name
         assert decoded["aud"] == "posthog:license-key"
         assert "distinct_id" not in decoded
+        assert "email" not in decoded
         assert "organization_role" not in decoded
         assert "original_role" not in decoded
         # Only service-to-service tokens carry service_action; billing uses its absence
@@ -801,7 +1311,38 @@ class TestBuildBillingToken(BaseTest):
 
         assert decoded["service_action"] == "signals_pr_dispute"
         assert "distinct_id" not in decoded
+        assert "email" not in decoded
         assert "organization_role" not in decoded
+
+    @parameterized.expand([("paying_partner", True), ("no_partner", False)])
+    @patch("ee.billing.billing_manager.get_billing_lock_partner")
+    def test_build_billing_token_payer_partner_claim(
+        self, _name: str, has_partner: bool, mock_partner: MagicMock
+    ) -> None:
+        application = (
+            OAuthApplication.objects.create(
+                client_id="example-partner",
+                name="Example Partner",
+                client_secret="",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://partner.example.com/callback",
+                algorithm="RS256",
+                is_provisioning_partner=True,
+            )
+            if has_partner
+            else None
+        )
+        mock_partner.return_value = application
+
+        token = build_billing_token(self.license, self.organization)
+
+        mock_partner.assert_called_once_with(self.organization)
+        decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
+        if application is not None:
+            assert decoded["payer_partner_id"] == str(application.id)
+        else:
+            assert "payer_partner_id" not in decoded
 
     def test_build_billing_token_with_user_who_is_member(self):
         """Token with user should include distinct_id and organization_role as level display string"""
@@ -812,6 +1353,7 @@ class TestBuildBillingToken(BaseTest):
         assert decoded["id"] == "license_id"
         assert decoded["organization_id"] == str(self.organization.id)
         assert decoded["distinct_id"] == str(self.user.distinct_id)
+        assert decoded["email"] == self.user.email
         # organization_role should be a level display string (e.g., "member", "administrator", "owner")
         assert decoded["organization_role"] in ["member", "administrator", "owner"]
         assert "original_role" not in decoded
@@ -1032,7 +1574,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-    @patch("ee.billing.billing_manager.requests.patch")
+    @patch("ee.billing.billing_manager.http_session.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_uses_owner_as_authorizer_actor(self, mock_capture, mock_patch):
         """
@@ -1087,7 +1629,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         assert capture_kwargs["properties"]["target_email"] == member.email
         assert capture_kwargs["properties"]["action"] == "update_billing"
 
-    @patch("ee.billing.billing_manager.requests.patch")
+    @patch("ee.billing.billing_manager.http_session.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_no_escalation_when_user_is_owner(self, mock_capture, mock_patch):
         """
@@ -1125,7 +1667,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         # No privilege escalation capture should occur
         mock_capture.assert_not_called()
 
-    @patch("ee.billing.billing_manager.requests.patch")
+    @patch("ee.billing.billing_manager.http_session.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_uses_most_recent_owner(self, mock_capture, mock_patch):
         """
@@ -1172,7 +1714,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         assert capture_kwargs["properties"]["target_distinct_id"] == str(member.distinct_id)
         assert capture_kwargs["properties"]["target_email"] == member.email
 
-    @patch("ee.billing.billing_manager.requests.patch")
+    @patch("ee.billing.billing_manager.http_session.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_admin_gets_escalated_to_owner(self, mock_capture, mock_patch):
         """
@@ -1216,7 +1758,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         assert capture_kwargs["properties"]["target_email"] == admin.email
 
     @patch("ee.billing.billing_manager.capture_exception")
-    @patch("ee.billing.billing_manager.requests.patch")
+    @patch("ee.billing.billing_manager.http_session.patch")
     def test_update_billing_org_users_no_owner_captures_exception(self, mock_patch, mock_capture_exception):
         """
         When organization has no owner, should capture exception and return early.
@@ -1234,10 +1776,118 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
 
         # Should capture exception about no owner
         mock_capture_exception.assert_called_once()
-        exception_call = mock_capture_exception.call_args
-        assert "No owner membership found" in str(exception_call[0][0])
+        exception, properties = mock_capture_exception.call_args[0]
+        assert str(exception) == "No owner membership found for organization"
+        assert properties == {"organization_id": self.organization.id}
 
-    @patch("ee.billing.billing_manager.requests.patch")
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, None, False),
+            ("not_found", 404, None, False),
+            ("server_error", 500, None, True),
+            ("connection_error", None, requests.ConnectionError("boom"), True),
+        ]
+    )
+    @patch("ee.billing.billing_manager.capture_exception")
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_update_billing_org_users_never_raises_and_captures_only_errors(
+        self, _name, status_code, side_effect, expect_capture, mock_patch, mock_capture_exception
+    ):
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        mock_patch.return_value = MagicMock(status_code=status_code, json=MagicMock(return_value={}))
+        mock_patch.side_effect = side_effect
+
+        BillingManager(self.license, user=self.user).update_billing_organization_users(self.organization)
+
+        mock_patch.assert_called_once()
+        if expect_capture:
+            mock_capture_exception.assert_called_once()
+            assert mock_capture_exception.call_args[0][1] == {"organization_id": self.organization.id}
+        else:
+            mock_capture_exception.assert_not_called()
+
+    @parameterized.expand([("ok", 200), ("unauthorized", 401), ("not_found", 404)])
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_returns_billing_response(self, _name, status_code, mock_patch):
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        mock_patch.return_value = MagicMock(status_code=status_code, json=MagicMock(return_value={}))
+
+        response = BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
+
+        assert response.status_code == status_code
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_raises_on_billing_error(self, mock_patch):
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        mock_patch.return_value = MagicMock(status_code=500, json=MagicMock(return_value={}))
+
+        with self.assertRaises(BillingServiceResponseError) as ctx:
+            BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
+
+        assert ctx.exception.status_code == 500
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_raises_without_owner(self, mock_patch):
+        with self.assertRaises(OrganizationHasNoOwnerError):
+            BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
+
+        mock_patch.assert_not_called()
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_leaves_out_values_billing_rejects(self, mock_patch):
+        mock_patch.return_value = MagicMock(status_code=200, json=MagicMock(return_value={}))
+        owner = User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        admin_without_distinct_id = User.objects.create_and_join(
+            organization=self.organization,
+            email="admin@example.com",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        User.objects.filter(id=admin_without_distinct_id.id).update(distinct_id=None)
+        admin_with_invalid_email = User.objects.create_and_join(
+            organization=self.organization,
+            email="not-an-email",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        BillingManager(self.license, user=owner).sync_organization_users(self.organization)
+
+        payload = mock_patch.call_args.kwargs["json"]
+        assert len(payload["distinct_ids"]) == 3
+        assert set(payload["distinct_ids"]) == {
+            self.user.distinct_id,
+            owner.distinct_id,
+            admin_with_invalid_email.distinct_id,
+        }
+        assert payload["org_customer_email"] == "owner@example.com"
+        assert sorted(payload["org_admin_emails"]) == ["admin@example.com", "owner@example.com"]
+        assert payload["org_users"] == [
+            {"email": "not-an-email", "distinct_id": admin_with_invalid_email.distinct_id, "role": 8},
+            {"email": "owner@example.com", "distinct_id": owner.distinct_id, "role": 15},
+        ]
+
+    @patch("ee.billing.billing_manager.http_session.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_without_billing_manager_user(self, mock_capture, mock_patch):
         """
@@ -1287,7 +1937,7 @@ class TestUserUpdateBillingOrganizationUsers(BaseTest):
 
     @patch("posthog.models.user.is_cloud", return_value=True)
     @patch("posthog.models.user.get_cached_instance_license")
-    @patch("ee.billing.billing_manager.requests.patch")
+    @patch("ee.billing.billing_manager.http_session.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_user_update_billing_organization_users_passes_self_to_billing_manager(
         self, mock_capture, mock_patch, mock_get_license, mock_is_cloud
@@ -1348,7 +1998,7 @@ class TestUserUpdateBillingOrganizationUsers(BaseTest):
         assert capture_kwargs["properties"]["target_email"] == member.email
 
 
-class TestParamSerialization(BaseTest):
+class TestParamSerialization(SimpleTestCase):
     @parameterized.expand(
         [
             ("teams_map", {"1": "Team A", "2": "Team B"}, '{"1": "Team A", "2": "Team B"}'),
@@ -1421,8 +2071,8 @@ class TestRequestWithPostFallback(BaseTest):
             ("get_spend_data", 431),
         ]
     )
-    @patch("ee.billing.billing_manager.requests.post")
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_falls_back_to_post_on_uri_too_large(self, method_name, status_code, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=status_code)
         mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
@@ -1436,18 +2086,20 @@ class TestRequestWithPostFallback(BaseTest):
         assert result == {"results": []}
 
         mock_get.assert_called_once()
+        assert mock_get.call_args.kwargs["timeout"] == (5, 30)
         get_params = mock_get.call_args[1]["params"]
         assert get_params["teams_map"] == '{"1": "Team A"}'
         assert get_params["start_date"] == "2025-01-01"
 
         mock_post.assert_called_once()
+        assert mock_post.call_args.kwargs["timeout"] == (5, 30)
         post_json = mock_post.call_args[1]["json"]
         assert post_json["teams_map"] == {"1": "Team A"}
         assert post_json["start_date"] == "2025-01-01"
 
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
-    @patch("ee.billing.billing_manager.requests.post")
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_post_fallback_parses_json_encoded_strings(self, method_name, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=414)
         mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
@@ -1467,8 +2119,8 @@ class TestRequestWithPostFallback(BaseTest):
         assert post_json["start_date"] == "2025-01-01"
 
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
-    @patch("ee.billing.billing_manager.requests.post")
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_does_not_fall_back_on_success(self, method_name, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
 
@@ -1486,8 +2138,8 @@ class TestRequestWithPostFallback(BaseTest):
             ("get_spend_data", 500),
         ]
     )
-    @patch("ee.billing.billing_manager.requests.post")
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_does_not_fall_back_on_non_uri_errors(self, method_name, status_code, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=status_code, text="error")
 
@@ -1498,8 +2150,8 @@ class TestRequestWithPostFallback(BaseTest):
         mock_post.assert_not_called()
 
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
-    @patch("ee.billing.billing_manager.requests.post")
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_post_fallback_error_propagates(self, method_name, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=414)
         mock_post.return_value = MagicMock(status_code=500, text="internal error")
@@ -1511,8 +2163,8 @@ class TestRequestWithPostFallback(BaseTest):
         mock_post.assert_called_once()
 
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
-    @patch("ee.billing.billing_manager.requests.post")
-    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.http_session.post")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_with_empty_params(self, method_name, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
 
@@ -1532,7 +2184,7 @@ class TestDisputeSignalsPr(BaseTest):
         )
 
     @patch(
-        "ee.billing.billing_manager.requests.post",
+        "ee.billing.billing_manager.http_session.post",
         return_value=MagicMock(
             status_code=200,
             json=MagicMock(return_value={"credit_amount_usd": "15.00", "credit_id": "c1", "already_processed": False}),
@@ -1562,7 +2214,7 @@ class TestDisputeSignalsPr(BaseTest):
         # billing deploy or an auth failure as success would record an error body as a synced
         # credit. Any non-200 must raise so the Celery caller retries.
         response = MagicMock(status_code=status_code, json=MagicMock(return_value={"detail": "nope"}), ok=False)
-        with patch("ee.billing.billing_manager.requests.post", return_value=response):
+        with patch("ee.billing.billing_manager.http_session.post", return_value=response):
             with self.assertRaises(Exception) as context:
                 BillingManager(self._license()).dispute_signals_pr(
                     self.organization, {"refund_id": "r1", "credits": 1500, "metadata": {}}

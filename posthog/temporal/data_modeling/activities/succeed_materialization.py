@@ -3,7 +3,6 @@ import dataclasses
 
 from django.db import transaction
 
-from celery import current_app
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -12,9 +11,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.facade.models import (
+    TERMINAL_JOB_STATUSES,
     DataModelingJob,
     DataModelingJobEngine,
     DataModelingJobStatus,
+    DataWarehouseSavedQuery,
     Node,
 )
 
@@ -109,7 +110,7 @@ def _succeed_node_and_data_modeling_job(
     job = DataModelingJob.objects.get(id=inputs.job_id)
 
     # if the job is already in a terminal state, don't overwrite it
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in TERMINAL_JOB_STATUSES:
         return SucceedNodeAndJobOutcome(
             node=node,
             job=job,
@@ -122,11 +123,8 @@ def _succeed_node_and_data_modeling_job(
     job.last_run_at = dt.datetime.now(dt.UTC)
     job.error = None
     job.save()
+    _clear_modified_marker(job)
 
-    if node is not None and node.saved_query_id is not None:
-        saved_query_id = str(node.saved_query_id)
-        team_id = inputs.team_id
-        transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
     return SucceedNodeAndJobOutcome(
         node=node,
         job=job,
@@ -135,15 +133,17 @@ def _succeed_node_and_data_modeling_job(
     )
 
 
-def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
-    try:
-        current_app.send_task(
-            "customer_analytics.process_custom_property_sync",
-            kwargs={"team_id": team_id, "saved_query_id": saved_query_id},
-        )
-    except Exception as e:
-        LOGGER.exception("custom_property_sync_enqueue_failed", team_id=team_id, saved_query_id=saved_query_id)
-        capture_exception(e)
+def _clear_modified_marker(job: DataModelingJob) -> None:
+    # The API stamps `Modified` on a query edit. A serving run that started after the last save has
+    # consumed that edit, so the marker must go. `updated_at` moves on every save, which is why the
+    # comparison happens here, at run time, and not when the view is read.
+    if job.engine != DataModelingJobEngine.CLICKHOUSE or job.saved_query_id is None:
+        return
+    DataWarehouseSavedQuery.objects.filter(
+        id=job.saved_query_id,
+        status=DataWarehouseSavedQuery.Status.MODIFIED,
+        updated_at__lte=job.created_at,
+    ).update(status=None)
 
 
 @activity.defn

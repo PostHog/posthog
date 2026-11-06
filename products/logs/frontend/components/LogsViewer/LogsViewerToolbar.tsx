@@ -3,11 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconKeyboard } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { Scene } from 'scenes/sceneTypes'
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
@@ -33,7 +32,6 @@ export interface LogsViewerToolbarProps {
  */
 export const LogsViewerToolbar = ({ totalLogsCount }: LogsViewerToolbarProps): JSX.Element => {
     const { liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
-    const showColumnConfigurator = useFeatureFlag('LOGS_COLUMN_CONFIGURATION')
     const { setLiveTailRunning } = useActions(logsViewerDataLogic)
 
     return (
@@ -56,7 +54,7 @@ export const LogsViewerToolbar = ({ totalLogsCount }: LogsViewerToolbarProps): J
                 </LemonButton>
             </Shortcut>
             <LogsViewSettings />
-            {showColumnConfigurator && <LogsColumnConfigurator />}
+            <LogsColumnConfigurator />
             <LogsExportMenu totalLogsCount={totalLogsCount} />
             <Tooltip
                 title={

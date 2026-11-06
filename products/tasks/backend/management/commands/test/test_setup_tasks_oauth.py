@@ -12,9 +12,11 @@ from posthog.temporal.oauth import (
     ARRAY_APP_ID_DEV,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     POSTHOG_AI_APP_ID_DEV,
+    SIGNALS_APP_CLIENT_ID_DEV,
+    SIGNALS_APP_ID_DEV,
 )
 
-DEV_CLIENT_IDS = [ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV]
+DEV_CLIENT_IDS = [ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV]
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
@@ -29,7 +31,10 @@ class TestSetupTasksOAuth(TestCase):
                     "name": "Array Dev App",
                     "client_type": OAuthApplication.CLIENT_PUBLIC,
                     "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                    "redirect_uris": "http://localhost:8237/callback http://localhost:8239/callback",
+                    "redirect_uris": (
+                        "http://localhost:8237/callback http://localhost:8239/callback "
+                        "posthog://callback posthog-dev://callback posthog-preview://callback"
+                    ),
                 },
             ),
             (
@@ -38,6 +43,20 @@ class TestSetupTasksOAuth(TestCase):
                 POSTHOG_AI_APP_ID_DEV,
                 {
                     "name": "PostHog AI Dev App",
+                    "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
+                    "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    "redirect_uris": "http://localhost:8000/authorize",
+                    "auth_brand": OAuthApplicationAuthBrand.POSTHOG.value,
+                    "is_verified": True,
+                    "is_first_party": True,
+                },
+            ),
+            (
+                "signals",
+                SIGNALS_APP_CLIENT_ID_DEV,
+                SIGNALS_APP_ID_DEV,
+                {
+                    "name": "Signals Dev App",
                     "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
                     "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                     "redirect_uris": "http://localhost:8000/authorize",
@@ -92,3 +111,22 @@ class TestSetupTasksOAuth(TestCase):
         call_command("setup_tasks_oauth", stdout=out)
 
         assert f"expected {POSTHOG_AI_APP_ID_DEV}" in out.getvalue()
+
+    def test_adds_missing_redirect_uris_to_an_existing_app(self) -> None:
+        OAuthApplication.objects.create(
+            id=ARRAY_APP_ID_DEV,
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            name="Array Dev App",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8237/callback http://localhost:9999/callback",
+            algorithm="RS256",
+        )
+
+        call_command("setup_tasks_oauth", stdout=StringIO())
+
+        app = OAuthApplication.objects.get(client_id=ARRAY_APP_CLIENT_ID_DEV)
+        assert app.redirect_uris == (
+            "http://localhost:8237/callback http://localhost:9999/callback "
+            "http://localhost:8239/callback posthog://callback posthog-dev://callback posthog-preview://callback"
+        )

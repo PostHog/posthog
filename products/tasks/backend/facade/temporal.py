@@ -7,6 +7,7 @@ metric config, and callers trigger a run via ``execute_task_processing_workflow`
 from ``facade/api.py`` so ``temporalio`` never lands on the light data-surface import path.
 """
 
+from products.tasks.backend.logic.services.workflow_dispatch import dispatch_task_processing_workflow
 from products.tasks.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.tasks.backend.temporal.client import (
     execute_posthog_code_agent_relay_workflow,
@@ -16,29 +17,56 @@ from products.tasks.backend.temporal.client import (
     signal_task_followup_message,
 )
 from products.tasks.backend.temporal.metrics import (
+    TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS,
+    TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS,
     TASKS_LATENCY_HISTOGRAM_BUCKETS,
     TASKS_LATENCY_HISTOGRAM_METRICS,
+    TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS,
+    TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS,
+    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS,
+    TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS,
+    TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS,
+    TASKS_NETWORK_BYTES_HISTOGRAM_METRICS,
     TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
+    TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
+    TASKS_RUN_TURNS_HISTOGRAM_METRICS,
+    TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS,
+    TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
 )
 from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
     PostSlackUpdateInput,
     post_slack_update,
 )
+from products.tasks.backend.temporal.process_task.utils import mcp_exclude_tools_for_task
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 __all__ = [
     "ACTIVITIES",
+    "TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS",
+    "TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS",
     "TASKS_LATENCY_HISTOGRAM_BUCKETS",
     "TASKS_LATENCY_HISTOGRAM_METRICS",
+    "TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS",
+    "TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS",
+    "TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS",
+    "TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS",
+    "TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS",
+    "TASKS_NETWORK_BYTES_HISTOGRAM_METRICS",
     "TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS",
     "TASKS_RUN_TOKENS_HISTOGRAM_METRICS",
+    "TASKS_RUN_TURNS_HISTOGRAM_BUCKETS",
+    "TASKS_RUN_TURNS_HISTOGRAM_METRICS",
+    "TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS",
+    "TASKS_SDK_LATENCY_HISTOGRAM_METRICS",
     "WORKFLOWS",
     "PostSlackUpdateInput",
     "ProcessTaskWorkflow",
+    "dispatch_task_processing_workflow",
     "execute_posthog_code_agent_relay_workflow",
     "execute_task_processing_workflow",
     "execute_task_processing_workflow_async",
+    "mcp_exclude_tools_for_task",
     "post_slack_update",
     "resume_task_in_cloud_workflow",
     "signal_task_followup_message",

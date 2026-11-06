@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -19,9 +19,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.models import PropertyDefinition
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 
@@ -205,7 +205,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_caching(self):
         now = timezone.now()
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             _create_person(
                 distinct_ids=["person1"],
                 properties={"email": "person1@example.com"},
@@ -239,14 +239,14 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.cache_key, key)
             self.assertEqual(len(response.results), 0)
 
-        with freeze_time(now + timedelta(minutes=59)):
+        with time_machine.travel(now + timedelta(minutes=59), tick=False):
             runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
             response = runner.run()
 
             assert isinstance(response, CachedEventTaxonomyQueryResponse)
             self.assertEqual(len(response.results), 0)
 
-        with freeze_time(now + timedelta(minutes=61)):
+        with time_machine.travel(now + timedelta(minutes=61), tick=False):
             runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
             response = runner.run()
 
@@ -493,7 +493,12 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event="event1",
             distinct_id="person2",
-            properties={"prop": "3", "$feature/dashboard": "0"},
+            properties={
+                "prop": "3",
+                "$feature/dashboard": "0",
+                "$feature_flags": {"another_flag": "true"},
+                "$active_feature_flags": ["another_flag"],
+            },
             team=self.team,
         )
 
@@ -530,7 +535,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_retrieves_action_properties(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action1",
             steps_json=[{"event": "$pageview"}],
@@ -555,7 +560,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event="event",
             distinct_id="person1",
-            properties={"prop": "3", "$feature/dashboard": "0"},
+            properties={"prop": "3", "$feature/dashboard": "0", "$feature_flags": {"another_flag": "true"}},
             team=self.team,
         )
 

@@ -1,5 +1,5 @@
 import { chunk } from 'lodash'
-import { Gauge } from 'prom-client'
+import { Gauge, Histogram } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -16,6 +16,13 @@ import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observ
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
     help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/reschedule',
+})
+
+const jobLatenessHistogram = new Histogram({
+    name: 'cdp_cyclotron_job_lateness_seconds',
+    help: 'Seconds between a postgres-v2 job becoming due and a worker dequeuing it',
+    labelNames: ['queue'],
+    buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900],
 })
 
 /**
@@ -96,10 +103,13 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
         await this.worker.connect(async (jobs) => {
             const invocations: CyclotronJobInvocation[] = []
+            const now = Date.now()
+            const jobLateness = jobLatenessHistogram.labels({ queue })
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
                 invocations.push(v2JobToInvocation(job))
+                jobLateness.observe(Math.max(0, now - job.scheduled.toMillis()) / 1000)
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -209,6 +219,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
                 if (result.error) {
                     await job.fail()
+                } else if (result.canceled) {
+                    await job.cancel()
                 } else if (result.finished) {
                     await job.ack()
                 } else {
@@ -220,6 +232,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                         personId: extractPersonId(result.invocation),
                         actionId: extractActionId(result.invocation),
                         queueName: result.invocation.queue,
+                        // Persisted only across email-queue transitions: entering carries the
+                        // class routeEmailToQueue assigned, leaving restores the origin
+                        // priority. Elsewhere the row keeps its insert-time priority, so the
+                        // in-memory retry bumps on other queues stay unpersisted as before.
+                        priority:
+                            result.invocation.queue === 'email' || job.queueName === 'email'
+                                ? result.invocation.queuePriority
+                                : undefined,
                     })
                 }
             })
@@ -233,18 +253,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 if (job) {
                     this.pendingJobs.delete(inv.id)
                     await job.fail()
-                }
-            })
-        )
-    }
-
-    public async cancelInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
-        await Promise.all(
-            invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
-                if (job) {
-                    this.pendingJobs.delete(inv.id)
-                    await job.cancel()
                 }
             })
         )
@@ -358,6 +366,8 @@ export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvo
         queue: job.queueName as CyclotronJobQueueKind,
         queuePriority: job.priority,
         queueScheduledAt: job.scheduled ?? undefined,
+        queueCreatedAt: job.created,
+        queueDueAt: job.scheduled ?? undefined,
         queueMetadata: parsed.queueMetadata ?? undefined,
         queueParameters: parsed.queueParameters ?? undefined,
         state: parsed.state,
@@ -366,6 +376,10 @@ export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvo
 
     if (job.parentRunId) {
         invocation.parentRunId = job.parentRunId
+    }
+
+    if (job.cancelRequestedAt) {
+        invocation.cancelRequestedAt = job.cancelRequestedAt
     }
 
     return invocation

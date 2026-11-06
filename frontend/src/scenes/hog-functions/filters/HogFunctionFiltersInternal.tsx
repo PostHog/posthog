@@ -9,122 +9,15 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { PropValue } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
-
-type FilterOption = { value: string; label: string }
-
-// NOTE: This is all a bit WIP and will be improved upon over time
-// TODO: Make this more advanced with sub type filtering etc.
-// TODO: Make it possible for the renderer to limit the options based on the type
-/**
- * Options for the 'Trigger' field on the new destination page
- */
-export const getProductEventFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterOption[] => {
-    switch (contextId) {
-        case 'error-tracking':
-            return [
-                {
-                    label: 'Error tracking issue created',
-                    value: '$error_tracking_issue_created',
-                },
-                {
-                    label: 'Error tracking issue reopened',
-                    value: '$error_tracking_issue_reopened',
-                },
-                {
-                    label: 'Error tracking issue spiking',
-                    value: '$error_tracking_issue_spiking',
-                },
-            ]
-        case 'insight-alerts':
-            return [
-                {
-                    label: 'Insight alert firing',
-                    value: '$insight_alert_firing',
-                },
-            ]
-        case 'logs-alerting':
-            return [
-                {
-                    label: 'Log alert firing',
-                    value: '$logs_alert_firing',
-                },
-                {
-                    label: 'Log alert resolved',
-                    value: '$logs_alert_resolved',
-                },
-                {
-                    label: 'Log alert auto-disabled',
-                    value: '$logs_alert_auto_disabled',
-                },
-                {
-                    label: 'Log alert errored',
-                    value: '$logs_alert_errored',
-                },
-            ]
-        case 'discussion-mention':
-            return [
-                {
-                    label: 'Discussion mention',
-                    value: '$discussion_mention_created',
-                },
-            ]
-        case 'health-alerts':
-            return [
-                {
-                    label: 'Health check fired',
-                    value: '$health_check_issue_firing',
-                },
-                {
-                    label: 'Health check resolved',
-                    value: '$health_check_issue_resolved',
-                },
-            ]
-        default:
-            return [
-                {
-                    label: 'Team activity',
-                    value: '$activity_log_entry_created',
-                },
-                {
-                    label: 'Early access feature updated',
-                    value: '$early_access_feature_updated',
-                },
-            ]
-    }
-}
-
-export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfigurationContextId): string[] => {
-    switch (contextId) {
-        case 'activity-log':
-            return [
-                'id',
-                'unread',
-                'organization_id',
-                'was_impersonated',
-                'is_system',
-                'activity',
-                'item_id',
-                'scope',
-                'detail',
-                'detail.name',
-                'detail.changes',
-                'created_at',
-            ]
-        case 'error-tracking':
-            return [
-                '$exception_types',
-                '$exception_values',
-                '$exception_sources',
-                '$exception_functions',
-                '$exception_handled',
-            ]
-    }
-
-    return []
-}
+import {
+    type FilterOption,
+    getProductEventFilterOptions,
+    getProductEventPropertyValues,
+} from './productEventFilterOptions'
 
 const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefined => {
     return value?.events?.[0]?.id
@@ -137,6 +30,7 @@ const setSimpleFilterValue = (
     contextId: HogFunctionConfigurationContextId
 ): CyclotronJobFiltersType => {
     const next: CyclotronJobFiltersType = {
+        source: 'internal-events',
         events: [
             {
                 name: options.find((option) => option.value === value)?.label,
@@ -145,9 +39,14 @@ const setSimpleFilterValue = (
             },
         ],
     }
-    // Preserve properties bound by Logs alerting (alert_id) — the trigger event id changes between
-    // firing/resolved/auto-disabled/errored, but the binding to the parent alert must survive.
-    if (contextId === 'logs-alerting' && previous?.properties && previous.properties.length > 0) {
+    // Preserve properties bound by Logs alerting (alert_id) and batch export alerts
+    // (batch_export_id) — the trigger event id changes between the context's events, but the
+    // binding to the parent resource must survive.
+    if (
+        (contextId === 'logs-alerting' || contextId === 'batch-export-alerts') &&
+        previous?.properties &&
+        previous.properties.length > 0
+    ) {
         next.properties = previous.properties
     }
     return next
@@ -157,6 +56,13 @@ export function HogFunctionFiltersInternal(): JSX.Element {
     const { contextId } = useValues(hogFunctionConfigurationLogic)
 
     const options = useMemo(() => getProductEventFilterOptions(contextId), [contextId])
+
+    const staticValueOptions = useMemo(
+        () =>
+            (propertyKey: string): PropValue[] | null =>
+                getProductEventPropertyValues(contextId, propertyKey),
+        [contextId]
+    )
 
     const taxonomicGroupTypes = useMemo(() => {
         if (contextId === 'error-tracking') {
@@ -172,6 +78,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
         } else if (contextId === 'logs-alerting') {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'health-alerts') {
+            return [TaxonomicFilterGroupType.EventProperties]
+        } else if (contextId === 'batch-export-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
         }
         return []
@@ -204,6 +112,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                                 pageKey={`hog-function-internal-property-filters-${contextId}`}
                                 buttonSize="small"
                                 disablePopover
+                                staticValueOptions={staticValueOptions}
                             />
                         ) : null}
                     </>

@@ -20,7 +20,6 @@ from products.skills.backend.marketplace.packaging import (
     parse_skill_zip,
     render_frontmatter,
     render_skill_md,
-    validate_for_export,
 )
 
 # These tests are intentionally DB-free — the packaging core takes plain dataclasses.
@@ -79,18 +78,6 @@ class TestFrontmatter:
         assert out.rstrip().endswith("Do the thing.")
 
 
-class TestExportValidation:
-    def test_description_over_spec_limit_is_flagged(self):
-        problems = validate_for_export(_skill(description="x" * 1025))
-        assert any("1024" in p for p in problems)
-
-    def test_empty_description_is_flagged(self):
-        assert any("non-empty" in p for p in validate_for_export(_skill(description="   ")))
-
-    def test_clean_skill_has_no_problems(self):
-        assert validate_for_export(_skill()) == []
-
-
 class TestSkillTreeAndZip:
     def test_skill_tree_contains_skill_md_and_bundled_files(self):
         tree = build_skill_tree(_skill())
@@ -102,6 +89,14 @@ class TestSkillTreeAndZip:
             names = set(archive.namelist())
         assert "make-fractals/SKILL.md" in names
         assert "make-fractals/scripts/mandelbrot.py" in names
+
+    def test_file_tree_bytes_counts_the_archive_name_prefix(self):
+        # Bundle entries are archived under <name>/ and a zip stores each entry name twice, so the
+        # cap must charge the prefix; omitting it undercounts long-named skills against MAX_BUNDLE_BYTES.
+        tree = build_skill_tree(_skill())
+        prefix = "make-fractals/"
+        expected = pkg.file_tree_bytes(tree) + 2 * len(prefix.encode("utf-8")) * len(tree)
+        assert pkg.file_tree_bytes(tree, prefix=prefix) == expected
 
 
 class TestMarketplaceTree:

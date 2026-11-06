@@ -204,8 +204,24 @@ def test_batcher_splits_buffered_list_items():
         # value bytes + 64-bit offset buffer (n * 8): 4 + 16 = 20
         ("large_string_counted", pa.array(["aa", "bb"], type=pa.large_string()), 20),
         ("large_binary_counted", pa.array([b"aa", b"bb"], type=pa.large_binary()), 20),
-        # child element count + 32-bit offset buffer (n * 4): 3 + 8 = 11
-        ("list", pa.array([[1, 2], [3]], type=pa.list_(pa.int64())), 11),
+        # Lists recurse into their child values + 32-bit offset buffer (n * 4). Counting the child
+        # *element count* instead (the old behaviour) undercounts a list of blobs by orders of
+        # magnitude, which silently disables the byte-driven split for every source that maps a
+        # repeated field to a list (e.g. Google Ads repeated protobuf messages -> JSON strings).
+        # child 3 * int64 = 24; offsets 2 * 4 = 8
+        ("list_of_int64", pa.array([[1, 2], [3]], type=pa.list_(pa.int64())), 32),
+        # child strings 4+2+1 value bytes + 3 * 4 offsets = 19; list offsets 2 * 4 = 8
+        ("list_of_string_counts_child_bytes", pa.array([["aaaa", "bb"], ["c"]], type=pa.list_(pa.string())), 27),
+        # child "aa" = 2 + 1 * 4 = 6; large-list offsets 1 * 8 = 8
+        ("large_list_uses_64_bit_offsets", pa.array([["aa"]], type=pa.large_list(pa.string())), 14),
+        # child 4 * int64 = 32; fixed-size lists carry no offset buffer
+        ("fixed_size_list_has_no_offsets", pa.array([[1, 2], [3, 4]], type=pa.list_(pa.int64(), 2)), 32),
+        # struct child: "k" = 1 + 4 = 5, "vv" = 2 + 4 = 6; list offsets 1 * 4 = 4
+        ("map_counted_via_key_value_struct", pa.array([[("k", "vv")]], type=pa.map_(pa.string(), pa.string())), 15),
+        # struct child "aa" = 2 + 1 * 4 = 6; list offsets 1 * 4 = 4
+        ("list_of_struct", pa.array([[{"s": "aa"}]], type=pa.list_(pa.struct([("s", pa.string())]))), 10),
+        # No child values to measure, but the offset buffer is still resident
+        ("all_null_list_counts_offsets_only", pa.array([None, None], type=pa.list_(pa.string())), 8),
         ("int64", pa.array([1, 2, 3], type=pa.int64()), 24),
         ("bool_subbyte_is_zero", pa.array([True, False, True], type=pa.bool_()), 0),
         ("nulls_counted_as_zero_payload", pa.array([None, "abc"], type=pa.string()), 3 + 8),
@@ -255,6 +271,22 @@ def test_split_table_byte_cap_sums_across_columns():
     result = _split_table(table, offset_limit=1_000_000, bytes_limit=20)
 
     assert len(result) > 1
+    assert pa.concat_tables(result).equals(table)
+
+
+def test_split_table_splits_a_list_column_on_its_child_bytes():
+    # The shape that used to slip through: four rows holding ~4 KiB of strings inside a list column.
+    # Measured by child element count the table scored 12 bytes and never split, so a chunk of these
+    # grew to the row limit regardless of its real size and became the loader's merge memory.
+    table = pa.table(
+        {"val": pa.array([["x" * 1000], ["y" * 1000], ["z" * 1000], ["w" * 1000]], type=pa.list_(pa.string()))}
+    )
+
+    result = _split_table(table, offset_limit=1_000_000, bytes_limit=2048)
+
+    assert len(result) > 1
+    for slice_table in result:
+        assert table_payload_bytes(slice_table) <= 2048 or slice_table.num_rows <= 1
     assert pa.concat_tables(result).equals(table)
 
 
@@ -454,3 +486,106 @@ def test_batching_should_yield_when_buffer_not_full_with_incomplete_chunk_set():
     expected_table = pa.table({"a": [1, 2, 3]})
 
     assert result_table.equals(expected_table)
+
+
+def test_batching_pa_table_converts_primary_key_binary_column_to_hex():
+    batcher = Batcher(logger=mock.MagicMock(), primary_keys=["sk_load"])
+
+    batcher.batch(
+        pa.table(
+            {
+                "sk_load": pa.array([b"\xbd\xd6\x40", None], type=pa.binary()),
+                "payload": pa.array([b"\x01", b"\x02"], type=pa.binary()),
+            }
+        )
+    )
+
+    result_table = batcher.get_table()
+
+    assert result_table.column("sk_load").to_pylist() == ["bdd640", None]
+    assert result_table.schema.field("sk_load").type == pa.string()
+    assert result_table.column("payload").to_pylist() == [b"\x01", b"\x02"]
+
+
+def _sparse_key_rows(count: int, start: int = 0) -> list[dict]:
+    """Rows shaped like a source that merges per-row custom properties into the row itself."""
+    return [{"id": str(i), f"trait_{i}": "x"} for i in range(start, start + count)]
+
+
+def _feed_until_yield(batcher: Batcher, rows: list[dict]) -> int:
+    """Batch rows one at a time, stopping at the first yield. Returns how many were taken."""
+    for taken, row in enumerate(rows, start=1):
+        batcher.batch(row)
+        if batcher.should_yield():
+            return taken
+    return len(rows)
+
+
+def _sparse_key_batcher(logger: object, max_buffer_cells: int = 400) -> Batcher:
+    """Row and byte caps held far out of reach, so only the cell cap can fire."""
+    return Batcher(
+        logger=logger,  # type: ignore[arg-type]
+        chunk_size=100_000,
+        chunk_size_bytes=2**40,
+        max_buffer_cells=max_buffer_cells,
+    )
+
+
+def test_batcher_flushes_sparse_key_rows_before_the_row_and_byte_caps():
+    batcher = _sparse_key_batcher(mock.MagicMock())
+
+    # 20 rows carry 21 keys, the first point at which the product crosses 400.
+    assert _feed_until_yield(batcher, _sparse_key_rows(40)) == 20
+    assert batcher.get_table().num_rows == 20
+
+
+def test_batcher_keeps_dense_rows_on_the_row_cap():
+    # The cell cap must not shrink an ordinary batch, whose key set does not grow with its rows.
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size=50, chunk_size_bytes=2**40, max_buffer_cells=400)
+
+    for i in range(49):
+        batcher.batch({"id": str(i), "name": "n"})
+
+    assert batcher.should_yield() is False
+
+    batcher.batch({"id": "49", "name": "n"})
+
+    assert batcher.should_yield() is True
+    assert batcher.get_table().num_rows == 50
+
+
+def test_batcher_cell_cap_resets_between_batches():
+    # The key set is per-buffer. Carrying it across flushes would trip the cap on every later row.
+    batcher = _sparse_key_batcher(mock.MagicMock())
+
+    _feed_until_yield(batcher, _sparse_key_rows(40))
+    assert batcher.get_table().num_rows == 20
+
+    assert _feed_until_yield(batcher, _sparse_key_rows(40, start=100)) == 20
+    assert batcher.get_table().num_rows == 20
+
+
+def test_batcher_logs_the_shape_when_the_cell_cap_flushes():
+    # The log is the only signal that names which source has the quadratic row shape.
+    logger = mock.MagicMock()
+    batcher = _sparse_key_batcher(logger)
+
+    _feed_until_yield(batcher, _sparse_key_rows(40))
+
+    logger.info.assert_called_once()
+    assert logger.info.call_args.args[0] == "batcher_flush_on_cell_cap"
+    assert logger.info.call_args.kwargs["row_count"] == 20
+    assert logger.info.call_args.kwargs["column_count"] == 21
+
+
+def test_batcher_cell_cap_applies_to_list_items():
+    # A source that yields pages, not single rows, reaches the cap through the list branch.
+    batcher = _sparse_key_batcher(mock.MagicMock())
+
+    batcher.batch(_sparse_key_rows(10))
+    assert batcher.should_yield() is False
+
+    batcher.batch(_sparse_key_rows(10, start=10))
+
+    assert batcher.should_yield() is True
+    assert batcher.get_table().num_rows == 20

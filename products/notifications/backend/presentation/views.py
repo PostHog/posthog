@@ -1,7 +1,10 @@
+from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
+from uuid import UUID
 
-from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.db import transaction
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
 
@@ -9,19 +12,22 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import (
+    ACCESS_CONTROL_RESOURCES,
+    UserAccessControl,
+    visible_teams_for_user,
+)
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
-from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
 from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
 
@@ -39,7 +45,7 @@ class BulkNotificationIdsRequestSerializer(drf_serializers.Serializer):
     )
 
 
-class NotificationPagination(LimitOffsetPagination):
+class NotificationPagination(BoundedLimitOffsetPagination):
     default_limit = 20
     max_limit = 100
 
@@ -72,8 +78,12 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def _get_base_queryset(self) -> QuerySet:
         user = self._get_user()
         team = self.team
+        visible_team_ids = visible_teams_for_user(
+            team.organization, self.user_access_control, self.user_permissions
+        ).values("id")
         return (
             NotificationEvent.objects.filter(
+                Q(team__isnull=True) | Q(team_id__in=visible_team_ids),
                 organization_id=team.organization_id,
                 resolved_user_ids__contains=[user.id],
             )
@@ -108,7 +118,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             .distinct()
         )
 
-        ac_types_to_check = resource_types_in_set & AC_RESOURCE_TYPES
+        ac_types_to_check = resource_types_in_set.intersection(ACCESS_CONTROL_RESOURCES)
         if not ac_types_to_check:
             return queryset
 
@@ -356,6 +366,23 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"updated": len(eligible_ids)})
 
+    # `Sequence`, not `list`: the viewset defines a `list` action, which shadows the builtin
+    # when this annotation is evaluated in the class body.
+    def _archive_events(self, user: User, event_ids: Sequence[UUID]) -> None:
+        # Archiving takes a notification out of the unread count, so the read state has to follow.
+        # Read and archive are independent tables, so without this an archived notification keeps
+        # `read: false` and the archived list shows it as unread.
+        with transaction.atomic():
+            NotificationArchiveState.objects.bulk_create(
+                [NotificationArchiveState(notification_event_id=eid, user=user) for eid in event_ids],
+                ignore_conflicts=True,
+            )
+            NotificationReadState.objects.bulk_create(
+                [NotificationReadState(notification_event_id=eid, user=user) for eid in event_ids],
+                ignore_conflicts=True,
+            )
+        invalidate_unread_count(user.id, self.team.organization_id)
+
     @extend_schema(request=None)
     @action(methods=["POST"], detail=True, url_path="archive")
     def archive(self, request: Request, **kwargs) -> Response:
@@ -364,8 +391,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         user = self._get_user()
         event = self._get_recipient_event_or_404()
-        NotificationArchiveState.objects.get_or_create(notification_event=event, user=user)
-        invalidate_unread_count(user.id, self.team.organization_id)
+        self._archive_events(user, [event.id])
         return Response({"status": "ok"})
 
     @validated_request(request_serializer=BulkNotificationIdsRequestSerializer)
@@ -387,9 +413,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             ).values_list("id", flat=True)
         )
         if eligible_ids:
-            archive_states = [NotificationArchiveState(notification_event_id=eid, user=user) for eid in eligible_ids]
-            NotificationArchiveState.objects.bulk_create(archive_states, ignore_conflicts=True)
-            invalidate_unread_count(user.id, self.team.organization_id)
+            self._archive_events(user, eligible_ids)
         return Response({"updated": len(eligible_ids)})
 
     @extend_schema(request=None)
@@ -402,7 +426,5 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         queryset = self._get_base_queryset().filter(archived=False)
         event_ids = list(queryset.values_list("id", flat=True))
         if event_ids:
-            archive_states = [NotificationArchiveState(notification_event_id=eid, user=user) for eid in event_ids]
-            NotificationArchiveState.objects.bulk_create(archive_states, ignore_conflicts=True)
-            invalidate_unread_count(user.id, self.team.organization_id)
+            self._archive_events(user, event_ids)
         return Response({"updated": len(event_ids)})

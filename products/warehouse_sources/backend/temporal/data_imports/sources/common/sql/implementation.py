@@ -32,8 +32,6 @@ from typing import Any, Generic, Protocol, TypeVar
 
 from structlog.types import FilteringBoundLogger
 
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
@@ -114,11 +112,16 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    def connect(self, config: ConfigT) -> AbstractContextManager[ConnT]:
+    def connect(self, config: ConfigT, *, team_id: int | None = None) -> AbstractContextManager[ConnT]:
         """Open a driver connection for the duration of schema discovery.
 
         Implementations own the full lifecycle — SSH tunnel (if any),
         TLS, auth, cursor setup — and clean it up on exit.
+
+        `team_id` feeds the host policy that decides where the connection may go. The
+        internal-analytics teams are exempt from it, so a connect that drops the team fails
+        closed for them; every caller that has a team must pass it. Drivers that reach the
+        vendor over HTTPS through the egress proxy accept it and ignore it.
         """
 
     @abstractmethod
@@ -264,8 +267,12 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
             logger.debug(f"get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
             return rows_to_sync_int
         except Exception as e:
+            # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
+            # It shares its FROM/WHERE with the real streaming query, so any genuine problem
+            # (missing table, permissions, a dropped connection) resurfaces there and is classified
+            # through the normal retryable/non-retryable path. Capturing it here too would only
+            # flood error tracking with handled duplicates, so log at debug and fall back to 0.
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-            capture_exception(e)
             return 0
 
     def fetch_average_row_size(
@@ -356,11 +363,13 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
                 cursor, schema, table_name, inner_query, inner_query_args, logger
             )
         except Exception as e:
+            # Row-size sampling is a best-effort optimization, same as `get_rows_to_sync` above:
+            # a genuine problem resurfaces in the real streaming query and is classified there, so
+            # capturing it here too would only flood error tracking with handled duplicates.
             logger.debug(
                 f"get_chunk_size: Error: {e}. Using default_chunk_size={default_chunk_size}",
                 exc_info=e,
             )
-            capture_exception(e)
             return default_chunk_size
 
         if row_size_bytes is None or row_size_bytes <= 0:

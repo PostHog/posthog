@@ -1,3 +1,4 @@
+import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
@@ -5,7 +6,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
@@ -22,6 +23,7 @@ describe('CDP Person Updates Consumer', () => {
     let hub: Hub
     let team: Team
     let hogFunction: HogFunctionType
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
@@ -31,14 +33,14 @@ describe('CDP Person Updates Consumer', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         const mockJobQueue = createMockJobQueue()
         processor = new CdpPersonUpdatesConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
+        mockQueueInvocations = mockJobQueue.queueInvocations
         await processor.start()
 
         hogFunction = createHogFunction({
@@ -71,6 +73,53 @@ describe('CDP Person Updates Consumer', () => {
             const events = await processor._parseKafkaBatch([createKafkaMessage(createClickhousePerson(999999, {}))])
             expect(events).toHaveLength(0)
         })
+
+        it('should ignore a message for a team with no person-updates destination', async () => {
+            jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam').mockResolvedValue([
+                { ...hogFunction, filters: { ...hogFunction.filters, source: 'events' } },
+            ])
+            const events = await processor._parseKafkaBatch([createKafkaMessage(createClickhousePerson(team.id, {}))])
+            expect(events).toHaveLength(0)
+        })
+
+        const lookupError = new Error('canceling statement due to conflict with recovery')
+
+        it.each([
+            {
+                lookup: 'the team lookup',
+                spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
+            },
+            {
+                lookup: 'the hog function lookup',
+                spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
+            },
+        ])(
+            'should fail the batch when $lookup throws, and queue the person when the batch is read again',
+            async ({ spy }) => {
+                spy().mockRejectedValueOnce(lookupError)
+                const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+                const messages = [createKafkaMessage(createClickhousePerson(team.id, {}))]
+
+                await expect(handleBatch(messages)).rejects.toBe(lookupError)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+                const { backgroundTask } = await handleBatch(messages)
+                await backgroundTask
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            }
+        )
+
+        it.each([
+            { name: 'properties that are not JSON', person: { properties: '{' } },
+            { name: 'an out-of-range team_id', person: { team_id: 3_000_000_000 } },
+        ])('should skip a person with $name and keep the rest', async ({ person }) => {
+            const events = await processor._parseKafkaBatch([
+                createKafkaMessage({ ...createClickhousePerson(team.id, {}), ...person }),
+                createKafkaMessage(createClickhousePerson(team.id, {})),
+            ])
+            expect(events).toHaveLength(1)
+        })
+
         it('should parse a valid message with an existing team and hog function ', async () => {
             const event = createClickhousePerson(team.id, {
                 id: 'person-id-1',
@@ -80,7 +129,12 @@ describe('CDP Person Updates Consumer', () => {
 
             const events = await processor._parseKafkaBatch([createKafkaMessage(event)])
             expect(events).toHaveLength(1)
-            expect(forSnapshot(events[0])).toMatchInlineSnapshot(`
+            const snapshot = forSnapshot(events[0])
+            snapshot.event.url = '<TEAM_URL>'
+            snapshot.person.url = '<TEAM_URL>'
+            snapshot.project.id = '<TEAM_ID>'
+            snapshot.project.url = '<TEAM_URL>'
+            expect(snapshot).toMatchInlineSnapshot(`
                     {
                       "event": {
                         "distinct_id": "person-id-1",
@@ -88,7 +142,7 @@ describe('CDP Person Updates Consumer', () => {
                         "event": "$person_updated",
                         "properties": {},
                         "timestamp": "2025-01-01T01:01:01.000Z",
-                        "url": "http://localhost:8000/project/2/person/person-id-1",
+                        "url": "<TEAM_URL>",
                         "uuid": "<REPLACED-UUID-0>",
                       },
                       "person": {
@@ -97,12 +151,12 @@ describe('CDP Person Updates Consumer', () => {
                         "properties": {
                           "email": "test@posthog.com",
                         },
-                        "url": "http://localhost:8000/project/2/person/person-id-1",
+                        "url": "<TEAM_URL>",
                       },
                       "project": {
-                        "id": 2,
+                        "id": "<TEAM_ID>",
                         "name": "TEST PROJECT",
-                        "url": "http://localhost:8000/project/2",
+                        "url": "<TEAM_URL>",
                       },
                     }
                 `)

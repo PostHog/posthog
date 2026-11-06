@@ -5,11 +5,12 @@
 use simd_json::borrowed::{Object, Value};
 
 use crate::assets::{
-    apply_blur, blur_inline_image_attr, has_media_src_attr, is_media_src_attr, is_media_tag,
-    INLINE_IMAGE_ATTR,
+    has_media_src_attr, is_image_ref_attr, is_media_src_attr, is_media_tag,
+    scrub_inline_image_attr, scrub_media_sources, CSS_IMAGE_REFS_ATTR_PREFIX, INLINE_IMAGE_ATTR,
 };
+use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
-use crate::css::{scrub_css_images, INLINED_STYLESHEET_ATTR};
+use crate::css::{is_strict_css_refs, scrub_css_images, CssContext, INLINED_STYLESHEET_ATTR};
 use crate::json::{
     as_array_mut, as_object_mut, as_small_uint, as_str, is_object, is_true, key, string_value,
 };
@@ -25,6 +26,7 @@ const NODE_COMMENT: u8 = 5;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ParentKind {
+    Picture,
     Script,
     Style,
     Other,
@@ -98,7 +100,7 @@ pub fn scrub_mutation_attributes(ctx: &Ctx<'_>, attributes: &mut Vec<Value<'_>>)
                 };
                 // A mutation carries attributes with no tag, so a `src` here could belong to an
                 // iframe or a script as easily as an image. Decline rather than guess.
-                changed |= scrub_attrs(ctx, attrs, kind, false);
+                changed |= scrub_attrs(ctx, attrs, kind, "", false);
             }
         }
     }
@@ -134,12 +136,16 @@ pub(crate) fn walk_node(ctx: &Ctx<'_>, node: &mut Value<'_>, parent: ParentKind)
                 .to_string();
             let kind = classify_tag(&tag);
             if let Some(attrs) = obj.get_mut("attributes").and_then(as_object_mut) {
-                changed |= scrub_attrs(ctx, attrs, kind, crate::assets::tag_src_is_image(&tag));
+                changed |= scrub_attrs(ctx, attrs, kind, &tag, parent == ParentKind::Picture);
             }
-            let child_parent = match kind {
-                TagKind::Script => ParentKind::Script,
-                TagKind::Style => ParentKind::Style,
-                TagKind::Media | TagKind::Other => ParentKind::Other,
+            let child_parent = if tag.eq_ignore_ascii_case("picture") {
+                ParentKind::Picture
+            } else {
+                match kind {
+                    TagKind::Script => ParentKind::Script,
+                    TagKind::Style => ParentKind::Style,
+                    TagKind::Media | TagKind::Other => ParentKind::Other,
+                }
             };
             if let Some(children) = obj.get_mut("childNodes").and_then(as_array_mut) {
                 for child in children.iter_mut() {
@@ -165,7 +171,7 @@ pub(crate) fn walk_node(ctx: &Ctx<'_>, node: &mut Value<'_>, parent: ParentKind)
             }
             let is_style = obj.get("isStyle").map(is_true).unwrap_or(false);
             if parent == ParentKind::Style || is_style {
-                return scrub_css_images(ctx, obj, "textContent");
+                return scrub_css_images(ctx, obj, "textContent", CssContext::Stylesheet);
             }
             changed |= scrub_text_content(ctx, obj);
         }
@@ -207,21 +213,35 @@ fn scrub_attrs(
     ctx: &Ctx<'_>,
     attrs: &mut Object<'_>,
     kind: TagKind,
-    tag_src_is_image: bool,
+    tag: &str,
+    parent_is_picture: bool,
 ) -> bool {
     let mut changed = false;
     // Plain string scrubs mutate values in place while iterating — no per-element key Vec. Only the
-    // helpers that need `&mut Object` (blur inserts sibling keys, css re-reads by key) defer their
+    // helpers that need `&mut Object` (media sources insert sibling keys, css re-reads by key) defer their
     // attr names, which most elements don't have. Each attr is scrubbed independently, so running
     // the deferred ones after the loop produces the same result as the original in-order pass.
     let mut deferred: Vec<String> = Vec::new();
+    let mut rejected_image_refs: Vec<String> = Vec::new();
 
     for (name, value) in attrs.iter_mut() {
         let name: &str = name.as_ref();
+        if is_image_ref_attr(name) {
+            let keep = ctx.keeps_image_refs()
+                && if name.starts_with(CSS_IMAGE_REFS_ATTR_PREFIX) {
+                    is_strict_css_refs(value)
+                } else {
+                    as_str(value).is_some_and(is_image_ref_strict)
+                };
+            if !keep {
+                rejected_image_refs.push(name.to_string());
+            }
+            continue;
+        }
         if kind == TagKind::Media && is_media_src_attr(name) {
             continue;
         }
-        // Inlined rendered pixels (`rr_dataURL`): blur the image, on any tag.
+        // Inlined rendered pixels (`rr_dataURL`): scrub the image, on any tag.
         if name == INLINE_IMAGE_ATTR || name == "style" || name == INLINED_STYLESHEET_ATTR {
             deferred.push(name.to_string());
             continue;
@@ -249,16 +269,23 @@ fn scrub_attrs(
         }
     }
 
+    for name in rejected_image_refs {
+        attrs.remove(name.as_str());
+        changed = true;
+    }
+
     for name in deferred {
         if name == INLINE_IMAGE_ATTR {
-            changed |= blur_inline_image_attr(ctx, attrs, &name);
+            changed |= scrub_inline_image_attr(ctx, attrs, &name);
+        } else if name == "style" {
+            changed |= scrub_css_images(ctx, attrs, &name, CssContext::DeclarationList);
         } else {
-            changed |= scrub_css_images(ctx, attrs, &name);
+            changed |= scrub_css_images(ctx, attrs, &name, CssContext::Stylesheet);
         }
     }
 
     if kind == TagKind::Media {
-        changed |= apply_blur(ctx, attrs, tag_src_is_image);
+        changed |= scrub_media_sources(ctx, attrs, tag, parent_is_picture);
     }
 
     changed
@@ -282,7 +309,9 @@ pub(crate) fn is_user_text_attr(name: &str) -> bool {
 }
 
 pub(crate) fn is_data_attr(name: &str) -> bool {
-    name.starts_with("data-") && !name.starts_with("data-anon-original-")
+    name.starts_with("data-")
+        && !name.starts_with("data-anon-original-")
+        && !is_image_ref_attr(name)
 }
 
 pub(crate) fn data_attr_looks_sensitive(value: &str) -> bool {
@@ -336,8 +365,11 @@ mod tests {
         let v = out["node"]["childNodes"][0]["attributes"]["rr_dataURL"]
             .as_str()
             .unwrap();
-        assert!(v.starts_with("data:image/"), "still an image: {v}");
-        assert_ne!(v, uri, "raw inline image must not pass through");
+        assert_eq!(
+            v,
+            crate::data_uri::blank_image_data_uri(),
+            "blanked without the scrub lane"
+        );
     }
 
     #[test]
@@ -357,7 +389,7 @@ mod tests {
                 "the original image must be gone from {attr}"
             );
             assert!(
-                scrubbed.contains("url(data:image/png"),
+                scrubbed.contains("data:image/png"),
                 "replaced with a data image in {attr}: {scrubbed}"
             );
         }
@@ -365,7 +397,7 @@ mod tests {
 
     #[test]
     fn media_tag_without_source_attrs_is_not_marked_changed() {
-        // A bare <img> (media tag, but no src/href/etc. to blur) must report "unchanged" so the whole
+        // A bare <img> (media tag, but no src/href/etc. to scrub) must report "unchanged" so the whole
         // message isn't needlessly re-serialized just because a media element was present.
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
@@ -373,7 +405,7 @@ mod tests {
         let mut data = simd_json::to_borrowed_value(&mut bytes).unwrap();
         assert!(
             !scrub_full_snapshot(&ctx, &mut data),
-            "a media tag with nothing to blur should not count as a change"
+            "a media tag with nothing to scrub should not count as a change"
         );
     }
 }

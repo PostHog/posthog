@@ -11,11 +11,19 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.models import Organization, Project, Team
+
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
+
+
+async def create_test_team(organization: Organization, name: str) -> Team:
+    project_id = await sync_to_async(Team.objects.increment_id_sequence)()
+    project = await Project.objects.acreate(id=project_id, organization=organization)
+    return await Team.objects.acreate(id=project.id, project=project, organization=organization, name=name)
 
 
 class TestSurveyCreatorTool(BaseTest):
@@ -145,6 +153,28 @@ class TestSurveyCreatorTool(BaseTest):
         survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "Feature Flag Survey"
         assert survey.linked_flag_id == flag.id
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_rejects_linked_flag_from_another_organization(self):
+        other_organization = await Organization.objects.acreate(name="Other Organization")
+        other_team = await create_test_team(other_organization, "Other Team")
+        other_flag = await FeatureFlag.objects.acreate(
+            team=other_team,
+            key="other-organization-feature",
+            created_by=self.user,
+        )
+
+        result = await self._setup_tool().ainvoke(
+            {
+                "name": "Cross-organization survey",
+                "questions": [{"type": "open", "question": "How is it going?"}],
+                "linked_flag_id": other_flag.id,
+            }
+        )
+
+        assert "Survey validation failed" in result
+        assert not await Survey.objects.filter(team=self.team, name="Cross-organization survey").aexists()
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -343,6 +373,67 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.conditions is not None
         assert survey.conditions["url"] == "/pricing"
         assert survey.conditions["urlMatchType"] == "icontains"
+
+    @parameterized.expand(
+        [
+            ("always_without_conditions", {"schedule": "always"}, "always", None, None, "no display conditions"),
+            (
+                "always_with_url",
+                {"schedule": "always", "target_url": "/pricing"},
+                "always",
+                None,
+                None,
+                "every time its display conditions are met",
+            ),
+            ("recurring_defaults", {"schedule": "recurring"}, "recurring", 2, 90, None),
+            (
+                "recurring_custom",
+                {"schedule": "recurring", "iteration_count": 4, "iteration_frequency_days": 30},
+                "recurring",
+                4,
+                30,
+                None,
+            ),
+            ("unset", {}, "once", None, None, None),
+            (
+                "iteration_values_without_schedule",
+                {"iteration_count": 4, "iteration_frequency_days": 30},
+                "recurring",
+                4,
+                30,
+                None,
+            ),
+            (
+                "always_with_wait_period",
+                {"schedule": "always", "wait_period_days": 7},
+                "always",
+                None,
+                None,
+                "shows again every 7 days",
+            ),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_schedule(
+        self, _name, kwargs, expected_schedule, expected_count, expected_frequency, expected_warning
+    ):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            name="Feedback", questions=[SimpleSurveyQuestion(type="open", question="Any feedback?")], **kwargs
+        )
+
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.schedule == expected_schedule
+        assert survey.iteration_count == expected_count
+        assert survey.iteration_frequency_days == expected_frequency
+        if expected_warning:
+            assert expected_warning in content
+        else:
+            assert "display conditions" not in content
+        if kwargs.get("wait_period_days"):
+            assert "Add a wait period" not in content
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -811,8 +902,6 @@ class TestEditSurveyTool(BaseTest):
         assert updated_survey.conditions["url"] == "/dashboard"
         assert updated_survey.conditions["urlMatchType"] == "icontains"
 
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
     @parameterized.expand(
         [
             (
@@ -851,6 +940,8 @@ class TestEditSurveyTool(BaseTest):
             ),
         ]
     )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_edit_survey_targeting_updates_preserve_existing_conditions(
         self,
         _case_name,
@@ -882,6 +973,29 @@ class TestEditSurveyTool(BaseTest):
         if "linked_flag_id" in tool_kwargs or initial_linked_flag:
             assert updated_survey.linked_flag_id == flag.id
         assert updated_survey.conditions == expected_conditions
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_rejects_linked_flag_from_another_organization(self):
+        other_organization = await Organization.objects.acreate(name="Other Organization")
+        other_team = await create_test_team(other_organization, "Other Team")
+        other_flag = await FeatureFlag.objects.acreate(
+            team=other_team,
+            key="other-organization-feature",
+            created_by=self.user,
+        )
+        survey = await self._create_test_survey()
+
+        result = await self._setup_tool().ainvoke(
+            {
+                "survey_id": str(survey.id),
+                "linked_flag_id": other_flag.id,
+            }
+        )
+
+        assert "Survey validation failed" in result
+        await survey.arefresh_from_db()
+        assert survey.linked_flag_id is None
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -931,6 +1045,29 @@ class TestEditSurveyTool(BaseTest):
         assert is_dangerous is True
         assert "Remove URL targeting" in preview
         assert "Remove linked feature flag targeting" in preview
+
+    @parameterized.expand(
+        [
+            ("recurring_to_always", {"schedule": "always"}, "always", None, None),
+            ("recurring_to_once", {"schedule": "once"}, "once", None, None),
+            ("change_count_only", {"iteration_count": 5}, "recurring", 5, 30),
+            ("count_below_current_iteration", {"iteration_count": 1}, "recurring", 3, 30),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_schedule(self, _name, kwargs, expected_schedule, expected_count, expected_frequency):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            schedule="recurring", iteration_count=3, iteration_frequency_days=30, current_iteration=2
+        )
+
+        await tool._arun_impl(survey_id=str(survey.id), **kwargs)
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.schedule == expected_schedule
+        assert updated_survey.iteration_count == expected_count
+        assert updated_survey.iteration_frequency_days == expected_frequency
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -989,8 +1126,6 @@ class TestEditSurveyTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_edit_survey_wrong_team(self):
-        from posthog.models import Organization, Team
-
         other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
         other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
         other_survey = await sync_to_async(Survey.objects.create)(

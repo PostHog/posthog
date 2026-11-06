@@ -23,6 +23,12 @@ class TestBacktickIdentifierQuoter:
             ("db@prod", "`db@prod`"),
             ("a-b", "`a-b`"),
             ("a.b", "`a.b`"),
+            # A real Tableau MySQL-driver temp table name, created (and sometimes left
+            # behind) when it tests a connection's ability to create temp tables.
+            (
+                "#Tableau_8_sid_00130535_3_Connect_CheckCreateTempTableCap",
+                "`#Tableau_8_sid_00130535_3_Connect_CheckCreateTempTableCap`",
+            ),
         ],
     )
     def test_accepts_allowed_identifiers(self, identifier: str, expected: str) -> None:
@@ -64,20 +70,41 @@ class TestBacktickIdentifierQuoter:
 class TestAnsiIdentifierQuoter:
     quoter = AnsiIdentifierQuoter()
 
-    def test_quotes_with_double_quotes(self) -> None:
-        assert self.quoter.quote("my_table") == '"my_table"'
+    @pytest.mark.parametrize(
+        "identifier,expected",
+        [
+            ("my_table", '"my_table"'),
+            # ANSI delimited identifiers accept characters the alphanumeric
+            # allowlist rejects; this is a real Snowflake column name.
+            ("Date Established", '"Date Established"'),
+            # A literal `"` is escaped by doubling, the standard ANSI rule.
+            ('a"b', '"a""b"'),
+            ('users"; DROP TABLE x; --', '"users""; DROP TABLE x; --"'),
+        ],
+    )
+    def test_quotes_with_double_quotes(self, identifier: str, expected: str) -> None:
+        assert self.quoter.quote(identifier) == expected
 
     def test_quote_qualified_with_double_quotes(self) -> None:
         assert self.quoter.quote_qualified("public", "users") == '"public"."users"'
 
-    def test_rejects_sql_injection_attempt(self) -> None:
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "a\nb",
+            "a\tb",
+            "a\x00b",
+            "",
+        ],
+    )
+    def test_rejects_unsafe_identifiers(self, identifier: str) -> None:
         with pytest.raises(InvalidIdentifierError):
-            self.quoter.quote('users"; DROP TABLE x; --')
+            self.quoter.quote(identifier)
 
     def test_invalid_identifier_error_is_a_value_error(self) -> None:
         """Back-compat: code catching plain ValueError still works."""
         with pytest.raises(ValueError):
-            self.quoter.quote("bad;id")
+            self.quoter.quote("a\nb")
 
 
 class TestBracketIdentifierQuoter:

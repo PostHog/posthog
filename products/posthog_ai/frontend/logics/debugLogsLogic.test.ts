@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -35,6 +35,13 @@ describe('debugLogsLogic', () => {
     })
 
     it('hides debug logs for staff with no stored preference until explicitly enabled', () => {
+        setup({ user: { is_staff: true }, isDev: false })
+        expect(logic.values.debugLogsEnabled).toBe(false)
+        expect(logic.values.showDebugLogs).toBe(false)
+    })
+
+    it('ignores a value left under a superseded storage key', () => {
+        localStorage.setItem('posthog_ai.debugLogsEnabled', 'true')
         setup({ user: { is_staff: true }, isDev: false })
         expect(logic.values.debugLogsEnabled).toBe(false)
         expect(logic.values.showDebugLogs).toBe(false)

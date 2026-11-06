@@ -1,33 +1,45 @@
 import { useActions, useValues } from 'kea'
+import { Suspense, useEffect } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
+import { RecordingsBlockBanner } from '../components/RecordingsBlockBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
-import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
-import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
-import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
-import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
-import { ScannerRunTab } from './components/ScannerRunTab'
-import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { scannerEditUrl } from './scannerEditorSceneLogic'
+
+const ScannerAlertsTab = lazyWithRetry(() =>
+    import('./components/ScannerAlertsTab').then((module) => ({ default: module.ScannerAlertsTab }))
+)
+const ScannerScanTab = lazyWithRetry(() =>
+    import('./components/ScannerScanTab').then((module) => ({ default: module.ScannerScanTab }))
+)
+const VariantsTab = lazyWithRetry(() =>
+    import('./components/variants/VariantsTab').then((module) => ({ default: module.VariantsTab }))
+)
+const ScannerScoutsTab = lazyWithRetry(() =>
+    import('./components/ScannerScoutsTab').then((module) => ({ default: module.ScannerScoutsTab }))
+)
 
 export const scene: SceneExport = {
     component: ReplayScannerSceneComponent,
@@ -36,13 +48,24 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannerSceneComponent(): JSX.Element {
-    const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
-    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { scannerId, activeTab, defaultTab } = useValues(replayScannerSceneLogic)
+    const { setActiveTab, setDefaultTab } = useActions(replayScannerSceneLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const isExperimentScanner = experimentScanners && scanner?.scanner_type === 'experiment'
+    const loadedScannerId = scanner?.id ?? null
+
+    // The scene logic can't see the scanner's type, so the page tells it which tab this scanner lands on.
+    useEffect(() => {
+        if (loadedScannerId) {
+            setDefaultTab(isExperimentScanner ? ReplayScannerTab.Variants : ReplayScannerTab.Overview)
+        }
+    }, [loadedScannerId, isExperimentScanner, setDefaultTab])
 
     if (scannerLoading || !scanner) {
         return (
@@ -52,6 +75,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
         )
     }
 
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
+    const editUrl = scannerEditUrl(scannerId, activeTab === defaultTab ? null : activeTab)
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -59,88 +85,96 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <>
-                        {activeTab !== ReplayScannerTab.Calibration && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconSparkles />}
-                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Calibration tab"
-                                onClick={() => setActiveTab(ReplayScannerTab.Calibration)}
-                                data-attr="replay-vision-open-calibration-tab"
+                    todayRailNav ? (
+                        <>
+                            <Button
+                                variant="primary"
+                                render={<LinkPrimitive to={editDisabledReason ? undefined : editUrl} />}
+                                disabledReason={editDisabledReason}
+                                data-attr="vision-scanner-edit"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                             >
-                                Improve scanner
+                                Edit scanner
+                            </Button>
+                            <ReplayVisionFeedbackButton />
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={editUrl}
+                                disabledReason={editDisabledReason}
+                                data-attr="vision-scanner-edit"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            >
+                                Edit scanner
                             </LemonButton>
-                        )}
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            to={urls.replayVisionScannerConfigure(scannerId)}
-                            disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
-                            data-attr="vision-scanner-edit"
-                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                        >
-                            Edit scanner
-                        </LemonButton>
-                        <ReplayVisionFeedbackButton />
-                    </>
+                            <ReplayVisionFeedbackButton />
+                        </>
+                    )
                 }
             />
 
             <IngestionLimitBanner />
+            <RecordingsBlockBanner />
             <QuotaBanner />
 
             <LemonTabs
-                activeKey={activeTab}
+                // Only an experiment scanner has a Variants tab, so a stale ?tab=variants falls back.
+                activeKey={
+                    activeTab === ReplayScannerTab.Variants && !isExperimentScanner
+                        ? ReplayScannerTab.Overview
+                        : activeTab
+                }
                 onChange={setActiveTab}
                 data-attr="vision-scanner-tabs"
                 tabs={[
                     {
                         key: ReplayScannerTab.Overview,
                         label: 'Overview',
-                        content: (
-                            <div className="flex flex-col gap-6">
-                                <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
-                                <ScannerOverview scannerId={scannerId} />
-                            </div>
-                        ),
+                        content: <ScannerOverview scannerId={scannerId} />,
                     },
+                    ...(isExperimentScanner
+                        ? [
+                              {
+                                  key: ReplayScannerTab.Variants,
+                                  label: 'Variants',
+                                  content: <VariantsTab scannerId={scannerId} />,
+                              },
+                          ]
+                        : []),
                     {
                         key: ReplayScannerTab.Observations,
                         label: 'Observations',
                         content: <ScannerObservationsTable scannerId={scannerId} />,
                     },
                     {
-                        key: ReplayScannerTab.OnDemand,
-                        label: 'On-demand',
-                        content: <ScannerRunTab scannerId={scannerId} />,
+                        key: ReplayScannerTab.Run,
+                        label: 'Run',
+                        content: <ScannerScanTab scannerId={scannerId} />,
                     },
                     {
-                        key: ReplayScannerTab.Backfills,
-                        label: 'Backfills',
-                        content: <ScannerBackfillsTab scannerId={scannerId} />,
-                    },
-                    {
-                        key: ReplayScannerTab.Configuration,
-                        label: 'Configuration',
-                        content: <ScannerConfigReadonly scanner={scanner} />,
-                    },
-                    {
-                        key: ReplayScannerTab.Calibration,
-                        label: 'Calibration',
-                        content: <ScannerCalibrationTab scannerId={scannerId} />,
-                    },
-                    {
-                        key: ReplayScannerTab.Actions,
-                        label: 'Digests and alerts',
-                        content: (
-                            <VisionActionsTab
-                                scannerId={scannerId}
-                                scannerUserAccessLevel={scanner.user_access_level}
-                            />
+                        key: ReplayScannerTab.Scouts,
+                        label: (
+                            <>
+                                Scouts{' '}
+                                <LemonTag type="completion" size="small" className="ml-1">
+                                    Beta
+                                </LemonTag>
+                            </>
                         ),
+                        content: <ScannerScoutsTab scannerId={scannerId} />,
                     },
-                ]}
+                    {
+                        key: ReplayScannerTab.Alerts,
+                        label: 'Alerts',
+                        content: <ScannerAlertsTab scannerId={scannerId} />,
+                    },
+                ].map((tab) => ({
+                    ...tab,
+                    content: <Suspense fallback={<Spinner className="m-4" />}>{tab.content}</Suspense>,
+                }))}
             />
         </SceneContent>
     )
@@ -157,11 +191,11 @@ function QuotaBanner(): JSX.Element | null {
         <LemonBanner type="warning">
             {state.kind === 'exhausted'
                 ? `${
-                      onFreePlan ? 'Free credits used up' : 'Monthly spend limit reached'
+                      onFreePlan ? 'Free credits used up' : 'Spend limit reached'
                   }: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
                 : onFreePlan
-                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this month. New observations will pause once they run out. Resets ${state.resetsOn}.`
-                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
+                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this billing period. New observations will pause once they run out. Resets ${state.resetsOn}.`
+                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this billing period. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
         </LemonBanner>
     )
 }

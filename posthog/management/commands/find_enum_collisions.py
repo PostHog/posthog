@@ -77,9 +77,15 @@ class Command(BaseCommand):
             self.stdout.write("  Override entry to add to ENUM_NAME_OVERRIDES in web.py")
             self.stdout.write("  (key defaults to the current auto-resolved name; rename for a nicer schema type):")
             if c["has_spec_id"] and not c["inline_override_matches"]:
-                self.stdout.write(f'    "{c["auto_name"]}": "your.models.module.Model.ChoicesClass",')
                 self.stdout.write(
-                    "    # ChoiceField with custom labels (labels != values) — override must be a model class path"
+                    f'    "{c["auto_name"]}": "products.<name>.backend.facade.enums.ChoicesClass.choices",'
+                )
+                self.stdout.write(
+                    "    # ChoiceField with custom labels (labels != values). Point at .choices: drf-spectacular"
+                    "\n    # hashes a bare Enum class as (value, name), which a field's (value, label) pairs never match."
+                    "\n    # A field built from a choices class (choices=X.choices) needs no entry at all, because the"
+                    "\n    # class name derives the component name. Define a product enum in backend/facade/enums.py"
+                    "\n    # as a posthog.enums.LabeledStrEnum."
                 )
             else:
                 vals = c["values"]

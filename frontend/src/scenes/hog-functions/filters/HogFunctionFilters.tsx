@@ -11,18 +11,23 @@ import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/Tax
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import MaxTool from 'scenes/max/MaxTool'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, ChartDisplayCategory, CyclotronJobFiltersType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { truncateHogFunctionContext } from '../hog-function-utils'
+import { CdpFilterEntities, cdpFiltersToSeries, seriesToCdpFilters } from './cdpFilterSeries'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 const MASKING_HASH_ALL = 'all'
@@ -37,7 +42,7 @@ const CALENDAR_DAY_HASHES = [MASKING_HASH_PER_PERSON_PER_DAY, MASKING_HASH_PER_P
 const CALENDAR_DAY_TTL = 24 * 60 * 60
 const DEFAULT_INTERVAL_TTL = 60 * 30
 
-function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
+function sanitizeActionFilters(filters?: CdpFilterEntities): Partial<CyclotronJobFiltersType> {
     if (!filters) {
         return {}
     }
@@ -112,17 +117,28 @@ export function HogFunctionFilters({
     ])
 
     const isTransformation = type === 'transformation'
-    const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
+    const filterSource = configuration?.filters?.source
+    const isDataWarehouseView = filterSource === 'data-warehouse-view'
+    // Both warehouse sources deliver a row rather than an event, so everything downstream of here
+    // that hides person/event affordances applies to either.
+    const isDataWarehouse = filterSource === 'data-warehouse-table' || isDataWarehouseView
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
     const cdpDwhTableSourceEnabled = useFeatureFlag('CDP_DWH_TABLE_SOURCE')
+    const cdpDwhViewSourceEnabled = useFeatureFlag('CDP_DWH_VIEW_SOURCE')
 
     // The table matcher's column suggestions read from databaseTableListLogic, which isn't loaded
     // automatically in this scene — kick it off when a warehouse table is the source.
     const { dataWarehouseTables, dataWarehouseTablesMap } = useValues(databaseTableListLogic)
-    const { loadDatabase } = useActions(databaseTableListLogic)
+    const { loadDatabase, ensureAllTableFields } = useActions(databaseTableListLogic)
+    const { dataWarehouseSavedQueries } = useValues(dataWarehouseViewsLogic)
     useEffect(() => {
-        if (isDataWarehouse && !dataWarehouseTables.length) {
-            loadDatabase()
+        if (isDataWarehouse) {
+            if (!dataWarehouseTables.length) {
+                loadDatabase()
+            } else {
+                // The store may hold a shallow (fields-less) schema left by the SQL editor.
+                ensureAllTableFields()
+            }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isDataWarehouse])
@@ -177,9 +193,10 @@ export function HogFunctionFilters({
 
     // NOTE: Mappings won't work for person updates currently as they are totally event based...
     const showSourcePicker =
-        (cdpPersonUpdatesEnabled || cdpDwhTableSourceEnabled) && type === 'destination' && !useMapping
-    const showEventMatchers =
-        !useMapping && ['events', 'data-warehouse-table'].includes(configuration?.filters?.source ?? 'events')
+        (cdpPersonUpdatesEnabled || cdpDwhTableSourceEnabled || cdpDwhViewSourceEnabled) &&
+        type === 'destination' &&
+        !useMapping
+    const showEventMatchers = !useMapping && (isDataWarehouse || (filterSource ?? 'events') === 'events')
 
     const mainContent = (
         <div
@@ -217,6 +234,9 @@ export function HogFunctionFilters({
                                     ...(cdpDwhTableSourceEnabled
                                         ? [{ value: 'data-warehouse-table', label: 'Warehouse table' }]
                                         : []),
+                                    ...(cdpDwhViewSourceEnabled
+                                        ? [{ value: 'data-warehouse-view', label: 'Materialized view' }]
+                                        : []),
                                 ]}
                                 value={value?.source ?? 'events'}
                                 onChange={(val) => {
@@ -246,6 +266,14 @@ export function HogFunctionFilters({
                     const dataWarehouseColumns = dataWarehouseTableName
                         ? Object.values(dataWarehouseTablesMap[dataWarehouseTableName]?.fields ?? {})
                         : []
+                    // A full-refresh view re-emits every row on every run, which is worth saying out
+                    // loud before someone points a destination at one.
+                    const selectedFullRefreshView =
+                        isDataWarehouseView && dataWarehouseTableName
+                            ? dataWarehouseSavedQueries.find(
+                                  (view) => view.name === dataWarehouseTableName && !view.is_incremental
+                              )
+                            : undefined
 
                     const onChange = (newValue: CyclotronJobFiltersType): void => {
                         if (oldFilters && newFilters) {
@@ -294,26 +322,29 @@ export function HogFunctionFilters({
                                 <>
                                     <div className="flex gap-2 justify-between w-full">
                                         <LemonLabel>
-                                            {isDataWarehouse
-                                                ? 'Match tables'
-                                                : isTransformation
-                                                  ? 'Match events'
-                                                  : 'Match events and actions'}
+                                            {isDataWarehouseView
+                                                ? 'Match materialized views'
+                                                : isDataWarehouse
+                                                  ? 'Match tables'
+                                                  : isTransformation
+                                                    ? 'Match events'
+                                                    : 'Match events and actions'}
                                         </LemonLabel>
                                     </div>
                                     <p className="mb-0 text-xs text-secondary">
                                         If set, the {type} will only run if the <b>event matches any</b> of the below.
                                     </p>
-                                    <ActionFilter
+                                    <SeriesActionFilter
                                         bordered
-                                        filters={currentFilters ?? {} /* TODO: this is any */}
-                                        setFilters={(payload) => {
+                                        series={cdpFiltersToSeries(currentFilters)}
+                                        onChange={(series) => {
                                             onChange({
                                                 ...currentFilters,
-                                                ...sanitizeActionFilters(payload),
+                                                ...sanitizeActionFilters(seriesToCdpFilters(series)),
                                             })
                                         }}
-                                        typeKey="plugin-filters"
+                                        trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                                        typeKey={isDataWarehouseView ? 'plugin-filters-view' : 'plugin-filters'}
                                         mathAvailability={MathAvailability.None}
                                         hideRename
                                         hideDuplicate
@@ -321,28 +352,60 @@ export function HogFunctionFilters({
                                         actionsTaxonomicGroupTypes={
                                             isTransformation
                                                 ? [TaxonomicFilterGroupType.Events]
-                                                : isDataWarehouse
-                                                  ? [TaxonomicFilterGroupType.DataWarehouseSourceTables]
-                                                  : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+                                                : isDataWarehouseView
+                                                  ? [TaxonomicFilterGroupType.DataWarehouseMaterializedViews]
+                                                  : isDataWarehouse
+                                                    ? [TaxonomicFilterGroupType.DataWarehouseSourceTables]
+                                                    : [
+                                                          TaxonomicFilterGroupType.Events,
+                                                          TaxonomicFilterGroupType.Actions,
+                                                      ]
                                         }
                                         propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
                                         propertyFiltersPopover
-                                        addFilterDefaultOptions={
+                                        newSeriesDefaults={
                                             isDataWarehouse
                                                 ? {
-                                                      name: 'Select a table',
-                                                      type: EntityTypes.DATA_WAREHOUSE,
+                                                      name: isDataWarehouseView
+                                                          ? 'Select a materialized view'
+                                                          : 'Select a table',
+                                                      kind: NodeKind.DataWarehouseNode,
                                                   }
-                                                : {
-                                                      id: '$pageview',
-                                                      name: '$pageview',
-                                                      type: EntityTypes.EVENTS,
-                                                  }
+                                                : { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }
                                         }
-                                        buttonCopy={isDataWarehouse ? 'Add table matcher' : 'Add event matcher'}
+                                        buttonCopy={
+                                            isDataWarehouseView
+                                                ? 'Add view matcher'
+                                                : isDataWarehouse
+                                                  ? 'Add table matcher'
+                                                  : 'Add event matcher'
+                                        }
                                         excludedProperties={excludedProperties}
+                                        // Every function type here receives $feature_flag_called at every flag
+                                        // evaluations mode. Transformations run during ingestion, before the step
+                                        // that drops the call from `events`. Site destinations run in the browser.
+                                        // Destinations also consume `realtime_only_events_json`, which carries the
+                                        // call when ingestion does not write it to `events`.
+                                        includeHiddenEvents
                                         allowNonCapturedEvents
                                     />
+                                    {selectedFullRefreshView ? (
+                                        <LemonBanner type="warning" className="w-full">
+                                            <p className="mb-0">
+                                                This view rebuilds its whole table on every run. A row runs this
+                                                destination again only if its values changed since the last run. In a
+                                                view with more than 200,000 rows, the rows past that limit run it again
+                                                each time. Set the view to update incrementally to avoid this.{' '}
+                                                <Link
+                                                    to={urls.sqlEditor({ view_id: selectedFullRefreshView.id })}
+                                                    target="_blank"
+                                                    className="font-semibold"
+                                                >
+                                                    Open the view
+                                                </Link>
+                                            </p>
+                                        </LemonBanner>
+                                    ) : null}
                                     {dataWarehouseTableName ? (
                                         <DataWarehouseColumnsHint
                                             schemaColumns={dataWarehouseColumns}
@@ -549,6 +612,12 @@ export function HogFunctionFilters({
             ) : null}
         </div>
     )
+
+    // Mapping-level matchers have their own editor and persistence model. The global filter tool cannot safely edit
+    // them, so do not offer it here until it has a mapping-specific contract.
+    if (useMapping) {
+        return mainContent
+    }
 
     return (
         <MaxTool

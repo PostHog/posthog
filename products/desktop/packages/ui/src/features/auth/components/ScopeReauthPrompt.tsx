@@ -1,4 +1,5 @@
 import { ShieldWarning } from "@phosphor-icons/react";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Button, Dialog, Flex, Text } from "@radix-ui/themes";
 import { logger } from "../../../shell/logger";
 import { useAuthStateValue } from "../store";
@@ -57,9 +58,9 @@ export function ScopeReauthPrompt() {
             <Button
               type="button"
               onClick={handleSignIn}
-              loading={loginMutation.isPending}
-              disabled={!cloudRegion}
+              disabled={!cloudRegion || loginMutation.isPending}
             >
+              {loginMutation.isPending && <Spinner size="sm" />}
               Sign in
             </Button>
           </Flex>

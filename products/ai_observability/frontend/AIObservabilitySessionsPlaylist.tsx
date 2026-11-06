@@ -3,14 +3,15 @@ import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { SessionDetailPanel } from './AIObservabilitySessionScene'
+import { AIObservabilitySessionsEmptyState } from './AIObservabilitySessionsEmptyState'
 import { SessionListRow, aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
 import { formatLLMCost } from './utils'
 
@@ -110,7 +111,7 @@ function ListPane({ className }: { className?: string }): JSX.Element {
                         ))}
                     </div>
                 ) : sessions.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-secondary">No sessions yet</div>
+                    <AIObservabilitySessionsEmptyState />
                 ) : (
                     <>
                         <ul className="flex flex-col list-none pl-0 m-0 divide-y divide-primary">

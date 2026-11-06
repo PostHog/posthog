@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import difflib
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Iterable
 from typing import Optional, cast
 
 from pydantic import BaseModel
@@ -27,6 +27,10 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
+from posthog.hogql.escape_sql import escape_hogql_identifier, quote_hogql_identifier
+
+# Bounds the message for wide warehouse tables. A longer list stops helping the reader pick a column.
+MAX_LISTED_FIELD_NAMES = 30
 
 
 def lookup_field_by_name(
@@ -110,44 +114,89 @@ def _select_set_type_source_name(index: int) -> str:
     return f"query source {index}"
 
 
-def _names_on_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
+def _names_on_table_type(
+    table_type: ast.Type, context: HogQLContext, table_names: Callable[[Table], Iterable[str]]
+) -> list[str]:
+    if isinstance(table_type, ast.ColumnAliasedTableType):
+        return list(table_type.alias_to_original)
+    if isinstance(table_type, ast.SelectQueryAliasType):
+        return _names_on_table_type(table_type.select_query_type, context, table_names)
     if isinstance(table_type, ast.BaseTableType):
         try:
-            table = table_type.resolve_database_table(context)
+            return list(table_names(table_type.resolve_database_table(context)))
         except Exception:
-            return set()
-        return set(table.fields.keys())
+            return []
     if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
-        return set(getattr(table_type, "columns", {}).keys())
-    return set()
+        return list(getattr(table_type, "columns", {}).keys())
+    return []
+
+
+def _collect_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType,
+    context: HogQLContext,
+    table_names: Callable[[Table], Iterable[str]],
+) -> list[str]:
+    if isinstance(scope, ast.SelectSetQueryType):
+        names = [name for inner in scope.types for name in _collect_field_names(inner, context, table_names)]
+    else:
+        names = list(scope.aliases.keys())
+        for table_type in [*scope.tables.values(), *scope.anonymous_tables]:
+            names.extend(_names_on_table_type(table_type, context, table_names))
+        if scope.parent is not None:
+            names.extend(_collect_field_names(scope.parent, context, table_names))
+    return list(dict.fromkeys(names))
 
 
 def collect_available_field_names(
     scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
 ) -> set[str]:
-    """Gather field names visible in a scope (aliases + joined-table fields)
-    for use in 'did you mean' suggestions when resolution fails.
+    """Every field name visible in a scope, for 'did you mean' suggestions when resolution fails."""
+    return set(_collect_field_names(scope, context, lambda table: table.fields.keys()))
 
-    Returns a flat set — callers don't need to know whether a name comes from
-    an alias, a named table, or an anonymous subquery.
+
+def collect_selectable_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
+) -> list[str]:
+    """Names a query in `scope` can select, in declaration order: aliases first, then the columns
+    `SELECT *` would return, including explicitly joined tables. Implicit join fields,
+    internal sub-tables and hidden fields are left out."""
+    return _collect_field_names(scope, context, lambda table: table.get_asterisk().keys())
+
+
+def _has_one_json_properties_field(scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext) -> bool:
+    try:
+        field = lookup_field_by_name(scope, "properties", context)
+        return field is not None and isinstance(field.resolve_constant_type(context), ast.StringJSONType)
+    except Exception:
+        return False
+
+
+def available_fields_suffix(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, node: ast.Field, context: HogQLContext
+) -> str:
+    """Name the fields `scope` does have, for an unresolved field with no close match.
+
+    Without the list a caller can only guess again. The property hint is worded as a condition because
+    a mistyped column read as `properties.x` returns NULL, not an error.
     """
-    names: set[str] = set()
-
-    if isinstance(scope, ast.SelectSetQueryType):
-        for inner in scope.types:
-            names.update(collect_available_field_names(inner, context))
-        return names
-
-    names.update(scope.aliases.keys())
-    for table_type in scope.tables.values():
-        names.update(_names_on_table_type(table_type, context))
-    for anon in scope.anonymous_tables:
-        names.update(_names_on_table_type(anon, context))
-
-    if scope.parent is not None:
-        names.update(collect_available_field_names(scope.parent, context))
-
-    return names
+    names = collect_selectable_field_names(scope, context)
+    if not names:
+        return ""
+    listed = ", ".join(names[:MAX_LISTED_FIELD_NAMES])
+    remaining = len(names) - MAX_LISTED_FIELD_NAMES
+    more = f", and {remaining} more" if remaining > 0 else ""
+    name = str(node.chain[0])
+    property_hint = (
+        f" If {name} is a custom property, read it as properties.{quote_hogql_identifier(name)}."
+        if len(node.chain) == 1 and _has_one_json_properties_field(scope, context)
+        else ""
+    )
+    join_hint = (
+        " If a field name exists in multiple tables, qualify it with the table name or alias."
+        if isinstance(scope, ast.SelectQueryType) and len(scope.tables) + len(scope.anonymous_tables) > 1
+        else ""
+    )
+    return f". Available fields: {listed}{more}.{property_hint}{join_hint}"
 
 
 def suggest_field_names(
@@ -167,6 +216,25 @@ def suggest_field_names(
     return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
 
 
+def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:
+    """Replacement text for the range `node` marks, or None when no edit is safe to offer.
+
+    Three conditions have to hold. The node needs a span, because a notice without one marks the
+    whole query and applying the fix would overwrite it. The chain has to be a single name, because
+    the span covers the whole chain while the suggestion only stands in for its head, and a head
+    that is really a table alias draws its suggestions from field names, so the edit would be
+    confidently wrong. And the name has to survive escaping, which rejects a few.
+    """
+    if node.start is None or node.end is None:
+        return None
+    if len(node.chain) != 1:
+        return None
+    try:
+        return escape_hogql_identifier(suggestion)
+    except QueryError:
+        return None
+
+
 def lookup_table_by_name(
     scope: ast.SelectQueryType, ctes: dict[str, ast.CTE], node: ast.Field
 ) -> Optional[ast.TableOrSelectType]:
@@ -178,7 +246,64 @@ def lookup_table_by_name(
         if isinstance(cte.type, ast.CTETableType):
             return cte.type.select_query_type
 
+    # Some external engines resolve unquoted identifiers case-insensitively, so a qualifier may
+    # spell such a table differently than the FROM clause did. Accept a unique folded match.
+    if len(node.chain) > 1:
+        head = str(node.chain[0]).lower()
+        folded_matches = [
+            table
+            for table_alias, table in scope.tables.items()
+            if table_alias.lower() == head and _folds_identifier_case(table)
+        ]
+        if len(folded_matches) == 1:
+            return folded_matches[0]
+
     return None
+
+
+def lookup_table_by_nested_name(
+    scope: ast.SelectQueryType, node: ast.Field
+) -> Optional[tuple[ast.TableOrSelectType, int]]:
+    """Match a qualifier that spells a nested table's name, like `models.a` in `models.a.event`.
+
+    `FROM models.a` puts the table in scope as `models__a`, so the qualifier spans several chain
+    segments, or one backquoted segment holding dots. Returns the table and the number of chain
+    segments the qualifier used. The longest match wins, and at least one segment must remain.
+    """
+    if not scope.tables:
+        return None
+    # No qualifier can be deeper than the deepest nested name in scope, so a long chain stops early
+    # instead of rebuilding every prefix.
+    deepest_name = max(table_alias.count("__") + 1 for table_alias in scope.tables)
+    match: Optional[tuple[ast.TableOrSelectType, int]] = None
+    parts: list[str] = []
+    for consumed, segment in enumerate(node.chain[:-1], start=1):
+        parts.extend(str(segment).split("."))
+        if len(parts) > deepest_name:
+            break
+        if len(parts) < 2:
+            continue
+        table = scope.tables.get("__".join(parts))
+        if table is not None:
+            match = table, consumed
+    return match
+
+
+def table_folds_identifier_case(table: Table, alias: Optional[str] = None) -> bool:
+    """Whether the resolver matches a qualifier to `table` in any case. An explicit `alias` keeps the user's exact
+    spelling, so only an alias that re-spells the table's own name counts."""
+    if not getattr(table, "case_insensitive_identifiers", False):
+        return False
+    return alias is None or (table.name is not None and table.name.lower() == alias.lower())
+
+
+def _folds_identifier_case(table_type: ast.TableOrSelectType) -> bool:
+    if isinstance(table_type, ast.TableType):
+        return table_folds_identifier_case(table_type.table)
+    # A table referenced with different casing than discovery registers as an implicit alias.
+    if isinstance(table_type, ast.TableAliasType) and isinstance(table_type.table_type, ast.TableType):
+        return table_folds_identifier_case(table_type.table_type.table, table_type.alias)
+    return False
 
 
 def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
@@ -189,26 +314,28 @@ def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> O
 
 
 def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
-    if isinstance(type, ast.TableType):
-        return select.get_alias_for_table_type(type) or ""
-    elif isinstance(type, ast.LazyTableType):
-        return type.table.to_printed_hogql()
-    elif isinstance(type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        return type.alias
-    elif isinstance(type, ast.SelectQueryAliasType):
-        return type.alias
-    elif isinstance(type, ast.SelectViewType):
-        return type.alias
-    elif isinstance(type, ast.CTETableType):
-        return type.name
-    elif isinstance(type, ast.CTETableAliasType):
-        return type.alias
-    elif isinstance(type, ast.LazyJoinType):
-        return f"{get_long_table_name(select, type.table_type)}__{type.field}"
-    elif isinstance(type, ast.VirtualTableType):
-        return f"{get_long_table_name(select, type.table_type)}__{type.field}"
-    else:
-        raise ResolutionError(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
+    match type:
+        case ast.TableType():
+            return select.get_alias_for_table_type(type) or ""
+        case ast.LazyTableType(table=table):
+            return select.get_alias_for_table_type(type) or table.to_printed_hogql()
+        case (
+            ast.TableAliasType(alias=alias)
+            | ast.ColumnAliasedTableType(alias=alias)
+            | ast.SelectQueryAliasType(alias=alias)
+            | ast.SelectViewType(alias=alias)
+            | ast.CTETableAliasType(alias=alias)
+        ):
+            return alias
+        case ast.CTETableType(name=name):
+            return name
+        case (
+            ast.LazyJoinType(table_type=table_type, field=field)
+            | ast.VirtualTableType(table_type=table_type, field=field)
+        ):
+            return f"{get_long_table_name(select, table_type)}__{field}"
+        case _:
+            raise ResolutionError(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
 
 
 def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):

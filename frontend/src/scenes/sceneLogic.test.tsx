@@ -1,16 +1,42 @@
-import { kea, path } from 'kea'
+import {
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_DEFAULT_USER,
+    MOCK_USER_UUID,
+} from 'lib/api.mock'
+
+import { afterMount, kea, path } from 'kea'
 import { router } from 'kea-router'
-import { expectLogic, partial, truth } from 'kea-test-utils'
+import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import * as exporterViewLogic from '~/exporter/exporterViewLogic'
+import { useMocks } from '~/mocks/jest'
+import * as taxonomyLoader from '~/taxonomy/loadCoreFilterDefinitions'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityTab,
+    type AppContext,
+    type InsightShortId,
+    type OrganizationType,
+    type TeamType,
+} from '~/types'
+
+import { inboxSceneLogic } from 'products/signals/frontend/inbox/inboxSceneLogic'
 
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
@@ -20,6 +46,7 @@ jest.mock('lib/api', () => ({
     default: {
         get: jest.fn(),
         update: jest.fn(),
+        signalReports: { availableReviewers: jest.fn().mockResolvedValue([]) },
     },
 }))
 
@@ -27,10 +54,43 @@ const Component = (): JSX.Element => <div />
 const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
 
+const failingLogic = kea<testLogicType>([
+    path(['scenes', 'sceneLogic', 'testFailingLogic']),
+    afterMount(() => {
+        throw new Error('scene logic mount failed')
+    }),
+])
+
+type Deferred = { resolve: () => void; reject: (error: Error) => void }
+
+// Held so a test can reject a still-pending scene import after navigating somewhere else.
+let pendingImportRejection: ((error: Error) => void) | null = null
+
 const testScenes: Record<string, () => any> = {
+    [Scene.AgenticAuthorize]: sceneImport,
     [Scene.Alerts]: sceneImport,
+    [Scene.AIObservabilityEvaluations]: sceneImport,
+    [Scene.AIObservabilityOfflineExperiments]: sceneImport,
+    [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
+    [Scene.OAuthAuthorize]: sceneImport,
+    [Scene.OrganizationCreateFirst]: sceneImport,
+    [Scene.OrganizationDeactivated]: sceneImport,
+    [Scene.OrganizationPendingDeletion]: sceneImport,
+    [Scene.PasswordResetComplete]: sceneImport,
+    [Scene.ProjectCreateFirst]: sceneImport,
+    [Scene.ProjectPendingDeletion]: sceneImport,
+    MyTickets: sceneImport,
     [Scene.Settings]: sceneImport,
+    Inbox: sceneImport,
+    ScoutTrials: sceneImport,
+    [Scene.ProjectFiles]: sceneImport,
+    [Scene.Surveys]: (): any => Promise.reject(new Error('scene import failed')),
+    [Scene.Cohorts]: (): any => ({ scene: { component: Component, logic: failingLogic } }),
+    [Scene.Experiments]: (): any =>
+        new Promise((_resolve, reject) => {
+            pendingImportRejection = reject
+        }),
 }
 
 describe('sceneLogic', () => {
@@ -61,36 +121,431 @@ describe('sceneLogic', () => {
         })
     })
 
-    it('changing URL runs openScene, loadScene and setScene', async () => {
+    it('plays when 5 is pressed after the holiday flag arrives', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 9, 22))
+        const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+        const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation()
+        let playsBeforeFlag = 0
+        let playsAfterFlag = 0
+
+        try {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
+            playsBeforeFlag = play.mock.calls.length
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS], {
+                [FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS]: true,
+            })
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
+            playsAfterFlag = play.mock.calls.length
+        } finally {
+            play.mockRestore()
+            pause.mockRestore()
+            jest.useRealTimers()
+        }
+        expect(playsBeforeFlag).toBe(0)
+        expect(playsAfterFlag).toBe(1)
+    })
+
+    // A scene that never mounts must not leave the address bar on it with the previous scene still
+    // rendered, and must leave something error tracking can count.
+    describe('a scene that fails to load', () => {
+        const exceptionEvent = { uuid: 'scene-load-exception', event: '$exception' }
+        let captureExceptionSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            pendingImportRejection = null
+            captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => exceptionEvent as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+        })
+
+        it.each([
+            ['its code cannot be imported', urls.surveys(), Scene.Surveys, 'import'],
+            ['its logic throws while mounting', urls.cohorts(), Scene.Cohorts, 'logic_mount'],
+        ])('shows the load error and reports it when %s', async (_desc, url, sceneId, stage) => {
+            router.actions.push(url)
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.ErrorSceneLoad)
+            expect(captureExceptionSpy).toHaveBeenCalledWith(expect.any(Error), {
+                extra: expect.objectContaining({ sceneId, stage }),
+            })
+            // The support form needs this event, or a non-entitled organization cannot report the failure.
+            expect(logic.values.sceneLoadExceptionEvent).toEqual(exceptionEvent)
+        })
+
+        // An import can reject long after the person gave up and went somewhere else. The error
+        // scene must not then replace whatever they are reading now.
+        it('leaves a newer scene alone when a stale import rejects', async () => {
+            router.actions.push(urls.experiments())
+            await expectLogic(logic).delay(1)
+
+            router.actions.push(urls.settings('user'))
+            await expectLogic(logic).delay(1)
+            expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+
+            // Without this the rejection below is a no-op and the assertion passes vacuously.
+            expect(pendingImportRejection).not.toBeNull()
+            pendingImportRejection!(new Error('scene import failed'))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+        })
+    })
+
+    it.each([
+        ['loads', (release: Deferred) => release.resolve(), Scene.Settings],
+        [
+            'fails to load',
+            (release: Deferred) => release.reject(new Error('taxonomy chunk failed')),
+            Scene.ErrorSceneLoad,
+        ],
+    ])('holds a logged-in scene until the taxonomy %s', async (_outcome, settle, expectedScene) => {
+        let release: Deferred | undefined
+        const loadSpy = jest.spyOn(taxonomyLoader, 'loadCoreFilterDefinitions').mockImplementation(
+            () =>
+                new Promise<void>((resolve, reject) => {
+                    release = { resolve, reject }
+                })
+        )
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            router.actions.push(urls.settings('user'))
+            await expectLogic(logic).delay(1)
+            expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+
+            settle(release!)
+            await expectLogic(logic).delay(1)
+            expect(logic.values.activeSceneId).toEqual(expectedScene)
+        } finally {
+            loadSpy.mockRestore()
+            consoleErrorSpy.mockRestore()
+        }
+    })
+
+    it('does not hold a logged-out public page for the taxonomy', async () => {
+        const loadSpy = jest
+            .spyOn(taxonomyLoader, 'loadCoreFilterDefinitions')
+            .mockImplementation(() => new Promise<void>(() => {}))
+        try {
+            userLogic.actions.loadUserSuccess(null)
+            router.actions.push(urls.passwordResetComplete(MOCK_USER_UUID, 'a-token'))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.PasswordResetComplete)
+        } finally {
+            loadSpy.mockRestore()
+        }
+    })
+
+    it('keeps teamLogic mounted after every other mount reference is released', () => {
+        // openScene and activeSceneId read teamLogic.values directly. Without a mount reference of
+        // its own, navigation throws as soon as nothing else holds teamLogic up.
+        teamLogic.unmount()
+        expect(teamLogic.isMounted()).toBe(true)
+    })
+
+    it.each([
+        [urls.settings('user'), Scene.Settings],
+        [urls.projectFiles(), Scene.ProjectFiles],
+        [urls.projectFiles('Research'), Scene.ProjectFiles],
+        [urls.inboxScout('trials'), 'Inbox'],
+        [urls.inboxScout('trials', 'finding-1'), 'Inbox'],
+    ])('changing URL to %s loads its own scene', async (url, sceneId) => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.DataManagement,
         })
-        router.actions.push(urls.settings('user'))
+        router.actions.push(url)
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            sceneId: Scene.Settings,
+            sceneId,
         })
     })
 
-    it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {
-        router.actions.push('/feature-flags')
+    // A trailing slash used to reach the scene, then get replaced out of the address bar. That
+    // second navigation re-ran every `urlToAction` of the scene, so the OAuth consent screen
+    // reloaded its data and blanked while the person was reading it.
+    it('opens a scene once when the URL carries a trailing slash', async () => {
+        router.actions.push(urls.settings('user'))
         await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlags())
 
-        router.actions.push('/feature-flags/123')
+        const from = testUtilsContext().recordedHistory.length
+        router.actions.push(`${urls.eventDefinitions()}/`)
         await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
+        const openScenes = testUtilsContext()
+            .recordedHistory.slice(from)
+            .filter((recorded) => recorded.action.type === logic.actionTypes.openScene)
+
+        expect(openScenes).toHaveLength(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.eventDefinitions())
     })
 
-    it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
-        router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
+    it.each<[string, boolean]>([
+        ['/inbox/scout-trials', false],
+        ['/inbox/scout-trials', true],
+        ['/scout-trials', false],
+        ['/scout-trials', true],
+    ])(
+        'opens %s on the canonical scout trials route with inbox mounted=%p and preserves URL parameters',
+        async (path, inboxMounted) => {
+            await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
+                sceneId: Scene.DataManagement,
+            })
+            const inbox = inboxMounted ? inboxSceneLogic() : null
+            inbox?.mount()
+            try {
+                await expectLogic(logic, () => {
+                    router.actions.push(path, { source: 'bookmark' }, { comparison: 'comparison-1' })
+                })
+                    .toDispatchActions(['openScene', 'loadScene', 'setScene'])
+                    .toMatchValues({ activeSceneId: 'ScoutTrials' })
+
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual('/inbox/scout-trials')
+                expect(router.values.searchParams).toEqual({ source: 'bookmark' })
+                expect(router.values.hashParams).toEqual({ comparison: 'comparison-1' })
+                if (inbox) {
+                    expect(inbox.values.selectedScoutSkillName).toBeNull()
+                }
+            } finally {
+                inbox?.unmount()
+            }
+        }
+    )
+
+    it('redirects a bare /billing to /organization/billing instead of a 404', async () => {
+        router.actions.push('/billing')
         await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.codeReview())
-        // ?review=<report id> is a permanent public contract baked into GitHub PR comments — the
-        // redirect must carry it across so those links keep opening the right report. The hash
-        // carries global side-panel state, so it has to survive the redirect too.
-        expect(router.values.searchParams.review).toEqual('r-9')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
+    })
+
+    it('keeps /billing/authorization_status on its own scene route, not the billing redirect', async () => {
+        router.actions.push(urls.billingAuthorizationStatus())
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.billingAuthorizationStatus())
+    })
+
+    it('sends the /source-maps-key short link to a new key with the source map upload preset', async () => {
+        router.actions.push('/source-maps-key')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.settings('user-api-keys'))
+        expect(router.values.searchParams).toEqual({ preset: 'source_map_upload' })
+    })
+
+    it.each([
+        ['/organization', urls.settings('organization'), Scene.Settings],
+        ['/organization/projects', urls.settings('organization'), Scene.Settings],
+        ['/organization/settings/projects', urls.settings('organization'), Scene.Settings],
+        ['/organization/projects/new', urls.projectCreateFirst(), Scene.ProjectCreateFirst],
+        ['/organization/create', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
+        ['/organization/new', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
+        ['/project/settings/environment-replay', urls.settings('environment-replay'), Scene.Settings],
+        // Bookmarks of the doubled path an id-less settings link once turned into must reach settings too
+        ['/project/123/project/settings/project-details', urls.settings('project-details'), Scene.Settings],
+    ])('sends the unrouted %s to %s instead of the 404 scene', async (path, expected, expectedScene) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(expectedScene)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expected)
+    })
+
+    it('keeps the setting anchor when redirecting an id-less settings section link', async () => {
+        router.actions.push('/project/settings/environment-replay#replay-triggers')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.settings('environment-replay'))
+        expect(router.values.location.hash).toEqual('#replay-triggers')
+    })
+
+    // The redirect table is keyed on exact paths, so a later `/organization/*` prefix entry would
+    // shadow the real scenes under it.
+    it('keeps /organization/billing on its own scene route, not the organization redirect', async () => {
+        router.actions.push(urls.organizationBilling())
+        await expectLogic(logic).delay(1)
+        // The `/*` fallback leaves the pathname alone, so only the scene tells a shadowed route apart
+        // from a served one.
+        expect(logic.values.activeSceneId).toEqual(Scene.Billing)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
+    })
+
+    it('redirects /project/new to the create-project flow instead of a 404', async () => {
+        router.actions.push('/project/new')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectCreateFirst())
+    })
+
+    it.each(['/project', '/project/'])('sends the id-less %s path to the homepage, not a 404', async (path) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+    })
+
+    it.each(['/data-warehouse/new', '/data-management/sources/new'])(
+        'redirects %s to the new-source wizard instead of a 404',
+        async (path) => {
+            router.actions.push(path)
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
+        }
+    )
+
+    it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
+        router.actions.push('/data-management/sources/src-1')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+            urls.dataWarehouseSource('src-1', 'schemas')
+        )
+    })
+
+    // The redirect table is keyed on exact paths, so the `:id` entry above must not swallow the
+    // sources list or a source path that already names its tab — the latter would redirect to
+    // itself forever.
+    it.each([
+        ['the sources list', urls.sources()],
+        ['a source that names its tab', urls.dataWarehouseSource('src-1', 'schemas')],
+    ])('leaves %s on its own route', async (_label, path) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(path)
+    })
+
+    it('sends a guessed /replay/vision to replay vision, not the recording-not-found scene', async () => {
+        // `/replay/:id` would otherwise match and read `vision` as a recording id.
+        router.actions.push('/replay/vision')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
+    })
+
+    // ?review=<report id> is a permanent public contract baked into GitHub PR comments, and saved
+    // dashboard tiles and digest emails link to /activity/explore#q=<query>. The redirect must carry
+    // both across. The hash also carries global side-panel state, so it has to survive too.
+    // Visual review PR comments, commit statuses and digests link to the old /visual_review paths.
+    // Emails, comments and bookmarks link to the old /feature_flags paths.
+    it.each([
+        ['/code_review', () => urls.codeReview(), { review: 'r-9' }, { panel: 'max:inspect' }],
+        ['/activity/explore', () => urls.activity(ActivityTab.ExploreEvents), {}, { q: '{"kind":"DataTableNode"}' }],
+        [
+            '/visual_review/repos/PostHog/posthog/runs/run-1',
+            () => urls.visualReviewRepoRun('PostHog', 'posthog', 'run-1'),
+            {},
+            { snapshot: 'snap-1' },
+        ],
+        [
+            '/visual_review/repos/PostHog/posthog/storybook/snapshots/scenes%2FButton--dark',
+            () => urls.visualReviewSnapshotHistory('PostHog', 'posthog', 'storybook', 'scenes/Button--dark'),
+            {},
+            { panel: 'max:inspect' },
+        ],
+        ['/feature_flags', () => urls.featureFlags(), { tab: 'history' }, {}],
+        ['/feature_flags/123', () => urls.featureFlag('123'), {}, { panel: 'max:inspect' }],
+        ['/feature_flags/templates', () => urls.featureFlagTemplates(), { search: 'checkout' }, {}],
+        ['/feature_flags/staff', () => urls.featureFlagsStaffTools(), { team_id: 2 }, {}],
+        ['/feature_flags/staff/cohorts', () => urls.cohortsStaffTools(), { cohort_id: 3 }, {}],
+    ])('redirects the old %s path, preserving search and hash params', async (from, to, search, hash) => {
+        router.actions.push(from, search, hash)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(to())
+        expect(router.values.searchParams).toEqual(search)
+        expect(router.values.hashParams).toEqual(hash)
+    })
+
+    it('redirects a copied event link to the activity list filtered to its uuid and event name', async () => {
+        const uuid = '0190a4c2-0000-7000-8000-000000000001'
+        router.actions.push(urls.event(uuid, '2026-01-01T00:00:00.000Z', '$feature_flag_called'))
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+            urls.activity(ActivityTab.ExploreEvents)
+        )
+        expect(router.values.hashParams.q.source).toMatchObject({
+            event: '$feature_flag_called',
+            properties: [{ key: `uuid = '${uuid}'` }],
+        })
+    })
+
+    it.each([
+        ['the product root', () => '/engineering-analytics', () => urls.engineeringAnalytics()],
+        [
+            'the project-prefixed test health path',
+            (projectId: number) => `/project/${projectId}/engineering-analytics/test-health`,
+            () => urls.engineeringAnalyticsTests(),
+        ],
+        ['the health path', () => '/engineering-analytics/health', () => urls.engineeringAnalyticsDeploys()],
+    ])('redirects %s without dropping scope or hash', async (_label, oldPath, newPath) => {
+        const projectId = teamLogic.values.currentTeamId
+        router.actions.push(
+            oldPath(projectId),
+            { source: 'source-1', repo: 'PostHog/posthog' },
+            { panel: 'max:inspect' }
+        )
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(newPath())
+        expect(router.values.location.pathname).toEqual(`/project/${projectId}${newPath()}`)
+        expect(router.values.searchParams).toMatchObject({ source: 'source-1', repo: 'PostHog/posthog' })
         expect(router.values.hashParams.panel).toEqual('max:inspect')
     })
+
+    // The change password form emails this link to a user who is already signed in.
+    it('keeps a signed-in user on the password reset link instead of redirecting them away', async () => {
+        const resetLink = urls.passwordResetComplete(MOCK_USER_UUID, 'a-token')
+        router.actions.push(resetLink)
+        await expectLogic(logic).delay(1)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
+    })
+
+    const setUpUserWithoutOrganization = (): void => organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+    const setUpUserWithoutProjects = (): void => {
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            organization: { ...MOCK_DEFAULT_ORGANIZATION, teams: [] },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+    }
+
+    it.each([
+        [
+            'without an organization',
+            'agentic',
+            setUpUserWithoutOrganization,
+            urls.agenticAuthorize(),
+            Scene.AgenticAuthorize,
+        ],
+        [
+            'whose organization has no projects',
+            'agentic',
+            setUpUserWithoutProjects,
+            urls.agenticAuthorize(),
+            Scene.AgenticAuthorize,
+        ],
+        ['without an organization', 'OAuth', setUpUserWithoutOrganization, urls.oauthAuthorize(), Scene.OAuthAuthorize],
+        [
+            'whose organization has no projects',
+            'OAuth',
+            setUpUserWithoutProjects,
+            urls.oauthAuthorize(),
+            Scene.OAuthAuthorize,
+        ],
+    ])(
+        'keeps a signed-in user %s on the %s consent page',
+        async (_label, _page, setUpUser, consentPath, consentScene) => {
+            setUpUser()
+            const originalPath = window.location.pathname
+            // openScene reads window.location, which the test router's memory history never moves.
+            window.history.replaceState(null, '', consentPath)
+            try {
+                router.actions.push(consentPath)
+                await expectLogic(logic).delay(1)
+
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(consentPath)
+                expect(logic.values.sceneId).toEqual(consentScene)
+            } finally {
+                window.history.replaceState(null, '', originalPath)
+            }
+        }
+    )
 
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
@@ -117,6 +572,33 @@ describe('sceneLogic', () => {
         })
     })
 
+    it.each([
+        [Scene.AIObservabilityEvaluations, AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
+        [Scene.AIObservabilityEvaluations, AccessControlLevel.None, Scene.ErrorAccessDenied],
+        [Scene.AIObservabilityOfflineExperiments, AccessControlLevel.Viewer, Scene.AIObservabilityOfflineExperiments],
+        [Scene.AIObservabilityOfflineExperiments, AccessControlLevel.None, Scene.ErrorAccessDenied],
+    ])('gates %s with scorer and dataset access %s', async (targetScene, scorerAccess, expectedScene) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                effective_resource_access_control: {
+                    ...priorAppContext?.effective_resource_access_control,
+                    [AccessControlResourceType.Evaluation]: AccessControlLevel.None,
+                    [AccessControlResourceType.LlmAnalytics]: scorerAccess,
+                },
+            } as AppContext
+            logic.actions.setScene(targetScene as Scene, targetScene, {
+                params: {},
+                searchParams: {},
+                hashParams: {},
+            })
+            await expectLogic(logic).toMatchValues({ activeSceneId: expectedScene })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
     it('does not blanket deny the combined alerts scene without insight access', async () => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT
         try {
@@ -139,6 +621,161 @@ describe('sceneLogic', () => {
         }
     })
 
+    // The third case is a legacy project token, which matches no route on its own.
+    test.each(['12345', 'phc_12345', 'aBcDeFgHiJkLmN'])(
+        'renders the project access denied scene while the address names the refused project %s',
+        async (refusedProject) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            try {
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    project_access_denied: refusedProject,
+                } as AppContext
+
+                router.actions.push(`/project/${refusedProject}/settings/user`)
+                await expectLogic(logic).delay(1)
+                expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+
+                // Later navigations run against the project we do serve.
+                router.actions.push(urls.settings('user'))
+                await expectLogic(logic).delay(1)
+                expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
+        }
+    )
+
+    it('renders the project access denied scene for project pages, not account settings, once the server refuses the current project', async () => {
+        router.actions.push(urls.eventDefinitions())
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+        const projectScene = logic.values.activeExportedScene
+        const projectSceneLogic = projectScene?.logic?.(projectScene.paramsToProps?.(logic.values.sceneParams) ?? {})
+        expect(projectSceneLogic?.isMounted()).toBe(true)
+
+        teamLogic.actions.currentProjectAccessDenied()
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        expect(projectSceneLogic?.isMounted()).toBe(false)
+
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+
+        router.actions.push(urls.settings('project'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+    })
+
+    it("shows the project access denied scene, not onboarding, when the user's own project is not onboarded", async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            initKeaTests(
+                true,
+                {
+                    ...MOCK_DEFAULT_TEAM,
+                    ingested_event: false,
+                    completed_snippet_onboarding: false,
+                    has_completed_onboarding_for: {},
+                },
+                MOCK_DEFAULT_PROJECT,
+                { ...MOCK_DEFAULT_ORGANIZATION, teams: [MOCK_DEFAULT_TEAM] } as OrganizationType
+            )
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            window.POSTHOG_APP_CONTEXT = { ...window.POSTHOG_APP_CONTEXT, project_access_denied: '12345' } as AppContext
+            const refusedLink = `/project/12345${removeProjectIdIfPresent(urls.eventDefinitions())}`
+            router.actions.push(refusedLink)
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            await expectLogic(logic).delay(1)
+
+            expect(router.values.location.pathname).toEqual(refusedLink)
+            expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
+    it('keeps an impersonating staff member on the page when the first project has no data', async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                current_user: { ...MOCK_DEFAULT_USER, organization: MOCK_DEFAULT_ORGANIZATION, is_impersonated: true },
+            } as AppContext
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                ingested_event: false,
+                completed_snippet_onboarding: false,
+                has_completed_onboarding_for: {},
+            })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+                removeProjectIdIfPresent(urls.eventDefinitions())
+            )
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
+    it.each([
+        [
+            'sends the homepage to the welcome page and keeps the side panel prompt',
+            `${urls.projectHomepage()}#panel=max:hello`,
+            urls.onboardingWelcome(),
+            { panel: 'max:hello' },
+        ],
+        [
+            'keeps a deep link open',
+            urls.insightView('abc123' as InsightShortId),
+            urls.insightView('abc123' as InsightShortId),
+            {},
+        ],
+    ])('connector signup with no data: %s', async (_name, target, expectedRoute, expectedHashParams) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                current_user: {
+                    ...MOCK_DEFAULT_USER,
+                    organization: MOCK_DEFAULT_ORGANIZATION,
+                    onboarding_skipped_at: '2026-01-01T00:00:00Z',
+                    onboarding_skipped_reason: 'connector',
+                    onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
+                },
+            } as AppContext
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                ingested_event: false,
+                completed_snippet_onboarding: false,
+                has_completed_onboarding_for: {},
+            })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(router.values.hashParams).toEqual(expectedHashParams)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {
             id: 'homepage-dashboard-42',
@@ -152,11 +789,96 @@ describe('sceneLogic', () => {
             sceneParams: { params: {}, searchParams: {}, hashParams: {} },
         }
 
+        it('saves a dashboard homepage and confirms the change', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('toast-id')
+            const capture = jest.spyOn(posthog, 'capture')
+            useMocks({ patch: { '/api/user_home_settings/@me/': [200, {}] } })
+
+            await expectLogic(logic, () =>
+                logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            ).toFinishAllListeners()
+
+            expect(logic.values.homepage?.id).toBe(dashboardHomepage.id)
+            expect(successToast).toHaveBeenCalledWith('Homepage updated')
+            expect(capture).toHaveBeenCalledWith('dashboard set as homepage', { source: 'dashboards list' })
+            capture.mockRestore()
+            successToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
+        it('keeps the previous homepage if saving from the dashboard list fails', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            const errorLog = jest.spyOn(console, 'error').mockImplementation()
+            useMocks({ patch: { '/api/user_home_settings/@me/': [500, {}] } })
+            const previousHomepage = logic.values.homepage
+
+            await expectLogic(logic, () =>
+                logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            ).toFinishAllListeners()
+
+            expect(logic.values.homepage).toEqual(previousHomepage)
+            expect(logic.values.homepageSaving).toBe(false)
+            expect(errorToast).toHaveBeenCalledWith('Could not save your homepage. Please try again.')
+            errorLog.mockRestore()
+            errorToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
+        it('keeps a newer homepage when a dashboard-list save is in flight', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('toast-id')
+            let finishSave!: () => void
+            let startSave!: () => void
+            const saveResponse = new Promise<void>((resolve) => (finishSave = resolve))
+            const saveStarted = new Promise<void>((resolve) => (startSave = resolve))
+            const savedHomepageIds: string[] = []
+            useMocks({
+                patch: {
+                    '/api/user_home_settings/@me/': async ({ request }) => {
+                        const body = (await request.json()) as { homepage: { id: string } }
+                        savedHomepageIds.push(body.homepage.id)
+                        if (savedHomepageIds.length === 1) {
+                            startSave()
+                            await saveResponse
+                        }
+                        return [200, {}] as const
+                    },
+                },
+            })
+
+            logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            await saveStarted
+            const latestHomepage = { ...dashboardHomepage, id: 'homepage-dashboard-43', pathname: urls.dashboard(43) }
+            logic.actions.setHomepage(latestHomepage)
+            expect(logic.values.homepage?.id).toBe(latestHomepage.id)
+
+            finishSave()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(savedHomepageIds).toEqual([dashboardHomepage.id, latestHomepage.id])
+            expect(logic.values.homepage?.id).toBe(latestHomepage.id)
+            expect(logic.values.homepageSaving).toBe(false)
+            expect(successToast).not.toHaveBeenCalled()
+            successToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
         it('redirects /home to the configured dashboard homepage', async () => {
             logic.actions.setHomepage(dashboardHomepage)
             router.actions.push(urls.projectHomepage())
             await expectLogic(logic).delay(1)
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+        })
+
+        it('stays on /home with the rail nav even when a homepage is configured', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
         })
 
         it('stays on the launchpad at /home when no homepage is configured', async () => {
@@ -235,6 +957,64 @@ describe('sceneLogic', () => {
             expect(redirectedPathname).toEqual(urls.projectHomepage())
         })
 
+        it('drops a homepage whose object turned out not to exist, and lands on the launchpad', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+
+            logic.actions.resetUnavailableHomepage(urls.dashboard(42))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.homepage).toBeNull()
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+        })
+
+        // The way out of the dead end must keep the URL state the `/` → homepage redirect already
+        // forwards, or a modal bound to `?modal=` closes itself as the person lands on the launchpad.
+        it('carries the hash and allow-listed params onto the launchpad when it drops the homepage', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage(), { modal: 'invite-members' }, { panel: 'max:hi' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+
+            logic.actions.resetUnavailableHomepage(urls.dashboard(42))
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            expect(router.values.searchParams).toEqual({ modal: 'invite-members' })
+            expect(router.values.hashParams).toEqual({ panel: 'max:hi' })
+        })
+
+        // The reset fires from whichever logic found its object missing, and dashboard logics are
+        // also mounted embedded — in notebooks, on the feature flag page — so a missing object that
+        // is not the homepage must leave both the setting and the address bar alone.
+        it('keeps the homepage when some other object is the missing one', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.dashboard(99))
+            await expectLogic(logic).delay(1)
+
+            logic.actions.resetUnavailableHomepage(urls.dashboard(99))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.homepage?.pathname).toEqual(urls.dashboard(42))
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(99))
+        })
+
+        // Clearing the setting is right wherever the homepage dashboard was found missing, but
+        // navigating away is only right when that dashboard is what fills the screen.
+        it('drops the homepage without navigating when it is missing from an embedded render', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.notebook('abc'))
+            await expectLogic(logic).delay(1)
+
+            logic.actions.resetUnavailableHomepage(urls.dashboard(42))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.homepage).toBeNull()
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.notebook('abc'))
+        })
+
         it('forwards allow-listed query params onto the homepage redirect and drops the rest', async () => {
             logic.actions.setHomepage(dashboardHomepage)
             router.actions.push(urls.projectHomepage(), { modal: 'feature', other: 'dropped' })
@@ -285,5 +1065,152 @@ describe('sceneLogic', () => {
                 expect(router.values.hashParams).toEqual(expectedHash)
             }
         )
+    })
+
+    describe('a project pending deletion', () => {
+        it.each([
+            [
+                'locks out a page reached by a client-side link',
+                urls.eventDefinitions(),
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
+            [
+                'locks out an unknown path reached by a client-side link',
+                '/no-such-page',
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
+            ['keeps my tickets open', urls.myTickets(), urls.myTickets(), 'MyTickets'],
+            [
+                'keeps my tickets open when the project has not finished onboarding',
+                urls.myTickets(),
+                urls.myTickets(),
+                'MyTickets',
+                { ingested_event: false, completed_snippet_onboarding: false, has_completed_onboarding_for: {} },
+            ],
+        ])('%s', async (_name, target, expectedRoute, expectedScene, team: Partial<TeamType> = {}) => {
+            logic.unmount()
+            initKeaTests(
+                true,
+                { ...MOCK_DEFAULT_TEAM, ...team },
+                { ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true }
+            )
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(logic.values.sceneId).toEqual(expectedScene)
+        })
+    })
+
+    describe('a blocked organization', () => {
+        let priorAppContext: AppContext | undefined
+
+        beforeEach(() => {
+            priorAppContext = window.POSTHOG_APP_CONTEXT
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = priorAppContext as AppContext
+        })
+
+        const notOnboarded: Partial<TeamType> = {
+            ingested_event: false,
+            completed_snippet_onboarding: false,
+            has_completed_onboarding_for: {},
+        }
+
+        it.each([
+            [
+                'keeps a deactivated member on the block page after a client-side link',
+                { is_active: false },
+                {},
+                urls.eventDefinitions(),
+                urls.organizationDeactivated(),
+                Scene.OrganizationDeactivated,
+            ],
+            [
+                'sends a deactivated member on an unknown path to the block page',
+                { is_active: false },
+                {},
+                '/no-such-page',
+                urls.organizationDeactivated(),
+                Scene.OrganizationDeactivated,
+            ],
+            [
+                'opens billing for a deactivated member',
+                { is_active: false },
+                {},
+                urls.organizationBilling(),
+                urls.organizationBilling(),
+                Scene.Billing,
+            ],
+            [
+                'keeps a pending-deletion member off onboarding when the project has no events',
+                { is_pending_deletion: true },
+                notOnboarded,
+                urls.eventDefinitions(),
+                urls.organizationPendingDeletion(),
+                Scene.OrganizationPendingDeletion,
+            ],
+        ])('%s', async (_name, organization, team, target, expectedRoute, expectedScene) => {
+            logic.unmount()
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, ...team }, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [MOCK_DEFAULT_TEAM],
+                ...organization,
+            } as OrganizationType)
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(logic.values.sceneId).toEqual(expectedScene)
+        })
+
+        it.each([urls.organizationDeactivated(), urls.organizationPendingDeletion()])(
+            'lets a member whose organization is open leave %s',
+            async (blockPage) => {
+                router.actions.push(blockPage)
+                await expectLogic(logic).delay(1)
+
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            }
+        )
+
+        it("loads the page for a deactivated member's link into another organization's project", async () => {
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [MOCK_DEFAULT_TEAM],
+                is_active: false,
+            } as OrganizationType)
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            await expectLogic(logic).delay(1)
+            const originalLocation = Object.getOwnPropertyDescriptor(window, 'location')!
+            Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, href: '' } })
+            try {
+                router.actions.push('/project/424242/dashboard')
+                await expectLogic(logic).delay(1)
+
+                expect(window.location.href).toEqual('/project/424242/dashboard')
+                expect(logic.values.sceneId).toEqual(Scene.OrganizationDeactivated)
+            } finally {
+                Object.defineProperty(window, 'location', originalLocation)
+            }
+        })
     })
 })

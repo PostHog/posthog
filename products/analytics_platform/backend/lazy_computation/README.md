@@ -129,6 +129,31 @@ The `ttl_seconds` parameter accepts either an `int` (uniform TTL) or a `dict` ma
 
 Rules are matched most-specific first (shortest period wins). On the **read path**, existing jobs that are too stale for the requested TTL are skipped and recomputed. On the **write path**, each job is created with the TTL appropriate for its date range — ranges with different TTLs are never merged into a single job.
 
+## Design decisions
+
+Why the executor works the way it does, and what went wrong without each piece.
+The code holds the current values.
+
+### Freshness and expiry
+
+- **Freshness is per reader, expiry is per creator (#47942).** A job's `expires_at` comes from the TTL of the caller that built it, but each reader judges freshness against its own schedule. The fresh lookup drops jobs past `expires_at`; a reader with `stale_while_revalidate_seconds` set still serves jobs inside that grace. Callers with different freshness needs share one job, and a stricter reader builds a replacement instead of forcing its TTL on everyone.
+- **No force-rebuild parameter.** A builder that wants a window rebuilt early gives it a shorter TTL, which makes the existing job stale for that builder only. The shorter TTL also stamps a shorter `expires_at` on the new job, so readers rely on stale-while-revalidate to cover the gap until the next build.
+- **Stale-while-revalidate (#70080).** User reads that would block on a rebuild get recently expired, complete rows at once, and the caller rebuilds in the background. The grace stays under the ClickHouse expiry buffer, because the rows are deleted after it.
+- **Refreshers never get the grace (#70563).** A refresher served its own stale rows stores them as a fresh result and never recomputes, so nothing refreshes again. The rule lives in `stale_policy.py` so every product uses the same one.
+
+### TTL schedule options
+
+- **Settling period (#69554).** Web analytics sessions keep changing for 24 hours after a window ends. Jobs built before then froze in-motion bounce and duration values for a multi-day band TTL, mostly on the UTC edge windows of non-UTC teams.
+- **Empty-result cap (#77835).** A data warehouse source that had not synced yet produced zero-row jobs, which served $0 cost days for the full band TTL. Empty jobs now expire sooner, but only while a late sync could still fill the window, so old history is not rescanned forever.
+- **Default-band jitter (#96576).** A backfill built every frozen chunk on the same day, so all chunks expired together and the next read rebuilt the whole history. A stable per-window offset spreads those expiries.
+- **Window-start invalidation (#105883).** A warmer that builds a window before it starts left an early snapshot that hid the data arriving once the window began. Such a snapshot is rejected at the window start, even within the stale grace.
+- **Job width cap.** One GROUP BY over a high-cardinality team grows with the window, and a memory bump does not keep up with the largest teams. The same data fits over a narrower window, so callers cap job width and pin a team to 1-day jobs after an OOM (#64394).
+
+### Inserts
+
+- **Data-horizon clamp (#97251).** An experiment build "as of" a past moment inserted half a day but recorded the whole day as covered, so the missing hours were never rebuilt. Callers whose INSERT stops at `end` opt in, and the partial day becomes its own job.
+- **Skipping replica quorum (#103220).** One down or stale-registered aux replica made every quorum INSERT fail, so precompute stopped region-wide. Background builders read their rows minutes later, so they skip quorum with `read_after_write=False`.
+
 ## Concurrency and race conditions
 
 The executor handles concurrent queries that need the same lazy-computed data.
@@ -147,7 +172,7 @@ When a job fails, multiple waiters may all try to create a replacement job simul
 
 1. Job A fails
 2. Waiters B and C both try to create a replacement
-3. One succeeds (gets the new job), the other gets an IntegrityError
+3. One succeeds (gets the new job); the other's `INSERT .. ON CONFLICT DO NOTHING` is a silent no-op (`create_lazy_computation_job` returns `None`)
 4. The loser finds the winner's job and waits for it
 
 ### Replacement jobs use the same range
@@ -188,7 +213,8 @@ Each invocation of the executor emits both a structured log and Prometheus count
 
 Jobs run synchronously inside `execute()` — there is no background queue, so PENDING just means "an INSERT is in flight in some pod". A periodic gauge of `status='pending'` rows misses jobs that started and finished between scrapes and tells you nothing about throughput. These two counters fire at the exact PG status transitions instead:
 
-- `lazy_computation_jobs_created_total{cache_state, table}` — one increment every time a PENDING row is inserted (one per missing range per executor). The loser of a partial-unique-index race (`IntegrityError`) does **not** increment, so the count matches PG row inserts. `cache_state` mirrors the executor-level label so a job created during a fresh execute() call lands on `miss` and a top-up job filling a hole in pre-existing READY data lands on `partial_hit`. `hit` never appears because hits don't create anything.
+- `lazy_computation_jobs_created_total{cache_state, table}` — one increment every time a PENDING row is inserted (one per missing range per executor). The loser of a partial-unique-index race does **not** increment, so the count matches PG row inserts. `cache_state` mirrors the executor-level label so a job created during a fresh execute() call lands on `miss` and a top-up job filling a hole in pre-existing READY data lands on `partial_hit`. `hit` never appears because hits don't create anything.
+- `lazy_computation_job_create_conflicts_total{table}` — one increment every time a create is skipped because a PENDING row already holds the `unique_pending_job_per_range` slot. A steady background rate is expected (the warmers and SWR revalidation race on the same windows by design); a sustained elevated rate means writers piling onto the same windows, or a PENDING row past its own `expires_at` blocking a window it no longer serves. Each conflict also emits a `lazy_computation.job_create_conflict` structured log with `team_id`, `query_hash`, and the window, which is the only place the colliding values appear now that the insert no longer raises a Postgres error.
 - `lazy_computation_jobs_finished_total{outcome, table}` — one increment every time a job reaches a terminal status.
 
 `outcome` values:
@@ -197,8 +223,9 @@ Jobs run synchronously inside `execute()` — there is no background queue, so P
 - `ready_empty` — INSERT succeeded but wrote no rows, PENDING → READY. Still a success; split out because an empty window is only provisionally computed (see `TtlSchedule.empty_result_ttl_seconds`), so a climbing share here points at a lagging source rather than a broken query.
 - `failed` — INSERT raised (retryable or non-retryable), PENDING → FAILED.
 - `stale` — a waiter detected the owning executor crashed (`_try_mark_stale_job_as_failed`) and the atomic update flipped the row to FAILED.
+- `expired` — a create conflict found the blocking PENDING row past its own `expires_at` and flipped it to FAILED (`_try_fail_expired_pending_job`), unblocking the window. Like `stale`, each increment means an executor died earlier without cleanup.
 
-Sum `ready` and `ready_empty` for total successes, and prefer `outcome=~"failed|stale"` over `outcome!="ready"` when alerting — the latter counts empty-but-successful jobs as problems.
+Sum `ready` and `ready_empty` for total successes, and prefer `outcome=~"failed|stale|expired"` over `outcome!="ready"` when alerting — the latter counts empty-but-successful jobs as problems.
 
 Net job throughput (positive = backlog growing, expected ~0 in steady state):
 
@@ -211,7 +238,7 @@ sum(rate(lazy_computation_jobs_finished_total[5m]))
 Failure share per table:
 
 ```promql
-sum by (table) (rate(lazy_computation_jobs_finished_total{outcome=~"failed|stale"}[5m]))
+sum by (table) (rate(lazy_computation_jobs_finished_total{outcome=~"failed|stale|expired"}[5m]))
   /
 sum by (table) (rate(lazy_computation_jobs_finished_total[5m]))
 ```
@@ -276,5 +303,5 @@ The `lazy_computation.executed` log line carries the same `outcome`, `cache_stat
 ## TODOs
 
 - While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
-- The stale enum value isn't used for anything, we just mark stale jobs as errored
+- Crashed PENDING jobs are marked FAILED, not STALE. Only the staff invalidate endpoint (`precompute_debug`) sets STALE.
 - Add posthog logging for state transitions

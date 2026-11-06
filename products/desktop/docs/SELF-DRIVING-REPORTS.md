@@ -1,0 +1,65 @@
+# Self-driving reports
+
+Every report starts with a Summary tab. Reports with a pull request also have a Changed code tab.
+The report text does not repeat the Summary heading.
+The title shows the change type and scope. The metadata row shows the time and links to related work.
+Priority and reviewer scope remain in the report list. Evidence counts remain in the Evidence section, which starts expanded.
+
+Chat opens the report conversation beside the document, including an existing implementation session when one is available.
+The opening question uses a separate, best-effort scout-note forwarding path. Ask AI only offers to save new feedback learned after the opening turn.
+When a later discussion turn reveals a correction, preference, missing context, or verified fact worth keeping, Ask AI offers to save a short scout note or report work-log entry.
+When both destinations are available and the chat token has the required scopes, the agent offers both choices.
+The agent asks for agreement on the text and selected destination before writing. If a scout note is unavailable or refused, it offers a work-log entry and asks again.
+Pure Q&A needs no save offer. Saving feedback does not resolve or dismiss the report.
+Select text in either report view to ask about that passage.
+Resolve marks an accepted report as done. Choose Implemented manually when you made the change outside the report's task, or No action needed when the report was useful but needs no implementation. You can also record that the issue was already fixed or explain another outcome. The reason and optional details are saved with the resolution. A No action needed resolution does not count as a fix and stops pending or active follow-up checks.
+Dismiss rejects a report with a reason. Both actions remove it from the active inbox, and its history keeps Resolved and Dismissed separate. Resolving a report with an open implementation PR closes that PR after confirmation.
+Activity entries use the verdict recorded with each feedback entry. Resolving shows Report resolved, dismissing shows Report dismissed, and older feedback without a recorded verdict shows Report feedback added. Later status changes do not rewrite these activity labels.
+Reports with a PR show Open in GitHub as the first header button, followed by Chat.
+Copy-link options are in the More report actions menu. Report actions do not offer canvas creation.
+
+A draft pull request shows the approval and merge controls, a draft note, and a secondary Ready for review button.
+Use Run skill on an open pull request to search team skills. Skills you choose often appear first, including before the store loads. If your team has no skills, the menu links to the skills store. The new cloud task opens with the skill, pull request URL, and repository set; review the prompt before you send it.
+Explicitly invoking a skill authorizes its required PR changes in a review-first run that permits publishing. Runs with publishing disabled cannot publish, and runs without a skill or direct publishing request remain review-first.
+Marking a draft ready does not approve or merge it. Existing merge checks still apply.
+Eligible pull requests show Refund in the header. The existing feature flag, billing checks, and confirmation dialog still apply.
+
+The report ends with feedback after its evidence, reviewers, and other supporting sections.
+The suggested reviewer views show each reviewer source and reason. Each reason appears above its indented reviewer or reviewers, without a separate box. The remove control stays visible, and Add Reviewer appears as a button at the bottom of the section.
+The recommendation keeps its boxed layout and its Ask about it and Dismiss controls.
+
+Informational recommendations, including Likely already fixed, use a blue callout. Decisions use an amber callout.
+Unread reports show a small blue dot in the list. Open a report to mark it as read without dismissing or resolving it.
+Select the dot or use the right-click menu to mark a report as read or unread. Read reports stay in the list.
+Read state is saved on this device for the current user and project. It does not sync across devices or recover earlier report visits.
+Select Triage mode to review reports in sequence.
+Create PR starts the task in the background. Triage advances only after the task starts successfully.
+The confirmation offers View task. It does not open a chat panel or navigate away.
+Reports with an active implementation task stay in the list with a Creating PR label, but leave the triage queue.
+This uses the saved task assignment and survives reopening the app. It does not dismiss, resolve, or change the report read state.
+A failed or stopped task, a task that finishes without a PR, or a report waiting for input returns to triage with a status message.
+If task status cannot be loaded, the report stays in triage. An attached PR remains available for review.
+Task status refreshes in batches while the list is open. Rows use the same status results as triage.
+The batch response supplies the latest run's PR URL and state, including changes after task completion.
+Completed tasks need no separate detail requests when these fields are present. Null fields mean that the run has no PR.
+Older servers that omit either field use cached task details instead. The cache expires after five minutes.
+The triage count includes only loaded reports that need a decision. Load more reports to check the next page.
+A callback error after task startup does not change a successful start into a failed start. Older servers without task assignments keep their existing queue behavior.
+Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
+Select Self-driving in the navigation rail during triage to return to the report list and open its sidebar.
+From an open report, the same control opens the sidebar and focuses its search without closing the report.
+Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
+
+To filter reports for a user, open Filter reports, then hover over Scope.
+Hover opens the user list without moving keyboard focus. Click the search field to type, or use the keyboard to open Scope and focus the search field.
+The search starts empty and shows up to 20 options, including For you and Entire project.
+Search by name or email across all users. The search field stays visible above the results.
+
+## Storybook previews
+
+The `Inbox/Reports` stories cover the sidebar, report list, report detail, and triage mode.
+They use local report and task fixtures, including active work, failed tasks, and requests for input.
+PR stories include draft and failed-check states and a rendered code diff.
+Interactive stories cover user search, read state, summary navigation, and sidebar restoration.
+The `inbox` story tag selects these previews for visual checks in both themes.
+Cloud task startup, refunds, and GitHub writes are not connected to live services in these previews.

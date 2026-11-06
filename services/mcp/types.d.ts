@@ -12,5 +12,22 @@ declare namespace Cloudflare {
         MCP_CAT_PROJECT_ID: string | undefined
         MCP_KV: KVNamespace | undefined
         MCP_HONO_URL: string | undefined
+        // Keys that sign the edge client IP for the Hono runtime of each region (see src/proxy.ts).
+        MCP_EDGE_CLIENT_IP_SIGNING_KEYS_US: string | undefined
+        MCP_EDGE_CLIENT_IP_SIGNING_KEYS_EU: string | undefined
     }
+}
+
+// YAML imports resolve to the file's raw text (esbuild `.yaml` text loader,
+// wrangler `Text` rule, vitest raw-text transform).
+declare module '*.yaml' {
+    const content: string
+    export default content
+}
+
+// Vite-style raw suffix used by @posthog/llm-normalizer's recipe registry; esbuild
+// retries resolution without the query and applies the same text loader.
+declare module '*.yaml?raw' {
+    const content: string
+    export default content
 }

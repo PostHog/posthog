@@ -1,19 +1,23 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
-from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
+from products.signals.backend.models import SignalReport
+from products.tasks.backend.exceptions import ActiveSessionCapError
+from products.tasks.backend.logic.services.compute_quota import is_billable_sandbox_session
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard, ComputeRateCardConfigurationError
 from products.tasks.backend.logic.services.sandbox_usage import (
+    SandboxCpuAttribution,
+    claim_task_run_sandbox_sessions,
     close_sandbox_session,
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
@@ -21,7 +25,8 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     open_sandbox_session,
     record_task_run_user_activity,
 )
-from products.tasks.backend.models import Loop, SandboxSession, Task, TaskClientProvenance, TaskRun
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
+from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
 
 def _config(**overrides) -> SandboxConfig:
@@ -52,6 +57,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
             sandbox_id="sb-cold",
             config=_config(vm_runtime=True),
             cpu_usage_attribution_usec=1_234_567,
+            billed_cpu_usage_attribution_usec=1_500_000,
             cpu_usage_attribution_measured_at=measured_at,
         )
 
@@ -67,6 +73,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.cpu_request_cores is None
         assert session.user_attributed_at == measured_at
         assert session.provider_cpu_usage_attribution_usec == 1_234_567
+        assert session.provider_billed_cpu_usage_attribution_usec == 1_500_000
         assert session.provider_cpu_usage_attribution_measured_at == measured_at
 
     def test_open_leaves_warm_runs_unattributed(self):
@@ -84,11 +91,12 @@ class TestSandboxSessionWrites(SandboxUsageBase):
 
     def test_warm_claim_snapshots_provenance_set_after_provisioning(self):
         run = self._run(state={"await_user_message": True, "prewarmed": True})
-        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config(vm_runtime=True))
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config(vm_runtime=False))
         Task.objects.filter(id=run.task_id).update(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
 
         with patch.object(Sandbox, "get_by_id") as get_by_id:
             get_by_id.return_value.read_cpu_usage_usec.return_value = 2_345_678
+            get_by_id.return_value.read_billed_cpu_usage_usec.return_value = 3_000_000
             cpu_attribution = measure_task_run_cpu_attribution(run.id, self.team.id)
         record_task_run_user_activity(run.id, self.team.id, cpu_attribution)
 
@@ -96,6 +104,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.user_attributed_at is not None
         assert session.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
         assert session.provider_cpu_usage_attribution_usec == 2_345_678
+        assert session.provider_billed_cpu_usage_attribution_usec == 3_000_000
         assert session.provider_cpu_usage_attribution_measured_at == session.user_attributed_at
 
     def test_warm_claim_keeps_provenance_snapshotted_at_provisioning(self):
@@ -205,6 +214,51 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert again.ended_at == first.ended_at
         assert again.ended_reason == SandboxSession.EndedReason.CLEANUP
 
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_close_captures_analytics_once(self, mock_capture):
+        run = self._run()
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-analytics", config=_config())
+        record_task_run_user_activity(run.id, self.team.id)
+
+        close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.CLEANUP)
+        close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.REAPED)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
+        assert len(captured) == 1
+        props = captured[0].kwargs["properties"]
+        assert props["ended_reason"] == SandboxSession.EndedReason.CLEANUP
+        assert props["runtime_seconds"] >= 0
+        assert props["idle_seconds"] >= 0
+        assert props["prewarmed"] is False
+        assert props["origin_product"] == Task.OriginProduct.USER_CREATED
+
+    @parameterized.expand(
+        [
+            ("modal", None, 21600.0, 583200.0),
+            ("hogland", "hogland", 604800.0, 0.0),
+        ]
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_close_clamps_late_stamp_to_provider_kill_deadline(
+        self, _name, sandbox_backend, expected_seconds, expected_lag, mock_capture
+    ):
+        opened_at = datetime(2026, 9, 14, 4, tzinfo=UTC)
+        run = self._run(state={"sandbox_backend": sandbox_backend} if sandbox_backend else None)
+
+        with time_machine.travel(opened_at, tick=False):
+            open_sandbox_session(run_id=run.id, sandbox_id="sb-stale", config=_config())
+            record_task_run_user_activity(run.id, self.team.id)
+
+        with time_machine.travel(opened_at + timedelta(days=7), tick=False):
+            close_sandbox_session("sb-stale", reason=SandboxSession.EndedReason.CLEANUP)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
+        props = captured[0].kwargs["properties"]
+        assert props["attributed_seconds"] == expected_seconds
+        assert props["runtime_seconds"] == expected_seconds
+        assert props["idle_seconds"] == expected_seconds
+        assert props["close_stamp_lag_seconds"] == expected_lag
+
     def test_close_records_provider_cpu_usage(self):
         run = self._run()
         open_sandbox_session(run_id=run.id, sandbox_id="sb-usage", config=_config(vm_runtime=True))
@@ -214,11 +268,13 @@ class TestSandboxSessionWrites(SandboxUsageBase):
             "sb-usage",
             reason=SandboxSession.EndedReason.CLEANUP,
             cpu_usage_usec=12_345_678,
+            billed_cpu_usage_usec=15_000_000,
             cpu_usage_measured_at=measured_at,
         )
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-usage")
         assert session.provider_cpu_usage_usec == 12_345_678
+        assert session.provider_billed_cpu_usage_usec == 15_000_000
         assert session.provider_usage_measured_at == measured_at
 
     def test_user_activity_stamps_open_sessions_only(self):
@@ -240,9 +296,9 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         run = self._run(state={"await_user_message": True})
         open_sandbox_session(run_id=run.id, sandbox_id="sb-msgs", config=_config())
 
-        with freeze_time("2026-01-02T10:00:00Z"):
+        with time_machine.travel("2026-01-02T10:00:00Z", tick=False):
             record_task_run_user_activity(run.id, self.team.id)
-        with freeze_time("2026-01-02T11:00:00Z"):
+        with time_machine.travel("2026-01-02T11:00:00Z", tick=False):
             record_task_run_user_activity(run.id, self.team.id)
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-msgs")
@@ -274,6 +330,91 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert SandboxSession.objects.unscoped().get(sandbox_id="sb-claim").user_attributed_at is None
 
 
+class TestActiveSessionCapReservation(SandboxUsageBase):
+    def setUp(self) -> None:
+        super().setUp()
+        caps = patch.dict(
+            SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS,
+            {Task.OriginProduct.USER_CREATED: ActiveSessionCaps(per_user=1, per_org=1)},
+        )
+        caps.start()
+        self.addCleanup(caps.stop)
+
+    def _fill_the_cap(self) -> None:
+        with patch.dict(
+            SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS,
+            {Task.OriginProduct.USER_CREATED: ActiveSessionCaps(per_user=10, per_org=10)},
+        ):
+            open_sandbox_session(run_id=self._run().id, sandbox_id="sb-busy", config=_config())
+
+    def test_cold_open_at_the_cap_is_refused_without_a_row(self) -> None:
+        self._fill_the_cap()
+        run = self._run()
+
+        with self.assertRaises(ActiveSessionCapError) as error_context:
+            open_sandbox_session(run_id=run.id, sandbox_id="sb-new", config=_config())
+
+        assert error_context.exception.context["scope"] == "org"
+        assert not SandboxSession.objects.unscoped().filter(sandbox_id="sb-new").exists()
+
+    def test_cold_open_on_a_report_task_with_a_live_sandbox_is_refused(self) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=SignalReport.objects.create(team=self.team),
+            created_by=self.user,
+        )
+        open_sandbox_session(run_id=task.create_run(mode="interactive").id, sandbox_id="sb-first", config=_config())
+        second = task.create_run(mode="interactive")
+
+        with self.assertRaises(ActiveSessionCapError) as error_context:
+            open_sandbox_session(run_id=second.id, sandbox_id="sb-second", config=_config())
+
+        assert error_context.exception.context["scope"] == "task"
+        assert not SandboxSession.objects.unscoped().filter(sandbox_id="sb-second").exists()
+
+    def test_cold_open_below_the_cap_creates_the_attributed_row(self) -> None:
+        run = self._run()
+
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-new", config=_config())
+
+        assert SandboxSession.objects.unscoped().get(sandbox_id="sb-new").user_attributed_at is not None
+
+    @parameterized.expand([("warm_open", True), ("reprovision_update", False)])
+    def test_open_at_the_cap_is_not_refused(self, _name: str, warm: bool) -> None:
+        run = self._run(state={"await_user_message": True} if warm else None)
+        if not warm:
+            open_sandbox_session(run_id=run.id, sandbox_id="sb-own", config=_config())
+        self._fill_the_cap()
+
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-own", config=_config(cpu_cores=2.0))
+
+        assert SandboxSession.objects.unscoped().get(sandbox_id="sb-own").cpu_cores == 2.0
+
+    @parameterized.expand([("below_cap", False), ("at_cap", True)])
+    def test_warm_claim_reserves_capacity(self, _name: str, at_cap: bool) -> None:
+        run = self._run(state={"await_user_message": True})
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm", config=_config())
+        if at_cap:
+            self._fill_the_cap()
+        measured_at = datetime(2026, 1, 2, 10, tzinfo=UTC)
+        attribution = {
+            "sb-warm": SandboxCpuAttribution(cpu_usage_usec=1_000, billed_cpu_usage_usec=None, measured_at=measured_at)
+        }
+
+        if at_cap:
+            with self.assertRaises(ActiveSessionCapError):
+                claim_task_run_sandbox_sessions(run.id, self.team.id, attribution)
+        else:
+            claim_task_run_sandbox_sessions(run.id, self.team.id, attribution)
+
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-warm")
+        assert session.user_attributed_at == (None if at_cap else measured_at)
+        assert session.last_user_activity_at is None
+
+
 class TestSandboxUsageAggregation(SandboxUsageBase):
     BEGIN = datetime(2026, 1, 2, tzinfo=UTC)
     END = datetime(2026, 1, 3, tzinfo=UTC)
@@ -296,34 +437,6 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         defaults.setdefault("ttl_expires_at", defaults["created_at"] + timedelta(seconds=defaults["ttl_seconds"]))
         return SandboxSession.objects.unscoped().create(**defaults)
 
-    def _loop_session(
-        self, *, internal: bool, client_provenance: TaskClientProvenance | None = TaskClientProvenance.POSTHOG_DESKTOP
-    ) -> SandboxSession:
-        with team_scope(self.team.id):
-            loop = Loop.objects.create(
-                team=self.team,
-                name="loop",
-                instructions="run",
-                runtime_adapter="claude",
-                internal=internal,
-                client_provenance=client_provenance,
-            )
-        task = Task.objects.create(
-            team=self.team,
-            title="loop run",
-            description="",
-            origin_product=Task.OriginProduct.LOOP,
-            internal=True,
-            loop=loop,
-            client_provenance=client_provenance,
-        )
-        run = TaskRun.objects.create(task=task, team=self.team)
-        return self._session(
-            task_run=run,
-            origin_product=Task.OriginProduct.LOOP,
-            client_provenance=client_provenance,
-        )
-
     def _rate(
         self,
         *,
@@ -341,27 +454,41 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             memory_gib_second_usd=memory_gib_second_usd,
         )
 
-    def test_billable_compute_requires_trusted_desktop_user_created_snapshot(self):
-        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+    def test_billable_compute_requires_trusted_first_party_client_user_created_snapshot(self):
+        for provenance in TaskClientProvenance:
+            self._session(client_provenance=provenance)
         for origin in (Task.OriginProduct.SLACK, Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.LOOP, None):
             self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP, origin_product=origin)
         self._session(client_provenance=None)
 
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
 
-        assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
-        assert usage.memory_mib_seconds == [(self.team.id, 58_982_400)]
-        assert usage.credits == [(self.team.id, 2016)]
+        assert usage.cpu_millicore_seconds == [(self.team.id, 43_200_000)]
+        assert usage.memory_mib_seconds == [(self.team.id, 176_947_200)]
+        assert usage.credits == [(self.team.id, 6048)]
 
-    def test_billable_compute_includes_user_loops_and_excludes_internal_loops(self):
-        self._loop_session(internal=False)
-        self._loop_session(internal=True)
-        self._loop_session(internal=False, client_provenance=None)
+    @parameterized.expand(
+        [
+            ("desktop_user_created", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.USER_CREATED, True),
+            ("desktop_loop", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.LOOP, True),
+            ("desktop_space_setup", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.SPACE_SETUP, True),
+            ("desktop_slack", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.SLACK, True),
+            ("no_provenance", None, Task.OriginProduct.USER_CREATED, True),
+            ("unattributed", TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.USER_CREATED, False),
+        ]
+    )
+    def test_billable_session_predicate_matches_the_billing_aggregate(
+        self, _name: str, provenance: TaskClientProvenance | None, origin: str, attributed: bool
+    ) -> None:
+        session = self._session(
+            client_provenance=provenance,
+            origin_product=origin,
+            user_attributed_at=datetime(2026, 1, 2, 1, tzinfo=UTC) if attributed else None,
+        )
 
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
 
-        assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
-        assert usage.credits == [(self.team.id, 2016)]
+        assert is_billable_sandbox_session(session) is bool(usage.credits)
 
     def test_billable_compute_uses_session_snapshot_after_task_changes(self):
         session = self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
@@ -498,7 +625,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             ttl_seconds=6 * 60 * 60,
         )
 
-        with freeze_time("2026-01-05T00:00:00Z"):
+        with time_machine.travel("2026-01-05T00:00:00Z", tick=False):
             usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
 
         # Cleanup never ran; the sandbox died at created_at + 6h regardless.
@@ -530,6 +657,45 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
 
         assert usage.seconds == [(self.team.id, 6 * 3600)]
 
+    @parameterized.expand([("hogland", 9 * 3600), (None, 6 * 3600)])
+    def test_ttl_clamp_skips_hogland_but_holds_for_modal(self, sandbox_backend, expected_seconds):
+        # Hogland's ttl_seconds is an idle timeout that every request extends, so a box can
+        # end well after created_at + ttl_seconds; its billed window must keep the true end.
+        # Modal's hard TTL is a kill deadline, so a Modal row still clamps to it.
+        self._session(
+            created_at=datetime(2026, 1, 2, 1, tzinfo=UTC),
+            user_attributed_at=datetime(2026, 1, 2, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 2, 10, tzinfo=UTC),
+            ttl_seconds=6 * 60 * 60,
+            sandbox_backend=sandbox_backend,
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.seconds == [(self.team.id, expected_seconds)]
+
+    @parameterized.expand([("hogland", 24 * 3600), (None, None)])
+    def test_open_session_past_its_ttl_bills_for_hogland_but_not_modal(self, sandbox_backend, expected_seconds):
+        # An open hogland box keeps extending its idle TTL, so ttl_expires_at can fall before
+        # the period while the box still runs. The open-arm TTL bound would drop it, so a
+        # hogland arm keeps it and bills the whole period. A Modal row with the same
+        # expired-TTL shape stays excluded, since its TTL is a hard kill deadline.
+        self._session(
+            created_at=datetime(2025, 12, 20, 1, tzinfo=UTC),
+            user_attributed_at=datetime(2025, 12, 20, 1, tzinfo=UTC),
+            ended_at=None,
+            ttl_seconds=6 * 60 * 60,
+            sandbox_backend=sandbox_backend,
+        )
+
+        with time_machine.travel("2026-01-05T00:00:00Z", tick=False):
+            usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        if expected_seconds is None:
+            assert usage.seconds == []
+        else:
+            assert usage.seconds == [(self.team.id, expected_seconds)]
+
     def test_live_session_clamps_to_now(self):
         self._session(
             created_at=datetime(2026, 1, 2, 1, tzinfo=UTC),
@@ -537,7 +703,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             ended_at=None,
         )
 
-        with freeze_time("2026-01-02T03:00:00Z"):
+        with time_machine.travel("2026-01-02T03:00:00Z", tick=False):
             usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
 
         assert usage.seconds == [(self.team.id, 2 * 3600)]

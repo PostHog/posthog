@@ -5,5 +5,7 @@ rules:
       owners: team-web-analytics
     - match: '/ai_events.py'
       owners: team-ai-observability
+    - match: '/flag_evaluations.py'
+      owners: team-feature-flags
     - match: '/sessions*.py'
       owners: team-analytics-platform

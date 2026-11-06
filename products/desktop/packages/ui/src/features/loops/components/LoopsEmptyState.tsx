@@ -1,4 +1,5 @@
-import { loopHog } from "@posthog/ui/assets/hedgehogs";
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
+import { hoggiePng } from "@posthog/shared/hoggies";
 import { Flex, Text } from "@radix-ui/themes";
 
 const GETTING_STARTED_STEPS = [
@@ -14,7 +15,11 @@ export function LoopsEmptyState({ contextName }: { contextName?: string }) {
     <div className="@container">
       <div className="flex @min-[560px]:flex-row flex-col items-center @min-[560px]:gap-0 gap-6 rounded-(--radius-3) border border-gray-6 border-dashed @min-[560px]:px-8 px-5 py-8">
         <Flex justify="center" className="@min-[560px]:w-2/5 w-full shrink-0">
-          <img src={loopHog} alt="" className="h-auto w-52 object-contain" />
+          <img
+            src={hoggiePng("loop")}
+            alt=""
+            className="h-auto w-52 object-contain"
+          />
         </Flex>
         <Flex
           direction="column"
@@ -23,11 +28,11 @@ export function LoopsEmptyState({ contextName }: { contextName?: string }) {
           className="min-w-0 flex-1"
         >
           <Flex direction="column" gap="1">
-            <Text className="font-semibold text-[16px] text-gray-12">
+            <p className="font-semibold text-[16px] text-gray-12">
               {contextName
-                ? `Create a loop for #${contextName}`
+                ? `Create a loop for ${channelDisplayReference(contextName)}`
                 : "Create your first loop"}
-            </Text>
+            </p>
             <Text className="text-[13px] text-gray-11 leading-relaxed">
               Set it up once and it keeps running on its own, even with your
               laptop closed.

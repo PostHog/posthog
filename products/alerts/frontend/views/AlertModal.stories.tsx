@@ -7,6 +7,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -14,7 +15,6 @@ import {
     InsightThresholdType,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 
 import type { AlertCheck, AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
@@ -35,6 +35,7 @@ function makeChecks(values: number[]): AlertCheck[] {
         calculated_value: calculatedValue,
         state: AlertState.NOT_FIRING,
         targets_notified: false,
+        deliveries: null,
     }))
 }
 
@@ -87,6 +88,27 @@ const makeAlert = (overrides: Partial<AlertType>): AlertType =>
     }) as AlertType
 
 const trendsAlert = makeAlert({})
+// Shows the delivery details tooltip on the History tab's "Targets notified" cell.
+trendsAlert.checks![trendsAlert.checks!.length - 1].targets_notified = true
+trendsAlert.checks![trendsAlert.checks!.length - 1].deliveries = [
+    {
+        channel: 'email',
+        target: 'alerts@example.com',
+        status: 'accepted',
+        at: '2026-07-16T14:00:00Z',
+        display_label: 'Email: alerts@example.com',
+    },
+    {
+        channel: 'hog_function',
+        target: 'Slack #eng-alerts',
+        template: 'slack',
+        status: 'accepted',
+        at: '2026-07-16T14:00:00Z',
+        display_label: 'Slack #eng-alerts',
+    },
+]
+// A check recorded before delivery receipts existed: a bare "Yes", no receipt list.
+trendsAlert.checks![trendsAlert.checks!.length - 2].targets_notified = true
 
 const funnelAlert = makeAlert({
     id: 'alert-funnel',
@@ -153,6 +175,42 @@ const hogQLAlert = makeAlert({
     },
 })
 
+// The AI detector: no threshold bounds, its own instructions field, and a rationale on each check.
+const llmDetectorAlert = makeAlert({
+    id: 'alert-llm',
+    name: 'Watch signups',
+    calculation_interval: AlertCalculationInterval.DAILY,
+    detector_config: { type: 'llm', instructions: 'Only tell me about drops.' },
+    threshold: undefined,
+    checks: makeChecks([980, 1010, 960, 1030, 990, 1020, 640]).map((check, index, checks) =>
+        index === checks.length - 1
+            ? {
+                  ...check,
+                  state: AlertState.FIRING,
+                  anomaly_scores: [0.91],
+                  triggered_metadata: {
+                      rationale: 'Signups fell to 640, well below the 960-1030 range of the previous week.',
+                      kind: 'drop',
+                  },
+              }
+            : check
+    ),
+    insight: {
+        id: 107,
+        short_id: 'daily-signups',
+        name: 'Daily signups',
+        derived_name: 'Daily signups',
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                interval: 'day',
+                series: [{ kind: NodeKind.EventsNode, event: 'signed_up', math: 'dau' }],
+            },
+        },
+    } as unknown as AlertType['insight'],
+})
+
 const meta: Meta<typeof EditAlertModal> = {
     component: EditAlertModal,
     title: 'Products/Alerts/Alert modal',
@@ -179,7 +237,9 @@ const storyAlerts: Record<StoryInsightType, AlertType> = {
     hogql: hogQLAlert,
 }
 
-const alertsById = Object.fromEntries(Object.values(storyAlerts).map((alert) => [alert.id, alert]))
+const alertsById = Object.fromEntries(
+    [...Object.values(storyAlerts), llmDetectorAlert].map((alert) => [alert.id, alert])
+)
 
 function EditAlertStory({ insightType }: AlertTypeStoryProps): JSX.Element {
     const alert = storyAlerts[insightType]
@@ -218,6 +278,67 @@ export const EditAlert: EditAlertVariant = {
                     200,
                     alertsById[request.params.alert_id as string],
                 ],
+                '/api/projects/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const EditAlertWithLLMDetector: StoryObj<typeof EditAlertModal> = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS, FEATURE_FLAGS.ALERTS_LLM_DETECTOR],
+    },
+    render: () => (
+        <EditAlertModal
+            isOpen
+            alertId={llmDetectorAlert.id}
+            insightId={llmDetectorAlert.insight.id}
+            insightShortId={llmDetectorAlert.insight.short_id}
+            insightLogicProps={{
+                dashboardItemId: llmDetectorAlert.insight.short_id,
+                cachedInsight: llmDetectorAlert.insight,
+            }}
+            onEditSuccess={() => {}}
+            onClose={() => {}}
+            useAlertCheckPreview
+        />
+    ),
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/alerts/:alert_id/': (request) => [
+                    200,
+                    alertsById[request.params.alert_id as string],
+                ],
+                '/api/projects/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const MissingAlert: EditAlertVariant = {
+    args: { insightType: 'trends' },
+    render: ({ insightType }) => {
+        const alert = storyAlerts[insightType]
+        return (
+            <EditAlertModal
+                isOpen
+                alertId="missing-alert"
+                insightId={alert.insight.id}
+                insightShortId={alert.insight.short_id}
+                insightLogicProps={{
+                    dashboardItemId: alert.insight.short_id,
+                    cachedInsight: alert.insight,
+                }}
+                onEditSuccess={() => {}}
+                onClose={() => {}}
+            />
+        )
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/alerts/:alert_id/': [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
             },
         }),

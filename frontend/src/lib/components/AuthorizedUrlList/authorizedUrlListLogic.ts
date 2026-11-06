@@ -20,8 +20,13 @@ import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import {
+    checkUrlIsAuthorized,
+    sanitizePossibleWildCardedURL,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlMatching'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { hogql } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { isDomain, isURL } from 'lib/utils/url'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -30,7 +35,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
 import type { TeamPublicType, TeamType, UserType } from '../../../types'
@@ -47,15 +51,6 @@ export enum AuthorizedUrlListType {
 }
 
 /**
- * Firefox does not allow you construct a new URL with e.g. https://*.example.com (which is to be fair more standards compliant than Chrome)
- * when used to probe for e.g. for authorized urls we only care if the proposed URL has a path so we can safely replace the wildcard with a character
- */
-export function sanitizePossibleWildCardedURL(url: string): URL {
-    const deWildCardedURL = url.replace(/\*/g, 'x')
-    return new URL(deWildCardedURL)
-}
-
-/**
  * Checks if the URL has a wildcard (*) in the port position e.g. http://localhost:*
  */
 export function hasWildcardInPort(input: unknown): boolean {
@@ -65,6 +60,14 @@ export function hasWildcardInPort(input: unknown): boolean {
     // This regex matches URLs with a wildcard (*) in the port position
     const portWildcardRegex = /^(https?:\/\/[^:/]+):\*(.*)$/
     return portWildcardRegex.test(input.trim())
+}
+
+/**
+ * The add URL form starts with `https://` already in the box, so a pasted full URL leaves two
+ * protocols behind. Drop the leading one, because the protocol the user supplied is the real one.
+ */
+export function stripDuplicateProtocol(url: string): string {
+    return url.replace(/^(https?:\/\/)+(?=[a-z][a-z0-9+.-]*:\/\/)/i, '')
 }
 
 export const validateProposedUrl = (
@@ -190,53 +193,6 @@ export function directToolbarUrl(
     }
     const state = encodeURIComponent(JSON.stringify(params))
     return `${appUrl}#__posthog=${state}`
-}
-
-/** Treat www.domain.com and domain.com as equivalent. */
-const stripWww = (host: string): string => (host.startsWith('www.') ? host.slice(4) : host)
-
-export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]): boolean => {
-    try {
-        const parsedUrl = typeof url === 'string' ? sanitizePossibleWildCardedURL(url) : url
-        const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
-        const hostNormalized = stripWww(parsedUrl.hostname)
-
-        return authorizedUrls.some((authorizedUrl) => {
-            // Wildcard entries (subdomain or port wildcards, e.g. `https://*.example.com`). Anchor the
-            // pattern with ^…$ so a `*` cannot match a suffix of an unrelated origin such as
-            // `https://app.example.com.evil.com`.
-            if (authorizedUrl.includes('*')) {
-                try {
-                    const regex = new RegExp('^' + authorizedUrl.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$')
-                    return regex.test(urlWithoutPath)
-                } catch {
-                    return false
-                }
-            }
-
-            // Exact entries: compare by origin (protocol + host) instead of a substring check, so a
-            // different domain cannot be authorized merely by being a prefix/substring of an entry
-            // (e.g. `https://example.co` against `https://example.com`).
-            try {
-                const authorizedUrlParsed = sanitizePossibleWildCardedURL(authorizedUrl)
-                if (authorizedUrlParsed.protocol + '//' + authorizedUrlParsed.host === urlWithoutPath) {
-                    return true
-                }
-                // www-equivalence: same protocol, hostnames equal with www. stripped. The protocol
-                // check keeps an http origin from matching an https-only authorized entry.
-                return (
-                    authorizedUrlParsed.protocol === parsedUrl.protocol &&
-                    stripWww(authorizedUrlParsed.hostname) === hostNormalized
-                )
-            } catch {
-                return false
-            }
-        })
-    } catch {
-        // Ignore invalid URLs
-    }
-
-    return false
 }
 
 /**
@@ -503,10 +459,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     limit 25`
 
                 const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Settings'
-                const response = await api.queryHogQL(query, {
-                    scene: currentScene,
-                    productKey: 'platform_and_support',
-                })
+                let response: Awaited<ReturnType<typeof api.queryHogQL>>
+                try {
+                    response = await api.queryHogQL(query, {
+                        scene: currentScene,
+                        productKey: 'platform_and_support',
+                    })
+                } catch {
+                    // Suggestions are advisory. A failed query (server error or network error) leaves the
+                    // list empty and the manual "Fetch suggestions" retry available, so we swallow it here
+                    // instead of letting it surface as an unhandled loader error.
+                    return []
+                }
                 breakpoint()
                 const result = response.results as [string, number][]
 
@@ -542,7 +506,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 // default to allowing wildcards because that was the original behavior
                 url: validateProposedUrl(
                     url,
-                    values.authorizedUrls,
+                    values.authorizedUrls.filter((_, index) => index !== values.editUrlIndex),
                     values.onlyAllowDomains,
                     props.allowWildCards ?? true
                 ),
@@ -616,6 +580,15 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         },
         newUrl: () => {
             actions.setProposedUrlValue('url', NEW_URL)
+        },
+        setProposedUrlValue: ({ value }) => {
+            if (typeof value !== 'string') {
+                return
+            }
+            const stripped = stripDuplicateProtocol(value)
+            if (stripped !== value) {
+                actions.setProposedUrlValue('url', stripped)
+            }
         },
         addUrl: async ({ url, launch }) => {
             // Await the app_urls PATCH before markTaskAsCompleted to avoid a race on the team PATCH response.

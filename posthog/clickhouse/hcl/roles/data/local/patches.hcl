@@ -123,6 +123,18 @@ database "posthog" {
     }
   }
 
+  patch_table "sharded_ingestion_warnings" {
+    partition_by = "toYYYYMMDD(timestamp)"
+    modify_column "details" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_ingestion_warnings"
+      replica_name = "{replica}"
+    }
+  }
+
   patch_table "events_recent" {
     modify_column "properties" {
       type  = "String"
@@ -168,15 +180,14 @@ database "posthog" {
     }
   }
 
-  patch_table "sharded_ingestion_warnings" {
-    partition_by = "toYYYYMMDD(timestamp)"
-    modify_column "details" {
-      type  = "String"
-      codec = "ZSTD(3)"
+  # ClickHouse 26.9 types these system.processes columns as Enum8; the prod envs
+  # still run a version that types them as UInt8.
+  patch_table "distributed_system_processes" {
+    modify_column "interface" {
+      type = "Enum8('Unknown'=0, 'TCP'=1, 'HTTP'=2, 'gRPC'=3, 'MySQL'=4, 'PostgreSQL'=5, 'Local'=6, 'TCP_Interserver'=7, 'Prometheus'=8, 'Background'=9, 'ArrowFlight'=10)"
     }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_ingestion_warnings"
-      replica_name = "{replica}"
+    modify_column "http_method" {
+      type = "Enum8('UNKNOWN'=0, 'GET'=1, 'POST'=2, 'OPTIONS'=3, 'PUT'=4, 'DELETE'=5, 'HEAD'=6)"
     }
   }
 }

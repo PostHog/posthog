@@ -5,7 +5,8 @@ from uuid import UUID, uuid4
 import pytest
 from unittest.mock import patch
 
-from products.visual_review.backend import logic
+from posthog.paging import PageRequest
+
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import (
     ApproveRunInput,
@@ -15,6 +16,7 @@ from products.visual_review.backend.facade.contracts import (
     UpdateRepoInput,
 )
 from products.visual_review.backend.facade.enums import RunType, SnapshotResult
+from products.visual_review.backend.logic import artifact_store, errors, quarantine, runs
 from products.visual_review.backend.models import Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -47,25 +49,29 @@ class TestProjectAPI:
         api.create_repo(team_id=team.id, repo_external_id=111, repo_full_name="org/first")
         api.create_repo(team_id=team.id, repo_external_id=222, repo_full_name="org/second")
 
-        result = api.list_repos(team.id)
+        first_page = api.list_repos(team.id, PageRequest(limit=1))
+        second_page = api.list_repos(team.id, PageRequest(limit=1, offset=1))
 
-        assert len(result) == 2
-        names = {p.repo_full_name for p in result}
+        assert first_page.count == 2
+        names = {p.repo_full_name for p in first_page.results + second_page.results}
         assert names == {"org/first", "org/second"}
 
-    def test_update_repo_sets_baseline_paths(self, team):
+    def test_update_repo_sets_the_fields_it_is_given(self, team):
         created = api.create_repo(team_id=team.id, repo_external_id=333, repo_full_name="org/test")
         assert created.baseline_file_paths == {}
+        assert created.debt_digest_enabled is False
 
         result = api.update_repo(
             UpdateRepoInput(
                 repo_id=created.id,
                 baseline_file_paths={"storybook": ".storybook/snapshots.yml"},
+                debt_digest_enabled=True,
             ),
             team_id=team.id,
         )
 
         assert result.baseline_file_paths == {"storybook": ".storybook/snapshots.yml"}
+        assert result.debt_digest_enabled is True
         assert result.repo_full_name == "org/test"  # unchanged
 
 
@@ -219,7 +225,7 @@ class TestRunAPI:
             ),
             team_id=repo.team_id,
         )
-        logic.quarantine_identifier(
+        quarantine.quarantine_identifier(
             repo_id=repo.id,
             identifier="Button",
             run_type=RunType.STORYBOOK,
@@ -276,9 +282,9 @@ class TestRunAPI:
             run_type=RunType.PLAYWRIGHT,
         )
 
-        runs = api.list_runs(repo.team_id, **filters)
+        runs = api.list_runs(repo.team_id, **filters, page=PageRequest(limit=100))
 
-        assert {r.commit_sha for r in runs} == expected_commits
+        assert {r.commit_sha for r in runs.results} == expected_commits
 
     @patch("products.visual_review.backend.tasks.tasks.emit_run_processing_metrics.delay")
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
@@ -303,8 +309,8 @@ class TestRunAPI:
 
     @patch("products.visual_review.backend.tasks.tasks.emit_run_processing_metrics.delay")
     @patch(
-        "products.visual_review.backend.logic.verify_uploads_and_create_artifacts",
-        side_effect=logic.HashIntegrityError("hash mismatch"),
+        "products.visual_review.backend.logic.uploads.verify_uploads_and_create_artifacts",
+        side_effect=errors.HashIntegrityError("hash mismatch"),
     )
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_hash_integrity_failure_emits_terminal_metrics(
@@ -359,7 +365,7 @@ class TestApproveRunAPI:
 
     def test_approve_run(self, repo, user):
         # Create artifact first (directly via logic since API no longer exposes this)
-        logic.get_or_create_artifact(
+        artifact_store.get_or_create_artifact(
             repo_id=repo.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
@@ -381,13 +387,13 @@ class TestApproveRunAPI:
         # Classification happens at complete_run time
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
                 return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
-            logic.complete_run(create_result.run_id)
-        logic.finish_processing(create_result.run_id)
+            runs.complete_run(create_result.run_id)
+        runs.finish_processing(create_result.run_id)
 
         # Per-snapshot approval is DB only — no run-level finalization
         result = api.approve_snapshots(

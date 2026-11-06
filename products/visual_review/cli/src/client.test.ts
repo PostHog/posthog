@@ -15,7 +15,7 @@ function jsonResponse(body: unknown, status = 200, headers: Record<string, strin
     } as unknown as Response
 }
 
-describe('VisualReviewClient retry logic', () => {
+describe('VisualReviewClient', () => {
     let client: VisualReviewClient
 
     beforeEach(() => {
@@ -39,6 +39,29 @@ describe('VisualReviewClient retry logic', () => {
         const result = await client.getRun('run-1')
         expect(result).toEqual({ id: '123' })
         expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('unwraps the paginated envelope when listing run snapshots', async () => {
+        const snapshot = { id: 's1', identifier: 'story--light', result: 'changed' }
+        mockFetch.mockResolvedValueOnce(jsonResponse({ count: 4107, next: null, results: [snapshot] }))
+
+        const result = await client.getRunSnapshots('run-1')
+
+        expect(result).toEqual([snapshot])
+        expect(mockFetch.mock.calls[0][0]).toContain('limit=100')
+    })
+
+    it.each([
+        ['72855643533', { check_run_id: '72855643533' }],
+        [undefined, {}],
+    ])('sends the completing job ID %s when completing a run', async (checkRunId, expectedBody) => {
+        mockFetch.mockResolvedValueOnce(jsonResponse({ id: 'run-1', status: 'completed' }))
+
+        await client.completeRun('run-1', checkRunId)
+
+        const [url, init] = mockFetch.mock.calls[0]
+        expect(url).toContain('/visual_review/runs/run-1/complete/')
+        expect(JSON.parse(init.body)).toEqual(expectedBody)
     })
 
     it('throws immediately on 4xx errors without retrying', async () => {

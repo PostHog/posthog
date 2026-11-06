@@ -7,6 +7,9 @@ from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
 from posthog.auth import PersonalAPIKeyAuthentication
 
+# Must remain a JSON-parseable string (note the embedded quotes): merged-state filters
+# validation substitutes this sentinel for stored ciphertext before structural validation,
+# so a non-JSON value here would 400 every filters PATCH on every encrypted-payloads flag.
 REDACTED_PAYLOAD_VALUE = '"********* (encrypted)"'
 
 
@@ -143,3 +146,47 @@ def encrypt_flag_payloads(validated_data: dict):
             payloads[key] = codec.encrypt(value.encode("utf-8")).decode("utf-8")
         except Exception as e:
             raise ValueError(f"Failed to encrypt payload for key {key}") from e
+
+
+def restore_redacted_flag_payloads(payloads: dict[str, str], stored_payloads: dict[str, str]) -> dict[str, str]:
+    """Swap the stored ciphertext back in for every payload key the request echoed as the sentinel.
+
+    Filters validation substitutes the sentinel for every stored key, and a client can echo it back
+    for the keys it does not change. Saving the sentinel over those keys replaces ciphertext that
+    nothing can recover, and one such value makes the decrypt path fail for the whole payload map.
+    """
+    return {
+        key: stored_payloads[key] if value == REDACTED_PAYLOAD_VALUE and key in stored_payloads else value
+        for key, value in payloads.items()
+    }
+
+
+def apply_approved_encrypted_payloads(validated_data: dict, encrypted_payloads: dict[str, str]) -> None:
+    """Write ciphertext from an approved change request into the change being saved.
+
+    An approval gate withholds a secret payload from the change request it stores and keeps the
+    ciphertext separate, because a Fernet token is not the JSON that filters validation requires.
+    The stored change therefore carries the sentinel, and the ciphertext goes back in here. It
+    must not reach `encrypt_flag_payloads`, which would encrypt it a second time and leave a
+    payload no SDK can read.
+
+    Raises:
+        ValueError: If a token cannot be decrypted. `reencrypt_flag_payloads` does not reach this
+            store, so an operator who drops a fallback key while a change request is open leaves a
+            token no key can open. Writing it would report success and fail every later read, so
+            this fails the apply instead.
+    """
+    codec = flag_payload_codec()
+    for key, token in encrypted_payloads.items():
+        try:
+            codec.decrypt(str(token).encode("utf-8"))
+        except InvalidToken as e:
+            raise ValueError(
+                f"Cannot apply the approved payload for '{key}': it can no longer be decrypted. "
+                "Submit the change again."
+            ) from e
+
+    filters = validated_data.setdefault("filters", {})
+    payloads = dict(filters.get("payloads") or {})
+    payloads.update(encrypted_payloads)
+    filters["payloads"] = payloads

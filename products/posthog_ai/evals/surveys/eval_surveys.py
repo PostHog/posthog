@@ -1,24 +1,16 @@
-"""Survey creation eval cases for the sandboxed coding agent.
-
-Intent mirrors ``ee/hogai/eval/ci/eval_surveys.py``. The CI version calls
-Max's ``CreateSurveyTool`` directly and checks Django state. This version
-asks the sandboxed agent to create surveys through the PostHog MCP
-``survey-create`` tool and scores the payload/result it produced.
-
-To run:
-    flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness eval_surveys"
-"""
+"""Survey creation eval cases for the sandbox agent."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
 from products.posthog_ai.eval_harness.seeders.survey import seed_survey_feature_flags
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from products.posthog_ai.evals.surveys.scorers import (
     SURVEY_FORBIDDEN_WRITE_TOOLS,
@@ -277,8 +269,18 @@ async def eval_surveys(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-surveys-cli",
+        offline_suite=offline_suite(
+            "surveys/eval_surveys::eval_surveys",
+            metrics=[
+                "no_forbidden_survey_side_effects",
+                "survey_create_outcome",
+                "survey_create_returned_id",
+                "survey_create_alignment",
+                "survey_id_in_final_message",
+            ],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(

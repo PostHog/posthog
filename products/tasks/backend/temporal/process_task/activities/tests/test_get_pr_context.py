@@ -9,6 +9,8 @@ from django.core.exceptions import ObjectDoesNotExist
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.integrations import IntegrationNotFound
+from posthog.models.team.team import Team
 
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
@@ -186,6 +188,46 @@ class TestGetPrContextActivity:
         integration.get_pull_request_snapshot.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db
+    def test_persists_snapshot_state_to_run_output(self, test_task_run):
+        pr_url = "https://github.com/org/repo/pull/42"
+        test_task_run.output = {"pr_url": pr_url}
+        test_task_run.save(update_fields=["output"])
+
+        integration = MagicMock()
+        integration.get_pull_request_snapshot.return_value = {
+            "success": True,
+            "url": pr_url,
+            "state": "open",
+            "ci_status": "failing",
+        }
+
+        ctx = self._ctx(run_id=str(test_task_run.id))
+        with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
+            self._run(ctx)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.output["pr_state"] == "open"
+        assert test_task_run.output["ci_status"] == "failing"
+        assert test_task_run.output["pr_url"] == pr_url
+
+    @pytest.mark.django_db
+    def test_does_not_persist_unrecognized_snapshot_state(self, test_task_run):
+        pr_url = "https://github.com/org/repo/pull/42"
+        test_task_run.output = {"pr_url": pr_url}
+        test_task_run.save(update_fields=["output"])
+
+        integration = MagicMock()
+        integration.get_pull_request_snapshot.return_value = {"success": True, "url": pr_url}
+
+        ctx = self._ctx(run_id=str(test_task_run.id))
+        with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
+            self._run(ctx)
+
+        test_task_run.refresh_from_db()
+        assert "pr_state" not in test_task_run.output
+        assert "ci_status" not in test_task_run.output
+
+    @pytest.mark.django_db
     def test_uses_user_github_integration_for_user_credentials(self, test_task_run):
         pr_url = "https://github.com/org/repo/pull/42"
         test_task_run.output = {"pr_url": pr_url}
@@ -329,7 +371,7 @@ class TestGetGithubIntegration:
             wrapped.access_token_expired.return_value = True
             MockGitHubIntegration.return_value = wrapped
 
-            result = get_github_integration(github_integration.id)
+            result = get_github_integration(github_integration.team_id, github_integration.id)
 
         assert result is wrapped
         wrapped.access_token_expired.assert_called_once()
@@ -342,14 +384,19 @@ class TestGetGithubIntegration:
             wrapped.access_token_expired.return_value = False
             MockGitHubIntegration.return_value = wrapped
 
-            result = get_github_integration(github_integration.id)
+            result = get_github_integration(github_integration.team_id, github_integration.id)
 
         assert result is wrapped
         wrapped.refresh_access_token.assert_not_called()
 
     @pytest.mark.django_db
-    def test_raises_when_integration_not_found(self):
-        from posthog.models import Integration
+    @pytest.mark.parametrize("case", ["missing_id", "other_team"])
+    def test_raises_when_integration_not_found(self, github_integration, case):
+        if case == "missing_id":
+            team_id, integration_id = github_integration.team_id, 999999999
+        else:
+            other_team = Team.objects.create(organization=github_integration.team.organization, name="Other team")
+            team_id, integration_id = other_team.id, github_integration.id
 
-        with pytest.raises(Integration.DoesNotExist):
-            get_github_integration(999999999)
+        with pytest.raises(IntegrationNotFound):
+            get_github_integration(team_id, integration_id)

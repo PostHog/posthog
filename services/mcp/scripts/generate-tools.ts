@@ -21,7 +21,13 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
+import { hasScope } from '../src/lib/api'
+import {
+    discoverDefinitions,
+    isQueryWrappersConfig,
+    modulesWithStrictBodies,
+    operationIdToPascal,
+} from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
@@ -37,6 +43,7 @@ const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
+const TOOLS_SRC_DIR = path.resolve(MCP_ROOT, 'src/tools')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
 const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
@@ -87,6 +94,10 @@ interface OpenApiSchema {
 
 interface OpenApiOperation {
     operationId: string
+    /** Scopes the API requires, written by `posthog/api/documentation.py`. */
+    security?: Array<Record<string, string[]>>
+    /** The API picks the scopes per request, so `security` lists only the fallback for human callers. */
+    'x-request-dependent-scopes'?: boolean
     parameters?: OpenApiParam[]
     requestBody?: {
         content?: {
@@ -401,6 +412,20 @@ function escapeForDescribe(desc: string): string {
 }
 
 /**
+ * Emits a tool's input schema as a builder function. The Orval exports it uses are
+ * builders too (see generate-orval-schemas.mjs); each one is built once into a local
+ * of the same name, so the composed expression reads exactly as it did before.
+ */
+function buildSchemaBuilderDecl(schemaName: string, schemaExpr: string, orvalImports: string[]): string {
+    const used = [...new Set(orvalImports)].filter((name) => new RegExp(`\\b${name}\\b`).test(schemaExpr)).sort()
+    if (used.length === 0) {
+        return `const ${schemaName} = () => ${schemaExpr}`
+    }
+    const locals = used.map((name) => `    const ${name} = orvalSchemas.${name}()`).join('\n')
+    return `const ${schemaName} = () => {\n${locals}\n    return ${schemaExpr}\n}`
+}
+
+/**
  * Parse enrich_url template into prefix, field, and source.
  * '{id}' → { prefix: '', field: 'id', source: 'result' }
  * 'hog-{id}' → { prefix: 'hog-', field: 'id', source: 'result' }
@@ -428,17 +453,16 @@ function parseEnrichUrl(enrichUrl: string): {
     }
 }
 
-/** Convert operationId (snake_case) to PascalCase for Orval schema names */
-function operationIdToPascal(operationId: string): string {
-    return operationId
-        .split(/[_.]/)
-        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-        .join('')
-}
-
 // ------------------------------------------------------------------
 // Schema composition — determine Orval imports and build expressions
 // ------------------------------------------------------------------
+
+/** `param_overrides.cast` value → the helper exported from `@/tools/cast-helpers`. */
+const CAST_HELPERS = {
+    'string-int': 'castStringToInt',
+    'boolean-string': 'castBooleanToString',
+    'object-json-string': 'castObjectToJsonString',
+} as const
 
 interface SchemaComposition {
     orvalImports: string[]
@@ -480,7 +504,8 @@ function composeToolSchema(
     config: ToolConfig,
     resolved: ResolvedOperation,
     spec: OpenApiSpec,
-    getQuerySchema: () => JsonSchemaRoot
+    getQuerySchema: () => JsonSchemaRoot,
+    hasStrictBody = false
 ): SchemaComposition {
     const pascal = operationIdToPascal(config.operation)
     const orvalImports: string[] = []
@@ -498,6 +523,7 @@ function composeToolSchema(
      * Path params are omitted (always required).
      */
     const optionalParamNames = new Set<string>()
+    let composesBody = false
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
@@ -580,6 +606,7 @@ function composeToolSchema(
         const bodySchemaRef = resolved.operation.requestBody?.content?.['application/json']?.schema
         if (bodySchemaRef) {
             const importName = `${pascal}Body`
+            composesBody = true
             orvalImports.push(importName)
 
             const bodyOmitFields = new Set<string>()
@@ -623,6 +650,13 @@ function composeToolSchema(
                 // mapping is tracked in renamedFields for body-building.
                 const alias = renameMap.get(name)
                 const fieldKey = alias ?? name
+                // A body field that shares a path param's name (e.g. PATCH /metrics/{name}/
+                // with a writable `name`) collapses into one input, because the body part is
+                // merged over the path part. Renaming it separates the two, but only if the
+                // body copy is dropped here — otherwise it still overwrites the path param.
+                if (alias && pathParamNames.includes(name)) {
+                    bodyOmitFields.add(name)
+                }
                 bodyFieldNames.push(fieldKey)
                 if (bodyVariantSpecific.has(name)) {
                     variantSpecificBodyFieldNames.add(fieldKey)
@@ -651,6 +685,9 @@ function composeToolSchema(
         schemaExpr = schemaParts[0]!
         for (let i = 1; i < schemaParts.length; i++) {
             schemaExpr += `.extend(${schemaParts[i]}.shape)`
+        }
+        if (hasStrictBody && composesBody) {
+            schemaExpr += '.strict()'
         }
     }
 
@@ -683,7 +720,7 @@ function composeToolSchema(
             }
 
             if (override.aliases?.length) {
-                paramAliases[paramName] = override.aliases
+                paramAliases[renameMap.get(paramName) ?? paramName] = override.aliases
             }
 
             // An `optional` override must also surface as optional in the agent-facing
@@ -694,7 +731,7 @@ function composeToolSchema(
                 optionalParamNames.add(paramName)
             }
 
-            const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
+            const castHelper = override.cast ? CAST_HELPERS[override.cast] : null
             if (castHelper) {
                 castHelperImports.add(castHelper)
             }
@@ -745,9 +782,8 @@ function composeToolSchema(
                 if (sourceImport) {
                     let expr = `${sourceImport}.shape['${paramName}']`
                     if (override.required) {
-                        // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
-                        // tool schema requires the field, matching the backend serializer.
-                        expr += '.unwrap()'
+                        // Keep the Orval field description when requiring a PATCH body field.
+                        expr += '.nonoptional()'
                         optionalParamNames.delete(paramName)
                     }
                     if (override.default !== undefined) {
@@ -776,8 +812,16 @@ function composeToolSchema(
         const bodyImport = `${pascal}Body`
         for (const [original, alias] of renameMap) {
             renamedFields[alias] = original
-            schemaExpr += `\n    .omit({ '${original}': true })`
-            schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
+            // When the original is also a path param, the body copy was already dropped above
+            // and the surviving key addresses the resource, so omitting it here would leave the
+            // handler with no value for the URL.
+            const fieldSource = queryParamNames.includes(original)
+                ? `(${schemaExpr}).shape['${original}']`
+                : `${bodyImport}.shape['${original}']`
+            if (!pathParamNames.includes(original)) {
+                schemaExpr += `\n    .omit({ '${original}': true })`
+            }
+            schemaExpr += `\n    .extend({ ${alias}: ${fieldSource} })`
         }
     }
 
@@ -812,6 +856,35 @@ function composeToolSchema(
         schemaExpr = `(${schemaExpr}).extend({ ${overrideEntries.join(', ')} })`
     }
 
+    // normalizeParamAliases deletes alias keys after copying them onto the canonical
+    // param, so an alias that is also a real parameter of this operation, or an alias
+    // two params both claim, would silently drop a value. Checked after every override
+    // has run, because input_schema overrides add body fields inside the loop above.
+    const declaredParamNames = new Set([
+        ...pathParamNames,
+        ...queryParamNames.map((name) => renameMap.get(name) ?? name),
+        ...bodyFieldNames,
+    ])
+    const aliasOwners = new Map<string, string>()
+    for (const [paramName, aliases] of Object.entries(paramAliases)) {
+        for (const alias of aliases) {
+            if (alias === paramName || declaredParamNames.has(alias)) {
+                throw new Error(
+                    `${config.operation}: alias "${alias}" for param "${paramName}" is also a declared parameter ` +
+                        'of this operation, so normalizeParamAliases would drop its value. Rename or remove the alias.'
+                )
+            }
+            const owner = aliasOwners.get(alias)
+            if (owner !== undefined) {
+                throw new Error(
+                    `${config.operation}: alias "${alias}" is declared by both "${owner}" and "${paramName}", ` +
+                        'so normalizeParamAliases would drop one of them. Keep it on one param.'
+                )
+            }
+            aliasOwners.set(alias, paramName)
+        }
+    }
+
     return {
         orvalImports,
         toolInputsImports,
@@ -819,8 +892,8 @@ function composeToolSchema(
         schemaRefBlocks,
         schemaExpr,
         pathParamNames,
-        queryParamNames,
-        csvQueryParamNames,
+        queryParamNames: queryParamNames.map((name) => renameMap.get(name) ?? name),
+        csvQueryParamNames: new Set([...csvQueryParamNames].map((name) => renameMap.get(name) ?? name)),
         bodyFieldNames,
         variantSpecificBodyFieldNames,
         renamedFields,
@@ -841,7 +914,7 @@ function extractPathParams(urlPattern: string): string[] {
 }
 
 /** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params.
- *  All interpolated values are wrapped with encodeURIComponent() to prevent path traversal.
+ *  Interpolated values are URL-encoded; ApiClient rejects paths that URL parsing would normalize.
  *  Params in `localVarParams` use a bare variable name (no prefix) because they are resolved to local variables. */
 function buildPathExpr(
     urlPath: string,
@@ -861,44 +934,72 @@ function buildPathExpr(
 // Response filtering templates
 // ------------------------------------------------------------------
 
+type ResponseFilterHelper = 'pickResponseFields' | 'omitResponseFields' | 'stripNullFields'
+
 function buildResponseFilter(config: ToolConfig): {
     code: string
-    helperImport: 'pickResponseFields' | 'omitResponseFields' | null
+    helperImports: ResponseFilterHelper[]
 } {
+    const helperImports: ResponseFilterHelper[] = []
+    // Builds the expression that shapes one item — the whole result for a detail tool, each
+    // `results` entry for a list tool. Starts as identity, so each configured step wraps it.
+    let shapeItem = (target: string): string => target
+
     if (config.response?.include?.length) {
-        const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
+        const paths = config.response.include.map((f) => `'${f}'`).join(', ')
         // `selectable` lets the agent pass `fields` to narrow the allowlist per call; the Zod
         // `z.enum(...).min(1)` on the schema already constrains `fields` to a non-empty subset of
         // `include`, so an absent `fields` falls back to the full allowlist (an empty array is
         // rejected at validation) and no separate intersection is needed.
-        const pathsExpr = config.response?.selectable
+        const pathsExpr = config.response.selectable
             ? `params.fields?.length ? params.fields : [${paths}]`
             : `[${paths}]`
-        if (config.list) {
-            return {
-                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ${pathsExpr})) } as typeof result\n`,
-                helperImport: 'pickResponseFields',
-            }
+        helperImports.push('pickResponseFields')
+        shapeItem = (target) => `pickResponseFields(${target}, ${pathsExpr})`
+    } else if (config.response?.exclude?.length || config.response?.expandable?.length) {
+        const paths = (config.response.exclude ?? []).map((f) => `'${f}'`)
+        const expandable = config.response.expandable ?? []
+        if (expandable.length) {
+            // `as const` keeps the literal types, so `includes` accepts them against the `expand` enum.
+            const expandablePaths = expandable.map((f) => `'${f}'`).join(', ')
+            paths.push(`...([${expandablePaths}] as const).filter((path) => !params.expand?.includes(path))`)
         }
+        helperImports.push('omitResponseFields')
+        shapeItem = (target) => `omitResponseFields(${target}, [${paths.join(', ')}])`
+    }
+
+    if (config.response?.strip_nulls) {
+        const inner = shapeItem
+        helperImports.push('stripNullFields')
+        shapeItem = (target) => `stripNullFields(${inner(target)})`
+    }
+
+    if (helperImports.length === 0) {
+        return { code: '', helperImports: [] }
+    }
+
+    if (config.list) {
         return {
-            code: `        const filtered = pickResponseFields(result, ${pathsExpr}) as typeof result\n`,
-            helperImport: 'pickResponseFields',
+            code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => ${shapeItem('item')}) } as typeof result\n`,
+            helperImports,
         }
     }
-    if (config.response?.exclude?.length) {
-        const paths = config.response?.exclude.map((f) => `'${f}'`).join(', ')
-        if (config.list) {
-            return {
-                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
-                helperImport: 'omitResponseFields',
-            }
-        }
-        return {
-            code: `        const filtered = omitResponseFields(result, [${paths}]) as typeof result\n`,
-            helperImport: 'omitResponseFields',
-        }
+    return {
+        code: `        const filtered = ${shapeItem('result')} as typeof result\n`,
+        helperImports,
     }
-    return { code: '', helperImport: null }
+}
+
+/**
+ * When `required_when_set` is set, attach it as the `x-required-when-set` schema annotation.
+ * zod 4 copies `.meta()` keys into `toJSONSchema` output, so the advertised schema and the
+ * compact exec summary both carry it. Returns the expression unchanged otherwise.
+ */
+function withRequiredWhenSet(schemaExpr: string, config: ToolConfig): string {
+    if (!config.required_when_set || Object.keys(config.required_when_set).length === 0) {
+        return schemaExpr
+    }
+    return `(${schemaExpr}).meta({ 'x-required-when-set': ${JSON.stringify(config.required_when_set)} })`
 }
 
 /**
@@ -926,6 +1027,23 @@ function buildSelectableFieldsExtension(config: ToolConfig): string {
     return `.extend({ fields: z.array(z.enum([${enumValues}])).min(1).optional().describe(${JSON.stringify(description)}) })`
 }
 
+/**
+ * When `response.expandable` is set, emit a `.extend({ expand: ... })` clause adding an optional
+ * `expand` request param constrained (via `z.enum`) to the expandable paths. Returns '' when the
+ * tool doesn't opt in.
+ */
+function buildExpandableFieldsExtension(config: ToolConfig): string {
+    const expandable = config.response?.expandable
+    if (!expandable?.length) {
+        return ''
+    }
+    const enumValues = expandable.map((f) => `'${f}'`).join(', ')
+    const description =
+        'Optional list of response fields to include that the response omits by default, each a dot-path. ' +
+        'Omit to keep the response small.'
+    return `.extend({ expand: z.array(z.enum([${enumValues}])).min(1).optional().describe(${JSON.stringify(description)}) })`
+}
+
 // ------------------------------------------------------------------
 // Response enrichment templates
 // ------------------------------------------------------------------
@@ -937,12 +1055,18 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     const noteLiteral = config.agent_note ? JSON.stringify(config.agent_note) : null
     const noted = (expr: string): string => (noteLiteral ? `withAgentNote(${expr}, ${noteLiteral})` : expr)
     const informationalWrapper = config.response?.informational_wrapper
+    // The text projection wraps last, so it can name the `_posthogUrl` each row picked up from enrichment.
+    const textInclude = config.response?.text_include
+    const projected = (expr: string): string =>
+        textInclude?.length ? `withTextProjection(${expr}, [${textInclude.map((f) => `'${f}'`).join(', ')}])` : expr
     const wrapped = (expr: string): string => {
         const notedExpression = noted(expr)
         const purposeArgument = informationalWrapper?.purpose ? `, ${JSON.stringify(informationalWrapper.purpose)}` : ''
-        return informationalWrapper
-            ? `withInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
-            : notedExpression
+        return projected(
+            informationalWrapper
+                ? `withInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
+                : notedExpression
+        )
     }
 
     // Joiner between url_prefix and the enrich_url prefix: append `/` for path-segment enrichments,
@@ -986,6 +1110,26 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
 
 // ------------------------------------------------------------------
 // Code generation for a single tool
+
+// The underscore keeps the alias apart from factory names, which are camelCase without underscores.
+function hooksVarName(toolName: string): string {
+    return `hooks_${toCamelCase(toolName)}`
+}
+
+/** Emits the handler expression, wrapped with the tool's `hooks:` module when it has one. */
+function renderHandler(config: ToolConfig, toolName: string, handlerFn: string): string {
+    return config.hooks ? `withToolHooks(${hooksVarName(toolName)}, ${handlerFn})` : handlerFn
+}
+
+function isSoftDeleteTool(config: ToolConfig): boolean {
+    return config.soft_delete !== undefined && config.soft_delete !== false
+}
+
+/** The HTTP method the handler sends. Soft-delete tools send PATCH to the DELETE operation's path. */
+function handlerHttpMethod(config: ToolConfig, resolved: ResolvedOperation): string {
+    return isSoftDeleteTool(config) ? 'PATCH' : resolved.method
+}
+
 // ------------------------------------------------------------------
 
 function generateToolCode(
@@ -995,7 +1139,8 @@ function generateToolCode(
     category: CategoryConfig,
     spec: OpenApiSpec,
     knownTypes: Set<string>,
-    getQuerySchema: () => JsonSchemaRoot
+    getQuerySchema: () => JsonSchemaRoot,
+    hasStrictBody = false
 ): {
     code: string
     orvalImports: string[]
@@ -1018,12 +1163,12 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const composition = composeToolSchema(config, resolved, spec, getQuerySchema)
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema, hasStrictBody)
     let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
     // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
-    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
+    const isSoftDelete = isSoftDeleteTool(config)
 
     // For soft-delete tools the original operation is DELETE (typically 204 no-content),
     // but the actual request is a PATCH to the same URL. Resolve the response type from
@@ -1042,12 +1187,17 @@ function generateToolCode(
     if (selectableExtension) {
         schemaExpr = `${schemaExpr}${selectableExtension}`
     }
+    const expandableExtension = buildExpandableFieldsExtension(config)
+    if (expandableExtension) {
+        schemaExpr = `${schemaExpr}${expandableExtension}`
+    }
     if (config.validators && config.validators.length > 0) {
         for (const fn of config.validators) {
             schemaExpr = `(${schemaExpr}).superRefine(${fn})`
             composition.toolInputsImports.push(fn)
         }
     }
+    schemaExpr = withRequiredWhenSet(schemaExpr, config)
 
     // `param_overrides.<param>.aliases` — normalize alias keys to the canonical
     // param before validation. Outermost wrapper so the rename happens before any
@@ -1062,7 +1212,7 @@ function generateToolCode(
         schemaExpr = `z.preprocess(normalizeParamAliases(${aliasMapLiteral}), ${schemaExpr})`
     }
 
-    const schemaDecl = `const ${schemaName} = ${schemaExpr}`
+    const schemaDecl = buildSchemaBuilderDecl(schemaName, schemaExpr, composition.orvalImports)
 
     const localVarParams = new Set(Object.keys(composition.paramFallbacks))
     const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.', localVarParams)
@@ -1109,6 +1259,11 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
+            // A fallback param is already resolved into a guaranteed local above, so emit it unguarded.
+            if (localVarParams.has(bf)) {
+                handlerBody += `        body[${JSON.stringify(bodyKey)}] = ${bf}\n`
+                continue
+            }
             // Variant-specific fields (only in some union variants) need an `in`
             // narrowing guard — TypeScript rejects bare `params.X` access otherwise.
             const guard = composition.variantSpecificBodyFieldNames.has(bf)
@@ -1122,28 +1277,32 @@ function generateToolCode(
             handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
+    const transformsBody = hasBody && !!config.hooks
 
-    const httpMethod = isSoftDelete ? 'PATCH' : resolved.method
+    const httpMethod = handlerHttpMethod(config, resolved)
     handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
     if (isSoftDelete) {
         handlerBody += `            body: { ${softDeleteField}: true },\n`
+    } else if (transformsBody) {
+        handlerBody += `            body: await transformRequestBody(${hooksVarName(toolName)}, context, params, body),\n`
     } else if (hasBody) {
         handlerBody += `            body,\n`
     }
     if (hasQuery) {
         const queryAssignments = composition.queryParamNames
             .map((qn) => {
+                const queryKey = composition.renamedFields[qn] ?? qn
                 // explode: false params are comma-joined here because
                 // ApiClient.request() JSON-stringifies raw arrays (the
                 // json.loads()-style contract), which DRF CSV filters can't parse.
                 // Callers may pass either the array shape or a single string, so
                 // only join when it's actually an array; an empty array is omitted.
                 if (composition.csvQueryParamNames.has(qn)) {
-                    return `                ${qn}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
+                    return `                ${queryKey}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
                 }
-                return `                ${qn}: params.${qn},`
+                return `                ${queryKey}: params.${qn},`
             })
             .join('\n')
         handlerBody += `            query: {\n${queryAssignments}\n            },\n`
@@ -1213,8 +1372,9 @@ function generateToolCode(
         hasQuery ||
         composition.pathParamNames.length > 0 ||
         enrichUsesParams ||
-        !!selectableExtension
-    const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
+        !!selectableExtension ||
+        !!expandableExtension
+    const paramsName = paramsUsed ? 'params' : '_params'
 
     // When `confirmed_action` is declared, emit TWO factories instead of
     // one — `<name>-prepare` and `<name>-execute`. The prepare tool signs
@@ -1247,8 +1407,9 @@ function generateToolCode(
             needsWithInformationalResponse,
             toolUtilsValueImports: new Set(
                 [
-                    responseFilter.helperImport,
+                    ...responseFilter.helperImports,
                     config.response?.informational_wrapper && 'withInformationalResponse',
+                    config.response?.text_include?.length && 'withTextProjection',
                 ].filter((value): value is string => !!value)
             ),
         }
@@ -1256,9 +1417,13 @@ function generateToolCode(
 
     const toolBody = `{
     name: '${toolName}',
-    schema: ${schemaName},
-    ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
-${handlerBody}    },
+    schema: ${schemaName}(),
+    handler: ${renderHandler(
+        config,
+        toolName,
+        `async (context: Context, ${paramsName}: z.infer<ReturnType<typeof ${schemaName}>>) => {
+${handlerBody}    }`
+    )},
 }`
 
     const factoryBody = appKey ? `withUiApp('${appKey}', ${toolBody})` : `(${toolBody})`
@@ -1266,7 +1431,7 @@ ${handlerBody}    },
     const code = `
 ${schemaDecl}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${factoryBody}
+const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultType}> => ${factoryBody}
 `
 
     return {
@@ -1282,9 +1447,11 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         hasAgentNote,
         needsWithInformationalResponse,
         toolUtilsValueImports: new Set(
-            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
-                (value): value is string => !!value
-            )
+            [
+                ...responseFilter.helperImports,
+                config.response?.informational_wrapper && 'withInformationalResponse',
+                config.response?.text_include?.length && 'withTextProjection',
+            ].filter((value): value is string => !!value)
         ),
     }
 }
@@ -1427,7 +1594,7 @@ ${prepareScopeField}        })
     // the signed, verified args under the same `params` name the generated
     // request code expects.
     const executeHandler = `        const __runtime = getConfirmedActionRuntime()
-${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<typeof ${schemaName}>>(context, {
+${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ${schemaName}>>>(context, {
             incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
@@ -1442,8 +1609,8 @@ ${executeHandlerBody}`
 
     const prepareBody = `{
     name: '${prepareName}',
-    schema: ${schemaName},
-    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    schema: ${schemaName}(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
 ${prepareHandler}    },
 }`
 
@@ -1459,7 +1626,7 @@ ${schemaDecl}
 
 ${executeSchemaDecl}
 
-const ${prepareFactory} = (): ToolBase<typeof ${schemaName}, PrepareConfirmedActionResult> => (${prepareBody})
+const ${prepareFactory} = (): ToolBase<ReturnType<typeof ${schemaName}>, PrepareConfirmedActionResult> => (${prepareBody})
 
 const ${executeFactory} = (): ToolBase<typeof ${executeSchemaName}, ${resultType}> => (${executeBody})
 `
@@ -1506,7 +1673,9 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    handlerBody += `        const parsedParams = ${schemaName}.parse(params)\n`
+    // `expand` only shapes the response, so keep it out of the API request.
+    const parsedTarget = config.response?.expandable?.length ? '{ expand: _expand, ...parsedParams }' : 'parsedParams'
+    handlerBody += `        const ${parsedTarget} = ${schemaName}().parse(params)\n`
 
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
@@ -1548,12 +1717,17 @@ function generateCustomSchemaToolCode(
     if (selectableExtension) {
         baseSchemaExpr = `${baseSchemaExpr}${selectableExtension}`
     }
+    const expandableExtension = buildExpandableFieldsExtension(config)
+    if (expandableExtension) {
+        baseSchemaExpr = `${baseSchemaExpr}${expandableExtension}`
+    }
     if (config.validators && config.validators.length > 0) {
         for (const fn of config.validators) {
             baseSchemaExpr = `(${baseSchemaExpr}).superRefine(${fn})`
             toolInputsImports.push(fn)
         }
     }
+    baseSchemaExpr = withRequiredWhenSet(baseSchemaExpr, config)
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
@@ -1564,13 +1738,17 @@ function generateCustomSchemaToolCode(
     }
 
     const code = `
-const ${schemaName} = ${baseSchemaExpr}
+const ${schemaName} = () => ${baseSchemaExpr}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${customResultType}> => ({
+const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${customResultType}> => ({
     name: '${toolName}',
-    schema: ${schemaName},
-    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
-${handlerBody}    },
+    schema: ${schemaName}(),
+    handler: ${renderHandler(
+        config,
+        toolName,
+        `async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
+${handlerBody}    }`
+    )},
 })
 `
 
@@ -1587,10 +1765,92 @@ ${handlerBody}    },
         hasAgentNote,
         needsWithInformationalResponse,
         toolUtilsValueImports: new Set(
-            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
-                (value): value is string => !!value
-            )
+            [
+                ...responseFilter.helperImports,
+                config.response?.informational_wrapper && 'withInformationalResponse',
+                config.response?.text_include?.length && 'withTextProjection',
+            ].filter((value): value is string => !!value)
         ),
+    }
+}
+
+// ------------------------------------------------------------------
+// Scope and annotation resolution
+// ------------------------------------------------------------------
+
+type ToolAnnotations = EnabledToolConfig['annotations']
+
+// Only methods whose behavior is the same for every endpoint get defaults.
+// PATCH, POST and PUT vary too much (partial update vs. soft delete, search vs. create vs. upsert),
+// so authors declare them.
+const ANNOTATION_DEFAULTS_BY_METHOD: Record<string, ToolAnnotations> = {
+    GET: { readOnly: true, destructive: false, idempotent: true },
+    DELETE: { readOnly: false, destructive: true, idempotent: true },
+}
+
+function getSpecScopes(operation: OpenApiOperation): string[] {
+    const scopes = new Set<string>()
+    for (const requirement of operation.security ?? []) {
+        for (const requirementScopes of Object.values(requirement)) {
+            for (const scope of requirementScopes) {
+                scopes.add(scope)
+            }
+        }
+    }
+    return [...scopes]
+}
+
+/** YAML `scopes` win. Without them, the scopes the API itself requires are used. */
+function resolveToolScopes(name: string, config: ToolConfig, resolved: ResolvedOperation): string[] {
+    if (config.scopes?.length) {
+        return config.scopes
+    }
+    if (resolved.operation['x-request-dependent-scopes']) {
+        throw new Error(
+            `Enabled tool "${name}" has no "scopes", and the API picks the scopes for "${resolved.operation.operationId}" per request. ` +
+                `The spec lists only the fallback scopes for human callers. Add the scopes the tool's callers need to "scopes" in the tool's YAML.`
+        )
+    }
+    const specScopes = getSpecScopes(resolved.operation)
+    if (specScopes.length === 0) {
+        throw new Error(
+            `Enabled tool "${name}" has no "scopes" and the OpenAPI spec lists none for "${resolved.operation.operationId}" ` +
+                `(the API computes them per request). Add "scopes" to the tool's YAML by hand.`
+        )
+    }
+    return specScopes
+}
+
+/** YAML `annotations` win. Without them, GET and DELETE get fixed defaults. */
+function resolveToolAnnotations(name: string, config: ToolConfig, method: string): ToolAnnotations {
+    if (config.annotations) {
+        return config.annotations
+    }
+    const defaults = ANNOTATION_DEFAULTS_BY_METHOD[method]
+    if (!defaults) {
+        throw new Error(
+            `Enabled tool "${name}" is missing required "annotations". ` +
+                `${method} endpoints have no defaults, so declare readOnly, destructive and idempotent in the tool's YAML.`
+        )
+    }
+    return { ...defaults }
+}
+
+/** Scopes the API requires that the YAML list leaves out. A `:write` scope covers `:read`, as at runtime. Empty when the YAML has no list, the spec has none, or the API picks the scopes per request. */
+function findMissingSpecScopes(config: ToolConfig, resolved: ResolvedOperation): string[] {
+    if (!config.scopes?.length || resolved.operation['x-request-dependent-scopes']) {
+        return []
+    }
+    return getSpecScopes(resolved.operation).filter((scope) => !hasScope(config.scopes ?? [], scope))
+}
+
+function reportMissingSpecScopes(name: string, yamlLabel: string, missingScopes: string[]): void {
+    const message =
+        `Tool "${name}" does not list the scope(s) the API requires: ${missingScopes.join(', ')}. ` +
+        `A token without them sees the tool and then gets a 403. Add them to "scopes" or drop "scopes" to use the API's.`
+    console.error(`ERROR ${yamlLabel}: ${message}`)
+    if (process.env.GITHUB_ACTIONS === 'true') {
+        process.stdout.write(`::error file=${yamlLabel}::${message}\n`)
     }
 }
 
@@ -1616,22 +1876,40 @@ function generateCategoryFile(
         if (!config.enabled) {
             continue
         }
-        if (!config.scopes?.length) {
-            console.error(`Enabled tool "${name}" is missing required "scopes"`)
-            process.exit(1)
-        }
-        if (!config.annotations) {
-            console.error(`Enabled tool "${name}" is missing required "annotations"`)
-            process.exit(1)
-        }
         const resolved = findOperation(spec, config.operation)
         if (!resolved) {
-            console.warn(
-                `Warning: operationId "${config.operation}" not found in OpenAPI for tool "${name}" — skipping`
+            console.error(
+                `Enabled tool "${name}": operationId "${config.operation}" not found in OpenAPI. ` +
+                    `The operationId no longer exists. Fix "operation:" in the tool's YAML, or remove the tool.`
             )
-            continue
+            process.exit(1)
         }
-        enabledTools.push([name, config as EnabledToolConfig, resolved])
+        if (config.hooks && !fs.existsSync(path.join(TOOLS_SRC_DIR, `${config.hooks}.ts`))) {
+            console.error(
+                `Enabled tool "${name}": hooks module "${config.hooks}" not found. ` +
+                    `Expected services/mcp/src/tools/${config.hooks}.ts. Fix "hooks:" in the tool's YAML or create the module.`
+            )
+            process.exit(1)
+        }
+        const missingScopes = findMissingSpecScopes(config, resolved)
+        if (missingScopes.length > 0) {
+            reportMissingSpecScopes(name, fileName, missingScopes)
+            process.exit(1)
+        }
+        try {
+            enabledTools.push([
+                name,
+                {
+                    ...config,
+                    scopes: resolveToolScopes(name, config, resolved),
+                    annotations: resolveToolAnnotations(name, config, resolved.method),
+                },
+                resolved,
+            ])
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error))
+            process.exit(1)
+        }
     }
 
     // Collect enabled query wrappers from the optional wrappers section
@@ -1677,7 +1955,16 @@ function generateCategoryFile(
     const requiredToolUtilsValueImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
-        const result = generateToolCode(name, config, resolved, category, spec, knownTypes, getQuerySchema)
+        const result = generateToolCode(
+            name,
+            config,
+            resolved,
+            category,
+            spec,
+            knownTypes,
+            getQuerySchema,
+            modulesWithStrictBodies.has(moduleName)
+        )
         toolCodes.push(result.code)
         for (const imp of result.orvalImports) {
             allOrvalImports.add(imp)
@@ -1829,9 +2116,7 @@ function generateCategoryFile(
     const mapEntries = [restMapEntries, wrapperMapEntries].filter(Boolean).join('\n')
 
     const orvalImportLine =
-        allOrvalImports.size > 0
-            ? `\nimport { ${[...allOrvalImports].sort().join(', ')} } from '@/generated/${moduleName}/api'\n`
-            : ''
+        allOrvalImports.size > 0 ? `\nimport * as orvalSchemas from '@/generated/${moduleName}/api'\n` : ''
 
     const schemasImportLine = hasResponseType ? `\nimport type { Schemas } from '@/api/generated'\n` : ''
 
@@ -1878,6 +2163,15 @@ function generateCategoryFile(
         toolUtilsImportLine = `import type { ${toolUtilsTypeImports.join(', ')} } from '@/tools/tool-utils'\n`
     }
 
+    const hookedTools = enabledTools.filter(([, toolConfig]) => toolConfig.hooks)
+    const hooksImportLines =
+        hookedTools.length > 0
+            ? `import { ${toolCodes.some((code) => code.includes('transformRequestBody(')) ? 'transformRequestBody, ' : ''}withToolHooks } from '@/tools/tool-hooks'\n` +
+              hookedTools
+                  .map(([name, toolConfig]) => `import ${hooksVarName(name)} from '@/tools/${toolConfig.hooks}'\n`)
+                  .join('')
+            : ''
+
     const wrapperImportLine =
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
@@ -1891,7 +2185,7 @@ function generateCategoryFile(
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${hooksImportLines}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
@@ -1940,12 +2234,32 @@ function generateDefinitionsJson(
             const baseDescription = resolveDescription(toolConfig, yamlDir, opDescription)
             const baseTitle = toolConfig.title || resolved.operation.summary || name
             const baseSummary = toolConfig.title || opDescription.split('.')[0] || name
+            const toolCategory = toolConfig.category ?? category.category
             // Per-tool feature_flag wins; otherwise inherit the category-level
             // gate (lets one line gate a whole not-yet-GA product).
             const featureFlag = toolConfig.feature_flag ?? category.feature_flag
             const featureEntitlement = toolConfig.feature_entitlement ?? category.feature_entitlement
             const featureFlagBehavior = toolConfig.feature_flag_behavior ?? category.feature_flag_behavior
             const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
+            // Successors are per-tool: a category gate says what retires a tool, never what replaces it.
+            const supersededBy = toolConfig.superseded_by
+            const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
+            const redirectHint = toolConfig.redirect_hint
+            const optionalFields = {
+                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
+                ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                ...(redirectHint ? { redirect_hint: redirectHint } : {}),
+                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
+            }
+            // The endpoint the handler calls. The Django API reads it to refuse a write that a
+            // sandbox run did not pick a tool for (posthog/mcp_tool_operations.py).
+            const apiOperations = [`${handlerHttpMethod(toolConfig, resolved).toUpperCase()} ${resolved.path}`]
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
@@ -1958,7 +2272,7 @@ function generateDefinitionsJson(
                         `Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. ` +
                         `The user must reply with the literal word "confirm" before you call the matching -execute tool with the hash. ` +
                         `Original action: ${baseDescription}`,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: `${baseSummary} (prepare)`,
                     title: `${baseTitle} (prepare)`,
@@ -1969,12 +2283,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: true,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
                 definitions[`${name}-execute`] = {
                     description:
@@ -1982,44 +2291,36 @@ function generateDefinitionsJson(
                         `Verifies the confirmation_hash from -prepare and the literal "confirm" string typed by the user, then performs the action. ` +
                         `ONLY call this after the user has explicitly typed "confirm" in chat. ` +
                         `Original action: ${baseDescription}`,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: `${baseSummary} (execute)`,
                     title: `${baseTitle} (execute)`,
                     required_scopes: toolConfig.scopes,
+                    api_operations: apiOperations,
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             } else {
                 definitions[name] = {
                     description: baseDescription,
-                    category: category.category,
+                    category: toolCategory,
                     feature: category.feature,
                     summary: baseSummary,
                     title: baseTitle,
                     required_scopes: toolConfig.scopes,
+                    api_operations: apiOperations,
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             }
         }
@@ -2032,6 +2333,8 @@ function generateDefinitionsJson(
                 summary: wrapperConfig.title || name,
                 title: wrapperConfig.title || name,
                 required_scopes: wrapperConfig.scopes,
+                // Every query wrapper posts to the query endpoint.
+                api_operations: ['POST /api/projects/{project_id}/query/'],
                 annotations: {
                     destructiveHint: wrapperConfig.annotations.destructive,
                     idempotentHint: wrapperConfig.annotations.idempotent,
@@ -2048,7 +2351,13 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.feature_flag_variant
                     ? { feature_flag_variant: wrapperConfig.feature_flag_variant }
                     : {}),
+                ...(wrapperConfig.hidden_when_flag_on
+                    ? { hidden_when_flag_on: wrapperConfig.hidden_when_flag_on }
+                    : {}),
+                ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
+                ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
+                ...(wrapperConfig.search_keywords?.length ? { search_keywords: wrapperConfig.search_keywords } : {}),
             }
         }
     }
@@ -2213,6 +2522,8 @@ function generateQueryWrapperDefinitionsJson(
             summary: toolConfig.title || name,
             title: toolConfig.title || name,
             required_scopes: toolConfig.scopes,
+            // Every query wrapper posts to the query endpoint, actors lookups included.
+            api_operations: ['POST /api/projects/{project_id}/query/'],
             annotations: {
                 destructiveHint: toolConfig.annotations.destructive,
                 idempotentHint: toolConfig.annotations.idempotent,
@@ -2223,7 +2534,11 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_entitlement ? { feature_entitlement: toolConfig.feature_entitlement } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
+            ...(toolConfig.hidden_when_flag_on ? { hidden_when_flag_on: toolConfig.hidden_when_flag_on } : {}),
+            ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
+            ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+            ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
         }
     }
     return definitions
@@ -2365,7 +2680,13 @@ ${spreads}
         ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
         path.join(GENERATED_DIR, 'index.ts'),
     ]
-    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], { stdio: 'pipe', cwd: REPO_ROOT })
+    const format = spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], {
+        stdio: 'pipe',
+        cwd: REPO_ROOT,
+    })
+    if (format.status !== 0) {
+        console.warn(`hogli format:js failed:\n${format.stderr?.toString() ?? ''}${format.stdout?.toString() ?? ''}`)
+    }
     spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH, ALL_DEFINITIONS_JSON_PATH], {
         stdio: 'pipe',
         cwd: REPO_ROOT,
@@ -2383,6 +2704,11 @@ export {
     generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
+    findMissingSpecScopes,
+    getSpecScopes,
+    reportMissingSpecScopes,
+    resolveToolAnnotations,
+    resolveToolScopes,
 }
 export type { OpenApiSpec, ResolvedOperation }
 

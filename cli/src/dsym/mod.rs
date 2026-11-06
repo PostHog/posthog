@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::api::symbol_sets::SymbolSetUpload;
+pub use crate::utils::xcode::PlistInfo;
 use anyhow::{anyhow, Result};
 use clap::Subcommand;
 use posthog_symbol_data::{write_symbol_data, AppleDsym};
@@ -35,7 +36,7 @@ impl DsymFile {
     /// Each DWARF binary in the bundle gets its own ZIP so that
     /// stable UUIDs (e.g. app stubs) don't get a new content hash
     /// when a sibling binary (e.g. debug dylib) changes.
-    pub fn new(path: &PathBuf, include_source: bool) -> Result<Self> {
+    pub fn new(path: &PathBuf, include_source: bool, source_root: Option<&Path>) -> Result<Self> {
         if !path.is_dir() {
             anyhow::bail!("Path {} is not a directory", path.display());
         }
@@ -54,7 +55,7 @@ impl DsymFile {
         let mut entries = Vec::new();
         for (uuid, arch, dwarf_filename) in &uuid_entries {
             let dwarf_path = dwarf_dir.join(dwarf_filename);
-            let data = zip_dwarf_binary(&dwarf_path, arch, include_source)?;
+            let data = zip_dwarf_binary(&dwarf_path, arch, include_source, source_root)?;
             entries.push(DsymEntry {
                 uuid: uuid.clone(),
                 data,
@@ -83,6 +84,7 @@ impl DsymFile {
                 chunk_id: entry.uuid,
                 release_id: self.release_id.clone(),
                 data: entry.data,
+                content_hash: None,
             })
             .collect()
     }
@@ -152,9 +154,13 @@ fn extract_dsym_uuids(dsym_path: &PathBuf) -> Result<Vec<(String, String, String
 ///   dwarf                    — the raw DWARF Mach-O binary (single-arch)
 ///   __source/manifest.json   — (optional) source file manifest
 ///   __source/...             — (optional) source files
-fn zip_dwarf_binary(dwarf_path: &Path, arch: &str, include_source: bool) -> Result<Vec<u8>> {
+fn zip_dwarf_binary(
+    dwarf_path: &Path,
+    arch: &str,
+    include_source: bool,
+    source_root: Option<&Path>,
+) -> Result<Vec<u8>> {
     use std::io::{Cursor, Write};
-    use tracing::info;
 
     let mut buffer = Cursor::new(Vec::new());
 
@@ -174,11 +180,11 @@ fn zip_dwarf_binary(dwarf_path: &Path, arch: &str, include_source: bool) -> Resu
         if include_source {
             match source_bundle::extract_source_paths_from_dwarf(dwarf_path) {
                 Ok(all_paths) => {
-                    let filtered = source_bundle::filter_source_paths(&all_paths);
-                    info!(
-                        "Found {} source paths in DWARF ({} after filtering)",
-                        all_paths.len(),
-                        filtered.len()
+                    let filtered = source_bundle::filter_source_paths_for_upload(
+                        &all_paths,
+                        source_root,
+                        dwarf_path,
+                        |_| true,
                     );
 
                     if !filtered.is_empty() {
@@ -315,56 +321,4 @@ pub fn find_dsym_bundles(directory: &PathBuf) -> Result<Vec<PathBuf>> {
     }
 
     Ok(dsyms)
-}
-
-/// Info extracted from an Info.plist file
-#[derive(Debug, Clone, Default, serde::Serialize)]
-pub struct PlistInfo {
-    /// CFBundleIdentifier (e.g., com.example.app)
-    #[serde(rename = "CFBundleIdentifier")]
-    pub bundle_identifier: Option<String>,
-    /// CFBundleShortVersionString (e.g., 1.2.3)
-    #[serde(rename = "CFBundleShortVersionString")]
-    pub short_version: Option<String>,
-    /// CFBundleVersion (e.g., 42)
-    #[serde(rename = "CFBundleVersion")]
-    pub bundle_version: Option<String>,
-    /// CFBundleDevelopmentRegion (e.g., English, en)
-    #[serde(rename = "CFBundleDevelopmentRegion")]
-    pub development_region: Option<String>,
-}
-
-impl PlistInfo {
-    /// Extract version info from an Info.plist file path
-    pub fn from_plist(plist_path: &Path) -> Result<Self> {
-        if !plist_path.exists() {
-            anyhow::bail!("Info.plist not found at {}", plist_path.display());
-        }
-
-        let plist = plist::Value::from_file(plist_path)
-            .map_err(|e| anyhow!("Failed to parse Info.plist: {e}"))?;
-
-        let dict = plist
-            .as_dictionary()
-            .ok_or_else(|| anyhow!("Info.plist is not a dictionary"))?;
-
-        Ok(Self {
-            bundle_identifier: dict
-                .get("CFBundleIdentifier")
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string()),
-            short_version: dict
-                .get("CFBundleShortVersionString")
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string()),
-            bundle_version: dict
-                .get("CFBundleVersion")
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string()),
-            development_region: dict
-                .get("CFBundleDevelopmentRegion")
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string()),
-        })
-    }
 }

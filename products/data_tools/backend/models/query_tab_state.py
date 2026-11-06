@@ -4,7 +4,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTMode
 
 
 class QueryTabState(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     state = models.JSONField(
         default=dict,
         null=True,

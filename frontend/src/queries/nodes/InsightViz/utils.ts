@@ -4,28 +4,21 @@ import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils/events'
 
 import { examples } from '~/queries/examples'
+import { isInsightQueryWithSeries } from '~/queries/schema/node-guards'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DataTableNode,
     DataVisualizationNode,
     HogQuery,
     InsightQueryNode,
     InsightVizNode,
+    MetricsQuery,
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
-import {
-    ActionType,
-    DashboardTile,
-    DashboardType,
-    FilterType,
-    InsightModel,
-    InsightType,
-    QueryBasedInsightModel,
-} from '~/types'
+import { ActionType, InsightModel, InsightType } from '~/types'
 
 import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
-import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     if (!isInsightQueryWithSeries(query)) {
@@ -50,9 +43,9 @@ export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType
 }
 
 export const getCachedResults = (
-    cachedInsight: Partial<QueryBasedInsightModel> | undefined | null,
+    cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
-): Partial<QueryBasedInsightModel> | undefined => {
+): Partial<InsightModel> | undefined => {
     if (!cachedInsight) {
         return undefined
     }
@@ -76,52 +69,6 @@ export const getCachedResults = (
     return cachedInsight
 }
 
-// these types exist so that the return type reflects the input model
-// i.e. when given a partial model the return model is types as
-// partial as well
-type InputInsightModel = InsightModel | Partial<InsightModel>
-
-type ReturnInsightModel<T> = T extends InsightModel
-    ? QueryBasedInsightModel
-    : T extends Partial<InsightModel>
-      ? Partial<QueryBasedInsightModel>
-      : never
-
-/** Get an insight with `query` only. Eventual `filters` will be converted.  */
-export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
-    const { filters, ...baseInsight } = insight
-    // The API is phasing out the deprecated `dashboards` field (already omitted for token
-    // callers, eventually for all); derive it from `dashboard_tiles` so remaining readers
-    // keep working regardless of whether the response still carries it.
-    const dashboards =
-        insight.dashboards ?? insight.dashboard_tiles?.filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
-    return {
-        ...baseInsight,
-        ...(dashboards ? { dashboards } : {}),
-        query: getQueryFromInsightLike(insight),
-    } as unknown as ReturnInsightModel<T>
-}
-
-/** Get a `query` from an object that potentially has `filters` instead of a `query`.  */
-export function getQueryFromInsightLike(insight: {
-    query?: Node<Record<string, any>> | null
-    filters?: Partial<FilterType>
-}): Node<Record<string, any>> | null {
-    let query
-    if (insight.query) {
-        query = insight.query
-    } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
-        query = {
-            kind: NodeKind.InsightVizNode,
-            source: filtersToQueryNode(insight.filters, { source: 'insight_viz_get_query_from_insight_like' }),
-        } as InsightVizNode
-    } else {
-        query = null
-    }
-
-    return query
-}
-
 export const queryFromKind = (
     kind: ProductAnalyticsInsightNodeKind,
     filterTestAccountsDefault: boolean
@@ -137,11 +84,15 @@ export const queryFromKind = (
 export const getDefaultQuery = (
     insightType: InsightType,
     filterTestAccountsDefault: boolean
-): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
+): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode | MetricsQuery => {
     // Web Analytics insights should always come from Web Analytics tiles with a pre-configured query
     // This is a fallback that should rarely be used
     if (insightType === InsightType.WEB_ANALYTICS) {
         throw new Error('Web Analytics insights must be created from Web Analytics tiles')
+    }
+
+    if (insightType === InsightType.METRICS) {
+        return { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } }
     }
 
     if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(insightType)) {
@@ -173,29 +124,9 @@ export const getDefaultQuery = (
     throw new Error('encountered unexpected type for view')
 }
 
-/** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
-export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
-): DashboardType<QueryBasedInsightModel> | null => {
-    if (dashboard == null) {
-        return null
-    }
-
-    return {
-        ...dashboard,
-        tiles: dashboard.tiles?.map(
-            (tile) =>
-                ({
-                    ...tile,
-                    ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                }) as DashboardTile<QueryBasedInsightModel>
-        ),
-    }
-}
-
 // Statuses whose responses carry an actionable validation message: 400 (bad query), 512 (query
 // estimated too expensive to run), 513 (out of memory)
-const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
+export const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
 
 const hasValidationErrorStatus = (error: Error | Record<string, any> | null | undefined): boolean =>
     VALIDATION_ERROR_STATUSES.has((error as Record<string, any> | null | undefined)?.status)

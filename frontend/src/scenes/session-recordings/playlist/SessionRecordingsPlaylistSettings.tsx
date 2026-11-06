@@ -1,32 +1,33 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconChevronRight, IconEllipsis, IconEye, IconInfo, IconPlus, IconSort, IconTrash } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { IconBlank } from 'lib/lemon-ui/icons'
+import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
 
-import { bulkScanLogic } from 'products/replay_vision/frontend/logics/bulkScanLogic'
-import { visionQuotaLogic } from 'products/replay_vision/frontend/logics/visionQuotaLogic'
-import { quotaUx } from 'products/replay_vision/frontend/utils/quotaProjection'
-
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import {
+    useAutoplayMenuItems,
+    useHideRecordingsMenuItems,
+    useLayoutMenuItems,
+    useTimestampFormatMenuItems,
+} from './listViewMenuItems'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
+    RecordingSort,
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
+import { useBulkScanMenuItems } from './useBulkScanMenuItems'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -45,18 +46,6 @@ const SortingKeyToLabel = {
 const RELEVANCE_SORT_EXPLANATION =
     'Relevance predicts which sessions are worth watching, using signals like rage clicks, dead clicks, console errors, failed network requests, and in-session activity. The highest-scoring recordings appear first.'
 
-function getLabel(filters: RecordingUniversalFilters): string {
-    const order_field = filters.order || 'start_time'
-    if (order_field === 'start_time') {
-        return filters.order_direction === 'ASC' ? 'Oldest' : 'Latest'
-    }
-
-    return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
-}
-
-type RecordingSort = { order: NonNullable<RecordingUniversalFilters['order']>; order_direction: 'ASC' | 'DESC' }
-
-/** The analytics payload for a sort change, or null when the sort is unchanged so we don't log no-op switches. */
 export function getSortChangedEvent(
     filters: RecordingUniversalFilters,
     sort: RecordingSort
@@ -72,20 +61,17 @@ export function getSortChangedEvent(
     }
 }
 
-function SortedBy({
-    filters,
-    setFilters,
-    disabledReason,
-}: {
-    filters: RecordingUniversalFilters
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-    disabledReason?: string
-}): JSX.Element {
-    const surfacingScoreEnabled = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE')
-    const inRelevanceSortExperiment = useFeatureFlag('REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT', 'test')
-    const showRelevanceSort = surfacingScoreEnabled || inRelevanceSortExperiment
+export function getRecommendedFilterChange(enabled: boolean): Partial<RecordingUniversalFilters> {
+    return { recommended_only: enabled }
+}
 
-    // Track sort changes for the relevance-sort experiment
+function useSortMenuItems(
+    filters: RecordingUniversalFilters,
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+): LemonMenuItem[] {
+    const { canSortByRelevance: showRelevanceSort, listSort } = useValues(sessionRecordingsPlaylistLogic)
+    filters = { ...filters, ...listSort }
+
     const changeSort = (sort: RecordingSort): void => {
         const sortChangedEvent = getSortChangedEvent(filters, sort)
         if (sortChangedEvent) {
@@ -95,111 +81,169 @@ function SortedBy({
         setFilters(sort)
     }
 
+    return [
+        ...(showRelevanceSort
+            ? [
+                  {
+                      label: SortingKeyToLabel['surfacing_score'],
+                      tooltip: RELEVANCE_SORT_EXPLANATION,
+                      onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
+                      'data-attr': 'list-sort-surfacing-score',
+                      active: filters.order === 'surfacing_score',
+                  },
+              ]
+            : []),
+        {
+            label: 'Start time',
+            items: [
+                {
+                    label: 'Latest',
+                    onClick: () => changeSort({ order: 'start_time', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-latest',
+                    active: !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
+                },
+                {
+                    label: 'Oldest',
+                    onClick: () => changeSort({ order: 'start_time', order_direction: 'ASC' }),
+                    'data-attr': 'list-sort-oldest',
+                    active: filters.order === 'start_time' && filters.order_direction === 'ASC',
+                },
+            ],
+        },
+        {
+            label: SortingKeyToLabel['activity_score'],
+            onClick: () => changeSort({ order: 'activity_score', order_direction: 'DESC' }),
+            'data-attr': 'list-sort-activity',
+            active: filters.order === 'activity_score',
+        },
+        {
+            label: SortingKeyToLabel['console_error_count'],
+            onClick: () => changeSort({ order: 'console_error_count', order_direction: 'DESC' }),
+            'data-attr': 'list-sort-console-errors',
+            active: filters.order === 'console_error_count',
+        },
+        {
+            label: 'Longest',
+            items: [
+                {
+                    label: SortingKeyToLabel['duration'],
+                    onClick: () => changeSort({ order: 'duration', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-duration',
+                    active: filters.order === 'duration',
+                },
+                {
+                    label: SortingKeyToLabel['active_seconds'],
+                    onClick: () => changeSort({ order: 'active_seconds', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-active-seconds',
+                    active: filters.order === 'active_seconds',
+                },
+                {
+                    label: SortingKeyToLabel['inactive_seconds'],
+                    onClick: () => changeSort({ order: 'inactive_seconds', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-inactive-seconds',
+                    active: filters.order === 'inactive_seconds',
+                },
+            ],
+        },
+        {
+            label: 'Most active',
+            items: [
+                {
+                    label: SortingKeyToLabel['click_count'],
+                    onClick: () => changeSort({ order: 'click_count', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-clicks',
+                    active: filters.order === 'click_count',
+                },
+                {
+                    label: SortingKeyToLabel['keypress_count'],
+                    onClick: () => changeSort({ order: 'keypress_count', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-keypresses',
+                    active: filters.order === 'keypress_count',
+                },
+                {
+                    label: SortingKeyToLabel['mouse_activity_count'],
+                    onClick: () => changeSort({ order: 'mouse_activity_count', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-mouse-activity',
+                    active: filters.order === 'mouse_activity_count',
+                },
+            ],
+        },
+        {
+            label: 'Expiration',
+            onClick: () => changeSort({ order: 'recording_ttl', order_direction: 'ASC' }),
+            'data-attr': 'list-sort-expiration',
+            active: filters.order === 'recording_ttl',
+        },
+    ]
+}
+
+function useRecommendedOnlyToggle(
+    filters: RecordingUniversalFilters,
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+): { enabled: boolean; checked: boolean; toggle: (checked: boolean) => void } {
+    const { canFilterByRelevance: enabled } = useValues(sessionRecordingsPlaylistLogic)
+    const checked = !!filters.recommended_only
+    const toggle = (checked: boolean): void => {
+        posthog.capture('session recording recommended filter changed', { enabled: checked })
+        setFilters(getRecommendedFilterChange(checked))
+    }
+    return { enabled, checked, toggle }
+}
+
+function useRecommendedOnlyMenuItem(
+    filters: RecordingUniversalFilters,
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+): LemonMenuItem | null {
+    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters)
+    if (!enabled) {
+        return null
+    }
+    return {
+        label: 'High relevance only',
+        icon: checked ? <IconCheck /> : <IconBlank />,
+        active: checked,
+        onClick: () => toggle(!checked),
+        'data-attr': 'session-recordings-recommended-only',
+    }
+}
+
+function ListViewMenu({
+    filters,
+    setFilters,
+    disabledReason,
+}: {
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    disabledReason?: string
+}): JSX.Element {
+    const sortItems = useSortMenuItems(filters, setFilters)
+    const recommendedItem = useRecommendedOnlyMenuItem(filters, setFilters)
+    const hideItems = useHideRecordingsMenuItems()
+    const timestampItems = useTimestampFormatMenuItems()
+    const layoutItems = useLayoutMenuItems()
+
+    const items: LemonMenuItems = [
+        { title: 'Sort by', items: sortItems },
+        { title: 'Show', items: [recommendedItem, ...hideItems] },
+        { title: 'Timestamps', items: timestampItems },
+        ...(layoutItems.length ? [{ title: 'Layout', items: layoutItems }] : []),
+    ]
+
     return (
-        <SettingsMenu
-            highlightWhenActive={false}
-            disabledReason={disabledReason}
-            items={[
-                ...(showRelevanceSort
-                    ? [
-                          {
-                              label: SortingKeyToLabel['surfacing_score'],
-                              tooltip: RELEVANCE_SORT_EXPLANATION,
-                              onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
-                              active: filters.order === 'surfacing_score',
-                          },
-                      ]
-                    : []),
-                {
-                    label: 'Start time',
-                    items: [
-                        {
-                            label: 'Latest',
-                            onClick: () => changeSort({ order: 'start_time', order_direction: 'DESC' }),
-                            active:
-                                !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
-                        },
-                        {
-                            label: 'Oldest',
-                            onClick: () => changeSort({ order: 'start_time', order_direction: 'ASC' }),
-                            active: filters.order === 'start_time' && filters.order_direction === 'ASC',
-                        },
-                    ],
-                },
-                {
-                    label: SortingKeyToLabel['activity_score'],
-                    onClick: () => changeSort({ order: 'activity_score', order_direction: 'DESC' }),
-                    active: filters.order === 'activity_score',
-                },
-                {
-                    label: SortingKeyToLabel['console_error_count'],
-                    onClick: () => changeSort({ order: 'console_error_count', order_direction: 'DESC' }),
-                    active: filters.order === 'console_error_count',
-                },
-                {
-                    label: 'Longest',
-                    items: [
-                        {
-                            label: SortingKeyToLabel['duration'],
-                            onClick: () => changeSort({ order: 'duration', order_direction: 'DESC' }),
-                            active: filters.order === 'duration',
-                        },
-                        {
-                            label: SortingKeyToLabel['active_seconds'],
-                            onClick: () => changeSort({ order: 'active_seconds', order_direction: 'DESC' }),
-                            active: filters.order === 'active_seconds',
-                        },
-                        {
-                            label: SortingKeyToLabel['inactive_seconds'],
-                            onClick: () => changeSort({ order: 'inactive_seconds', order_direction: 'DESC' }),
-                            active: filters.order === 'inactive_seconds',
-                        },
-                    ],
-                },
-                {
-                    label: 'Most active',
-                    items: [
-                        {
-                            label: SortingKeyToLabel['click_count'],
-                            onClick: () => changeSort({ order: 'click_count', order_direction: 'DESC' }),
-                            active: filters.order === 'click_count',
-                        },
-                        {
-                            label: SortingKeyToLabel['keypress_count'],
-                            onClick: () => changeSort({ order: 'keypress_count', order_direction: 'DESC' }),
-                            active: filters.order === 'keypress_count',
-                        },
-                        {
-                            label: SortingKeyToLabel['mouse_activity_count'],
-                            onClick: () => changeSort({ order: 'mouse_activity_count', order_direction: 'DESC' }),
-                            active: filters.order === 'mouse_activity_count',
-                        },
-                    ],
-                },
-                {
-                    label: 'Expiration',
-                    onClick: () => changeSort({ order: 'recording_ttl', order_direction: 'ASC' }),
-                    active: filters.order === 'recording_ttl',
-                },
-            ]}
-            icon={<IconSort className="text-lg" />}
-            label={
-                filters.order === 'surfacing_score' ? (
-                    <span className="inline-flex items-center gap-1">
-                        {SortingKeyToLabel['surfacing_score']}
-                        <Tooltip title={RELEVANCE_SORT_EXPLANATION}>
-                            <IconInfo className="text-sm" />
-                        </Tooltip>
-                    </span>
-                ) : (
-                    getLabel(filters)
-                )
-            }
-        />
+        <LemonMenu items={items} buttonSize="xsmall" closeOnClickInside={false} placement="bottom-end">
+            <LemonButton
+                size="xsmall"
+                icon={<IconSort className="text-lg" />}
+                disabledReason={disabledReason}
+                data-attr="list-view-menu"
+            >
+                View
+            </LemonButton>
+        </LemonMenu>
     )
 }
 
-function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
+export function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
     const {
         selectedRecordingsIds,
         isDeleteSelectedRecordingsDialogOpen,
@@ -255,6 +299,7 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
             </div>
             <div className="flex justify-end gap-2 mt-4">
                 <LemonButton
+                    data-attr="list-delete-modal-cancel"
                     type="secondary"
                     onClick={handleClose}
                     disabledReason={isDeletingSelectedRecordings ? 'Deleting...' : undefined}
@@ -262,6 +307,7 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
                     Cancel
                 </LemonButton>
                 <LemonButton
+                    data-attr="list-delete-selected-confirm"
                     type="primary"
                     status="danger"
                     loading={isDeletingSelectedRecordings}
@@ -379,7 +425,11 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
                         >
                             New collection
                         </LemonButton>
-                        <LemonButton type="secondary" onClick={handleClose}>
+                        <LemonButton
+                            data-attr="list-add-to-collection-modal-cancel"
+                            type="secondary"
+                            onClick={handleClose}
+                        >
                             Cancel
                         </LemonButton>
                     </div>
@@ -401,10 +451,15 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
                         />
                     </div>
                     <div className="flex justify-end gap-2 mt-8">
-                        <LemonButton type="secondary" onClick={() => setIsCreatingNewCollectionInModal(false)}>
+                        <LemonButton
+                            data-attr="list-new-collection-cancel"
+                            type="secondary"
+                            onClick={() => setIsCreatingNewCollectionInModal(false)}
+                        >
                             Back
                         </LemonButton>
                         <LemonButton
+                            data-attr="list-new-collection-create"
                             type="primary"
                             disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
                             onClick={() => handleCreateNewCollectionBulkAdd(loadPlaylists)}
@@ -419,32 +474,12 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
 }
 
 /** Bulk "Scan these recordings" row whose scanner list opens on hover (a nested `items` menu is click-only). */
-function BulkScanMenuItem(): JSX.Element {
-    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
-    const { scanners, scannersLoading, scanning } = useValues(bulkScanLogic)
-    const { scanRecordings } = useActions(bulkScanLogic)
-    const { quota } = useValues(visionQuotaLogic)
-    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
-
-    const submenuItems: LemonMenuItem[] = scannersLoading
-        ? [{ label: 'Loading scanners…', disabledReason: 'Loading' }]
-        : scanners.length === 0
-          ? [
-                {
-                    label: 'No scanners yet — create one',
-                    onClick: () => router.actions.push(urls.replayVision()),
-                    'data-attr': 'vision-bulk-scan-create-scanner',
-                },
-            ]
-          : scanners.map((scanner) => ({
-                label: scanner.name,
-                onClick: () => scanRecordings(scanner.id, selectedRecordingsIds),
-                'data-attr': 'vision-bulk-scan-scanner-item',
-            }))
+export function BulkScanMenuItem(): JSX.Element {
+    const { items, disabledReason, tooltip } = useBulkScanMenuItems()
 
     return (
         <LemonMenu
-            items={submenuItems}
+            items={items}
             placement="right-start"
             trigger="hover"
             buttonSize="xsmall"
@@ -457,14 +492,8 @@ function BulkScanMenuItem(): JSX.Element {
                 size="xsmall"
                 icon={<IconEye />}
                 sideIcon={<IconChevronRight />}
-                disabledReason={
-                    scanning
-                        ? 'Starting scans…'
-                        : selectedRecordingsIds.length === 0
-                          ? 'Select recordings to scan'
-                          : quotaDisabledReason
-                }
-                tooltip={quotaTooltip}
+                disabledReason={disabledReason}
+                tooltip={tooltip}
                 data-attr="vision-bulk-scan-recordings"
             >
                 Scan these recordings
@@ -484,8 +513,7 @@ export function SessionRecordingsPlaylistTopSettings({
     type?: 'filters' | 'collection'
     shortId?: string
 }): JSX.Element {
-    const { autoplayDirection } = useValues(playerSettingsLogic)
-    const { setAutoplayDirection } = useActions(playerSettingsLogic)
+    const autoplayItems = useAutoplayMenuItems()
     const {
         selectedRecordingsIds,
         otherRecordings,
@@ -501,7 +529,7 @@ export function SessionRecordingsPlaylistTopSettings({
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
-    const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
+    const checked = recordings.length > 0 && recordings.every((r) => selectedRecordingsIds.includes(r.id))
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -558,34 +586,28 @@ export function SessionRecordingsPlaylistTopSettings({
         return menuItems
     }
 
+    const selectAllDisabledReason =
+        recordings.length === 0
+            ? 'No recordings'
+            : recordings.length > MAX_SELECTED_RECORDINGS
+              ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+              : undefined
+
     return (
         <SettingsBar border="none" className="justify-between">
             <div className="flex items-center">
-                <LemonCheckbox
-                    disabledReason={
-                        recordings.length === 0
-                            ? 'No recordings'
-                            : recordings.length > MAX_SELECTED_RECORDINGS
-                              ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
-                              : undefined
-                    }
-                    checked={checked}
-                    onChange={(checked) => handleSelectUnselectAll(checked, type)}
-                    stopPropagation
-                    className="ml-2"
-                    data-attr="select-all-recordings"
-                    aria-label="Select all recordings"
-                />
-                {filters && setFilters ? (
-                    <span className="text-xs font-normal inline-flex items-center ml-2">
-                        Sort by:{' '}
-                        <SortedBy
-                            filters={filters}
-                            setFilters={setFilters}
-                            disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
+                <Tooltip title={selectAllDisabledReason ? undefined : 'Select all recordings'}>
+                    <span className="flex ml-[7px]">
+                        <LemonCheckbox
+                            disabledReason={selectAllDisabledReason}
+                            checked={checked}
+                            onChange={(checked) => handleSelectUnselectAll(checked, type)}
+                            stopPropagation
+                            data-attr="select-all-recordings"
+                            aria-label="Select all recordings"
                         />
                     </span>
-                ) : null}
+                </Tooltip>
             </div>
             <div className="flex items-center">
                 {selectedRecordingsIds.length > 0 && (
@@ -595,30 +617,18 @@ export function SessionRecordingsPlaylistTopSettings({
                         data-attr="bulk-action-menu"
                     />
                 )}
+                {filters && setFilters && (
+                    <ListViewMenu
+                        filters={filters}
+                        setFilters={setFilters}
+                        disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
+                    />
+                )}
                 <SettingsMenu
-                    items={[
-                        {
-                            label: 'Autoplay',
-                            items: [
-                                {
-                                    label: 'Off',
-                                    onClick: () => setAutoplayDirection(null),
-                                    active: !autoplayDirection,
-                                },
-                                {
-                                    label: 'Newer recordings',
-                                    onClick: () => setAutoplayDirection('newer'),
-                                    active: autoplayDirection === 'newer',
-                                },
-                                {
-                                    label: 'Older recordings',
-                                    onClick: () => setAutoplayDirection('older'),
-                                    active: autoplayDirection === 'older',
-                                },
-                            ],
-                        },
-                    ]}
+                    data-attr="list-autoplay-menu"
+                    items={[{ label: 'Autoplay', items: autoplayItems }]}
                     icon={<IconEllipsis className="rotate-90" />}
+                    placement="bottom-end"
                     disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
                 />
             </div>

@@ -34,8 +34,8 @@ import structlog
 
 from products.data_warehouse.backend.logic.data_load.service import bulk_sync_discover_schemas_schedules
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.facade.source_management import SourceRegistry
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry, known_source_key
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 logger = structlog.get_logger(__name__)
 
@@ -70,7 +70,7 @@ class Command(BaseCommand):
         # Direct-query sources resolve schemas at query time and opt out of all
         # background sync — they should not get a discovery schedule.
         queryset = ExternalDataSource.objects.exclude(deleted=True).exclude(
-            access_method=ExternalDataSource.AccessMethod.DIRECT
+            access_method=ExternalDataSourceAccessMethod.DIRECT
         )
         if source_type_filter is not None:
             queryset = queryset.filter(source_type=source_type_filter)
@@ -82,12 +82,12 @@ class Command(BaseCommand):
 
         for source in queryset.iterator(chunk_size=200):
             try:
-                source_type_enum = ExternalDataSourceType(source.source_type)
+                source_type_key = known_source_key(source.source_type)
             except ValueError:
                 skipped_unregistered += 1
                 continue
 
-            if not SourceRegistry.is_registered(source_type_enum):
+            if not SourceRegistry.is_registered(source_type_key):
                 skipped_unregistered += 1
                 continue
 

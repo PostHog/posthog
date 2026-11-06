@@ -2,27 +2,28 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardType } from '~/types'
 
 import { AddWidgetModal } from './AddWidgetModal'
 
 type AddWidgetModalProps = React.ComponentProps<typeof AddWidgetModal>
 
-jest.mock('../widget_types/catalog', () => ({
-    ...jest.requireActual('../widget_types/catalog'),
+jest.mock('./previews/dashboardWidgetPreviews', () => ({
     DASHBOARD_WIDGET_PREVIEWS: {
         error_tracking_list: () => <div data-attr="error-tracking-preview">Preview</div>,
     },
 }))
 
-const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',
@@ -75,9 +76,45 @@ describe('AddWidgetModal', () => {
         expect(
             screen.getByText(/Bring context from your different PostHog products into one dashboard/i)
         ).toBeInTheDocument()
-        expect(screen.getByText('Error tracking')).toBeInTheDocument()
+        expect(screen.getByText('Error tracking', { selector: 'h5' })).toBeInTheDocument()
         expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
         expect(screen.getByText(/Ranked list of the most impactful error tracking issues/i)).toBeInTheDocument()
+        expect(screen.queryByText('Notebook widget')).not.toBeInTheDocument()
+    })
+
+    it.each([
+        [false, ['Activity', 'Error tracking', 'Experiments', 'Logs', 'Session replay', 'Support', 'Surveys']],
+        [
+            true,
+            ['Activity', 'Error tracking', 'Experiments', 'Logs', 'Metrics', 'Session replay', 'Support', 'Surveys'],
+        ],
+    ])('shows alphabetized product badges when the metrics flag is %s', (metricsEnabled, expectedBadges) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: metricsEnabled })
+        renderAddWidgetModal()
+
+        const badges = screen.getByTestId('dashboard-widget-product-badges')
+        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual(expectedBadges)
+        expect(!!screen.queryByText('Metrics', { selector: 'h5' })).toEqual(metricsEnabled)
+    })
+
+    it('filters widget sections to the selected product badges', async () => {
+        renderAddWidgetModal()
+
+        const badges = screen.getByTestId('dashboard-widget-product-badges')
+        const sectionHeadings = (): string[] =>
+            screen.getAllByRole('heading', { level: 5 }).map((heading) => heading.textContent ?? '')
+
+        await userEvent.click(within(badges).getByText('Logs'))
+        expect(sectionHeadings()).toEqual(['Logs'])
+
+        await userEvent.click(within(badges).getByText('Error tracking'))
+        expect(sectionHeadings()).toEqual(expect.arrayContaining(['Error tracking', 'Logs']))
+        expect(sectionHeadings()).toHaveLength(2)
+
+        await userEvent.click(within(badges).getByText('Logs'))
+        await userEvent.click(within(badges).getByText('Error tracking'))
+        expect(sectionHeadings()).toHaveLength(8)
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {
@@ -141,17 +178,17 @@ describe('AddWidgetModal', () => {
 
         expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
 
-        await userEvent.click(screen.getByText('Error tracking'))
+        await userEvent.click(screen.getByText('Error tracking', { selector: 'h5' }))
         expect(screen.queryByLabelText('Top issues')).not.toBeInTheDocument()
 
-        await userEvent.click(screen.getByText('Error tracking'))
+        await userEvent.click(screen.getByText('Error tracking', { selector: 'h5' }))
         expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
     })
 
     it('resets collapsed sections when the modal is reopened', async () => {
         const logic = renderAddWidgetModal()
 
-        await userEvent.click(screen.getByText('Error tracking'))
+        await userEvent.click(screen.getByText('Error tracking', { selector: 'h5' }))
         expect(logic.values.addWidgetCollapsedGroups).toContain('error_tracking')
 
         logic.actions.setAddWidgetModalOpen(true)

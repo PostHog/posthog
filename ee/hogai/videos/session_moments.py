@@ -19,11 +19,14 @@ from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
-from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_WORKFLOW_TIMEOUT,
+    RasterizeRecordingInputs,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
-from ee.hogai.session_summaries.constants import (
+from ee.hogai.videos.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     MOMENT_VIDEO_EXPORT_FORMAT,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
@@ -162,7 +165,7 @@ class SessionMomentsLLMAnalyzer:
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                execution_timeout=timedelta(minutes=30),
+                execution_timeout=RASTERIZE_WORKFLOW_TIMEOUT,
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=self.team_id),
@@ -335,17 +338,15 @@ class GeminiVideoUnderstandingProvider:
             logger.exception(f"Video bytes for understanding video are too large (trace_id: {trace_id})")
             return None
         try:
-            video_part_config: dict[str, str | Blob | VideoMetadata] = {
-                "inline_data": Blob(data=video_bytes, mime_type=mime_type)
-            }
             video_metadata_config = {}
             if start_offset_s:
                 video_metadata_config["start_offset"] = f"{start_offset_s}s"
             if end_offset_s:
                 video_metadata_config["end_offset"] = f"{end_offset_s}s"
-            if video_metadata_config:
-                video_part_config["video_metadata"] = VideoMetadata(**video_metadata_config)
-            video_part = Part(**video_part_config)
+            video_part = Part(
+                inline_data=Blob(data=video_bytes, mime_type=mime_type),
+                video_metadata=VideoMetadata(**video_metadata_config) if video_metadata_config else None,
+            )
             prompt_part = Part(text=prompt)
             contents = Content(parts=[video_part, prompt_part])
             response = await self.client.aio.models.generate_content(

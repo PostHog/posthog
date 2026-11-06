@@ -5,9 +5,36 @@ from parameterized import parameterized
 from products.cohorts.backend.models.leaf_shape import (
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
+    extract_person_composition_hash,
     extract_person_leaf_shape_hash,
     walk_filter_leaves,
 )
+
+
+def _behavioral_leaf(**overrides: object) -> dict:
+    leaf = {
+        "type": "behavioral",
+        "key": "$pageview",
+        "value": "performed_event_multiple",
+        "time_value": 7,
+        "time_interval": "day",
+        "conditionHash": "cd0863735b457170",
+        "operator": "gte",
+        "operator_value": 3,
+    }
+    leaf.update(overrides)
+    return leaf
+
+
+def _group(group_type: str, *values: dict) -> dict:
+    return {"type": group_type, "values": list(values)}
+
+
+_BEHAVIORAL = _behavioral_leaf()
+_OTHER_BEHAVIORAL = _behavioral_leaf(conditionHash="ffffffffffffffff")
+_PERSON = {"type": "person", "conditionHash": "aaaaaaaaaaaaaaaa"}
+_OTHER_PERSON = {"type": "person", "conditionHash": "bbbbbbbbbbbbbbbb"}
+_COHORT_REF = {"type": "cohort", "value": 42}
 
 
 class TestLeafShape(SimpleTestCase):
@@ -15,18 +42,7 @@ class TestLeafShape(SimpleTestCase):
         return {"properties": {"type": "AND", "values": list(leaves)}}
 
     def _behavioral(self, **overrides: object) -> dict:
-        leaf = {
-            "type": "behavioral",
-            "key": "$pageview",
-            "value": "performed_event_multiple",
-            "time_value": 7,
-            "time_interval": "day",
-            "conditionHash": "cd0863735b457170",
-            "operator": "gte",
-            "operator_value": 3,
-        }
-        leaf.update(overrides)
-        return leaf
+        return _behavioral_leaf(**overrides)
 
     @parameterized.expand(
         [
@@ -52,12 +68,171 @@ class TestLeafShape(SimpleTestCase):
             extract_behavioral_leaf_shape_hash(changed),
         )
 
-    def test_behavioral_negation_and_leaf_order_do_not_change_the_hash(self) -> None:
-        person = {"type": "person", "conditionHash": "aaaaaaaaaaaaaaaa"}
+    @parameterized.expand(
+        [
+            (
+                "root_group_operator",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("OR", _BEHAVIORAL, _PERSON)},
+            ),
+            (
+                "inner_group_operator",
+                {"properties": _group("AND", _group("AND", _BEHAVIORAL, _PERSON), _COHORT_REF)},
+                {"properties": _group("AND", _group("OR", _BEHAVIORAL, _PERSON), _COHORT_REF)},
+            ),
+            (
+                "behavioral_negation",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("AND", {**_BEHAVIORAL, "negation": True}, _PERSON)},
+            ),
+            (
+                "person_negation",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("AND", _BEHAVIORAL, {**_PERSON, "negation": True})},
+            ),
+            (
+                "cohort_reference_not_in",
+                {"properties": _group("AND", _BEHAVIORAL, _COHORT_REF)},
+                {"properties": _group("AND", _BEHAVIORAL, {**_COHORT_REF, "operator": "not_in"})},
+            ),
+            (
+                "leaf_moved_between_groups",
+                {"properties": _group("OR", _group("AND", _BEHAVIORAL, _PERSON), _group("AND", _OTHER_BEHAVIORAL))},
+                {"properties": _group("OR", _group("AND", _BEHAVIORAL), _group("AND", _OTHER_BEHAVIORAL, _PERSON))},
+            ),
+            (
+                "empty_and_group",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON, _group("AND"))},
+            ),
+            (
+                "empty_or_group",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON, _group("OR"))},
+            ),
+        ]
+    )
+    def test_composition_edits_move_only_the_full_hash(self, _name: str, before: dict, after: dict) -> None:
+        self.assertNotEqual(extract_leaf_shape_hash(before), extract_leaf_shape_hash(after))
         self.assertEqual(
-            extract_leaf_shape_hash(self._filters(self._behavioral(negation=False), person)),
-            extract_leaf_shape_hash(self._filters(person, self._behavioral(negation=True))),
+            extract_behavioral_leaf_shape_hash(before),
+            extract_behavioral_leaf_shape_hash(after),
         )
+        self.assertEqual(extract_person_leaf_shape_hash(before), extract_person_leaf_shape_hash(after))
+
+    @parameterized.expand(
+        [
+            ("root_group_operator", _group("AND", _BEHAVIORAL, _PERSON), _group("OR", _BEHAVIORAL, _PERSON), True),
+            (
+                "inner_group_operator",
+                _group("AND", _group("AND", _BEHAVIORAL, _PERSON), _OTHER_PERSON),
+                _group("AND", _group("OR", _BEHAVIORAL, _PERSON), _OTHER_PERSON),
+                True,
+            ),
+            (
+                "person_negation",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", _BEHAVIORAL, {**_PERSON, "negation": True}),
+                True,
+            ),
+            (
+                "person_leaf_moved_between_groups",
+                _group("OR", _group("AND", _PERSON, _OTHER_PERSON), _BEHAVIORAL),
+                _group("OR", _PERSON, _group("AND", _OTHER_PERSON, _BEHAVIORAL)),
+                True,
+            ),
+            (
+                "cohort_reference_beside_person_leaves",
+                _group("OR", _PERSON, _OTHER_PERSON),
+                _group("OR", _PERSON, _OTHER_PERSON, _COHORT_REF),
+                True,
+            ),
+            (
+                "behavioral_identity",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", _OTHER_BEHAVIORAL, _PERSON),
+                False,
+            ),
+            (
+                "behavioral_negation",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", {**_BEHAVIORAL, "negation": True}, _PERSON),
+                False,
+            ),
+            (
+                "behavioral_hash_lost",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", _behavioral_leaf(conditionHash=None), _PERSON),
+                False,
+            ),
+            (
+                "cohort_reference_beside_a_behavioral_leaf",
+                _group("AND", _BEHAVIORAL, _PERSON),
+                _group("AND", _BEHAVIORAL, _PERSON, _COHORT_REF),
+                False,
+            ),
+            (
+                "person_leaves_swapped_between_anonymous_partners",
+                _group("OR", _group("AND", _BEHAVIORAL, _PERSON), _group("AND", _OTHER_BEHAVIORAL, _OTHER_PERSON)),
+                _group("OR", _group("AND", _BEHAVIORAL, _OTHER_PERSON), _group("AND", _OTHER_BEHAVIORAL, _PERSON)),
+                False,
+            ),
+        ]
+    )
+    def test_person_composition_sees_the_tree_around_person_leaves_and_nothing_inside_the_others(
+        self, _name: str, before: dict, after: dict, moves: bool
+    ) -> None:
+        # A fingerprint that saw inside the leaves a person run holds unknown would fire a person scan
+        # on every behavioral edit of a mixed cohort; one that missed the tree would leave the seeds
+        # pruned under the old tree standing.
+        before_filters, after_filters = {"properties": before}, {"properties": after}
+        self.assertNotEqual(extract_leaf_shape_hash(before_filters), extract_leaf_shape_hash(after_filters))
+        fingerprints = (
+            extract_person_composition_hash(before_filters),
+            extract_person_composition_hash(after_filters),
+        )
+        self.assertNotEqual(fingerprints[0], "")
+        if moves:
+            self.assertNotEqual(*fingerprints)
+        else:
+            self.assertEqual(*fingerprints)
+
+    @parameterized.expand(
+        [
+            (
+                "leaf_order",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("AND", _PERSON, _BEHAVIORAL)},
+            ),
+            (
+                "single_child_wrapper",
+                {"properties": _group("AND", _BEHAVIORAL)},
+                {"properties": _group("OR", _group("AND", _group("OR", _BEHAVIORAL)))},
+            ),
+            (
+                "duplicate_leaf",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON, _PERSON)},
+            ),
+            (
+                "negation_absent_or_false",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("AND", {**_BEHAVIORAL, "negation": False}, {**_PERSON, "negation": False})},
+            ),
+            (
+                "condition_hash_absent_or_null",
+                {"properties": _group("AND", _BEHAVIORAL, {"type": "person", "key": "email"})},
+                {"properties": _group("AND", _BEHAVIORAL, {"type": "person", "key": "email", "conditionHash": None})},
+            ),
+        ]
+    )
+    def test_semantically_null_edits_do_not_move_the_full_hash(self, _name: str, before: dict, after: dict) -> None:
+        # AND and OR are commutative and idempotent, and a group of one operand is that operand, so
+        # these edits describe the same cohort. Each one would otherwise fire a history replay for
+        # a definition that did not change. The last two are what the API's own re-validation does
+        # to an untouched definition, so they decide whether a plain rename fires a run.
+        self.assertNotEqual(extract_leaf_shape_hash(before), "")
+        self.assertEqual(extract_leaf_shape_hash(before), extract_leaf_shape_hash(after))
 
     def test_person_and_cohort_reference_fields_are_included(self) -> None:
         self.assertNotEqual(
@@ -156,5 +331,9 @@ class TestLeafShape(SimpleTestCase):
 
     def test_empty_or_null_group_values_are_safe(self) -> None:
         self.assertEqual(extract_leaf_shape_hash(None), "")
-        self.assertEqual(extract_leaf_shape_hash(self._filters()), "")
+        self.assertNotEqual(extract_leaf_shape_hash(self._filters()), "")
+        self.assertEqual(
+            extract_leaf_shape_hash(self._filters()),
+            extract_leaf_shape_hash({"properties": {"type": "AND", "values": None}}),
+        )
         self.assertEqual(list(walk_filter_leaves({"type": "AND", "values": None})), [])

@@ -34,6 +34,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
         onFreePlan,
         startupCapCredits,
         showStartupCapLine,
+        freeCreditsLeft,
     } = useValues(visionQuotaLogic)
 
     if (!scanner) {
@@ -44,6 +45,11 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     // The estimate already applies the quality filter and sampling rate backend-side.
     const projectedObservations = scannerEstimate?.estimated_observations_per_month ?? null
     const projectedCredits = scannerEstimate?.estimated_credits_per_month ?? null
+    // A free-only scanner stops when the free credits run out, and shares them with the other free-only scanners.
+    const thisScannerCredits =
+        projectedCredits !== null && scanner.free_only && scannerEstimate
+            ? Math.min(projectedCredits, scannerEstimate.free_only_monthly_credits_left)
+            : projectedCredits
     const used = quota?.credits_used ?? 0
     const cap = quota?.credit_limit ?? 0
 
@@ -73,7 +79,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
         {
             key: 'this-scanner',
             label: 'Projected (this scanner)',
-            credits: projectedCredits ?? 0,
+            credits: thisScannerCredits ?? 0,
             kind: 'monthly-rate',
             // The model resolves this to the card's status colour, which depends on the projection it is part of.
             barClass: QUOTA_STATUS_CLASS,
@@ -82,7 +88,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     ])
     const { projection, periodEndPct, hasCap } = model
     const { resetsOn } = projection
-    const newFleetMonthly = othersMonthly + (projectedCredits ?? 0)
+    const newFleetMonthly = othersMonthly + (thisScannerCredits ?? 0)
 
     // Nothing proposed yet, so the forecast isn't a verdict on this scanner.
     const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : model.status
@@ -94,10 +100,10 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const breakdown = (
         <div className="text-xs space-y-0.5">
             <div>
-                Spent this period: <strong>{formatCreditCount(used)}</strong>
+                Spent this billing period: <strong>{formatCreditCount(used)}</strong>
             </div>
             <div>
-                Projected from this scanner: <strong>~{formatCreditCount(projectedCredits ?? 0)}/month</strong>
+                Projected from this scanner: <strong>~{formatCreditCount(thisScannerCredits ?? 0)}/month</strong>
             </div>
             <div>
                 Projected from other scanners: <strong>~{formatCreditCount(othersMonthly)}/month</strong>
@@ -164,6 +170,14 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 )}
             </div>
 
+            {scanner.free_only && freeCreditsLeft !== null && (
+                <div className="text-xs text-muted">
+                    Uses free credits only, so it stops when they run out.{' '}
+                    <span>{formatCreditCount(freeCreditsLeft)}</span> left until{' '}
+                    <span>{resetsOn ?? 'the period ends'}</span>.
+                </div>
+            )}
+
             {/* `hasCap` is also false while quota is still loading, so require a resolved snapshot before
                 telling anyone their billing limit is missing. */}
             {quota !== null && !hasCap && projectedCredits !== null && (
@@ -189,6 +203,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                                 label={`Projected ${periodEndPct}% of the monthly spend limit by ${
                                     resetsOn ?? 'period end'
                                 }`}
+                                limitLabel={`Spend limit · ${formatCreditCount(cap)}`}
                             />
                         </div>
                     </Tooltip>

@@ -1,22 +1,18 @@
-import {
-  ArrowsClockwise,
-  ShieldWarning,
-  Spinner,
-  XCircle,
-} from "@phosphor-icons/react";
+import { ArrowsClockwise, ShieldWarning } from "@phosphor-icons/react";
 import { ChatMarker, ChatMarkerContent } from "@posthog/quill";
+import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box, Callout, Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { formatDuration } from "../GeneratingIndicator";
 
 interface StatusNotificationViewProps {
   status: string;
   isComplete?: boolean;
-  /** Epoch ms when a `compacting` status began; anchors the elapsed timer so it
-   *  survives unmount/remount in the virtualized list instead of resetting. */
+  /** Epoch ms when a `compacting` or `clearing` status began; anchors the
+   *  elapsed timer so it survives unmount/remount in the virtualized list
+   *  instead of resetting. */
   startedAt?: number;
-  /** Failure reason, set on a `compacting_failed` status. */
+  /** Failure reason, set on a `compacting_failed` or `clearing_failed` status. */
   error?: string;
   /** Refusal statuses: display-only stop_details.explanation from the API. */
   explanation?: string;
@@ -71,12 +67,7 @@ export function StatusNotificationView({
   maxAttempts,
   delayMs,
 }: StatusNotificationViewProps) {
-  // New thread renders status notes as centered separator markers; the legacy thread keeps its
-  // bordered rows so ConversationView is unchanged when the chat thread is off.
-  const chatChrome = useChatThreadChrome();
-
-  // Terminal refusal: the safety classifier declined the request and no
-  // fallback model rescued it. Rendered as a callout in both chromes.
+  // Terminal refusal: the safety classifier declined the request and no fallback model rescued it.
   if (status === "refusal") {
     return (
       <Box className="my-2">
@@ -102,25 +93,23 @@ export function StatusNotificationView({
     );
   }
 
+  if (status === "process_killed" && message) {
+    return (
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>{message}</ChatMarkerContent>
+      </ChatMarker>
+    );
+  }
+
   if (status === "refusal_fallback") {
     const message =
       fromModel && toModel
         ? `${fromModel} declined this request, retried with ${toModel}`
         : "Request declined, retried with the fallback model";
-    if (chatChrome) {
-      return (
-        <ChatMarker variant="separator">
-          <ChatMarkerContent>{message}</ChatMarkerContent>
-        </ChatMarker>
-      );
-    }
     return (
-      <Box className="my-1 border-orange-6 border-l-2 py-1 pl-3 dark:border-orange-8">
-        <Flex align="center" gap="2">
-          <ArrowsClockwise size={14} className="text-orange-9" />
-          <Text className="text-[13px] text-gray-11">{message}</Text>
-        </Flex>
-      </Box>
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>{message}</ChatMarkerContent>
+      </ChatMarker>
     );
   }
 
@@ -128,20 +117,10 @@ export function StatusNotificationView({
   // is cleared separately; this row reports the outcome.
   if (status === "compacting_failed") {
     const failureMessage = formatCompactionFailure(error);
-    if (chatChrome) {
-      return (
-        <ChatMarker variant="separator">
-          <ChatMarkerContent>{failureMessage}</ChatMarkerContent>
-        </ChatMarker>
-      );
-    }
     return (
-      <Box className="my-1 border-gray-6 border-l-2 py-1 pl-3 dark:border-gray-8">
-        <Flex align="center" gap="2">
-          <XCircle size={14} className="text-gray-9" />
-          <Text className="text-[13px] text-gray-11">{failureMessage}</Text>
-        </Flex>
-      </Box>
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>{failureMessage}</ChatMarkerContent>
+      </ChatMarker>
     );
   }
 
@@ -163,6 +142,38 @@ export function StatusNotificationView({
         attempt={attempt}
         maxAttempts={maxAttempts}
         message={message}
+      />
+    );
+  }
+
+  // A timed-out clear (rare — the swap normally completes in under a
+  // second). The matching `clearing` spinner is cleared separately; this row
+  // reports the outcome.
+  if (status === "clearing_failed") {
+    const message = error ? `Clear failed: ${error}` : "Clear failed";
+    return (
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>{message}</ChatMarkerContent>
+      </ChatMarker>
+    );
+  }
+
+  if (status === "agent_started") {
+    return (
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>Agent started</ChatMarkerContent>
+      </ChatMarker>
+    );
+  }
+
+  if (status === "clearing") {
+    if (isComplete) {
+      return null;
+    }
+    return (
+      <CompactingStatusView
+        startedAt={startedAt}
+        label="Clearing conversation…"
       />
     );
   }
@@ -213,7 +224,9 @@ function RetryingStatusView({
     <ChatMarker variant="separator">
       <ChatMarkerContent>
         <Flex align="center" gap="2">
-          <ArrowsClockwise size={13} className="animate-spin text-amber-9" />
+          <Spin className="text-amber-9">
+            <ArrowsClockwise size={13} />
+          </Spin>
           <Text className="text-[13px] text-gray-11">{retryLabel}</Text>
         </Flex>
       </ChatMarkerContent>
@@ -222,20 +235,27 @@ function RetryingStatusView({
 }
 
 /**
- * In-flight compaction row. Compaction is a single streaming summarization call
- * with no measurable percentage, so we pair the spinner with an indeterminate
- * progress bar (constant motion, so it never reads as frozen) and a live
- * elapsed-time counter, which is the one honest progress signal we have.
+ * In-flight row for a single streaming operation with no measurable
+ * percentage (compaction, `/clear`), so we pair the spinner with an
+ * indeterminate progress bar (constant motion, so it never reads as frozen)
+ * and a live elapsed-time counter, which is the one honest progress signal
+ * we have.
  */
-function CompactingStatusView({ startedAt }: { startedAt?: number }) {
+function CompactingStatusView({
+  startedAt,
+  label = "Compacting conversation history...",
+}: {
+  startedAt?: number;
+  label?: string;
+}) {
   const [elapsed, setElapsed] = useState(() =>
     startedAt ? Date.now() - startedAt : 0,
   );
 
   useEffect(() => {
-    // Anchor to the persisted compaction start time so remounting this row
-    // (e.g. scrolling it out of and back into the virtualized list while
-    // compaction runs) keeps counting from when compaction began rather than
+    // Anchor to the persisted start time so remounting this row (e.g.
+    // scrolling it out of and back into the virtualized list while the
+    // operation runs) keeps counting from when it began rather than
     // resetting to zero. Fall back to mount time only if it's missing.
     const start = startedAt ?? Date.now();
     const tick = () => setElapsed(Date.now() - start);
@@ -247,10 +267,8 @@ function CompactingStatusView({ startedAt }: { startedAt?: number }) {
   return (
     <Box className="my-1 border-blue-6 border-l-2 px-3 py-1 dark:border-blue-8">
       <Flex align="center" gap="2">
-        <Spinner size={14} className="animate-spin text-blue-9" />
-        <Text className="text-[13px] text-gray-11">
-          Compacting conversation history...
-        </Text>
+        <Spinner size="md" className="text-blue-9" />
+        <Text className="text-[13px] text-gray-11">{label}</Text>
         <Text className="text-[13px] text-gray-10 tabular-nums">
           {formatDuration(elapsed, 1)}
         </Text>

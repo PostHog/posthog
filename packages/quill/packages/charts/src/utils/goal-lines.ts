@@ -1,13 +1,17 @@
 import type { Series, ValueDomain } from '../core/types'
-import type { ReferenceLineProps } from '../overlays/ReferenceLine'
+import type { ReferenceLineProps, ReferenceLineStroke } from '../overlays/ReferenceLine'
 
 export interface GoalLineConfig {
     value: number
     label?: string
     displayLabel?: boolean
     color?: string
+    /** Line style. Defaults to `dashed`. */
+    stroke?: ReferenceLineStroke
     labelPosition?: 'start' | 'end'
     displayIfCrossed?: boolean
+    /** Forwarded to {@link ReferenceLineProps.showValueOnHover}; defaults to true. */
+    showValueOnHover?: boolean
 }
 
 export function computeSeriesNonZeroMax(series: Series[]): number {
@@ -46,7 +50,8 @@ export function buildGoalLineReferenceLines(
             // Match the UI control and legacy chart.js, which both default an unset position to 'end'.
             labelPosition: line.labelPosition ?? 'end',
             variant: 'goal',
-            style: line.color ? { color: line.color } : undefined,
+            style: { color: line.color, stroke: line.stroke },
+            showValueOnHover: line.showValueOnHover,
         }))
 }
 
@@ -55,4 +60,20 @@ export function buildGoalLineReferenceLines(
 export function goalLineValueDomain(referenceLines: readonly ReferenceLineProps[]): ValueDomain | undefined {
     const values = referenceLines.map((line) => line.value).filter((v): v is number => typeof v === 'number')
     return values.length > 0 ? { include: values } : undefined
+}
+
+/** Combine a consumer-set {@link ValueDomain} with the goal-line stretch, field by field, so a
+ *  capped axis still stretches to reach an off-scale goal line. `a` wins a contested bound. A
+ *  consumer pinning both ends still overrides the goal lines, but that is settled when the domain
+ *  resolves and drops `include`, not here. */
+export function mergeValueDomains(a: ValueDomain | undefined, b: ValueDomain | undefined): ValueDomain | undefined {
+    if (!a || !b) {
+        return a ?? b
+    }
+    const include = [...(a.include ?? []), ...(b.include ?? [])]
+    return {
+        include: include.length > 0 ? include : undefined,
+        min: a.min ?? b.min,
+        max: a.max ?? b.max,
+    }
 }

@@ -1,27 +1,30 @@
 import os
-from collections.abc import Generator
-from datetime import datetime
+from collections.abc import Callable, Generator
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
-from unittest import mock
 from unittest.mock import ANY, MagicMock, Mock, patch
 
 from django.test import override_settings
 from django.utils.timezone import now
 
+import jwt
 from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
+from parameterized import parameterized
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
-from posthog.models.utils import UUIDT
+from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -34,8 +37,9 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.source_authentication import assert_export_authorization
 from products.exports.backend.tasks import csv_exporter
 from products.exports.backend.tasks.csv_exporter import (
     CsvWriter,
@@ -64,7 +68,7 @@ class TestCSVExporter(APIBaseTest):
             # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
             mock_response.json.side_effect = [
                 {
-                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095295%2B00%3A00",
+                    "next": f"http://testserver/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095295%2B00%3A00",
                     "results": [
                         {
                             "id": "e9ca132e-400f-4854-a83c-16c151b2f145",
@@ -79,7 +83,7 @@ class TestCSVExporter(APIBaseTest):
                     ],
                 },
                 {
-                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095279%2B00%3A00",
+                    "next": f"http://testserver/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095279%2B00%3A00",
                     "results": [
                         {
                             "id": "1624228e-a4f1-48cd-aabc-6baa3ddb22e4",
@@ -113,13 +117,14 @@ class TestCSVExporter(APIBaseTest):
             yield patched_request
 
     def _create_asset(self, extra_context: Optional[dict] = None) -> ExportedAsset:
-        if extra_context is None:
-            extra_context = {}
+        extra_context = extra_context or {}
 
         asset = ExportedAsset(
             team=self.team,
+            created_by=self.user,
             export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={"path": "/api/literally/anything", **extra_context},
+            export_context={"path": f"/api/environments/{self.team.id}/persons/", **extra_context},
+            source_authentication=ExportedAsset.SourceAuthentication.SESSION,
         )
         asset.save()
         return asset
@@ -316,7 +321,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_limits_breakdown_insights_correctly(
         self, mocked_request: Any, mocked_object_storage_write: Any, mocked_uuidt: Any
     ) -> None:
-        path = "api/projects/1/insights/trend/?insight=TRENDS&breakdown=email&date_from=-7d"
+        path = f"api/projects/{self.team.id}/insights/trend/?insight=TRENDS&breakdown=email&date_from=-7d"
         exported_asset = self._create_asset({"path": path})
         mock_response = Mock()
         mock_response.status_code = 200
@@ -331,6 +336,7 @@ class TestCSVExporter(APIBaseTest):
             timeout=60,
             json=None,
             headers=ANY,
+            allow_redirects=False,
         )
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
@@ -346,6 +352,88 @@ class TestCSVExporter(APIBaseTest):
             with pytest.raises(Exception, match="HTTP 403 Forbidden"):
                 csv_exporter.export_tabular(exported_asset)
 
+    @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
+    def test_path_based_export_delegates_source_personal_api_key(self, patched_api_call: MagicMock) -> None:
+        exported_asset = self._create_asset()
+        exported_asset.source_authentication = ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
+        exported_asset.source_credential_id = "source-key-id"
+        response = Mock()
+        response.json.return_value = {"next": None, "results": []}
+        patched_api_call.return_value = response
+
+        csv_exporter.export_tabular(exported_asset)
+
+        access_token = patched_api_call.call_args.args[0]
+        claims = decode_jwt(access_token, PosthogJwtAudience.DELEGATED_USER)
+        assert claims["personal_api_key_id"] == "source-key-id"
+        with pytest.raises(jwt.InvalidAudienceError):
+            decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
+
+    def test_path_based_export_rejects_missing_authentication_source(self) -> None:
+        exported_asset = self._create_asset()
+        exported_asset.source_authentication = None
+
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            csv_exporter.export_tabular(exported_asset)
+
+    @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
+    def test_path_based_session_export_uses_impersonated_user_audience(self, patched_api_call: MagicMock) -> None:
+        response = Mock()
+        response.json.return_value = {"next": None, "results": []}
+        patched_api_call.return_value = response
+
+        csv_exporter.export_tabular(self._create_asset())
+
+        access_token = patched_api_call.call_args.args[0]
+        decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
+        with pytest.raises(jwt.InvalidAudienceError):
+            decode_jwt(access_token, PosthogJwtAudience.DELEGATED_USER)
+        authentication_response = self.client.get(
+            f"/api/projects/{self.team.id}/persons/",
+            HTTP_AUTHORIZATION=f"Bearer {access_token}",
+        )
+        assert authentication_response.status_code == 200
+
+    def test_query_export_rechecks_source_personal_api_key(self) -> None:
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="query export key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["export:write", "query:read"],
+            scoped_teams=[self.team.id],
+        )
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "HogQLQuery", "query": "select 1"}},
+            source_authentication=ExportedAsset.SourceAuthentication.PERSONAL_API_KEY,
+            source_credential_id=personal_api_key.id,
+        )
+
+        assert_export_authorization(exported_asset)
+
+        personal_api_key.scopes = ["export:write"]
+        personal_api_key.save(update_fields=["scopes"])
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
+
+        personal_api_key.scopes = ["export:write", "query:read"]
+        personal_api_key.scoped_teams = [self.team.id + 1]
+        personal_api_key.save(update_fields=["scopes", "scoped_teams"])
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
+
+        personal_api_key.scoped_teams = [self.team.id]
+        personal_api_key.expires_at = now() - timedelta(minutes=1)
+        personal_api_key.save(update_fields=["scoped_teams", "expires_at"])
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
+
+        personal_api_key.delete()
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
+
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
         with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
@@ -358,7 +446,7 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
 
             assert patched_make_api_call.call_count == 4
-            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
+            assert patched_make_api_call.call_args.args[2] == 64
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_404_mid_export_returns_rows_already_fetched(self, _mock_logger: MagicMock) -> None:
@@ -386,6 +474,22 @@ class TestCSVExporter(APIBaseTest):
             assert patched_make_api_call.call_count == 2
             assert exported_asset.content is not None
             assert b"abc" in exported_asset.content
+
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
+    def test_404_on_the_first_page_raises(self, _mock_logger: MagicMock) -> None:
+        # A stored path that no longer resolves 404s before any row is fetched. Breaking
+        # there would publish an empty file as a successful export.
+        with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
+            exported_asset = self._create_asset()
+
+            not_found_error = HTTPError("404 Client Error")  # type: ignore[call-arg]
+            not_found_error.response = Mock()
+            not_found_error.response.status_code = 404
+            not_found_error.response.text = "Not found."
+            patched_make_api_call.side_effect = not_found_error
+
+            with pytest.raises(HTTPError):
+                csv_exporter.export_tabular(exported_asset)
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_non_404_http_error_still_raises(self, _mock_logger: MagicMock) -> None:
@@ -954,7 +1058,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_actors(
         self,
     ) -> None:
-        with freeze_time("2022-06-01T12:00:00.000Z"):
+        with time_machine.travel("2022-06-01T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=[f"user_1"], team=self.team, uuid="725f10a7-26dd-fa38-f973-757866a10ad4")
 
         events_by_person = {
@@ -1023,7 +1127,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-05-15T12:00:00.000Z"):
+        with time_machine.travel("2024-05-15T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["formula_test_user_xyz"], team=self.team)
 
         events_by_person = {
@@ -1080,7 +1184,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula_and_single_breakdown(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-06-10T12:00:00.000Z"):
+        with time_machine.travel("2024-06-10T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["breakdown_user_single"], team=self.team)
 
         _create_event(
@@ -1158,7 +1262,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula_and_multiple_breakdowns(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-07-20T12:00:00.000Z"):
+        with time_machine.travel("2024-07-20T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["multi_breakdown_user_1"], team=self.team)
             _create_person(distinct_ids=["multi_breakdown_user_2"], team=self.team)
 
@@ -1247,23 +1351,55 @@ class TestCSVExporter(APIBaseTest):
                 ],
             )
 
+    @parameterized.expand(
+        [
+            (
+                "a series node",
+                "test_event",
+                lambda query: query,
+                ["series,$browser,Total Sum", "test_event,Chrome,1", "test_event,Firefox,1"],
+            ),
+            (
+                "a saved series without a kind",
+                "legacy_event",
+                lambda query: {**query, "series": [{"event": "legacy_event", "name": "legacy_event", "math": "total"}]},
+                ["series,$browser,Total Sum", "legacy_event,Chrome,1", "legacy_event,Firefox,1"],
+            ),
+            (
+                "a renamed series wrapped in its visualization node",
+                "wrapped_event",
+                lambda query: {
+                    "kind": "InsightVizNode",
+                    "source": {**query, "series": [{**query["series"][0], "custom_name": "Tests"}]},
+                },
+                ["series,custom name,Total Sum", "Chrome,Tests,1", "Firefox,Tests,1"],
+            ),
+        ]
+    )
     @patch("products.exports.backend.models.exported_asset.UUIDT")
-    def test_csv_exporter_trends_with_breakdown(self, mocked_uuidt: Any) -> None:
-        with freeze_time("2025-05-22T12:00:00.000Z"):
+    def test_csv_exporter_trends_with_breakdown(
+        self,
+        _name: str,
+        event: str,
+        shape_source: Callable[[dict[str, Any]], dict[str, Any]],
+        expected_lines: list[str],
+        mocked_uuidt: Any,
+    ) -> None:
+        with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 
         events_by_person = {
             "user_1": [
                 {
-                    "event": "test_event",
+                    "event": event,
                     "timestamp": datetime(2025, 5, 22, 13, 0),
                     "properties": {"$browser": "Chrome"},
                 },
             ],
             "user_2": [
                 {
-                    "event": "test_event",
+                    "event": event,
                     "timestamp": datetime(2025, 5, 22, 13, 1),
                     "properties": {"$browser": "Firefox"},
                 },
@@ -1276,21 +1412,23 @@ class TestCSVExporter(APIBaseTest):
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_to": "2025-05-22", "date_from": "2025-05-22"},
-                    "series": [
-                        {"kind": "EventsNode", "event": "test_event", "name": "test_event", "math": "total"},
-                    ],
-                    "interval": "day",
-                    "trendsFilter": {
-                        "display": "ActionsTable",
-                    },
-                    "breakdownFilter": {
-                        "breakdown": "$browser",
-                        "breakdown_type": "event",
-                    },
-                }
+                "source": shape_source(
+                    {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_to": "2025-05-22", "date_from": "2025-05-22"},
+                        "series": [
+                            {"kind": "EventsNode", "event": event, "name": event, "math": "total"},
+                        ],
+                        "interval": "day",
+                        "trendsFilter": {
+                            "display": "ActionsTable",
+                        },
+                        "breakdownFilter": {
+                            "breakdown": "$browser",
+                            "breakdown_type": "event",
+                        },
+                    }
+                )
             },
         )
         exported_asset.save()
@@ -1308,22 +1446,15 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().split("\r\n")
             data_lines = sorted(lines[1:])
 
-            self.assertEqual(
-                lines[0:1] + data_lines,
-                [
-                    "series,$browser,Total Sum",
-                    "test_event,Chrome,1",
-                    "test_event,Firefox,1",
-                ],
-            )
+            self.assertEqual(lines[0:1] + data_lines, expected_lines)
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown_and_action(self, mocked_uuidt: Any) -> None:
-        with freeze_time("2025-05-22T12:00:00.000Z"):
+        with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Test Action",
             steps_json=[{"event": "test_action_event"}],
@@ -1620,7 +1751,8 @@ class TestCSVExporter(APIBaseTest):
             exported_asset = ExportedAsset(
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.XLSX,
-                export_context={"path": "/api/test/endpoint"},
+                export_context={"path": f"/api/environments/{self.team.id}/persons/"},
+                source_authentication=ExportedAsset.SourceAuthentication.SESSION,
             )
             exported_asset.save()
             mocked_uuidt.return_value = "a-guid"
@@ -1658,6 +1790,100 @@ class TestCSVExporter(APIBaseTest):
         assert _format_breakdown_value(["a", "b", "c"]) == "a::b::c"
         assert _format_breakdown_value(["single"]) == "single"
 
+
+def _funnel_step(order: int, name: str | None, count: int) -> dict[str, Any]:
+    return {
+        "name": name,
+        "custom_name": None,
+        "order": order,
+        "count": count,
+        "average_conversion_time": None,
+        "median_conversion_time": None,
+    }
+
+
+class TestFunnelStepRows:
+    @pytest.mark.parametrize(
+        "series,funnels_filter,steps,expected",
+        [
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": None},
+                    {"kind": "EventsNode", "event": "checkout started", "name": "checkout started"},
+                ],
+                {"funnelVizType": "steps"},
+                [_funnel_step(0, None, 10), _funnel_step(1, "checkout started", 4)],
+                [("All events", "", 10), ("checkout started", "checkout started", 4)],
+                id="all events first",
+            ),
+            pytest.param(
+                [
+                    {
+                        "kind": "FunnelsDataWarehouseNode",
+                        "id": "invoices",
+                        "table_name": "invoices",
+                        "id_field": "id",
+                        "timestamp_field": "created_at",
+                        "aggregation_target_field": "customer_id",
+                    },
+                    {"kind": "ActionsNode", "id": 7, "name": "Paid"},
+                    {
+                        "kind": "GroupNode",
+                        "operator": "OR",
+                        "nodes": [
+                            {"kind": "EventsNode", "event": "refund requested"},
+                            {"kind": "EventsNode", "event": "chargeback"},
+                        ],
+                    },
+                ],
+                {"funnelVizType": "steps"},
+                [
+                    _funnel_step(0, "invoices", 25),
+                    _funnel_step(1, "Paid", 9),
+                    _funnel_step(2, "refund requested, chargeback", 2),
+                ],
+                [("invoices", "invoices", 25), ("Paid", 7, 9), ("refund requested, chargeback", "", 2)],
+                id="warehouse, action and group steps",
+            ),
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": "signed up", "name": "signed up"},
+                    {"kind": "EventsNode", "event": "invited teammate", "name": "invited teammate"},
+                ],
+                {"funnelVizType": "steps", "funnelOrderType": "unordered"},
+                [_funnel_step(0, "Completed 1 step", 12), _funnel_step(1, "Completed 2 steps", 5)],
+                [("Completed 1 step", "", 12), ("Completed 2 steps", "", 5)],
+                id="unordered",
+            ),
+            pytest.param(
+                [{"kind": "EventsNode", "event": None}, {"kind": "ActionsNode", "id": 7, "name": "Paid"}],
+                {"funnelVizType": "steps"},
+                [
+                    {**_funnel_step(0, None, 10), "compare_label": "current"},
+                    {**_funnel_step(1, "Paid", 4), "compare_label": "current"},
+                    {**_funnel_step(0, None, 8), "compare_label": "previous"},
+                    {**_funnel_step(1, "Paid", 3), "compare_label": "previous"},
+                ],
+                [("All events", "", 10), ("Paid", 7, 4), ("All events", "", 8), ("Paid", 7, 3)],
+                id="compared periods",
+            ),
+        ],
+    )
+    def test_exports_funnel_step_rows_from_query_series(
+        self,
+        series: list[dict[str, Any]],
+        funnels_filter: dict[str, Any],
+        steps: list[dict[str, Any]],
+        expected: list[tuple[str, str | int, int]],
+    ) -> None:
+        query = {"kind": "FunnelsQuery", "series": series, "funnelsFilter": funnels_filter}
+
+        rows = list(_convert_response_to_csv_data({"results": steps}, series_query=query))
+
+        assert [(row["name"], row["action_id"], row["count"]) for row in rows] == expected
+
+
+class TestExcelWriter:
     def test_excel_writer_raises_column_limit_exceeded(self) -> None:
         writer = ExcelWriter()
         # Create more columns than openpyxl supports (18,278 max)
@@ -1670,15 +1896,37 @@ class TestCSVExporter(APIBaseTest):
         assert "18,278 columns" in str(exc_info.value)
         assert "CSV format" in str(exc_info.value)
 
-    def test_excel_writer_normal_column_count_works(self) -> None:
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            'Please keep the "weekly" filter.\n' + "Long responses should wrap without widening every column. " * 8,
+            "Long answer.\n" * 2000,
+            "x" * 32767,
+        ],
+    )
+    def test_excel_writer_formats_readable_rows(self, answer: str) -> None:
         writer = ExcelWriter()
-        columns = ["col_a", "col_b", "col_c"]
+        columns = ["Respondent ID", "Email", "Q1: What could we improve about the report builder?"]
         writer.write_header(columns)
-        writer.write_row({"col_a": "1", "col_b": "2", "col_c": "3"})
+        writer.write_row(dict(zip(columns, ["anonymous-1", None, answer])))
         path = writer.finish()
-
-        assert os.path.exists(path)
-        os.unlink(path)
+        try:
+            workbook = load_workbook(path)
+            sheet = workbook.active
+            assert list(sheet.values) == [tuple(columns), ("anonymous-1", None, answer)]
+            assert sheet.freeze_panes == "A2"
+            assert sheet.auto_filter.ref == "A1:C2"
+            assert sheet["C1"].font.bold
+            assert sheet["C1"].alignment.wrap_text
+            assert sheet["C2"].alignment.wrap_text
+            assert sheet["C2"].alignment.vertical == "top"
+            assert 24 <= sheet.column_dimensions["C"].width <= 60
+            assert sheet.row_dimensions[2].height > sheet.sheet_format.defaultRowHeight
+            assert sheet.row_dimensions[2].height <= 409
+            if len(answer) > 2000:
+                assert sheet.row_dimensions[2].height == 409
+        finally:
+            os.unlink(path)
 
 
 @override_settings(SITE_URL="http://testserver")

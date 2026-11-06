@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { TrashIcon } from 'lucide-react'
+import { BellIcon, TrashIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -12,7 +12,17 @@ const meta = {
     argTypes: {
         variant: {
             control: 'select',
-            options: ['default', 'primary', 'outline', 'destructive', 'link', 'link-muted'],
+            options: [
+                'default',
+                'primary',
+                'secondary',
+                'outline',
+                'destructive',
+                'destructive-outline',
+                'link',
+                'link-foreground',
+                'link-muted',
+            ],
         },
         size: {
             control: 'select',
@@ -31,7 +41,9 @@ export const Default = {
         <div className="flex flex-wrap gap-2">
             <Button>Default</Button>
             <Button variant="primary">Primary</Button>
+            <Button variant="secondary">Secondary</Button>
             <Button variant="outline">Outline</Button>
+            <Button variant="destructive-outline">Destructive outline</Button>
             <Button variant="destructive">Destructive</Button>
             <Button variant="link">Link</Button>
         </div>
@@ -64,11 +76,17 @@ export const WithIcons = {
             <Button variant="primary">
                 <TrashIcon /> Primary
             </Button>
+            <Button variant="secondary">
+                <TrashIcon /> Secondary
+            </Button>
             <Button variant="outline">
                 <TrashIcon /> Outline
             </Button>
             <Button variant="destructive">
                 <TrashIcon /> Destructive
+            </Button>
+            <Button variant="destructive-outline">
+                <TrashIcon /> Destructive outline
             </Button>
             <Button variant="link">
                 <TrashIcon /> Link
@@ -88,17 +106,25 @@ export const WithKBD = {
                 Primary
                 <Kbd>⌘B</Kbd>
             </Button>
+            <Button variant="secondary">
+                Secondary
+                <Kbd>⌘C</Kbd>
+            </Button>
             <Button variant="outline">
                 Outline
-                <Kbd>⌘C</Kbd>
+                <Kbd>⌘D</Kbd>
             </Button>
             <Button variant="destructive">
                 Destructive
-                <Kbd>⌘D</Kbd>
+                <Kbd>⌘E</Kbd>
+            </Button>
+            <Button variant="destructive-outline">
+                Destructive outline
+                <Kbd>⌘F</Kbd>
             </Button>
             <Button variant="link">
                 Link
-                <Kbd>⌘E</Kbd>
+                <Kbd>⌘G</Kbd>
             </Button>
         </div>
     ),
@@ -113,15 +139,76 @@ export const IconOnly = {
             <Button variant="primary" size="icon">
                 <TrashIcon />
             </Button>
+            <Button variant="secondary" size="icon">
+                <TrashIcon />
+            </Button>
             <Button variant="outline" size="icon">
                 <TrashIcon />
             </Button>
             <Button variant="destructive" size="icon">
                 <TrashIcon />
             </Button>
+            <Button variant="destructive-outline" size="icon">
+                <TrashIcon />
+            </Button>
             <Button variant="link" size="icon">
                 <TrashIcon />
             </Button>
+        </div>
+    ),
+} satisfies Story
+
+export const WithIndicator = {
+    render: () => (
+        <div className="flex flex-wrap gap-2">
+            <Button size="icon" indicator="default" aria-label="Notifications, 3 unread">
+                <BellIcon />
+            </Button>
+            <Button variant="outline" size="icon" indicator="default" aria-label="Notifications, 3 unread">
+                <BellIcon />
+            </Button>
+            <Button variant="outline" indicator="default">
+                <BellIcon />
+                Inbox
+            </Button>
+            <Button variant="outline" size="icon" indicator="warning" aria-label="Billing, usage limit close">
+                <BellIcon />
+            </Button>
+            <Button variant="outline" size="icon" indicator="destructive" aria-label="Billing, payment failed">
+                <BellIcon />
+            </Button>
+        </div>
+    ),
+} satisfies Story
+
+export const InteractionStates = {
+    parameters: {
+        pseudo: {
+            hover: ['#secondary-hover', '#destructive-outline-hover'],
+            active: '#destructive-outline-active',
+            focusVisible: '#destructive-outline-focus',
+        },
+    },
+    render: () => (
+        <div className="flex flex-col gap-2 items-start">
+            <div className="flex flex-wrap gap-2">
+                <Button variant="secondary">Secondary resting</Button>
+                <Button id="secondary-hover" variant="secondary">
+                    Secondary hover
+                </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+                <Button variant="destructive-outline">Destructive outline resting</Button>
+                <Button id="destructive-outline-hover" variant="destructive-outline">
+                    Destructive outline hover
+                </Button>
+                <Button id="destructive-outline-active" variant="destructive-outline">
+                    Destructive outline active
+                </Button>
+                <Button id="destructive-outline-focus" variant="destructive-outline">
+                    Destructive outline focus
+                </Button>
+            </div>
         </div>
     ),
 } satisfies Story
@@ -170,10 +257,13 @@ export const Sizes = {
 
 export const Disabled = {
     render: () => (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             <Button disabled>Default</Button>
             <Button variant="primary" disabled>
                 Primary
+            </Button>
+            <Button variant="secondary" disabled>
+                Secondary
             </Button>
             <Button variant="outline" disabled>
                 Outline
@@ -181,8 +271,32 @@ export const Disabled = {
             <Button variant="destructive" disabled>
                 Destructive
             </Button>
+            <Button variant="destructive-outline" disabled>
+                Destructive outline
+            </Button>
             <Button variant="link" disabled>
                 Link
+            </Button>
+        </div>
+    ),
+} satisfies Story
+
+export const Tooltips = {
+    render: () => (
+        <div className="flex flex-wrap items-center gap-2">
+            <Button size="icon" aria-label="Delete" tooltip="Delete">
+                <TrashIcon />
+            </Button>
+            <Button variant="outline" tooltip="Saves a copy you can come back to">
+                Save draft
+            </Button>
+            <Button variant="primary" disabledReason="Add a name before you publish">
+                Publish
+            </Button>
+            {/* A story has no router; a plain anchor shows the non-button render. */}
+            {/* eslint-disable-next-line react/forbid-elements */}
+            <Button variant="outline" render={<a href="#docs" />} disabledReason="Docs are not available offline">
+                Read the docs
             </Button>
         </div>
     ),
@@ -202,11 +316,17 @@ export const Loading = {
                     <Button variant="primary" loading>
                         Primary
                     </Button>
+                    <Button variant="secondary" loading>
+                        Secondary
+                    </Button>
                     <Button variant="outline" loading>
                         Outline
                     </Button>
                     <Button variant="destructive" loading>
                         Destructive
+                    </Button>
+                    <Button variant="destructive-outline" loading>
+                        Destructive outline
                     </Button>
                     <Button size="icon" loading aria-label="Delete">
                         <TrashIcon />

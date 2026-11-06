@@ -16,20 +16,34 @@ import { RerunPaginatorService } from './rerun-paginator.service'
 // where the executor resumes from. If rerun rehydration dropped it, the flow
 // would restart from the trigger and re-send emails that already went out. These
 // tests pin the fix: the rehydrated invocation carries `currentAction` forward,
-// so replay resumes after the already-completed actions.
+// so replay resumes after the already-completed actions — but WITHOUT its parked
+// `hogFunctionState`, whose `globals.inputs` was stripped on persist; restoring
+// it verbatim skips the input re-render and message actions then fail with
+// "No recipient identifier found".
 describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
     const teamId = 42
     const functionId = 'flow-1'
 
-    function fakeClickhouse(rows: unknown[]): ClickHouseClient {
+    function fakeClickhouse(rows: Array<Record<string, unknown>>): ClickHouseClient {
         return {
-            query: jest.fn().mockResolvedValue({ json: () => Promise.resolve(rows) }),
+            // The paginator runs two queries per page: the windowed page fetch and a
+            // cross-partition stale-status check on the page's ids. The stale check
+            // returns the ids that should be SKIPPED, so answer it with an empty set
+            // and these tests keep exercising rehydration rather than the stale skip.
+            query: jest.fn().mockImplementation(({ query }: { query: string }) => {
+                const payload = query.includes('hog_invocation_rerun_stale_status') ? [] : rows
+                return Promise.resolve({ json: () => Promise.resolve(payload) })
+            }),
         } as unknown as ClickHouseClient
     }
 
     function buildPaginator(
         clickhouse: ClickHouseClient,
-        hogFlowQueue: jest.Mocked<CyclotronJobQueuePostgresV2>
+        hogFlowQueue: jest.Mocked<CyclotronJobQueuePostgresV2>,
+        monitoring = {
+            queueLogs: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<HogFunctionMonitoringService>
     ): RerunPaginatorService {
         const hogFlowManager = {
             getHogFlow: jest.fn().mockResolvedValue({ id: functionId, team_id: teamId, variables: [] }),
@@ -43,11 +57,6 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
             flush: jest.fn().mockResolvedValue(undefined),
             dropQueuedRowsFor: jest.fn(),
         } as unknown as jest.Mocked<HogInvocationResultsService>
-        const monitoring = {
-            queueLogs: jest.fn(),
-            flush: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<HogFunctionMonitoringService>
-
         return new RerunPaginatorService(
             clickhouse,
             hogFunctionManager,
@@ -66,14 +75,35 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         progress: { queued: 0, skipped: 0, done: false },
     }
 
-    it('restores currentAction and personId so a partially-run flow resumes instead of restarting', async () => {
+    it.each([undefined, 1] as const)('restores progress and customer task key version %j', async (version) => {
         const persistedState = {
             event: { uuid: 'evt-1', distinct_id: 'd-1', properties: {}, timestamp: '2026-06-01T09:00:00Z' },
             actionStepCount: 3,
+            customerTaskIdempotencyVersion: version,
             variables: { ticket_id: '123' },
-            // The flow had already advanced to (and parked at) the wait step.
-            currentAction: { id: 'wait_condition', startedAtTimestamp: 999 },
+            // The flow had already advanced to (and parked at) this action. The parked
+            // hogFunctionState is stored as `stripInputs` wrote it: `globals.inputs` gone.
+            currentAction: {
+                id: 'send_email',
+                startedAtTimestamp: 999,
+                awaitingResume: { key: 'old-key', deadlineAt: '2020-01-01T00:00:00Z', dispatch: { id: 'old-task' } },
+                resumeResult: { key: 'old-key', status: 'failed' },
+                cohortLookupAttempts: 2,
+                cohortLookupFailed: true,
+                hogFunctionState: {
+                    globals: { event: { uuid: 'evt-1' }, source: { name: 'Email', url: '' } },
+                    timings: [],
+                    attempts: 0,
+                },
+            },
             personId: 'person-1',
+            messageOptOuts: [{ identifier: 'opted-out@example.com', categoryId: '$all' }],
+            send: {
+                content: { subject: 'Welcome', html: '<p>Hi</p>', text: 'Hi' },
+                from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
+                replyTo: ['help@example.com'],
+                tracking: { captureEngagement: false },
+            },
         }
         const rows = [
             {
@@ -81,7 +111,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 parent_run_id: 'run-1',
                 attempts: 0,
                 last_scheduled_at: '2026-06-01 09:00:00.000000',
-                first_scheduled_at: '2026-06-01 09:00:00.000000',
+                run_first_scheduled_at: '2026-06-01 09:00:00.000000',
                 // decodeInvocationGlobals treats a leading '{' as raw JSON.
                 invocation_globals: JSON.stringify(persistedState),
             },
@@ -92,20 +122,91 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
 
         const paginator = buildPaginator(fakeClickhouse(rows), hogFlowQueue)
-        await paginator.processPage(teamId, state, { jobId: 'rerun-1', createdAt: DateTime.now() })
+        await paginator.processPage(
+            teamId,
+            { ...state, request: { ...state.request, replay_code_sends: true } },
+            { jobId: 'rerun-1', createdAt: DateTime.now() }
+        )
 
         expect(hogFlowQueue.queueInvocations).toHaveBeenCalledTimes(1)
         const [enqueued, opts] = hogFlowQueue.queueInvocations.mock.calls[0]
         expect(opts).toEqual({ overwriteExisting: true })
         const invocation = enqueued[0] as CyclotronJobInvocationHogFlow
         expect(invocation.id).toBe('inv-1')
-        // The resume point and per-actor context survive the round-trip.
-        expect(invocation.state?.currentAction).toEqual(persistedState.currentAction)
+        // The resume point and per-actor context survive the round-trip, but the
+        // input-stripped hogFunctionState does not — the action re-enters fresh so
+        // inputs re-render against the current config instead of the stale snapshot.
+        expect(invocation.state?.currentAction).toEqual({ id: 'send_email', startedAtTimestamp: 999 })
         expect(invocation.state?.personId).toBe('person-1')
+        expect(invocation.state?.messageOptOuts).toEqual([{ identifier: 'opted-out@example.com', categoryId: '$all' }])
         expect(invocation.state?.actionStepCount).toBe(3)
+        expect(invocation.state?.customerTaskIdempotencyVersion).toBe(version)
         expect(invocation.state?.variables).toEqual({ ticket_id: '123' })
+        expect(invocation.state?.send).toEqual(persistedState.send)
         // Sticky rerun counter still increments so max_attempts guards apply.
         expect(invocation.state?.rerunAttempts).toBe(1)
+    })
+
+    const codeSend = {
+        content: { subject: 'Welcome', html: '<p>Hi</p>', text: 'Hi' },
+        from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
+        tracking: { captureEngagement: false },
+    }
+
+    it.each([
+        ['an email sent from code while replay_code_sends is undefined', { send: codeSend }, undefined, []],
+        ['an email sent from code while replay_code_sends is false', { send: codeSend }, false, []],
+        [
+            'a sensitive message whose content was not stored',
+            { sensitive_variables_omitted: true },
+            true,
+            [
+                expect.objectContaining({
+                    instance_id: 'inv-3',
+                    level: 'warn',
+                    message:
+                        "Not re-run: this run's message is sensitive, so its content wasn't stored and can't be sent again.",
+                }),
+            ],
+        ],
+    ] as const)('skips a run with %s', async (_name, stored, allowed, expectedLogs) => {
+        const persistedState = {
+            event: { uuid: 'evt-3', distinct_id: 'd-3', properties: {}, timestamp: '2026-06-01T09:00:00Z' },
+            actionStepCount: 1,
+            variables: {},
+            ...stored,
+        }
+        const rows = [
+            {
+                invocation_id: 'inv-3',
+                parent_run_id: '',
+                attempts: 0,
+                last_scheduled_at: '2026-06-01 09:00:00.000000',
+                run_first_scheduled_at: '2026-06-01 09:00:00.000000',
+                invocation_globals: JSON.stringify(persistedState),
+            },
+        ]
+
+        const hogFlowQueue = {
+            queueInvocations: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
+
+        const monitoring = {
+            queueLogs: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<HogFunctionMonitoringService>
+        const paginator = buildPaginator(fakeClickhouse(rows), hogFlowQueue, monitoring)
+        await paginator.processPage(
+            teamId,
+            { ...state, request: { ...state.request, replay_code_sends: allowed } },
+            { jobId: 'rerun-3', createdAt: DateTime.now() }
+        )
+
+        expect(hogFlowQueue.queueInvocations.mock.calls.flatMap(([invocations]) => invocations)).toEqual([])
+        const runLogs = monitoring.queueLogs.mock.calls
+            .flatMap(([entries]) => entries)
+            .filter((entry) => entry.instance_id === 'inv-3')
+        expect(runLogs).toEqual(expectedLogs)
     })
 
     it('leaves currentAction undefined for a flow that never progressed (fresh start is correct there)', async () => {
@@ -120,7 +221,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 parent_run_id: '',
                 attempts: 0,
                 last_scheduled_at: '2026-06-01 09:00:00.000000',
-                first_scheduled_at: '2026-06-01 09:00:00.000000',
+                run_first_scheduled_at: '2026-06-01 09:00:00.000000',
                 invocation_globals: JSON.stringify(persistedState),
             },
         ]
@@ -134,5 +235,6 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
 
         const invocation = hogFlowQueue.queueInvocations.mock.calls[0][0][0] as CyclotronJobInvocationHogFlow
         expect(invocation.state?.currentAction).toBeUndefined()
+        expect(invocation.state?.customerTaskIdempotencyVersion).toBeUndefined()
     })
 })

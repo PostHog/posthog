@@ -23,6 +23,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
@@ -54,9 +55,6 @@ from products.tasks.backend.temporal.process_task.activities.emit_progress_activ
     emit_progress_activity,
 )
 from products.tasks.backend.temporal.process_task.activities.forward_pending_message import forward_pending_user_message
-from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
-    GetSandboxForRepositoryOutput,
-)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -66,6 +64,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
+    GetSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
     PrepareSandboxForRepositoryInput,
     checkout_branch_in_sandbox,
@@ -222,6 +221,7 @@ class SandboxEvent(StrEnum):
 
 _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-execute-sandbox-concurrent-followup-steering"
 _PATCH_ID_ORDERED_OUTBOUND_DELIVERY = "tasks-execute-sandbox-ordered-outbound-delivery"
+_PATCH_ID_REOPEN_PARENT_DELIVERY = "tasks-execute-sandbox-reopen-parent-delivery"
 _PATCH_ID_BOUNDED_FINAL_OUTBOUND_DELIVERY = "tasks-execute-sandbox-bounded-final-outbound-delivery"
 _PARENT_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
@@ -428,8 +428,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             if task.exception():
                 workflow.logger.warning(
                     "execute_sandbox_event_wait_failed",
-                    run_id=self.context.run_id,
-                    error=str(task.exception()),
+                    extra={"run_id": self.context.run_id, "error": str(task.exception())},
                 )
                 continue
             return task.result()
@@ -483,13 +482,16 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
             agent_server_output = await self._start_agent_server(sandbox_output)
-            await self._emit_progress("agent", "completed", "Started agent", "setup")
+            await self._emit_progress("agent", "completed", "Agent ready", "setup")
 
             await self._track_workflow_event(
                 "sandbox_started",
                 {
                     "run_id": run_id,
+                    "task_run_id": run_id,
                     "task_id": self.context.task_id,
+                    "team_id": self.context.team_id,
+                    "origin_product": self.context.origin_product,
                     "sandbox_id": sandbox_id,
                     "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
@@ -535,8 +537,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
                         if self._heartbeat_received and not self._task_completed:
                             workflow.logger.info(
-                                "execute_sandbox_heartbeat_reset",
-                                run_id=self.context.run_id,
+                                "execute_sandbox_heartbeat_reset", extra={"run_id": self.context.run_id}
                             )
                             self._heartbeat_received = False
                             continue
@@ -592,9 +593,16 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # setting it here the orchestrator would see `success=True` for
             # a run that died on an unhandled exception.
             self._completion_status = "failed"
-            self._completion_error = truncate_error_message(str(e))
+            cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else e
+            cause_message = getattr(cause, "message", None) or (str(cause) if cause is not None else str(e))
+            error_type = (
+                cause.type
+                if isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type
+                else type(e).__name__
+            )
+            error_message = truncate_error_message(cause_message)
+            self._completion_error = error_message
             current_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
-            error_message = truncate_error_message(str(e))
             if self._context:
                 if self._current_progress_step is not None:
                     failed_step, failed_label, failed_group = self._current_progress_step
@@ -617,7 +625,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                         "provider": self.context.provider,
                         "model": self.context.model,
                         "reasoning_effort": self.context.reasoning_effort,
-                        "error_type": type(e).__name__,
+                        "error_type": error_type,
                         "error_message": error_message,
                         "sandbox_id": current_sandbox_id,
                         **self._activity_error_properties(e),
@@ -625,7 +633,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     capture_analytics=False,
                 )
             await self._update_task_run_status(
-                "failed", error_message=error_message, run_id=run_id, error_type=type(e).__name__
+                "failed", error_message=error_message, run_id=run_id, error_type=error_type
             )
 
             return ExecuteSandboxOutput(
@@ -659,7 +667,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 # Clear the persisted sandbox id only after cleanup actually
                 # ran — otherwise the next workflow start has no record of an
                 # orphan to reap.
-                await self._clear_persisted_sandbox_id(run_id)
+                await self._clear_persisted_sandbox_id(run_id, cleanup_sandbox_id)
                 self._sandbox_id_for_cleanup = None
 
             # Emit the terminal "I'm done" signal to the orchestrator before
@@ -696,6 +704,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         if self._is_duplicate_signal(PARENT_ATTACHED_SIGNAL, ack_id):
             return
         self._parent_workflow_id = parent_workflow_id
+        if not workflow.in_workflow() or workflow.patched(_PATCH_ID_REOPEN_PARENT_DELIVERY):
+            self._parent_signal_delivery_closed = False
         self._enqueue_ack(signal_name=PARENT_ATTACHED_SIGNAL, ack_id=ack_id)
 
     @workflow.signal(name=COMPLETE_TASK_SIGNAL)
@@ -802,11 +812,13 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         context = self._context
         workflow.logger.info(
             "execute_sandbox_followup_signal_received",
-            run_id=context.run_id if context is not None else None,
-            message_length=len(message or ""),
-            artifact_count=len(artifact_ids or []),
-            source=source,
-            ack_id=ack_id,
+            extra={
+                "run_id": context.run_id if context is not None else None,
+                "message_length": len(message or ""),
+                "artifact_count": len(artifact_ids or []),
+                "source": source,
+                "ack_id": ack_id,
+            },
         )
         # Already dispatched (or rejected) — re-ack and skip.
         if self._is_duplicate_signal(signal_name, ack_id):
@@ -869,8 +881,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             if self._should_skip_followup(followup.message, followup.artifact_ids):
                 workflow.logger.warning(
                     "execute_sandbox_empty_followup_skipped",
-                    run_id=self.context.run_id,
-                    ack_id=followup.ack_id,
+                    extra={"run_id": self.context.run_id, "ack_id": followup.ack_id},
                 )
                 self._enqueue_ack(
                     signal_name=signal_name,
@@ -912,9 +923,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 cause_message = error_properties.get("cause_error_message")
                 workflow.logger.warning(
                     "execute_sandbox_send_followup_failed",
-                    run_id=self.context.run_id,
-                    error=str(e),
-                    **error_properties,
+                    extra={"run_id": self.context.run_id, "error": str(e), **error_properties},
                 )
                 self._completion_status = "failed"
                 self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
@@ -994,18 +1003,22 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     self._pending_outbound.clear()
                     workflow.logger.info(
                         "execute_sandbox_parent_signal_delivery_closed",
-                        run_id=self.context.run_id if self._context else None,
-                        target_signal=outbound.target_signal,
-                        correlation_id=outbound.correlation_id,
-                        error=str(e),
+                        extra={
+                            "run_id": self.context.run_id if self._context else None,
+                            "target_signal": outbound.target_signal,
+                            "correlation_id": outbound.correlation_id,
+                            "error": str(e),
+                        },
                     )
                     return
                 workflow.logger.warning(
                     "execute_sandbox_outbound_signal_failed",
-                    run_id=self.context.run_id if self._context else None,
-                    target_signal=outbound.target_signal,
-                    correlation_id=outbound.correlation_id,
-                    error=str(e),
+                    extra={
+                        "run_id": self.context.run_id if self._context else None,
+                        "target_signal": outbound.target_signal,
+                        "correlation_id": outbound.correlation_id,
+                        "error": str(e),
+                    },
                 )
                 if self._ordered_outbound_delivery:
                     # Keep the failed ACK and every later signal ahead of
@@ -1033,9 +1046,11 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             ):
                 workflow.logger.warning(
                     "execute_sandbox_final_outbound_retries_exhausted",
-                    run_id=self.context.run_id if self._context else None,
-                    attempts=attempts,
-                    undelivered=len(self._pending_outbound),
+                    extra={
+                        "run_id": self.context.run_id if self._context else None,
+                        "attempts": attempts,
+                        "undelivered": len(self._pending_outbound),
+                    },
                 )
                 self._pending_outbound.clear()
 
@@ -1048,7 +1063,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _get_task_processing_context(self, input: ExecuteSandboxInput) -> TaskProcessingContext:
         return await workflow.execute_activity(
             get_task_processing_context,
-            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
+            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr, launches_agent=True),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -1079,7 +1094,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 detail="Resumed from a previous snapshot",
             )
         else:
-            await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
+            await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup")
 
         if used_snapshot and prepared.snapshot_external_id:
             await workflow.execute_activity(
@@ -1124,7 +1139,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
         if will_checkout and not is_resume:
             assert checkout_repository is not None
             assert prepared.branch is not None
@@ -1158,7 +1173,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
         await workflow.execute_activity(
             cleanup_sandbox,
-            CleanupSandboxInput(sandbox_id=sandbox_id),
+            CleanupSandboxInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -1183,9 +1198,11 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         if result.reaped_sandbox_id is not None:
             workflow.logger.info(
                 "execute_sandbox_reaped_orphan",
-                run_id=run_id,
-                sandbox_id=result.reaped_sandbox_id,
-                destroy_succeeded=result.destroy_succeeded,
+                extra={
+                    "run_id": run_id,
+                    "sandbox_id": result.reaped_sandbox_id,
+                    "destroy_succeeded": result.destroy_succeeded,
+                },
             )
 
     # Don't fail the run if persistence flakes — Modal TTL will catch the
@@ -1202,10 +1219,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     # Stale state will be reaped (idempotent) on the next start, so a
     # failure here doesn't compromise correctness.
     @log_on_fail("execute_sandbox_clear_sandbox_id_failed", level="warning", suppress=True)
-    async def _clear_persisted_sandbox_id(self, run_id: str) -> None:
+    async def _clear_persisted_sandbox_id(self, run_id: str, sandbox_id: str) -> None:
         await workflow.execute_activity(
             clear_persisted_sandbox_id,
-            ClearPersistedSandboxIdInput(run_id=run_id),
+            ClearPersistedSandboxIdInput(run_id=run_id, sandbox_id=sandbox_id),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -1247,7 +1264,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         if not self._context:
             return False
         state = self.context.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
         return self.context.mode != "interactive" and not is_resume
 
     async def _track_workflow_event(self, event_name: str, properties: dict, capture_analytics: bool = True) -> None:
@@ -1310,6 +1327,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 status=status,
                 error_message=error_message,
                 error_type=error_type,
+                sandbox_backend=self._context.sandbox_backend if self._context else None,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1343,22 +1361,18 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         exit_reason = await run_credential_refresh_loop(self.context, sandbox_id)
         if exit_reason == CredentialRefreshExitReason.SANDBOX_GONE:
             workflow.logger.warning(
-                "execute_sandbox_sandbox_gone_detected",
-                run_id=self.context.run_id,
-                sandbox_id=sandbox_id,
+                "execute_sandbox_sandbox_gone_detected", extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id}
             )
             self._sandbox_gone = True
         elif exit_reason == CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE:
             workflow.logger.warning(
                 "execute_sandbox_credential_refresh_stopped_credentials_unavailable",
-                run_id=self.context.run_id,
-                sandbox_id=sandbox_id,
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
             )
         elif exit_reason == CredentialRefreshExitReason.TASK_GONE:
             workflow.logger.warning(
                 "execute_sandbox_task_rows_gone_detected",
-                run_id=self.context.run_id,
-                sandbox_id=sandbox_id,
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
             )
             # Ends the main loop through the sandbox-gone event so the workflow winds down
             # instead of waiting on signals that can never arrive. Recording failure here is
@@ -1394,6 +1408,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 team_id=self.context.team_id,
                 distinct_id=self.context.distinct_id,
                 sandbox_id=sandbox_id,
+                stream_generation=self.context.stream_generation,
             ),
             start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
             schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
@@ -1435,7 +1450,6 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             CreateResumeSnapshotInput(
                 sandbox_id=sandbox_id,
                 run_id=self.context.run_id,
-                use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1457,9 +1471,11 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     ) -> str | None:
         workflow.logger.info(
             "execute_sandbox_send_followup_begin",
-            run_id=self.context.run_id,
-            message_length=len(message or ""),
-            artifact_count=len(artifact_ids),
+            extra={
+                "run_id": self.context.run_id,
+                "message_length": len(message or ""),
+                "artifact_count": len(artifact_ids),
+            },
         )
         return await workflow.execute_activity(
             send_followup_to_sandbox,

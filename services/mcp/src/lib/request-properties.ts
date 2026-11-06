@@ -2,6 +2,7 @@
 // and query params into the same shape, so the logic lives here.
 
 import { resolveEffectiveClientName } from './client-detection'
+import { isGatewayToolName } from './gateway-tools'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
 
 export type Transport = 'streamable-http' | 'sse'
@@ -9,6 +10,8 @@ export type Transport = 'streamable-http' | 'sse'
 export type RequestProperties = {
     userHash: string
     apiToken: string
+    // Assigned after token introspection; never parsed from a caller header or query parameter.
+    suppressAnalytics?: boolean
     sessionId?: string | undefined
     features?: string[] | undefined
     tools?: string[] | undefined
@@ -19,10 +22,13 @@ export type RequestProperties = {
     mcpConsumer?: string | undefined
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
+    mcpElicitationUrlSupported?: boolean | undefined
+    mcpUiSupported?: boolean | undefined
     mcpProtocolVersion?: string | undefined
     mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
     mode?: McpMode | undefined
+    viaMcpStore?: boolean | undefined
     transport?: Transport | undefined
     mcpSessionId?: string | undefined
     mcpConversationId?: string | undefined
@@ -31,16 +37,24 @@ export type RequestProperties = {
     // Sandbox-provisioned task id: forwarded to the PostHog API as `X-PostHog-Task-Id` on every
     // call so writes can be attributed to the agent's task (validated server-side per team).
     taskId?: string | undefined
+    // Origin product of the sandboxed task (`X-PostHog-Task-Origin`, e.g. `signals_scout`).
+    // The consumer header can't carry this: scouts and Desktop tasks both send `posthog-code`.
+    taskOriginProduct?: string | undefined
     // Dev/test-only per-request feature-flag overrides — a JSON object string from
     // `?flag_overrides=` or the `x-posthog-flag-overrides` header. Parsed and gated
     // to NODE_ENV development/test (fail-closed) in `resolveFeatureFlagOverrides`.
     featureFlagOverrides?: string | undefined
+    // Caller-supplied tool denylist. Merged with the server's own excludes (switch tools, etc).
+    excludeTools?: string[] | undefined
+    clientIp?: string | undefined
 }
 
 export type ClientInfo = {
     clientName?: string | undefined
     clientVersion?: string | undefined
     protocolVersion?: string | undefined
+    elicitationUrlSupported?: boolean | undefined
+    uiSupported?: boolean | undefined
 }
 
 function header(request: Request, name: string): string | undefined {
@@ -55,6 +69,36 @@ function splitCsv(value: string | null): string[] | undefined {
     return parts.length > 0 ? parts : undefined
 }
 
+const MCP_TOOL_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i
+const MAX_TOOL_FILTER_NAMES = 32
+
+export function sanitizeToolFilterNames(names: readonly string[] | undefined): string[] | undefined {
+    if (!names) {
+        return undefined
+    }
+    const unique: string[] = []
+    const seen = new Set<string>()
+    for (const part of names) {
+        const name = part.trim()
+        const gateway = isGatewayToolName(name)
+        const token = gateway ? name : name.toLowerCase()
+        const validName = gateway ? /^[^\s,]{1,512}$/.test(token) : MCP_TOOL_NAME.test(token)
+        if (!validName || seen.has(token)) {
+            continue
+        }
+        seen.add(token)
+        unique.push(token)
+        if (unique.length >= MAX_TOOL_FILTER_NAMES) {
+            break
+        }
+    }
+    return unique.length > 0 ? unique : undefined
+}
+
+function parseExcludeTools(value: string | undefined): string[] | undefined {
+    return value ? sanitizeToolFilterNames(value.split(',')) : undefined
+}
+
 export function parseRequestProperties(
     request: Request,
     clientInfo: ClientInfo,
@@ -66,6 +110,7 @@ export function parseRequestProperties(
     const token = extractBearerToken(request) ?? ''
     const readOnlyRaw = header(request, 'x-posthog-read-only') || params.get('readonly')
     const vendorClient = sanitizeHeaderValue(header(request, 'x-anthropic-client'))
+    const viaMcpStore = header(request, 'x-posthog-mcp-store') === 'true'
 
     return {
         apiToken: token,
@@ -84,9 +129,16 @@ export function parseRequestProperties(
         mcpClientName: resolveEffectiveClientName(clientInfo.clientName, vendorClient),
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpElicitationUrlSupported: clientInfo.elicitationUrlSupported,
+        mcpUiSupported: clientInfo.uiSupported,
         mcpVendorClient: vendorClient,
-        mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
+        mode: viaMcpStore ? 'tools' : parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
+        viaMcpStore,
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
+        taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
+        excludeTools: parseExcludeTools(
+            sanitizeHeaderValue(header(request, 'x-posthog-exclude-tools') || params.get('exclude_tools') || undefined)
+        ),
         transport,
         requestStartTime: Date.now(),
         featureFlagOverrides: header(request, 'x-posthog-flag-overrides') || params.get('flag_overrides') || undefined,

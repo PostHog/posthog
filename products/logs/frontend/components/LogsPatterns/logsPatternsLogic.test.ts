@@ -5,6 +5,11 @@ import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import {
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetSelection,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsPatternsCreate, logsPatternsDiffCreate } from 'products/logs/frontend/generated/api'
 import type {
@@ -64,6 +69,9 @@ const DIFF_RESPONSE: _LogsPatternsDiffResponseApi = {
             pattern: RESPONSE.patterns[0],
             baseline_estimated_count: null,
             baseline_volume_share_pct: null,
+            masked_example: 'GET <*> returned <N>',
+            services: [],
+            first_seen_ever: null,
         },
     ],
     current: {
@@ -82,12 +90,28 @@ const DIFF_RESPONSE: _LogsPatternsDiffResponseApi = {
         date_from: '2026-06-16T12:00:00+00:00',
         date_to: '2026-06-16T13:00:00+00:00',
     },
+    window: {
+        current: { from: '2026-06-23T12:00:00Z', to: '2026-06-23T13:00:00Z' },
+        baseline: { from: '2026-06-16T12:00:00Z', to: '2026-06-16T13:00:00Z' },
+        timezone: 'UTC',
+    },
+    source: 'body_mining',
+    pattern_version: null,
+    sampled: false,
+    truncated: false,
+    notes: [],
+    next: [],
 }
 
 describe('logsPatternsLogic', () => {
     afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof logsPatternsLogic.build>
     let filtersLogic: ReturnType<typeof logsViewerFiltersLogic.build>
+
+    const selectedLevels = (): string[] =>
+        facetSelection(filtersLogic.values.filters.filterGroup, SEVERITY_LEVEL_FILTER).included
+    const selectedServices = (): string[] =>
+        facetSelection(filtersLogic.values.filters.filterGroup, SERVICE_NAME_FILTER).included
 
     beforeEach(() => {
         initKeaTests()
@@ -107,9 +131,7 @@ describe('logsPatternsLogic', () => {
 
         expect(mockCreate).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({
-                query: expect.objectContaining({ severityLevels: [], serviceNames: [] }),
-            })
+            expect.objectContaining({ query: expect.objectContaining({ filterGroup: expect.anything() }) })
         )
     })
 
@@ -135,8 +157,8 @@ describe('logsPatternsLogic', () => {
         )
         // The pivot also scopes by everything the sample saw — service_name and severity
         // prune the scan the body regex can't, and multi-value IN filters narrow just as well.
-        expect(filtersLogic.values.filters.serviceNames).toEqual(['auth', 'api'])
-        expect(filtersLogic.values.filters.severityLevels).toEqual(['error', 'warn'])
+        expect(selectedServices()).toEqual(['auth', 'api'])
+        expect(selectedLevels()).toEqual(['error', 'warn'])
         expect(configLogic.values.viewMode).toBe('logs')
 
         // A filter that could silently exclude matching lines must be withheld: a services
@@ -147,8 +169,8 @@ describe('logsPatternsLogic', () => {
             services: ['auth', 'api', 'db', 'kafka'],
             severity_counts: { error: 2, notice: 1 },
         })
-        expect(filtersLogic.values.filters.serviceNames).toEqual(['auth', 'api'])
-        expect(filtersLogic.values.filters.severityLevels).toEqual(['error', 'warn'])
+        expect(selectedServices()).toEqual(['auth', 'api'])
+        expect(selectedLevels()).toEqual(['error', 'warn'])
     })
 
     it('viewMatchingLogs falls back to an icontains literal filter when the regex was withheld', async () => {
@@ -170,6 +192,34 @@ describe('logsPatternsLogic', () => {
         )
     })
 
+    it('viewMatchingLogs matches canonical members and version without narrowing by example facets', async () => {
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        logic.actions.viewMatchingLogs({
+            ...RESPONSE.patterns[0],
+            match_patterns: ['User <N> not found', 'User <UUID> not found'],
+            pattern_version: 3,
+            match_regex: null,
+            match_literal: null,
+        })
+
+        const inner = filtersLogic.values.filters.filterGroup.values[0] as UniversalFiltersGroup
+        expect(inner.values).toEqual(
+            expect.arrayContaining([
+                {
+                    key: 'pattern',
+                    value: ['User <N> not found', 'User <UUID> not found'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Log,
+                },
+                { key: 'pattern_version', value: 3, operator: PropertyOperator.Exact, type: PropertyFilterType.Log },
+            ])
+        )
+        expect(selectedServices()).toEqual([])
+        expect(selectedLevels()).toEqual([])
+    })
+
     it('compare mode diffs with the same query body and switches loaders for filter reloads', async () => {
         // The diff must scope its windows with exactly the filters a plain mine uses — if the
         // two request bodies drift apart, compare mode silently answers a different question
@@ -187,21 +237,18 @@ describe('logsPatternsLogic', () => {
             logic.actions.setCompareEnabled(true)
         }).toDispatchActions(['loadDiff', 'loadDiffSuccess'])
 
-        expect(mockDiffCreate).toHaveBeenCalledWith(expect.any(String), {
-            query: minedQuery,
-            baselineDateRange: undefined, // 'lastWeek' delegates the -7d default to the backend
-        })
+        expect(mockDiffCreate).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ query: minedQuery }))
         expect(logic.values.diffResponse).toEqual(DIFF_RESPONSE)
 
         mockDiffCreate.mockClear()
         await expectLogic(logic, () => {
-            filtersLogic.actions.setServiceNames(['auth'])
+            filtersLogic.actions.setFilters({ serviceNames: ['auth'] })
         }).toDispatchActions(['loadDiffSuccess'])
         expect(mockDiffCreate).toHaveBeenCalledTimes(1)
         expect(mockCreate).toHaveBeenCalledTimes(1) // only the original mount load
     })
 
-    it('preceding baseline is the same-length window ending where the current one starts', async () => {
+    it('defaults to the preceding baseline: the same-length window ending where the current one starts', async () => {
         // Locks the window arithmetic: a drift here (wrong length, overlap, or gap) makes the
         // "vs. preceding period" comparison silently wrong while still returning results.
         mockDiffCreate.mockResolvedValue(DIFF_RESPONSE)
@@ -216,19 +263,19 @@ describe('logsPatternsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
         expect(mockDiffCreate).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ baselineDateRange: undefined })
-        )
-
-        logic.actions.setBaselineMode('preceding')
-        await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
-        expect(mockDiffCreate).toHaveBeenLastCalledWith(
-            expect.any(String),
             expect.objectContaining({
                 baselineDateRange: {
                     date_from: '2026-06-23T11:00:00.000Z',
                     date_to: '2026-06-23T12:00:00.000Z',
                 },
             })
+        )
+
+        logic.actions.setBaselineMode('lastWeek')
+        await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
+        expect(mockDiffCreate).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ baselineDateRange: undefined }) // the backend applies the -7d default
         )
     })
 
@@ -242,13 +289,13 @@ describe('logsPatternsLogic', () => {
         configLogic.mount()
 
         configLogic.actions.setCompareEnabled(true)
-        configLogic.actions.setBaselineMode('preceding')
+        configLogic.actions.setBaselineMode('lastWeek')
         configLogic.actions.setViewMode('patterns')
 
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadDiff', 'loadDiffSuccess'])
         expect(mockCreate).not.toHaveBeenCalled()
-        expect(logic.values.baselineMode).toBe('preceding')
+        expect(logic.values.baselineMode).toBe('lastWeek')
     })
 
     it('surfaces a load failure as patternsError and clears it on the next success', async () => {
@@ -294,13 +341,57 @@ describe('logsPatternsLogic', () => {
         mockCreate.mockClear()
 
         await expectLogic(logic, () => {
-            filtersLogic.actions.setSeverityLevels(['error'])
-        }).toDispatchActions(['setSeverityLevels', 'loadPatterns', 'loadPatternsSuccess'])
+            filtersLogic.actions.setFilters({ severityLevels: ['error'] })
+        }).toDispatchActions(['setFilters', 'loadPatterns', 'loadPatternsSuccess'])
 
         expect(mockCreate).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ query: expect.objectContaining({ severityLevels: ['error'] }) })
+            expect.objectContaining({
+                query: expect.objectContaining({
+                    filterGroup: expect.objectContaining({
+                        values: [
+                            expect.objectContaining({
+                                values: [expect.objectContaining({ key: 'severity_level', value: ['error'] })],
+                            }),
+                        ],
+                    }),
+                }),
+            })
         )
+    })
+
+    it('re-mines when the refresh button runs the query', async () => {
+        // The refresh button dispatches `bumpFacetRefresh` on the shared filters logic. Without
+        // wiring, Patterns kept the earlier mine while the logs table below it re-ran.
+        const configLogic = logsViewerConfigLogic({ id: ID })
+        configLogic.mount()
+        configLogic.actions.setViewMode('patterns')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+        mockCreate.mockClear()
+
+        await expectLogic(logic, () => {
+            filtersLogic.actions.bumpFacetRefresh()
+        }).toDispatchActions(['loadPatterns', 'loadPatternsSuccess'])
+
+        expect(mockCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores the refresh button while Patterns is not the active lens', async () => {
+        // The logic can stay mounted after a lens switch; a refresh from the Logs table must not
+        // fire a stray mine.
+        const configLogic = logsViewerConfigLogic({ id: ID })
+        configLogic.mount()
+        configLogic.actions.setViewMode('patterns')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+        configLogic.actions.setViewMode('logs')
+        mockCreate.mockClear()
+
+        filtersLogic.actions.bumpFacetRefresh()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockCreate).not.toHaveBeenCalled()
     })
 
     // The label format flips on a >= 24h window threshold (time-of-day vs date-prefixed) and

@@ -9,9 +9,9 @@
 import * as zod from 'zod'
 
 /**
- * Per-audience Slack destinations for the daily merged-PR digest.
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
  */
-export const StamphogDigestChannelsListParams = /* @__PURE__ */ zod.object({
+export const StamphogDigestRunsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,88 +19,19 @@ export const StamphogDigestChannelsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const StamphogDigestChannelsListQueryParams = /* @__PURE__ */ zod.object({
+export const StamphogDigestRunsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const StamphogDigestChannelsCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const stamphogDigestChannelsCreateBodyAudienceKeyMax = 255
-
-export const stamphogDigestChannelsCreateBodySlackIntegrationIdMin = -2147483648
-export const stamphogDigestChannelsCreateBodySlackIntegrationIdMax = 2147483647
-
-export const stamphogDigestChannelsCreateBodySlackChannelIdMax = 64
-
-export const stamphogDigestChannelsCreateBodySlackChannelNameMax = 255
-
-export const StamphogDigestChannelsCreateBody = /* @__PURE__ */ zod.object({
-    audience_key: zod
-        .string()
-        .max(stamphogDigestChannelsCreateBodyAudienceKeyMax)
-        .describe(
-            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog\/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone."
-        ),
-    slack_integration_id: zod
-        .number()
-        .min(stamphogDigestChannelsCreateBodySlackIntegrationIdMin)
-        .max(stamphogDigestChannelsCreateBodySlackIntegrationIdMax)
-        .describe("ID of the team's Slack integration used to post the digest."),
     slack_channel_id: zod
         .string()
-        .max(stamphogDigestChannelsCreateBodySlackChannelIdMax)
-        .describe("Slack channel ID to post the digest to, e.g. 'C012AB3CD'."),
-    slack_channel_name: zod
-        .string()
-        .max(stamphogDigestChannelsCreateBodySlackChannelNameMax)
         .optional()
-        .describe('Human-readable Slack channel name, for display only.'),
-    enabled: zod.boolean().optional().describe('Whether this channel is included in the daily digest fan-out.'),
-})
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const StamphogDigestChannelsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this digest channel.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Read-only history of posted (or attempted) digests, filterable by digest channel.
- */
-export const StamphogDigestRunsListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const StamphogDigestRunsListQueryParams = /* @__PURE__ */ zod.object({
-    digest_channel: zod.string().optional().describe('Filter by digest channel ID.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+        .describe("Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'."),
 })
 
 /**
  * Read-only pull requests stamphog knows about, filterable by PR number and merge state.
  */
-export const StamphogPullRequestsListParams = /* @__PURE__ */ zod.object({
+export const StamphogPullRequestsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -108,7 +39,7 @@ export const StamphogPullRequestsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const StamphogPullRequestsListQueryParams = /* @__PURE__ */ zod.object({
+export const StamphogPullRequestsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     merged: zod
         .boolean()
@@ -121,8 +52,8 @@ export const StamphogPullRequestsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Read-only pull requests stamphog knows about, filterable by PR number and merge state.
  */
-export const StamphogPullRequestsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this pull request.'),
+export const StamphogPullRequestsRetrieveParams = () => zod.object({
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -133,7 +64,7 @@ export const StamphogPullRequestsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
-export const StamphogRepoConfigsListParams = /* @__PURE__ */ zod.object({
+export const StamphogRepoConfigsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -141,7 +72,7 @@ export const StamphogRepoConfigsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const StamphogRepoConfigsListQueryParams = /* @__PURE__ */ zod.object({
+export const StamphogRepoConfigsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -149,8 +80,8 @@ export const StamphogRepoConfigsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
-export const StamphogRepoConfigsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this stamphog repo config.'),
+export const StamphogRepoConfigsRetrieveParams = () => zod.object({
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -161,8 +92,8 @@ export const StamphogRepoConfigsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
-export const StamphogRepoConfigsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this stamphog repo config.'),
+export const StamphogRepoConfigsDestroyParams = () => zod.object({
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -171,9 +102,9 @@ export const StamphogRepoConfigsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Read-only history of stamphog review runs, filterable by repository, PR number, and status.
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
-export const StamphogReviewRunsListParams = /* @__PURE__ */ zod.object({
+export const StamphogReviewRunsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -181,19 +112,121 @@ export const StamphogReviewRunsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const StamphogReviewRunsListQueryParams = /* @__PURE__ */ zod.object({
+export const StamphogReviewRunsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     pr_number: zod.number().optional().describe('Filter by pull request number.'),
     repository: zod.string().optional().describe("Filter by repository full name, e.g. 'PostHog\/posthog'."),
     status: zod.string().optional().describe('Filter by review run status.'),
+    trigger: zod
+        .enum(['all', 'label', 'manual', 'self_driving'])
+        .optional()
+        .describe(
+            "Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox)."
+        ),
 })
 
 /**
- * Read-only history of stamphog review runs, filterable by repository, PR number, and status.
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
-export const StamphogReviewRunsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this review run.'),
+export const StamphogReviewRunsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const StamphogReviewRunsCreateBody = () => zod
+    .object({
+        repository: zod
+            .string()
+            .describe(
+                "Full name of the GitHub repository, e.g. 'PostHog\/posthog'. It must be connected and enabled in Stamphog."
+            ),
+        pr_number: zod.number().min(1).describe('Pull request number on GitHub.'),
+    })
+    .describe('Request body for asking stamphog to review one pull request.')
+
+/**
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
+ */
+export const StamphogReviewRunsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a team or person was or was not asked to review. Get one run for the files each owner owns.
+ */
+export const StamphogRoutingRunsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const stamphogRoutingRunsListQueryHeadShaMax = 64
+
+export const StamphogRoutingRunsListQueryParams = () => zod.object({
+    created_after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Keep only runs created at or after this time (ISO 8601).'),
+    created_before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Keep only runs created before this time (ISO 8601).'),
+    head_sha: zod
+        .string()
+        .min(1)
+        .max(stamphogRoutingRunsListQueryHeadShaMax)
+        .optional()
+        .describe('Keep only runs on this head commit. Pass the full 40-character SHA.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    outcome: zod
+        .enum(['requested', 'labeled', 'refused', 'cut', 'not_requested', 'already_requested'])
+        .optional()
+        .describe(
+            'Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.\n\n\* `requested` - Requested\n\* `labeled` - Labeled\n\* `refused` - Refused by GitHub\n\* `cut` - Cut\n\* `not_requested` - Not requested\n\* `already_requested` - Already requested'
+        ),
+    owner: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'."
+        ),
+    pr_number: zod.number().optional().describe('Filter by pull request number.'),
+    reason: zod
+        .enum([
+            'sensitive',
+            'new_path',
+            'largest_owner',
+            'diff_not_seen',
+            'cut_skipped',
+            'model_kept',
+            'model_cut',
+            'stamphog_approved',
+        ])
+        .optional()
+        .describe(
+            'Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.\n\n\* `sensitive` - Owns a sensitive path\n\* `new_path` - Owns a new path\n\* `largest_owner` - Has the largest part\n\* `diff_not_seen` - Diff not shown to the model\n\* `cut_skipped` - Cut step skipped\n\* `model_kept` - Kept by the model\n\* `model_cut` - Cut by the model\n\* `stamphog_approved` - Stamphog approved'
+        ),
+    repository: zod.string().min(1).optional().describe("Filter by repository full name, e.g. 'PostHog\/posthog'."),
+})
+
+/**
+ * One reviewer routing run, with every changed file each owner owns.
+ */
+export const StamphogRoutingRunsRetrieveParams = () => zod.object({
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

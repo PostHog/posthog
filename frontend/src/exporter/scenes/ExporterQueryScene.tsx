@@ -11,8 +11,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { DISPLAYS_WITH_IN_CHART_LEGEND } from 'scenes/insights/insightVizDataLogic'
 
 import { Query } from '~/queries/Query/Query'
+import { getDisplay } from '~/queries/schema/node-accessors'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { getDisplay, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { isMetricInsightQuery } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { ExportedData } from '../types'
@@ -26,11 +28,13 @@ import { ExportedData } from '../types'
 export default function ExporterQueryScene({
     query,
     queryResults,
+    title,
     themes,
     exportOptions,
 }: {
     query: NonNullable<ExportedData['query']>
     queryResults: ExportedData['query_results']
+    title: ExportedData['query_title']
     themes: NonNullable<ExportedData['themes']>
     exportOptions: SharingConfigurationSettings
 }): JSX.Element {
@@ -76,12 +80,12 @@ export default function ExporterQueryScene({
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
-            <div
-                className={clsx(
-                    'ExportedInsight',
-                    trendsDisplay === ChartDisplayType.Metric && 'ExportedInsight--metric'
+            <div className={clsx('ExportedInsight', isMetricInsightQuery(query) && 'ExportedInsight--metric')}>
+                {title && (
+                    <div className="ExportedInsight__header">
+                        <div className="ExportedInsight__header__title">{title}</div>
+                    </div>
                 )}
-            >
                 <div className="ExportedInsight__content">
                     <Query
                         query={query}

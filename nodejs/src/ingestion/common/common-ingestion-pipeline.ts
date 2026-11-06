@@ -32,6 +32,7 @@ import {
     createParseKafkaMessageStep,
     createResolveTeamStep,
     parseMessageTopHogMetrics,
+    resolveTeamTopHogMetrics,
 } from './steps/event-preprocessing'
 import { addTeamToContext } from './subpipelines/helpers'
 
@@ -334,8 +335,8 @@ export class CommonPreTeamStage<
      * open the team-aware scope: every step piped after this runs inside
      * `handleIngestionWarnings`, with warnings routed to the resolved team.
      *
-     * `options.topHog` records metric factories around the team-resolution
-     * step (e.g. a per-team resolved counter).
+     * Always records `resolveTeamTopHogMetrics`. `options.topHog` adds more
+     * metric factories around the team-resolution step.
      */
     resolveTeam(
         this: CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }>,
@@ -345,8 +346,12 @@ export class CommonPreTeamStage<
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TeamResolved<TCurrent>, TeamResolved<TCurrent>> {
         const step = createResolveTeamStep<TCurrent & { event: IncomingEvent }>(this.config.teamManager)
         const topHog = createTopHogWrapper(this.config.topHog)
-        const metrics = options?.topHog
-        const resolved = this.chain.extend(metrics?.length ? topHog(step, metrics) : step)
+        const resolved = this.chain.extend(
+            topHog(step, [
+                ...resolveTeamTopHogMetrics<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>(),
+                ...(options?.topHog ?? []),
+            ])
+        )
         return new CommonTeamStage(
             this.config,
             this.beforeBatchCallback,
@@ -519,8 +524,16 @@ export class CommonTeamStage<
         return new CommonBuildStage(this.config, this.beforeBatchCallback, this.completeTransform(), callback)
     }
 
-    build(): BatchingPipeline<TInput, TCurrent, TContext, CBatch, BatchContext<TContext>, ROut> {
-        return new CommonBuildStage(this.config, this.beforeBatchCallback, this.completeTransform()).build()
+    build<CFeed extends object = Record<never, never>>(): BatchingPipeline<
+        TInput,
+        TCurrent,
+        TContext,
+        CBatch,
+        BatchContext<TContext>,
+        ROut,
+        CFeed
+    > {
+        return new CommonBuildStage(this.config, this.beforeBatchCallback, this.completeTransform()).build<CFeed>()
     }
 
     private completeTransform(): SubpipelineTransform<TInput, TContext, CBatch, TCurrent, ROut> {
@@ -612,7 +625,15 @@ export class CommonBuildStage<
         private readonly afterBatchCallback?: AfterBatchCallback<TFinal, TContext, CBatch, ROut>
     ) {}
 
-    build(): BatchingPipeline<TInput, TFinal, TContext, CBatch, BatchContext<TContext>, ROut> {
+    build<CFeed extends object = Record<never, never>>(): BatchingPipeline<
+        TInput,
+        TFinal,
+        TContext,
+        CBatch,
+        BatchContext<TContext>,
+        ROut,
+        CFeed
+    > {
         const { outputs, promiseScheduler, concurrentBatches, awaitSideEffects } = this.config
         const pipelineConfig: PipelineConfig<ROut> = { outputs, promiseScheduler }
         const sideEffectOptions = { await: awaitSideEffects ?? false }
@@ -625,7 +646,7 @@ export class CommonBuildStage<
 
         // The hooks handle their own side effects, so nothing rides out on
         // `BatchResult.sideEffects` and drivers only ever drain results.
-        return newBatchingPipeline<TInput, TFinal, TContext, CBatch, TContext, ROut, KafkaDebugContext>(
+        return newBatchingPipeline<TInput, TFinal, TContext, CBatch, TContext, ROut, KafkaDebugContext, CFeed>(
             (builder) => this.beforeBatchCallback(builder).handleSideEffects(promiseScheduler, sideEffectOptions),
             (batch) =>
                 batch

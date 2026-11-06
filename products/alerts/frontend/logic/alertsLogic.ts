@@ -1,13 +1,19 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectClean } from 'lib/utils/objects'
+import { urls } from 'scenes/urls'
 
 import { AlertState } from '~/queries/schema/schema-general'
+
+import { alertsTakeOwnershipCreate } from 'products/alerts/frontend/generated/api'
 
 import { AlertType } from '../types'
 import { AlertLogicProps } from './alertLogic'
@@ -39,6 +45,7 @@ export interface alertsLogicValues {
     }
     alertsResponseLoading: boolean
     alertsSortedByState: AlertType[]
+    deletedAlertIds: Set<string>
     deletingAlertIds: Set<string>
     filters: AlertsFilters
     isFiltering: boolean
@@ -87,6 +94,9 @@ export interface alertsLogicActions {
             results: AlertType[]
         }
         payload?: any
+    }
+    removeAlertFromList: (alertId: string) => {
+        alertId: string
     }
     setAlertDeleting: (
         alertId: string,
@@ -137,6 +147,7 @@ export const alertsLogic = kea<alertsLogicType>([
         setAlertToggling: (alertId: string, isToggling: boolean) => ({ alertId, isToggling }),
         deleteAlert: (alert: AlertType) => ({ alert }),
         setAlertDeleting: (alertId: string, isDeleting: boolean) => ({ alertId, isDeleting }),
+        removeAlertFromList: (alertId: string) => ({ alertId }),
         toggleAlertEnabled: (alert: AlertType) => ({ alert }),
         updateAlertInList: (alert: AlertType) => ({ alert }),
     }),
@@ -149,6 +160,13 @@ export const alertsLogic = kea<alertsLogicType>([
                     ...state,
                     results: state.results.map((currentAlert) => (currentAlert.id === alert.id ? alert : currentAlert)),
                 }),
+                removeAlertFromList: (state, { alertId }) => {
+                    const results = state.results.filter((alert) => alert.id !== alertId)
+                    if (results.length === state.results.length) {
+                        return state
+                    }
+                    return { results, count: Math.max(0, state.count - 1) }
+                },
             },
         ],
         page: [
@@ -169,6 +187,12 @@ export const alertsLogic = kea<alertsLogicType>([
                     }
                     return nextState
                 },
+            },
+        ],
+        deletedAlertIds: [
+            new Set<string>(),
+            {
+                removeAlertFromList: (state, { alertId }) => new Set(state).add(alertId),
             },
         ],
         togglingAlertIds: [
@@ -210,7 +234,14 @@ export const alertsLogic = kea<alertsLogicType>([
                         ...(search ? { search } : {}),
                         ...(values.filters.createdBy !== 'All users' ? { created_by: values.filters.createdBy } : {}),
                     })
-                    return { results: response.results, count: response.count ?? response.results.length }
+                    const results = response.results.filter((alert) => !values.deletedAlertIds.has(alert.id))
+                    return {
+                        results,
+                        count: Math.max(
+                            0,
+                            (response.count ?? response.results.length) - (response.results.length - results.length)
+                        ),
+                    }
                 },
             },
         ],
@@ -284,6 +315,7 @@ export const alertsLogic = kea<alertsLogicType>([
             actions.setAlertDeleting(alert.id, true)
             try {
                 await api.alerts.delete(alert.id)
+                actions.removeAlertFromList(alert.id)
                 actions.loadAlerts()
                 lemonToast.success(`${alert.name || 'Unnamed alert'} has been deleted`)
             } catch {
@@ -310,8 +342,27 @@ export const alertsLogic = kea<alertsLogicType>([
             try {
                 const updatedAlert = await api.alerts.update(alert.id, { enabled: !alert.enabled })
                 actions.updateAlertInList(updatedAlert)
-            } catch {
-                lemonToast.error('Failed to update alert')
+            } catch (error) {
+                const cause = alert.enabled ? null : ownerUnavailableCause(error)
+                if (cause) {
+                    // Not awaited, so the row's switch stops loading while the dialog is open.
+                    void openTakeOwnershipDialog({
+                        resourceLabel: 'alert',
+                        resourceId: alert.id,
+                        owner: alert.created_by ?? null,
+                        cause,
+                        takeOwnership: async () => {
+                            await alertsTakeOwnershipCreate(String(getCurrentTeamId()), alert.id)
+                            lemonToast.success('Alert enabled')
+                        },
+                    }).then((taken) => {
+                        if (taken) {
+                            actions.loadAlerts()
+                        }
+                    })
+                } else {
+                    lemonToast.error('Failed to update alert')
+                }
             } finally {
                 actions.setAlertToggling(alert.id, false)
             }
@@ -321,7 +372,42 @@ export const alertsLogic = kea<alertsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => actions.loadAlerts()),
+    actionToUrl(({ values }) => ({
+        setFilters: ({ filters }) => {
+            if (!('createdBy' in filters)) {
+                return
+            }
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            if (!pathname.endsWith(urls.alerts())) {
+                return
+            }
+            return [
+                pathname,
+                {
+                    ...searchParams,
+                    created_by:
+                        values.filters.createdBy === DEFAULT_ALERTS_FILTERS.createdBy
+                            ? undefined
+                            : values.filters.createdBy,
+                },
+                hashParams,
+                { replace: true },
+            ]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.alerts()]: (_, searchParams) => {
+            const createdBy = searchParams.created_by || DEFAULT_ALERTS_FILTERS.createdBy
+            if (createdBy !== values.filters.createdBy) {
+                actions.setFilters({ createdBy })
+            }
+        },
+    })),
+    afterMount(({ actions, values }) => {
+        if (!values.alertsResponseLoading) {
+            actions.loadAlerts()
+        }
+    }),
 ])
 
 const alertComparatorKey = (alert: AlertType): number => {

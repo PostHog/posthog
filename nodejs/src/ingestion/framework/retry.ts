@@ -1,17 +1,15 @@
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import { retryIfRetriable } from '~/common/utils/retries'
+import { RetrySchedule, retryIfRetriable } from '~/common/utils/retries'
 
 import { ChunkProcessingStep } from './base-chunk-pipeline'
 import { pipelineRetryAttemptsHistogram } from './metrics'
 import { dlq } from './results'
 import { ProcessingStep } from './steps'
 
-export interface RetryOptions {
+export interface RetryOptions extends RetrySchedule {
     /** Identifies the retry site in the `ingestion_pipeline_retry_attempts` metric. Defaults to the step name. */
     name?: string
-    tries?: number
-    sleepMs?: number
 }
 
 /**
@@ -31,18 +29,15 @@ export function withStepRetry<T, U, R extends string = never>(
     step: ProcessingStep<T, U, R>,
     options: RetryOptions = {}
 ): ProcessingStep<T, U, R> {
-    const name = options.name ?? step.name ?? 'unknown'
+    const { name: optionName, ...schedule } = options
+    const name = optionName ?? step.name ?? 'unknown'
     const wrappedStep: ProcessingStep<T, U, R> = async (value: T) => {
         let attempts = 0
         try {
-            const result = await retryIfRetriable(
-                () => {
-                    attempts++
-                    return step(value)
-                },
-                options.tries ?? 3,
-                options.sleepMs ?? 100
-            )
+            const result = await retryIfRetriable(() => {
+                attempts++
+                return step(value)
+            }, schedule)
             pipelineRetryAttemptsHistogram.labels({ name, outcome: 'completed' }).observe(attempts)
             return result
         } catch (error) {
@@ -86,18 +81,15 @@ export function withChunkRetry<T, U, R extends string = never>(
     step: ChunkProcessingStep<T, U, R>,
     options: RetryOptions = {}
 ): ChunkProcessingStep<T, U, R> {
-    const name = options.name ?? step.name ?? 'unknown'
+    const { name: optionName, ...schedule } = options
+    const name = optionName ?? step.name ?? 'unknown'
     const wrappedStep: ChunkProcessingStep<T, U, R> = async (values: T[]) => {
         let attempts = 0
         try {
-            const result = await retryIfRetriable(
-                () => {
-                    attempts++
-                    return step(values)
-                },
-                options.tries ?? 3,
-                options.sleepMs ?? 100
-            )
+            const result = await retryIfRetriable(() => {
+                attempts++
+                return step(values)
+            }, schedule)
             pipelineRetryAttemptsHistogram.labels({ name, outcome: 'completed' }).observe(attempts)
             return result
         } catch (error) {

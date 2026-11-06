@@ -9,7 +9,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from .ports import DJANGO_LIVE_PORT, LLM_GATEWAY_PORT, MCP_PORT
+from .ports import AI_GATEWAY_PORT, DJANGO_LIVE_PORT, MCP_PORT
 from .tunnels import TailscaleFunnel, funnel_preflight_error
 
 logger = logging.getLogger(__name__)
@@ -162,6 +162,15 @@ class SandboxProviderStrategy(ABC):
         """Per-sandbox max lifetime, or ``None`` to keep ``SANDBOX_TTL_SECONDS``."""
         return None
 
+    def keeps_sandboxes(self) -> bool:
+        """Whether this run deliberately leaves sandboxes behind for inspection.
+
+        Covers the sandboxes the harness does not create itself — notebook kernels —
+        so a debugging flag that preserves a case's agent container preserves the
+        kernel container the same case provisioned.
+        """
+        return False
+
     def cleanup_case(self, task_id: str) -> None:  # noqa: B027 — optional hook; only providers whose per-case teardown can lag override it
         """Per-case teardown run after each case settles, on top of the workflow's own cleanup."""
 
@@ -192,23 +201,37 @@ class DockerProviderStrategy(SandboxProviderStrategy):
             raise PreflightError("The Docker daemon is not reachable. Start Docker and retry.")
 
     def start(self, stack: ExitStack) -> None:
-        # Verify posthog-sandbox-base is fresh (rebuilding when @posthog/agent published a
-        # newer version or the Dockerfile changed) before any case grabs a sandbox, so a
-        # stale image can't break the whole run. Imported here because it pulls in Django.
+        # Verify posthog-sandbox-base is fresh (rebuilding when the Dockerfile or its
+        # agent pin changed) before any case grabs a sandbox, so a stale image can't
+        # break the whole run. Imported here because it pulls in Django.
         from products.tasks.backend.logic.services.docker_sandbox import (  # noqa: PLC0415 — Django import, kept off the harness import path
             ensure_fresh_base_image,
+            ensure_template_image,
+        )
+        from products.tasks.backend.logic.services.sandbox import (  # noqa: PLC0415 — Django import, kept off the harness import path
+            SandboxTemplate,
         )
 
         ensure_fresh_base_image(force=self.rebuild_image)
+        # The notebook kernel image is otherwise built on first use, inside a Temporal
+        # activity with a 5-minute budget — a cold build blows through it, and the run's
+        # first python cell fails on a timeout instead of on anything real.
+        ensure_template_image(SandboxTemplate.NOTEBOOK_BASE)
 
     def settings_overrides(self) -> dict[str, Any]:
-        # Docker containers reach the host via host.docker.internal.
+        # Docker containers reach the host via host.docker.internal. The gateway URL is the
+        # exception: the worker on the host mints run tokens through it, and DockerSandbox
+        # rewrites localhost to host.docker.internal in the container's env.
         return {
             "SANDBOX_PROVIDER": SANDBOX_PROVIDER_SETTING[self.name],
             "SANDBOX_API_URL": f"http://host.docker.internal:{DJANGO_LIVE_PORT}",
-            "SANDBOX_LLM_GATEWAY_URL": f"http://host.docker.internal:{LLM_GATEWAY_PORT}",
+            "SANDBOX_AI_GATEWAY_URL": f"http://localhost:{AI_GATEWAY_PORT}",
+            "SANDBOX_LLM_GATEWAY_URL": f"http://host.docker.internal:{AI_GATEWAY_PORT}",
             "SANDBOX_MCP_URL": f"http://host.docker.internal:{MCP_PORT}/mcp",
         }
+
+    def keeps_sandboxes(self) -> bool:
+        return self.keep_containers
 
     def cleanup_case(self, task_id: str) -> None:
         # Belt-and-braces on top of the workflow's own shutdown: its cleanup_sandbox
@@ -273,7 +296,7 @@ class ModalProviderStrategy(SandboxProviderStrategy):
         tunnels = TailscaleFunnel(
             {
                 "django": DJANGO_LIVE_PORT,
-                "gateway": LLM_GATEWAY_PORT,
+                "gateway": AI_GATEWAY_PORT,
                 "mcp": MCP_PORT,
             }
         )
@@ -287,6 +310,7 @@ class ModalProviderStrategy(SandboxProviderStrategy):
         return {
             "SANDBOX_PROVIDER": SANDBOX_PROVIDER_SETTING[self.name],
             "SANDBOX_API_URL": self._tunnels.url_for("django"),
+            "SANDBOX_AI_GATEWAY_URL": self._tunnels.url_for("gateway"),
             "SANDBOX_LLM_GATEWAY_URL": self._tunnels.url_for("gateway"),
             "SANDBOX_MCP_URL": f"{self._tunnels.url_for('mcp')}/mcp",
         }

@@ -4,6 +4,7 @@ import {
   formatFileCountLabel,
 } from "@posthog/core/git-interaction/diffStats";
 import { buildCreatePrFlowErrorPrompt } from "@posthog/core/git-interaction/errorPrompts";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   Button,
   Checkbox,
@@ -240,12 +241,8 @@ export function CreatePrDialog({
                     Cancel
                   </Button>
                 </Dialog.Close>
-                <Button
-                  size="1"
-                  disabled={isSubmitting}
-                  loading={isSubmitting}
-                  onClick={onSubmit}
-                >
+                <Button size="1" disabled={isSubmitting} onClick={onSubmit}>
+                  {isSubmitting && <Spinner size="sm" />}
                   Create PR
                 </Button>
               </Flex>

@@ -1,8 +1,11 @@
+import dataclasses
+from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -12,6 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from django.db import DatabaseError, connection
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -19,10 +23,15 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
 from posthog.models.event.util import create_event
+from posthog.ph_client import PH_US_API_KEY
 from posthog.tasks.ai_observability_usage_report import (
+    AI_EVENT_NAME_PREFIX,
     AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS,
+    AI_OBSERVABILITY_USAGE_EVENT,
+    LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
     _get_all_ai_observability_reports,
     capture_ai_observability_report,
+    get_ai_trace_counts,
     get_all_ai_dimension_breakdowns,
     get_all_ai_metrics,
     get_llm_feedback_survey_metrics,
@@ -30,10 +39,30 @@ from posthog.tasks.ai_observability_usage_report import (
     get_teams_with_ai_events,
     send_ai_observability_usage_reports,
 )
-from posthog.utils import get_previous_day
+from posthog.tasks.usage_report import _get_all_org_reports, capture_report, has_non_zero_usage
+from posthog.temporal.usage_report.aggregator import iter_org_reports
+from posthog.temporal.usage_report.types import WorkflowContext
+from posthog.usage_counters import UsageCounterService
+from posthog.utils import DayRange, get_previous_day
+
+from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
+from products.ai_observability.backend.offline_evaluation_service import (
+    OfflineEvaluationIngestionService,
+    OfflineExperimentService,
+)
+from products.ai_observability.backend.offline_evaluation_types import (
+    ExperimentSubmission,
+    ItemSubmission,
+    ResultSubmission,
+    UploadSubmission,
+)
+
+from ee.billing.quota_limiting import _aggregate_quota_usage
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     """Tests for AI observability usage reporting functionality."""
 
@@ -101,6 +130,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(
             self.team, distinct_id, "$ai_evaluation", 1, properties={"$ai_evaluation_runtime": "sentiment"}
         )
+        self._create_ai_events(self.team, distinct_id, "$ai_tag", 9)
         self._create_ai_events(self.team, distinct_id, "$ai_trace_summary", 7)
         self._create_ai_events(self.team, distinct_id, "$ai_generation_summary", 12)
         self._create_ai_events(self.team, distinct_id, "$ai_trace_clusters", 2)
@@ -140,13 +170,14 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.ai_generation_count == 8  # 5 + 3
         assert metrics.ai_embedding_count == 3
         assert metrics.ai_span_count == 10
-        assert metrics.ai_trace_count == 2
+        assert metrics.ai_trace_event_count == 2
         assert metrics.ai_metric_count == 1
         assert metrics.ai_feedback_count == 4
         assert metrics.ai_evaluation_count == 6
         assert metrics.ai_llm_judge_evaluation_count == 3
         assert metrics.ai_hog_evaluation_count == 2
         assert metrics.ai_sentiment_evaluation_count == 1
+        assert metrics.ai_tag_count == 9
         assert metrics.ai_trace_summary_count == 7
         assert metrics.ai_generation_summary_count == 12
         assert metrics.ai_trace_clusters_count == 2
@@ -166,6 +197,48 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.reasoning_tokens == 75  # 3 * 25
         assert metrics.cache_read_tokens == 1500  # 3 * 500
         assert metrics.cache_creation_tokens == 600  # 3 * 200
+
+    def test_get_ai_trace_counts_counts_distinct_trace_ids(self) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period = get_previous_day()
+
+        traced_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 3, properties={"$ai_trace_id": traced_id})
+        self._create_ai_events(self.team, distinct_id, "$ai_span", 2, properties={"$ai_trace_id": traced_id})
+        self._create_ai_events(self.team, distinct_id, "$ai_trace", 1, properties={"$ai_trace_id": traced_id})
+
+        # A trace whose SDK integration never emits the root $ai_trace event still counts.
+        rootless_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 2, properties={"$ai_trace_id": rootless_id})
+
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 1)
+
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+
+        assert get_ai_trace_counts(period.start, period.end, team_ids)[self.team.id] == 2
+
+        # The root-event count stays available as its own signal, so the two can be compared.
+        assert get_all_ai_metrics(period.start, period.end, team_ids)[self.team.id].ai_trace_event_count == 1
+
+    def test_unlisted_ai_prefixed_events_count_for_the_report_but_not_for_discovery(self) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period = get_previous_day()
+        trace_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_custom_step", 3, properties={"$ai_trace_id": trace_id})
+
+        assert self.team.id not in get_teams_with_ai_events(
+            period.start, period.end, LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS
+        )
+
+        team_ids = get_teams_with_ai_events(
+            period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS, event_prefix=AI_EVENT_NAME_PREFIX
+        )
+        assert self.team.id in team_ids
+        assert get_ai_trace_counts(period.start, period.end, team_ids)[self.team.id] == 1
 
     def test_get_all_ai_metrics_cost_anomaly_counts(self) -> None:
         """Test that cost anomaly counts (total, negative, zero) are correctly calculated."""
@@ -472,6 +545,180 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         metrics = survey_metrics[self.team.id]
         assert metrics.active_survey_count == 2  # survey_id_1 and survey_id_2
         assert metrics.response_count == 5  # 3 + 2 (only "survey sent" events)
+
+    @parameterized.expand([(50, 30), (0, 30), (50, 0), (0, 0)])
+    @time_machine.travel("2026-10-31T23:59:59.999999Z", tick=False)
+    def test_upload_to_both_reports_and_quota(self, ingested: int, offline: int) -> None:
+        period = get_previous_day(at=datetime(2026, 11, 1, tzinfo=UTC))
+        if ingested:
+            self._create_ai_events(self.team, "billing-test", "$ai_generation", ingested, timestamp=period.start)
+        if offline:
+            experiment = (
+                OfflineExperimentService(team_id=self.team.id, user_access_control=None)
+                .create(ExperimentSubmission(id=uuid4(), name="Billing fixture", started_at=period.start))
+                .experiment
+            )
+            scorer = ScoreDefinition.objects.create(team=self.team, name="Accuracy", kind="numeric")
+            versions = [scorer.create_new_version(config={}, created_by=None) for _ in range(6)]
+            items = [ItemSubmission(id=uuid4()) for _ in range(5)]
+            results = [
+                ResultSubmission(item_id=item.id, scorer_version_id=version.id, status="ok", value=0.8)
+                for item in items
+                for version in versions
+            ]
+            ingestion = OfflineEvaluationIngestionService(team_id=self.team.id, user_access_control=None)
+            for batch in (results[:20], results[20:]):
+                submission = UploadSubmission(
+                    items=[item for item in items if item.id in {result.item_id for result in batch}], results=batch
+                )
+                ingestion.upload(experiment.id, submission)
+                ingestion.upload(experiment.id, submission)
+            ingestion.upload(
+                experiment.id, UploadSubmission(items=list(reversed(items)), results=list(reversed(results)))
+            )
+            self.assertEqual(
+                sorted(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)),
+                [10, 20],
+            )
+            rejected_item = ItemSubmission(id=uuid4(), payload={"input": "Rejected transaction"})
+
+            def fail_ledger_insert(
+                execute: Callable[..., object], sql: str, params: object, many: bool, context: object
+            ) -> object:
+                if sql.startswith("INSERT INTO") and OfflineEvaluationUsageLedger._meta.db_table in sql:
+                    raise DatabaseError("Ledger write unavailable")
+                return execute(sql, params, many, context)
+
+            with (
+                connection.execute_wrapper(fail_ledger_insert),
+                self.assertRaisesMessage(DatabaseError, "Ledger write unavailable"),
+            ):
+                ingestion.upload(
+                    experiment.id,
+                    UploadSubmission(
+                        items=[rejected_item], results=[dataclasses.replace(results[0], item_id=rejected_item.id)]
+                    ),
+                )
+
+        counter_report = UsageCounterService().fetch_report(period)
+        all_data = defaultdict(dict, {key: dict(rows) for key, rows in counter_report.counts.items()})
+        org_id = str(self.organization.id)
+        before = list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).order_by("id").values())
+        celery_report = _get_all_org_reports(period=period)[org_id]
+        ctx = WorkflowContext(
+            run_id="offline-usage", date_str="2026-10-31", period_start=period.start, period_end=period.end
+        )
+        temporal_report = next(
+            report for report in iter_org_reports(all_data, ctx, {}) if report.organization_id == org_id
+        )
+        expected = {
+            "ai_ingested_event_count_in_period": ingested,
+            "ai_offline_eval_metric_count_in_period": offline,
+            "ai_event_count_in_period": ingested + offline,
+        }
+        for report in (celery_report, temporal_report):
+            self.assertEqual({key: getattr(report, key) for key in expected}, expected)
+            self.assertEqual({key: getattr(report.teams[str(self.team.id)], key) for key in expected}, expected)
+            self.assertEqual(has_non_zero_usage(report), bool(ingested + offline))
+
+        with patch(
+            "posthog.tasks.usage_report.sync_execute",
+            side_effect=AssertionError("Analytics reporting must not execute billing queries"),
+        ):
+            analytics_reports = _get_all_ai_observability_reports(period=period)
+        if ingested + offline:
+            analytics_report = analytics_reports[org_id]
+            self.assertEqual(analytics_report["ai_offline_eval_metric_count_in_period"], offline)
+            self.assertEqual(analytics_report["ai_generation_count"], ingested)
+            self.assertEqual(analytics_report["ai_metric_count"], 0)
+            self.assertNotIn("ai_ingested_event_count_in_period", analytics_report)
+            self.assertNotIn("ai_event_count_in_period", analytics_report)
+            with (
+                patch("posthog.tasks.usage_report.get_ph_client"),
+                patch("posthog.tasks.usage_report.capture_event") as org_capture,
+                patch("posthog.tasks.ai_observability_usage_report.get_ph_client"),
+                patch("posthog.tasks.ai_observability_usage_report.capture_event") as ai_capture,
+            ):
+                capture_report(organization_id=org_id, full_report_dict=dataclasses.asdict(celery_report))
+                capture_ai_observability_report(organization_id=org_id, report_dict=analytics_report)
+            org_payload = next(
+                call.kwargs["properties"]
+                for call in org_capture.call_args_list
+                if call.kwargs["name"] == "organization usage report"
+            )
+            self.assertEqual({key: org_payload[key] for key in expected}, expected)
+            self.assertEqual(
+                ai_capture.call_args.kwargs["properties"]["ai_offline_eval_metric_count_in_period"], offline
+            )
+        else:
+            self.assertEqual(analytics_reports, {})
+        quotas = _aggregate_quota_usage(
+            [self.team],
+            all_data,
+            offline_usage=get_offline_evaluation_usage(period.start, period.start + timedelta(days=1)),
+        )
+        self.assertEqual(quotas.usage[org_id]["llm_events"], ingested + offline)
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).order_by("id").values()), before
+        )
+
+    @parameterized.expand([(False,), (True,)])
+    @time_machine.travel("2026-11-01T00:01:00Z", tick=False)
+    def test_both_reports_preserve_moved_team_usage_but_exclude_deleted_teams(self, deleted_team: bool) -> None:
+        period = DayRange(start=datetime(2026, 10, 31, tzinfo=UTC), end=datetime(2026, 11, 1, tzinfo=UTC))
+        new_org = Organization.objects.create(name="New owner")
+        for org, quantity in ((self.organization, 30), (new_org, 4)):
+            OfflineEvaluationUsageLedger.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                organization_id=org.id,
+                experiment_id=uuid4(),
+                accepted_at=period.start,
+                quantity=quantity,
+            )
+        Team.objects.filter(id=self.team.id).update(organization=new_org)
+        if deleted_team:
+            self.team.delete()
+        analytics = _get_all_ai_observability_reports(period=period)
+        reports = _get_all_org_reports(period=period)
+        for org, expected in ((self.organization, 30), (new_org, 4)):
+            org_id = str(org.id)
+            if deleted_team:
+                self.assertNotIn(org_id, analytics)
+                self.assertNotIn(org_id, reports)
+                continue
+            self.assertEqual(analytics[org_id]["ai_offline_eval_metric_count_in_period"], expected)
+            self.assertEqual(reports[org_id].ai_event_count_in_period, expected)
+
+    @time_machine.travel("2026-11-01T00:01:00Z", tick=False)
+    def test_failed_ledger_read_does_not_claim_the_analytics_dispatch(self) -> None:
+        OfflineEvaluationUsageLedger.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            experiment_id=uuid4(),
+            accepted_at=datetime(2026, 10, 31, tzinfo=UTC),
+            quantity=30,
+        )
+
+        def fail_ledger_read(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: object
+        ) -> object:
+            if sql.startswith("SELECT") and OfflineEvaluationUsageLedger._meta.db_table in sql:
+                raise DatabaseError("Ledger unavailable")
+            return execute(sql, params, many, context)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report.delay") as dispatch,
+        ):
+            with (
+                connection.execute_wrapper(fail_ledger_read),
+                self.assertRaisesMessage(DatabaseError, "Ledger unavailable"),
+            ):
+                send_ai_observability_usage_reports()
+            dispatch.assert_not_called()
+            send_ai_observability_usage_reports()
+            self.assertEqual(dispatch.call_count, 1)
+            self.assertEqual(dispatch.call_args.kwargs["report_dict"]["ai_offline_eval_metric_count_in_period"], 30)
 
     def test_full_ai_observability_report(self) -> None:
         """Test the full AI observability report generation."""
@@ -955,6 +1202,25 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert team_3.id not in team_ids
         assert len(team_ids) == 3
 
+    @parameterized.expand(
+        [
+            ("inside", "$ai_generation", timedelta(minutes=30), True),
+            ("at_start_is_included", "$ai_trace", timedelta(0), True),
+            ("span_only", "$ai_span", timedelta(minutes=45), True),
+            ("just_before_start", "$ai_generation", -timedelta(seconds=1), False),
+            ("at_end_is_excluded", "$ai_generation", timedelta(hours=1), False),
+        ]
+    )
+    def test_get_teams_with_ai_events_hour_window_boundaries(
+        self, _name: str, event: str, offset: timedelta, expected: bool
+    ) -> None:
+        start = datetime(2022, 1, 9, 10, tzinfo=UTC)
+        self._create_ai_events(self.team, str(uuid4()), event, 1, timestamp=start + offset)
+
+        team_ids = get_teams_with_ai_events(start, start + timedelta(hours=1), LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS)
+
+        assert (self.team.id in team_ids) == expected
+
     def test_get_llm_prompt_fetched_counts(self) -> None:
         """Test that get_llm_prompt_fetched_counts returns per-team prompt fetch totals."""
         org_2 = Organization.objects.create(name="Org 2")
@@ -1078,7 +1344,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             timestamp=jan_5_timestamp,
         )
 
-        # Create AI events for January 9th (within the default period based on freeze_time)
+        # Create AI events for January 9th (within the default period based on the frozen clock)
         jan_9_timestamp = datetime(2022, 1, 9, 12, 0, 0, tzinfo=UTC)
         self._create_ai_events(
             self.team,
@@ -1100,8 +1366,59 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert report_dict["ai_generation_count"] == 5
         assert report_dict["ai_embedding_count"] == 0  # Jan 9th events not included
 
+    @parameterized.expand(
+        [
+            ("covering_the_same_period", "2022-01-05T00:00:00+00:00", 0),
+            ("covering_a_different_period", "2021-12-20T00:00:00+00:00", 1),
+        ]
+    )
+    @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
+    @patch("posthog.tasks.ai_observability_usage_report.get_ph_client")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_manual_run_skips_organizations_with_an_existing_report(
+        self,
+        _name: str,
+        existing_period_start: str,
+        expected_emissions: int,
+        mock_feature_enabled: MagicMock,
+        mock_get_ph_client: MagicMock,
+        mock_capture_report: MagicMock,
+    ) -> None:
+        self.team.api_token = PH_US_API_KEY
+        self.team.save()
 
-@freeze_time("2022-01-10T00:01:00Z")
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            timestamp=datetime(2022, 1, 5, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Both cases stamp the existing report inside the lookup's scan window, so only the
+        # period_start property differs. A lookup that derived the period from the timestamp, or read
+        # either property out of the `ai` property group, would treat the two cases identically.
+        create_event(
+            event_uuid=uuid4(),
+            distinct_id=distinct_id,
+            event=AI_OBSERVABILITY_USAGE_EVENT,
+            properties={
+                "organization_id": str(self.organization.id),
+                "period_start": existing_period_start,
+            },
+            timestamp=datetime(2022, 1, 6, 4, 15, 0, tzinfo=UTC),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        send_ai_observability_usage_reports(at="2022-01-06")
+
+        assert mock_capture_report.delay.call_count == expected_emissions
+
+
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1110,6 +1427,7 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
             ("manual_by_org_filter", None, True, "2022-01-10T00:00:00+00:00", "manual"),
         ]
     )
+    @patch("posthog.tasks.ai_observability_usage_report.internal_reporting_team_id", return_value=None)
     @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
     @patch("posthog.tasks.ai_observability_usage_report._get_all_ai_observability_reports")
     @patch("posthoganalytics.feature_enabled", return_value=False)
@@ -1123,6 +1441,7 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
         mock_feature_enabled: MagicMock,
         mock_get_reports: MagicMock,
         mock_capture_report: MagicMock,
+        mock_internal_team_id: MagicMock,
     ) -> None:
         org_id = str(uuid4())
         mock_get_reports.return_value = {
@@ -1140,6 +1459,77 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
         call_kwargs = mock_capture_report.delay.call_args.kwargs
         assert call_kwargs["at_date"] == expected_at_date
         assert call_kwargs["report_dict"]["triggered_by"] == expected_trigger
+
+    @patch(
+        "posthog.tasks.ai_observability_usage_report.get_organizations_already_reported",
+        side_effect=Exception("CH down"),
+    )
+    @patch("posthog.tasks.ai_observability_usage_report.internal_reporting_team_id", return_value=2)
+    @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
+    @patch("posthog.tasks.ai_observability_usage_report._get_all_ai_observability_reports")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_run_emits_nothing_when_the_already_reported_lookup_fails(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_get_reports: MagicMock,
+        mock_capture_report: MagicMock,
+        mock_internal_team_id: MagicMock,
+        mock_already_reported: MagicMock,
+    ) -> None:
+        org_id = str(uuid4())
+        mock_get_reports.return_value = {org_id: {"organization_id": org_id}}
+
+        with pytest.raises(Exception, match="CH down"):
+            send_ai_observability_usage_reports(at="2022-01-06")
+
+        assert mock_capture_report.delay.call_count == 0
+        mock_get_reports.assert_not_called()
+
+    @parameterized.expand([("scheduled", None), ("manual", "2022-01-06")])
+    @patch("posthog.tasks.ai_observability_usage_report.get_organizations_already_reported")
+    @patch("posthog.tasks.ai_observability_usage_report.internal_reporting_team_id", return_value=2)
+    @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
+    @patch("posthog.tasks.ai_observability_usage_report._get_all_ai_observability_reports")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_already_reported_organizations_are_skipped_on_every_run_type(
+        self,
+        _name: str,
+        at: str | None,
+        mock_feature_enabled: MagicMock,
+        mock_get_reports: MagicMock,
+        mock_capture_report: MagicMock,
+        mock_internal_team_id: MagicMock,
+        mock_already_reported: MagicMock,
+    ) -> None:
+        reported_org, fresh_org = str(uuid4()), str(uuid4())
+        mock_get_reports.return_value = {
+            reported_org: {"organization_id": reported_org},
+            fresh_org: {"organization_id": fresh_org},
+        }
+        mock_already_reported.return_value = {reported_org}
+
+        send_ai_observability_usage_reports(at=at)
+
+        emitted = [call.kwargs["organization_id"] for call in mock_capture_report.delay.call_args_list]
+        assert emitted == [fresh_org]
+
+    @patch("posthog.tasks.ai_observability_usage_report.internal_reporting_team_id", return_value=None)
+    @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
+    @patch("posthog.tasks.ai_observability_usage_report._get_all_ai_observability_reports")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_run_still_emits_where_previous_reports_cannot_be_read(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_get_reports: MagicMock,
+        mock_capture_report: MagicMock,
+        mock_internal_team_id: MagicMock,
+    ) -> None:
+        org_id = str(uuid4())
+        mock_get_reports.return_value = {org_id: {"organization_id": org_id}}
+
+        send_ai_observability_usage_reports(at="2022-01-06")
+
+        assert mock_capture_report.delay.call_count == 1
 
     @parameterized.expand(
         [
@@ -1162,6 +1552,7 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
             ),
         ]
     )
+    @patch("posthog.tasks.ai_observability_usage_report._get_organizations_to_skip", return_value=set())
     @patch("posthog.tasks.ai_observability_usage_report.logger")
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events", side_effect=Exception("CH down"))
     @patch("posthoganalytics.feature_enabled", return_value=False)
@@ -1176,11 +1567,15 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
         mock_feature_enabled: MagicMock,
         mock_get_teams: MagicMock,
         mock_logger: MagicMock,
+        mock_organizations_to_skip: MagicMock,
     ) -> None:
         task = send_ai_observability_usage_reports
         task.push_request(retries=retries, called_directly=called_directly, is_eager=True)
         try:
-            with pytest.raises(Exception, match="CH down"):
+            with (
+                patch("posthog.tasks.ai_observability_usage_report.get_offline_evaluation_usage", return_value={}),
+                pytest.raises(Exception, match="CH down"),
+            ):
                 task.run()
         finally:
             task.pop_request()

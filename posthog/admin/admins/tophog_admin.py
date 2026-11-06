@@ -11,7 +11,7 @@ from django.urls import reverse
 
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.team.team import Team
-from posthog.models.tophog.queries import query_tophog_filter_options, query_tophog_metrics
+from posthog.models.tophog.queries import TopHogFilterOptions, query_tophog_filter_options, query_tophog_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,8 @@ TOPHOG_TO_RESTRICTION_PIPELINE = {
     "sessionreplay": "session_recordings",
     "errortracking": "errortracking",
     "clientwarnings": "clientwarnings",
+    "heatmaps": "heatmaps",
+    "ai": "ai",
 }
 
 PRESETS = OrderedDict(
@@ -125,8 +127,8 @@ def _restriction_matches(
     Key fields absent from the tophog entry don't disqualify a restriction.
 
     Pipelines require full coverage: every one of the entry's pipelines must map to a
-    restriction pipeline the restriction applies to. Unmapped pipelines (e.g. ai, heatmaps)
-    can't be restricted at all, so an entry that includes one is never covered.
+    restriction pipeline the restriction applies to. Unmapped pipelines can't be
+    restricted at all, so an entry that includes one is never covered.
     """
     if _extendable_fields(restriction, key):
         return False
@@ -177,13 +179,12 @@ def tophog_dashboard_view(request):
 
     selected_pipeline = request.GET.get("pipeline", "")
     selected_lane = request.GET.get("lane", "")
-    pipelines: list[str] = []
-    lanes: list[str] = []
+    filter_options = TopHogFilterOptions(pipelines=[], lanes=[])
     metrics: dict[str, list[dict]] = defaultdict(list)
     error = ""
 
     try:
-        pipelines, lanes = query_tophog_filter_options(date_from, date_to)
+        filter_options = query_tophog_filter_options(date_from, date_to)
 
         rows = query_tophog_metrics(
             date_from,
@@ -228,8 +229,8 @@ def tophog_dashboard_view(request):
         "title": "TopHog Dashboard",
         "error": error,
         "metrics": dict(metrics),
-        "pipelines": pipelines,
-        "lanes": lanes,
+        "pipelines": filter_options.pipelines,
+        "lanes": filter_options.lanes,
         "selected_pipeline": selected_pipeline,
         "selected_lane": selected_lane,
         "presets": list(PRESETS.keys()),

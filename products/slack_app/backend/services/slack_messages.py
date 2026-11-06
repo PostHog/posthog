@@ -20,21 +20,33 @@ without one.
 """
 
 import re
-from dataclasses import dataclass
-from typing import Any
+import json
+from dataclasses import asdict, dataclass
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import SlackIntegration
+from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.slack.markdown import opens_with_line_anchored_markdown
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.contracts import TaskRunDTO
 
 logger = structlog.get_logger(__name__)
 
@@ -46,10 +58,14 @@ logger = structlog.get_logger(__name__)
 # fetch without the cache.
 THREAD_REPLIES_CACHE_TTL_SECONDS = 10
 
+# Ceiling on a Slack call made from inside the webhook request path. Slack's retry window
+# is the budget: a slow or rate-limited response must not eat into it before we return.
+SLACK_WEBHOOK_TIMEOUT_SECONDS = 3
+
 
 def resolve_user_mentions_text(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     text: str,
     *,
     strip_bot_user_id: str | None = None,
@@ -106,7 +122,56 @@ def resolve_user_mentions_text(
     return resolved
 
 
-def decode_slack_event_text(slack: SlackIntegration, integration: Integration, text: str) -> str:
+# A `&lt;` that would begin a mention (`<@`) or broadcast (`<!`) token stays escaped:
+# decoded user text must never mint a token that downstream mention handling or the
+# outbound relay could turn into a real ping.
+_RE_DECODABLE_LT = re.compile(r"&lt;(?![@!])")
+
+
+def decode_slack_entities(text: str) -> str:
+    """Decode the three entities Slack escapes in message text: `&`, `<`, `>`.
+
+    Slack escapes only these three
+    (https://docs.slack.dev/messaging/formatting-message-text#escaping), so three
+    targeted replaces rather than `html.unescape`, which would also decode entities
+    the user typed literally. `&amp;` decodes last so a user-typed literal `&lt;`
+    (wire form `&amp;lt;`) comes out as `&lt;` instead of double-decoding to `<`.
+    """
+    text = _RE_DECODABLE_LT.sub("<", text)
+    return text.replace("&gt;", ">").replace("&amp;", "&")
+
+
+_RE_SLACK_LINK = re.compile(r"<(https?://[^|>\s]+)(?:\|[^>]*)?>")
+
+
+def unwrap_slack_links(text: str) -> str:
+    """Rewrite Slack's `<url>` and `<url|label>` link tokens to the bare URL, for a reader that wants plain text.
+
+    Run it on wire text, before ``decode_slack_entities``: only there are `<` and `>` Slack's own
+    delimiters and never text the user typed.
+    """
+    return _RE_SLACK_LINK.sub(r"\1", text)
+
+
+def _resolve_and_decode(
+    slack: SlackIntegration,
+    integration: WorkspaceIntegration,
+    text: str,
+    *,
+    strip_bot_user_id: str | None = None,
+) -> str:
+    """Resolve mentions, then decode escaped entities: the one order that is safe.
+
+    Mention resolution must run first so its regex only ever sees genuine
+    wire-format tokens; the decode guard then keeps user-typed text from minting
+    new ones behind it. Every inbound path goes through here so no path can
+    apply one step without the other.
+    """
+    resolved = resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=strip_bot_user_id)
+    return decode_slack_entities(resolved)
+
+
+def decode_slack_event_text(slack: SlackIntegration, integration: WorkspaceIntegration, text: str) -> str:
     """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
 
     Trigger sites all want the same thing: drop the bot's self-ping (it's just
@@ -114,9 +179,13 @@ def decode_slack_event_text(slack: SlackIntegration, integration: Integration, t
     `<@U…>` reference with a `|displayname` label so the agent can echo the
     token verbatim to ping the user back. Centralised here so a new trigger
     handler can't drift back into the original mention-eating bug.
+
+    Also decodes Slack's escaped entities, because this text feeds task titles and
+    descriptions that render in the PostHog UI, where an undecoded `&gt;` shows up
+    literally.
     """
     bot_user_id = get_cached_bot_user_id(slack, integration)
-    return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
+    return _resolve_and_decode(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
 
 
 def labeled_mentions_to_display_names(text: str) -> str:
@@ -144,6 +213,23 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
     broadcast/subteam refs (`<!…>`), and URL links (`<https://…|label>`) keep their labels.
     """
     return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
+
+
+def mentions_slack_user(text: str, slack_user_id: str) -> bool:
+    """Whether `text` already mentions this user, in the bare `<@U…>` or labeled `<@U…|name>` form."""
+    return re.search(rf"<@{re.escape(slack_user_id)}(\|[^>]*)?>", text) is not None
+
+
+def leading_mention_prefix(text: str, slack_user_id: str | None) -> str:
+    """The mention that opens a reply, or "" when nobody is tagged or `text` already tags them.
+
+    A heading, list, quote, table or fence must start its line, or Slack shows the markup as text,
+    so before one of those the mention takes a line of its own.
+    """
+    if not slack_user_id or mentions_slack_user(text, slack_user_id):
+        return ""
+    separator = "\n\n" if opens_with_line_anchored_markdown(text) else " "
+    return f"<@{slack_user_id}>{separator}"
 
 
 def flatten_block_text(node: Any) -> list[str]:
@@ -189,6 +275,11 @@ def extract_message_text(msg: dict) -> str:
         pieces.append(text)
 
     blocks = msg.get("blocks") or []
+    if text:
+        # A `rich_text` block is Slack's structured mirror of `text`. Flattening it drops
+        # mentions and emoji, yielding a near-duplicate the exact-match dedup below can't
+        # catch — skip it and let `text` (which keeps both) speak for that content.
+        blocks = [b for b in blocks if not (isinstance(b, dict) and b.get("type") == "rich_text")]
     attachments = msg.get("attachments") or []
     try:
         pieces.extend(flatten_block_text(blocks))
@@ -213,22 +304,283 @@ def resolve_bot_author_label(msg: dict) -> str:
     return bot_profile.get("name") or msg.get("username") or "Bot"
 
 
+@frozen
+class SlackFileRef:
+    """A Slack upload, reduced to what it takes to decide whether to fetch it, and from where.
+
+    A raw file object carries some forty fields — thumbnails, sharing history, edit
+    state — and this rides in a Temporal payload, so the rest is dropped at the boundary.
+
+    Slack omits any of these on some uploads, so each one defaults rather than being
+    required. That also makes the type safe to grow: a payload recorded before a new
+    field existed decodes into the default instead of failing the activity.
+    """
+
+    id: str = ""
+    name: str = ""
+    title: str = ""
+    mimetype: str = ""
+    filetype: str = ""
+    size: int | None = None
+    url_private: str = ""
+    url_private_download: str = ""
+
+
+@frozen
+class SlackThreadMessage:
+    """One message in the thread the agent reads as context.
+
+    ``user_id`` is the raw ``U…`` Slack id, kept alongside the resolved display name so
+    prompt builders can render the labeled ``<@U…|name>`` mention — the wire-format token
+    the agent can echo back to ping that person. ``ts`` places the message in the thread,
+    which is how callers tell the message that tagged the app from the ones around it.
+
+    Every field is a string because this rides in a Temporal payload that a worker on
+    the previous build decodes as ``dict[str, str]``. Temporal rejects the whole message
+    when any value is a list, so the attachments travel as ``files_json`` and are read
+    back through the ``files`` property. Read attachments through that property; nothing
+    outside this class should parse the JSON itself.
+    """
+
+    user: str = ""
+    user_id: str = ""
+    text: str = ""
+    ts: str = ""
+    files_json: str = ""
+
+    @property
+    def files(self) -> list[SlackFileRef]:
+        if not self.files_json:
+            return []
+        try:
+            return parse_slack_file_refs(json.loads(self.files_json))
+        except ValueError:
+            return []
+
+
+def _parse_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
+
+
+def parse_slack_file_refs(files: Any) -> list[SlackFileRef]:
+    """Read a Slack message's ``files`` into references.
+
+    Takes the raw value rather than a list, because it is read straight off event
+    payloads Slack sends us and off `conversations.replies` results — neither of which
+    promises the key is there, let alone a list. Anything unrecognizable yields no
+    references rather than raising.
+    """
+    if not isinstance(files, list):
+        return []
+    return [
+        SlackFileRef(
+            id=str(file.get("id") or ""),
+            name=str(file.get("name") or ""),
+            title=str(file.get("title") or ""),
+            mimetype=str(file.get("mimetype") or ""),
+            filetype=str(file.get("filetype") or ""),
+            size=_parse_int(file.get("size")),
+            url_private=str(file.get("url_private") or ""),
+            url_private_download=str(file.get("url_private_download") or ""),
+        )
+        for file in files
+        if isinstance(file, dict)
+    ]
+
+
+def encode_slack_file_refs(refs: list[SlackFileRef]) -> str:
+    """Serialize references into the string `SlackThreadMessage.files_json` carries.
+
+    A message with no attachments encodes to the empty string, so the common payload
+    stays the size it was before attachments were carried at all.
+    """
+    if not refs:
+        return ""
+    return json.dumps([asdict(ref) for ref in refs])
+
+
+# Bump when SlackThreadMessage or SlackFileRef change shape: cached values are pickled, so old
+# entries would otherwise unpickle missing a field, and a worker on either build can read an
+# entry the other one wrote during a rolling deploy.
+_THREAD_REPLIES_CACHE_VERSION = 1
+
+
 def _thread_replies_cache_key(integration_id: int, channel: str, thread_ts: str) -> str:
-    return f"slack_thread_replies:{integration_id}:{channel}:{thread_ts}"
+    return f"slack_thread_replies:v{_THREAD_REPLIES_CACHE_VERSION}:{integration_id}:{channel}:{thread_ts}"
+
+
+def _message_exists_cache_key(channel: str, ts: str) -> str:
+    # Keyed on the Slack coordinates rather than the integration: the message either
+    # exists in that channel or it doesn't, regardless of which install is asking.
+    return f"slack_message_exists:{channel}:{ts}"
+
+
+def slack_message_exists(
+    client: WebClient,
+    channel: str,
+    ts: str,
+    *,
+    ttl: int = THREAD_REPLIES_CACHE_TTL_SECONDS,
+) -> bool:
+    """Whether a Slack message is still there.
+
+    Asked with a one-message window on `ts` itself: Slack answers with that message when
+    it is there and an empty list when it isn't. `conversations.replies` would answer a
+    different question — its result also depends on whether a thread was ever started and
+    on how Slack represents a deleted parent.
+
+    Cached on the same short TTL as the thread snapshot: a burst of relay chunks for one
+    reply collapses onto a single `conversations.history` call, while a message deleted
+    mid-run is noticed within seconds.
+    """
+    key = _message_exists_cache_key(channel, ts)
+    cached = cache.get(key)
+    if cached is not None:
+        return bool(cached)
+
+    try:
+        response = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
+        exists = bool(response.get("messages"))
+    except Exception:
+        # Rate limits, transient 5xx, a scope we happen to lack — none of these are
+        # evidence the message is gone, and treating them as such would silence real
+        # replies. Fail open and let the post itself surface any real problem.
+        logger.warning("slack_app_message_exists_probe_failed", channel=channel, ts=ts, exc_info=True)
+        return True
+
+    try:
+        cache.set(key, exists, timeout=ttl)
+    except Exception:
+        logger.warning("slack_app_message_exists_cache_set_failed", channel=channel, ts=ts, exc_info=True)
+    return exists
+
+
+def post_slack_thread_reply(
+    client: WebClient,
+    *,
+    channel: str,
+    thread_ts: str | None,
+    trigger_ts: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Post a reply once confirmed the message it answers still exists.
+
+    The single funnel for every `@PostHog` reply. A deleted prompt has nobody left to
+    answer, and replies to one were seen landing at channel level rather than in the
+    thread. Returns ``None`` when nothing was posted.
+
+    Where the reply goes and what it answers are separate questions. ``thread_ts`` places
+    it — falsy posts at channel root, which some replies do deliberately because a
+    thread-anchored one is invisible to anyone not already reading that thread.
+    ``trigger_ts`` is the message being answered, and defaults to the anchor. Pass it
+    whenever the two differ, or a root-placed reply would go out unchecked.
+
+    With neither set there is nothing to check — a slash command creates no message — so
+    the reply posts unconditionally.
+    """
+    check_ts = trigger_ts or thread_ts
+    if check_ts and not slack_message_exists(client, channel, check_ts):
+        logger.warning(
+            "slack_app_thread_reply_skipped_message_deleted",
+            channel=channel,
+            thread_ts=thread_ts,
+            trigger_ts=trigger_ts,
+        )
+        return None
+    if thread_ts:
+        return client.chat_postMessage(channel=channel, thread_ts=thread_ts, **kwargs)
+    return client.chat_postMessage(channel=channel, **kwargs)
+
+
+def post_slack_ephemeral(
+    client: WebClient,
+    *,
+    channel: str,
+    user: str,
+    thread_ts: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Post a reply only ``user`` can see.
+
+    The counterpart funnel to ``post_slack_thread_reply``, for answers that concern one person,
+    which today means command output. No deleted-prompt check applies, because an ephemeral answer
+    reaches nobody but its reader.
+
+    ``thread_ts`` places the reply, and a falsy one is omitted rather than sent empty, which posts
+    at channel root. Slack rejects an empty ``thread_ts`` instead of reading it as "no anchor".
+    """
+    if thread_ts:
+        return client.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, **kwargs)
+    return client.chat_postEphemeral(channel=channel, user=user, **kwargs)
+
+
+# `conversations.replies` answers `thread_not_found` for a ts that no longer resolves to a
+# message; `message_not_found` is carried alongside it because Slack uses that spelling on
+# neighbouring methods and the two mean the same thing here.
+_MISSING_THREAD_ERRORS = frozenset({"thread_not_found", "message_not_found"})
+
+
+def _ts_at_or_before(ts: str, bound_ts: str) -> bool:
+    """Whether a Slack `ts` sits at or before another.
+
+    Slack `ts` values are decimal strings, compared as Decimals rather than floats so
+    precision can't drop a message that sits on the bound. A `ts` that does not parse
+    answers False: callers ask this to answer "what had been said by then", and a
+    message that can't be placed in time can't be part of that answer.
+    """
+    try:
+        return Decimal(ts) <= Decimal(bound_ts)
+    except InvalidOperation:
+        return False
+
+
+def messages_at_or_before(messages: list[SlackThreadMessage], bound_ts: str) -> list[SlackThreadMessage]:
+    """The thread up to ``bound_ts``, for a reader who was looking at it then."""
+    return [message for message in messages if _ts_at_or_before(message.ts, bound_ts)]
 
 
 def collect_thread_messages(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
-) -> list[dict[str, str]]:
-    """Fetch thread messages, strip bot mentions, and resolve user display names."""
+    until_ts: str | None = None,
+) -> list[SlackThreadMessage]:
+    """Fetch thread messages, strip bot mentions, and resolve user display names.
+
+    ``until_ts`` clips the thread at a message, for a reader who forked the discussion
+    at a point in time: what was said afterwards was not what they were looking at.
+    Unbounded by default, which is what the mention path wants — it is answering the
+    thread as it stands.
+
+    A thread whose root no longer exists — the user deleted the message that triggered
+    us — comes back empty rather than raising. Callers read an empty thread as "nothing
+    to do"; letting `thread_not_found` escape instead would exhaust the activity's
+    retries and land in the workflow's error handler, which announces the failure in
+    Slack. There is nothing to announce: the prompt was retracted.
+    """
     client = slack.client
     client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
-    thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
+    try:
+        thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
+    except SlackApiError as e:
+        if e.response.get("error") not in _MISSING_THREAD_ERRORS:
+            raise
+        logger.warning("slack_app_thread_message_deleted", channel=channel, thread_ts=thread_ts)
+        return []
     raw_messages: list[dict] = thread_response.get("messages", [])
+    if until_ts:
+        raw_messages = [msg for msg in raw_messages if _ts_at_or_before(str(msg.get("ts") or ""), until_ts)]
 
     user_cache: dict[str, str] = {}
 
@@ -242,7 +594,7 @@ def collect_thread_messages(
                 user_cache[uid] = "Unknown"
         return user_cache[uid]
 
-    messages = []
+    messages: list[SlackThreadMessage] = []
     for index, msg in enumerate(raw_messages):
         # Skip our own bot's posts to avoid loops where the agent ingests its own replies.
         # Never skip the thread root: the agent only ever posts as a reply, so msg 0 is
@@ -260,26 +612,32 @@ def collect_thread_messages(
         else:
             username = "Unknown"
 
-        text = resolve_user_mentions_text(slack, integration, extract_message_text(msg))
-        # `ts` lets downstream callers distinguish the initiator message from surrounding thread
-        # context, since `app_mention` events surface only the initiator's ts. `user_id` is the
-        # raw `U…` Slack id so downstream prompt builders can render the labeled `<@U…|name>`
-        # mention form for each message author — the same wire-format token the agent can echo
-        # back to ping that user.
-        messages.append({"user": username, "user_id": user_id or "", "text": text, "ts": msg.get("ts") or ""})
+        # A file the agent can be given is worth more than a mention of one, so the
+        # reference travels with the message that carried it: the agent's copy is fetched
+        # with the bot's token and uploaded as a run artifact, and the Slack url it came
+        # from answers to nobody else.
+        messages.append(
+            SlackThreadMessage(
+                user=username,
+                user_id=user_id or "",
+                text=_resolve_and_decode(slack, integration, extract_message_text(msg)),
+                ts=msg.get("ts") or "",
+                files_json=encode_slack_file_refs(parse_slack_file_refs(msg.get("files"))),
+            )
+        )
 
     return messages
 
 
 def cached_collect_thread_messages(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
     *,
     ttl: int = THREAD_REPLIES_CACHE_TTL_SECONDS,
-) -> list[dict[str, str]]:
+) -> list[SlackThreadMessage]:
     """Cached version of ``collect_thread_messages`` keyed by (integration, channel, thread_ts).
 
     A bursty thread — fast classifier-then-forwarder pipeline, many follow-ups within
@@ -329,11 +687,6 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
         )
 
 
-# The scheme a production desktop install registers. Dev builds register
-# `posthog-code-dev://` instead, which the server can't tell apart from here, so links
-# minted server-side always target the production build.
-DESKTOP_URL_SCHEME = "posthog-code"
-
 # Query param a link we compose can carry to tell our own unfurler to leave it alone
 # (honoured by `parse_posthog_resource_link`).
 UNFURL_OPT_OUT_PARAM = "unfurl"
@@ -341,17 +694,32 @@ UNFURL_OPT_OUT_PARAM = "unfurl"
 
 @dataclass(frozen=True)
 class RunFooter:
-    """What a reply can say about the run behind it.
+    """What a reply knows about the run behind it.
 
     Constant for the life of a handler, so it is supplied once at construction rather
     than threaded through every posting method. An empty instance is the "say nothing"
     case, which is what every caller outside the footer rollout gets.
+
+    ``run_id`` and ``task_id`` are what the run *is* rather than what the footer says
+    about it: the thumbs under an answer report against them, and they ride here because
+    a reply that can describe its run is exactly a reply that has one to rate.
     """
 
     task_url: str | None = None
-    desktop_url: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
+    run_id: str | None = None
+    task_id: str | None = None
+    # The project the thread's task belongs to, so a reader can tell which project's
+    # data the answer was drawn from.
+    project: str | None = None
+    # Whose plan pays for the run, for example "Your ChatGPT plan". Absent on PostHog credits.
+    plan: str | None = None
+    # Whether the run shares charts as insight links instead of images, so reply analytics can
+    # compare the two delivery modes. Not rendered.
+    chart_links: bool = False
+    # Model spend of the thread's task so far. Sandbox compute is not billed, so it is not included.
+    thread_cost_usd: Decimal | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -359,18 +727,100 @@ class RunFooter:
         A caller checks it to skip the flag lookups behind a footer that can't appear.
         Spelled out rather than given as ``__bool__`` so that ``footer or RunFooter()``
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
+        The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.desktop_url, self.model))
+        return any((self.task_url, self.model, self.project, self.plan, self.thread_cost_usd is not None))
 
 
-def load_run_footer(run_id: str | UUID | None) -> RunFooter:
+def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
+    """The project a run answered from, named only where the name tells the opener
+    something they could not already assume.
+
+    The run's own team is the project, so the name needs no join through the thread
+    mapping: a task, its mapping and every run on it belong to one project. A workspace
+    offering the opener a single project has nothing to disambiguate, and the name would
+    then repeat under every reply while never changing.
+    """
+    from posthog.models.team.team import Team  # noqa: PLC0415 — keeps the model off this module's import path
+    from posthog.models.user import User  # noqa: PLC0415
+
+    from products.slack_app.backend.services.integration_resolver import multiple_accessible_projects  # noqa: PLC0415
+
+    if integration_id is None or created_by_id is None:
+        return None
+    try:
+        # The id is the install this reply posts through, read off stored thread state
+        # rather than off the message, and all this reads from the row is the Slack
+        # workspace it belongs to.
+        try:
+            integration = IntegrationManager.slack.oauth.get(team_id, integration_id)
+        except IntegrationNotFound:
+            return None
+        user = User.objects.filter(pk=created_by_id).first()
+        if user is None:
+            return None
+        if not multiple_accessible_projects(slack_team_id=integration.integration_id or "", user=user):
+            return None
+        team = Team.objects.filter(pk=team_id).only("name").first()
+    except Exception:
+        # Its own guard, not the caller's: a failed lookup must cost the reader one
+        # segment, not the links and the model with it.
+        logger.warning(
+            "slack_app_footer_project_lookup_failed",
+            team_id=team_id,
+            integration_id=integration_id,
+            exc_info=True,
+        )
+        return None
+    return team.name if team else None
+
+
+_SLACK_USER_ID = re.compile(r"[UW][A-Z0-9]+")
+
+
+def _plan_label(state: dict[str, Any] | None, *, task_id: Any, integration_id: int | None) -> str | None:
+    """Whose plan pays for the run, or `None` on PostHog credits.
+
+    The person who sent the turn reads "Your". When someone who joined the thread sent it, the
+    reply mentions the thread creator, so everyone reading can see and reach whose plan pays.
+    """
+    from products.slack_app.backend.models import SlackThreadTaskMapping  # noqa: PLC0415
+    from products.tasks.backend.facade.api import get_run_plan  # noqa: PLC0415
+
+    plan = get_run_plan(state)
+    if plan is None:
+        return None
+    if plan.owner_user_id is not None and plan.owner_user_id == (state or {}).get("slack_actor_user_id"):
+        return f"Your {plan.plan_name}"
+    if integration_id is None:
+        return plan.plan_name
+    owner_slack_user_id = (
+        SlackThreadTaskMapping.objects.filter(integration_id=integration_id, task_id=task_id)
+        .values_list("mentioning_slack_user_id", flat=True)
+        .first()
+    )
+    # The id goes into the footer's mrkdwn unescaped, so only a well-formed one becomes a mention.
+    if not owner_slack_user_id or not _SLACK_USER_ID.fullmatch(owner_slack_user_id):
+        return plan.plan_name
+    return f"<@{owner_slack_user_id}>'s {plan.plan_name}"
+
+
+def load_run_footer(
+    run_id: str | UUID | None, *, integration_id: int | None, include_thread_cost: bool = False
+) -> RunFooter:
     """Describe a run for the footer.
 
     Never raises: the footer is the last thing added to an answer that is already
     written, so failing to describe the run must not cost the reader the answer.
 
-    Describes the run in full, links included. Whether the reader may open them is
-    ``viewer_has_code_access``'s question, asked where the reader is known.
+    The task link is for everyone, since the task page enforces access itself. It is the
+    only link: the task page carries its own link into PostHog Desktop.
+
+    ``integration_id`` is the install the reply is posted through, and the workspace
+    behind it is what the project segment is judged against. Required rather than
+    defaulted, so a new caller cannot drop the segment without saying so.
+
+    ``include_thread_cost`` is for the reply that closes a turn.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -384,17 +834,75 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
         if run is None:
             return RunFooter()
         state = parse_run_state(run.state)
+        plan = _plan_label(run.state, task_id=run.task_id, integration_id=integration_id)
         return RunFooter(
+            run_id=str(run.id),
+            task_id=str(run.task_id),
             task_url=_task_url(run.team_id, run.task_id, run.id),
-            # Task-scoped, matching the desktop app's own task route — the run id has no
-            # equivalent there.
-            desktop_url=f"{DESKTOP_URL_SCHEME}://task/{run.task_id}",
             model=state.model,
             reasoning_effort=state.reasoning_effort,
+            project=_project_name(
+                run.team_id,
+                integration_id=integration_id,
+                created_by_id=run.created_by_id,
+            ),
+            plan=plan,
+            chart_links=bool((run.state or {}).get("slack_chart_links")),
+            # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
+            thread_cost_usd=_thread_cost(run) if include_thread_cost and plan is None else None,
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
+
+
+def _thread_cost(run: "TaskRunDTO") -> Decimal | None:
+    """What the thread's task spent on models so far, or `None` when unknown.
+
+    Reads the same task usage that PostHog Desktop shows, which sums the task's `$ai_generation`
+    events. Those events arrive with a short delay and the usage is cached for a minute, so the
+    newest requests can be missing here. A later reply's total then includes them.
+    """
+    from products.tasks.backend.facade.billing import get_task_usage  # noqa: PLC0415
+
+    if run.task_created_at is None:
+        return None
+    try:
+        return get_task_usage(
+            team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at
+        ).token_cost_usd
+    except Exception:
+        # Its own guard, like `_project_name`: a failed lookup costs the reader one segment.
+        logger.warning("slack_app_thread_cost_load_failed", task_id=str(run.task_id), exc_info=True)
+        return None
+
+
+def describe_thread_cost(cost_usd: Decimal) -> str:
+    """A cost under one cent shows as `<$0.01`, so that it does not read as free."""
+    if cost_usd < Decimal("0.01"):
+        return "Thread cost: <$0.01"
+    return f"Thread cost: ${cost_usd:.2f}"
+
+
+def _run_context_segments(footer: RunFooter) -> list[str]:
+    """What the run is, as footer segments: the model, the thread cost, the plan that pays for
+    it, then the project it answered from.
+
+    Kept apart from the links so the escaping below has a single home.
+    """
+    segments: list[str] = []
+    if footer.model:
+        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    if footer.thread_cost_usd is not None:
+        segments.append(describe_thread_cost(footer.thread_cost_usd))
+    if footer.plan:
+        segments.append(footer.plan)
+    if footer.project:
+        # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
+        # and `<url|label>` renders a link the reader reads as the bot's. Escaped here
+        # rather than on the way in, so `RunFooter.project` stays the plain name.
+        segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
+    return segments
 
 
 def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
@@ -406,16 +914,123 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     """
     segments: list[str] = []
     if footer.task_url:
-        segments.append(f"<{footer.task_url}|View on web>")
-    if footer.desktop_url:
-        segments.append(f"<{footer.desktop_url}|View on desktop>")
-    if footer.model:
-        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+        segments.append(f"<{footer.task_url}|View session>")
+    segments.extend(_run_context_segments(footer))
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
     if not segments:
         return None
     return context_block(" · ".join(segments))
+
+
+def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
+    """The fork menu as a standalone block, for replies with no section to hang it on.
+
+    A streamed answer arrives as markdown chunks and the chart delivery puts the answer
+    in the card message, so neither has a `section` whose accessory the menu could be.
+    Costs a line, which is why the plain-post path prefers the accessory.
+    """
+    return {"type": "actions", "elements": [element]}
+
+
+FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
+
+
+def fork_menu_element(integration_id: int) -> dict[str, Any]:
+    """The overflow menu the footer carries as its accessory.
+
+    An overflow renders as a bare "…" with no label, which is as close to invisible as
+    an interactive element gets — the answer above it is what the reader came for. It
+    also has somewhere to put the next destination ("fork to a channel") without
+    growing a second control.
+
+    Returned as a bare element rather than wrapped in an `actions` block so it can be a
+    `section` accessory, which is what puts it on the footer's own line. Slack offers no
+    inline interactive element, so an accessory — right-aligned beside the text — is as
+    close to trailing the footer as Block Kit gets.
+
+    The option value carries the integration so the cross-region interactivity router
+    can tell whose click this is. Everything else the fork needs — the channel, and the
+    thread the reply is sitting in — rides on the `block_actions` payload.
+    """
+    return {
+        "type": "overflow",
+        "action_id": FORK_THREAD_ACTION_ID,
+        "options": [
+            {
+                "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
+                "value": json.dumps({"integration_id": integration_id}),
+            }
+        ],
+    }
+
+
+TURN_FEEDBACK_ACTION_ID = "slack_app_turn_feedback"
+
+
+def turn_feedback_block(integration_id: int, run_id: str, trace_id: str | None = None) -> dict[str, Any]:
+    """The thumbs a reader rates one agent answer with.
+
+    Slack's own feedback element rather than a pair of buttons: it renders as the two
+    small icons a reader already knows from other AI apps. Whether Slack marks the
+    clicked thumb afterwards is its own business and is not documented either way; we
+    store no rating and never rewrite the reply to show one.
+
+    Both buttons carry the same run plus their own sentiment, because Slack sends back
+    only the button that was clicked. The integration rides along so the cross-region
+    interactivity router can tell whose click this is, the same way the fork menu's
+    option value does. The task is not carried: it is read back from the run row.
+
+    ``trace_id`` is the answering turn's gateway trace id, which nothing on the server
+    can look up afterwards — it exists only in the turn that produced this reply — so the
+    reply itself is where it has to be kept. Omitted when the turn reported none, which
+    is what a rating with no ``$ai_trace_id`` then means.
+
+    The block's shape is also a read contract, not only a render: the reaction feedback
+    path fetches the posted message back from Slack and finds the run through this
+    element's action id and button value (``turn_feedback._feedback_value_from_message``).
+    Renaming the element's keys silently kills reaction feedback.
+    """
+    target: dict[str, Any] = {"integration_id": integration_id, "run_id": run_id}
+    if trace_id:
+        target["trace_id"] = trace_id
+    return {
+        "type": "context_actions",
+        "elements": [
+            {
+                "type": "feedback_buttons",
+                "action_id": TURN_FEEDBACK_ACTION_ID,
+                "positive_button": {
+                    "text": {"type": "plain_text", "text": "Good response"},
+                    "value": json.dumps({**target, "sentiment": "positive"}),
+                },
+                "negative_button": {
+                    "text": {"type": "plain_text", "text": "Bad response"},
+                    "value": json.dumps({**target, "sentiment": "negative"}),
+                },
+            }
+        ],
+    }
+
+
+def thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> str | None:
+    """Permalink for a thread, or `None` if Slack won't give us one.
+
+    Best-effort by design: a permalink is a convenience link on a task and a pointer in
+    a forked run's context, never something a run depends on.
+    """
+    try:
+        response = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts)
+        if response.get("ok"):
+            return response["permalink"]
+    except Exception:
+        logger.warning("slack_app_permalink_failed", channel=channel, thread_ts=thread_ts)
+    return None
+
+
+def section_block(text: str) -> dict[str, Any]:
+    """One block of mrkdwn body text."""
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
 def context_block(text: str) -> dict[str, Any]:
@@ -427,7 +1042,7 @@ def context_block(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
-def app_home_url(integration: Integration) -> str | None:
+def app_home_url(integration: WorkspaceIntegration, *, tab: str = "home") -> str | None:
     """Deep link to this install's Home tab, where the model picker lives.
 
     The native `slack://` form rather than the https `app_redirect` one: the reader is
@@ -441,13 +1056,35 @@ def app_home_url(integration: Integration) -> str | None:
     app_id = (integration.config or {}).get("app_id")
     if not app_id or not integration.integration_id:
         return None
-    return f"slack://app?team={integration.integration_id}&id={app_id}&tab=home"
+    return f"slack://app?team={integration.integration_id}&id={app_id}&tab={tab}"
+
+
+def personal_integrations_url(team_id: int) -> str:
+    """Where someone connects their own GitHub, so @PostHog opens pull requests as them.
+
+    Connecting requires an authenticated PostHog session, so every surface that asks for it
+    deep-links to this settings page instead of starting an OAuth flow from Slack.
+    """
+    return _public_url(f"/project/{team_id}/settings/user-personal-integrations")
+
+
+def ai_subscriptions_url(team_id: int) -> str:
+    """Where someone connects their own ChatGPT plan for Codex tasks."""
+    return _public_url(f"/project/{team_id}/settings/environment-ai-subscriptions")
+
+
+def project_web_url(team_id: int) -> str:
+    """Absolute ``/project/<id>`` base for links into this project's PostHog app."""
+    return _public_url(f"/project/{team_id}")
 
 
 def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.
-    path = f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false"
+    return _public_url(f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false")
+
+
+def _public_url(path: str) -> str:
     # Mirrors the Slack onboarding links: in local dev the tunnel is what makes a link
     # posted into Slack actually reachable.
     if settings.DEBUG and settings.NGROK_URL:
@@ -455,17 +1092,7 @@ def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     return absolute_uri(path)
 
 
-def workspace_org_ids(slack_team_id: str) -> set:
-    """Organizations connected to this Slack workspace — the scope a Slack identity may
-    resolve a PostHog user within."""
-    return set(
-        Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list(
-            "team__organization_id", flat=True
-        )
-    )
-
-
-def viewer_has_code_access(integration: Integration, slack_user_id: str | None) -> bool:
+def viewer_has_code_access(integration: WorkspaceIntegration, slack_user_id: str | None) -> bool:
     """Whether the Slack identity reading this can open a PostHog Code link.
 
     Asked about the reader rather than the task's creator: the two can differ, and a link
@@ -473,7 +1100,7 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
     flag-service error means no link rather than one that dead-ends.
     """
     from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user  # noqa: PLC0415
-    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+    from products.tasks.backend.facade.access import get_desktop_access_decision  # noqa: PLC0415
 
     if not slack_user_id:
         return False
@@ -481,9 +1108,11 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
         user = find_linked_posthog_user(
             slack_user_id=slack_user_id,
             slack_team_id=integration.integration_id,
-            candidate_org_ids=workspace_org_ids(integration.integration_id),
+            candidate_org_ids={integration.team.organization_id},
         )
-        return user is not None and has_tasks_access(user)
+        if user is None:
+            return False
+        return get_desktop_access_decision(user, integration.team.organization).allowed
     except Exception:
         logger.exception("slack_app_viewer_code_access_check_failed", integration_id=integration.id)
         return False

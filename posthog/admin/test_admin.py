@@ -4,15 +4,16 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib import admin
 from django.contrib.admin import AdminSite
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from posthog.admin.admins.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfigAdmin
+from posthog.admin.admins.organization_admin import OrganizationAdmin
 from posthog.admin.admins.personal_api_key_admin import PersonalAPIKeyAdmin
 from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
-from posthog.models import PersonalAPIKey, User
+from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -25,16 +26,13 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import Text
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
-from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 
-class TestOAuthSidebarRegrouping(BaseTest):
+class TestOAuthSidebarRegrouping(SimpleTestCase):
     def _patched_get_app_list(self):
         site = AdminSite()
         site.get_app_list = lambda request, app_label=None: [  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -139,7 +137,7 @@ class TestUserAdmin(BaseTest):
             form.clean_passkeys_enabled_for_2fa()
 
 
-class TestPluginAttachmentInline(BaseTest):
+class TestPluginAttachmentInline(SimpleTestCase):
     def test_parsed_json_escapes_html_in_values(self):
         inline = PluginAttachmentInline(MagicMock(), MagicMock())
         attachment = MagicMock()
@@ -220,9 +218,6 @@ class TestProductAdminRegistration:
     @pytest.mark.parametrize(
         "model",
         [
-            HogFlow,
-            HogFlowTemplate,
-            HogFlowBatchJob,
             HogFunction,
             Plugin,
             PluginConfig,
@@ -246,13 +241,31 @@ class TestProductAdminRegistration:
         assert admin.site.is_registered(model), f"{model.__name__} is not registered in Django admin"
 
 
-class TestOrganizationMemberInlineConfig(BaseTest):
+class TestOrganizationMemberInlineConfig(SimpleTestCase):
     def test_invited_by_is_readonly_and_never_rendered_as_user_select(self):
         # Regression guard: invited_by must not become an editable FK select in admin inlines.
         assert "invited_by" in OrganizationMemberInline.fields
         assert "invited_by" in OrganizationMemberInline.readonly_fields
         assert "invited_by" in OrganizationMemberForUserInline.fields
         assert "invited_by" in OrganizationMemberForUserInline.readonly_fields
+
+
+class TestOrganizationAdminUsageDisplay(SimpleTestCase):
+    def test_usage_display_renders_products_next_to_billing_status_stamps(self):
+        organization = Organization(
+            usage={
+                "events": {"usage": 1000, "limit": 5000, "todays_usage": 10},
+                "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+                "billing_status_computed_at": "2026-08-02T00:00:00+00:00",
+                "billing_latest_usage_report_date": None,
+            }
+        )
+
+        html = OrganizationAdmin(Organization, AdminSite()).usage_display(organization)
+
+        assert "events" in html
+        assert "5,000" in html
+        assert "billing_status_computed_at" not in html
 
 
 class TestPersonalAPIKeyAdminForm(BaseTest):

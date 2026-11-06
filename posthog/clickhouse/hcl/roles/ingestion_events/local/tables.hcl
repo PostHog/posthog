@@ -1,0 +1,310 @@
+node "events" {
+  macros = {
+    hostClusterRole = "events"
+    hostClusterType = "online"
+    replica         = "events"
+    shard           = "01"
+  }
+}
+
+database "posthog" {
+  table "kafka_events_json_native_json" {
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "String"
+    }
+    column "properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "elements_chain" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "person_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group0_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group1_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group2_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group3_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group4_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "dmat_string_0" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_1" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_2" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_3" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_4" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_5" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_6" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_7" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_8" {
+      type = "Nullable(String)"
+    }
+    column "dmat_string_9" {
+      type = "Nullable(String)"
+    }
+    column "captured_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    engine "kafka" {
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_events_json_native_json"
+      format               = "JSONEachRow"
+      skip_broken_messages = 100
+    }
+  }
+
+  materialized_view "events_json_table_mv" {
+    to_table = "posthog.writable_events_json"
+    query = <<SQL
+SELECT
+*,
+accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+(
+SELECT
+uuid,
+event,
+cleaned.properties AS properties,
+cleaned.temporary_properties AS temporary_properties,
+cleaned.properties_null_keys AS properties_null_keys,
+cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
+now64() AS inserted_at,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+person_id,
+cleaned.person_properties AS person_properties,
+cleaned.person_properties_null_keys AS person_properties_null_keys,
+person_created_at,
+group0_properties,
+group1_properties,
+group2_properties,
+group3_properties,
+group4_properties,
+group0_created_at,
+group1_created_at,
+group2_created_at,
+group3_created_at,
+group4_created_at,
+person_mode,
+historical_migration,
+coalesce(captured_at, created_at) AS captured_at,
+_timestamp,
+_offset,
+_partition,
+consumer_breadcrumbs
+FROM
+(
+SELECT
+*,
+_timestamp,
+_offset,
+_partition,
+arrayMap(
+    i -> (_headers.value[i]),
+    arrayFilter(
+        i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+        arrayEnumerate(_headers.name)
+    )
+) AS consumer_breadcrumbs,
+JSONCleanPostHogEvent(properties, person_properties) AS cleaned
+FROM posthog.kafka_events_json_native_json
+) AS source
+)
+SETTINGS input_format_try_infer_dates = 0, input_format_try_infer_datetimes = 0
+SQL
+
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "String"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "temporary_properties" {
+      type = "String"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "elements_chain" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "captured_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    column "consumer_breadcrumbs" {
+      type = "Array(String)"
+    }
+    column "total_event_size" {
+      type = "UInt32"
+    }
+  }
+
+
+  # Local stacks create every topic with one partition, so only one consumer of this group can
+  # get an assignment. The rest retry forever, which holds threads and floods the server log.
+  # The table itself is declared in roles/coshared/logs_avro_ingest, which dev and the local
+  # stacks share, so the count is lowered here instead of there.
+  patch_table "kafka_logs_avro" {
+    engine "kafka" {
+      collection           = "warpstream_logs"
+      topic_list           = "clickhouse_logs"
+      group_name           = "clickhouse-logs-avro-new"
+      format               = "Avro"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
+    }
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
+  }
+
+}

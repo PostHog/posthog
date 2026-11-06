@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB13",
+    "cluster": 31,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:111-138 checks opt-in only before publication to Celery. stamphog/tasks/tasks.py:1158-1181 fetches the then-current PR and stamps acting_user_id without consulting the live resolver, and creates a fresh review at 1223-1229. A rate-limit retry at 1160-1162 can run at least a minute later after opt-out; its fresh fetch can even review a head pushed after that opt-out. Settings PATCH only saves the setting (review_hog/api/settings.py:131-137). The webhook checks the current toggle through receivers.py:151-155, but the initial task never does, so its delayed run can still reach approval posting at stamphog/temporal/activities.py:723-745.",
+            "refutation": "I first distinguished cancellation of an existing review from creation of a new review. Existing preference semantics take a resolve-time snapshot and deliberately avoid changing gates mid-run (review_hog/models.py:273-276 and temporal/workflow.py:424-436), so the claim does not establish that a second publish-time recheck is mandatory. However, this initial message has no pinned head or execute-time settings snapshot: it creates a new review from a fresh PR fetch after a potentially long delay, while its consent was checked only before queueing. That missing execution-time check is a real, timing-limited opt-out bypass, hence should_fix rather than must_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:114-138 captures the initial opt-in decision before asynchronous execution. Stamphog tasks/tasks.py:1158-1181 checks the fetched PR but never re-resolves the reviewer/toggle, and :1223-1234 creates and starts the new ReviewRun under the captured user. A rate-limit retry at :1162 waits at least 60 seconds before creation, allowing the reviewer to disable the preference through review_hog/backend/api/settings.py:131-137 first. The retry still creates new approval work after that opt-out; activities.py:451 and :745 can then carry it through to approval.",
+            "refutation": "First checked the current-toggle resolver and whether settings updates cancel or fence pending work. receivers.py:144-155 rechecks opt-in for webhook re-reviews, and tests/test_tasks.py:796-810 verifies that path skips new reviews when the resolver returns None. Initial Celery execution never calls it, and the settings PATCH only persists the row. Existing stale-approval dismissal remains independent. The demonstrable defect is delayed initial creation after opt-out; the claim's stronger demand to revoke authorization throughout an already-running review is not necessary to establish that narrower issue. Severity is should_fix because the race is limited to queued/retrying dispatches."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "The toggle is sampled before dispatch in products/review_hog/backend/receivers.py:126-138. The delayed initial worker checks repository eligibility at stamphog/backend/tasks/tasks.py:1140-1146 and retries fetch failures at 1160-1165, but never re-resolves the current acting reviewer/setting before stamping provenance and creating the run (1176-1181,1223-1229). A setting turned off after publication but before execution therefore does not prevent that new review. Its eventual publication guards read supersession and head SHA, not the setting (temporal/activities.py:673-704), and can approve at 741-745.",
+            "refutation": "I checked the product's snapshot semantics to avoid requiring preferences to retroactively cancel every in-progress review. The sibling ReviewHog workflow deliberately freezes settings once resolved but rechecks the receiver-side inbox gate at that execution point (review_hog/backend/temporal/workflow.py:424-435). The Stamphog resolver also says opt-out stops new runs (receivers.py:144-155). Thus the narrow delayed-start case is a real mismatch, whereas the suggestion to recheck on every publication is a stronger policy than the source establishes. Current repo checks and stale-approval dismissal do not close the missing execution-time user opt-in check; the affected window is queued tasks/retries, so should_fix."
+        }
+    ]
+}

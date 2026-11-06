@@ -3,6 +3,7 @@ export type { MarkdownNotebookAskAIRequest, MarkdownNotebookProps } from './Mark
 export type { InsertCommand, MarkdownNotebookInsertMenuApi } from './editorTypes'
 export {
     COMMON_INSERT_COMMAND_CATEGORY,
+    PRODUCTS_INSERT_COMMAND_CATEGORY,
     QUERY_SQL_INSERT_COMMAND_KEY,
     buildInsertCommands,
     omitInsertCommands,
@@ -14,6 +15,8 @@ export {
     getMarkdownNotebookComponentDefaultProps,
     mergeMarkdownNotebookRegistries,
 } from './registry'
+export { NotebookComponentRunHandlerContext, usePublishNotebookComponentRunHandler } from './componentRunHandlers'
+export type { NotebookComponentRunHandler } from './componentRunHandlers'
 export { NotebookComponentRunStatusContext } from './componentRunStatus'
 export type { NotebookComponentRunStatus, NotebookComponentRunStatusResolver } from './componentRunStatus'
 export { parseMarkdownNotebook, serializeMarkdownNotebook, htmlElementToInlineNodes } from './markdown'

@@ -41,7 +41,8 @@ def test_csv_rendering(
     asset = ExportedAsset(
         team=team,
         export_format=ExportedAsset.ExportFormat.CSV,
-        export_context={"path": "/api/literally/anything"},
+        export_context={"path": f"/api/environments/{team.id}/persons/"},
+        source_authentication=ExportedAsset.SourceAuthentication.SESSION,
     )
     export_context = cast(dict[str, Any], asset.export_context)
     if fixture["response"].get("columns"):
@@ -61,7 +62,7 @@ def test_csv_rendering(
         assert csv_rows == fixture["csv_rows"]
 
     if mode == "hogql":
-        export_context["source"] = {"some": "query"}
+        export_context["source"] = fixture["response"].get("query", {"some": "query"})
         asset.save()
         if fixture.get("hogql_response"):
             # If HogQL has a different response structure, add it to the fixture as `hogql_response`

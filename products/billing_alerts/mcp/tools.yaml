@@ -1,0 +1,48 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product billing_alerts
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product billing_alerts
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Billing alerts
+feature: billing_alerts
+url_prefix: /organization/billing
+ui_apps: {}
+tools:
+    billing-alert-create:
+        operation: billing_alerts_create
+        enabled: false
+        disabled_reason: Billing alerts are not ready for general use.
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create billing alert
+        description: >
+            Create a billing-period spend alert in the active organization. The caller must be an organization Admin or
+            Owner. Billing owns the trigger configuration and evaluation; the shared alerting backend handles lifecycle,
+            scheduling, destinations, and delivery. The metric picks the billing-period total to watch: spend (current
+            period total so far) or projected_spend (projected period-end total). The first version supports only the
+            absolute_value threshold rule with threshold_value, in USD. Optional destination_changes can create Slack,
+            Microsoft Teams, or HTTPS webhook destinations atomically with the alert.
+        feature_flag: billing-alerts
+    billing-alert-update:
+        operation: billing_alerts_partial_update
+        enabled: false
+        disabled_reason: Billing alerts are not ready for general use.
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update billing alert
+        description: >
+            Partially update a billing alert by ID in the active organization. The caller must be an organization Admin
+            or Owner. Change only the supplied trigger fields, alert copy, enabled state, or snooze. The metric picks
+            the billing-period total to watch (spend or projected_spend); the first version supports only the
+            absolute_value threshold rule with threshold_value, in USD. Optional destination_changes applies destination
+            creation or complete-group deletion in the same backend transaction as the configuration update. Repeating a
+            request that creates a destination of the same type is rejected, because an alert allows one destination
+            group per type.
+        feature_flag: billing-alerts

@@ -2,6 +2,8 @@ import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -12,7 +14,7 @@ import {
     LogsIngestionOutputsConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
-import { LogsIngestionConsumer } from '~/logs/logs-ingestion-consumer'
+import { createLogsIngestionConsumer } from '~/logs/framework/create-consumer'
 import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
@@ -24,12 +26,16 @@ import {
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '~/logs/outputs/producers'
 import { createLogsOutputsRegistry } from '~/logs/outputs/registry'
+import { PatternMessageKeysCache } from '~/logs/pattern-message-keys-cache'
 import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 
 import { HogFunctionManagerService } from '../cdp/services/managers/hog-function-manager.service'
-import { HogFunctionMonitoringService } from '../cdp/services/monitoring/hog-function-monitoring.service'
+import {
+    TransformationsMonitoringConfig,
+    createTransformationsMonitoringService,
+} from '../cdp/services/monitoring/hog-function-monitoring.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
@@ -49,12 +55,14 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  */
 export type IngestionLogsServerConfig = BaseServerConfig &
     LogsIngestionConsumerConfig &
+    TransformationsMonitoringConfig &
     LogsIngestionOutputsConfig &
     KafkaWarpstreamLogsProducerEnvConfig &
     KafkaWarpstreamIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
+    UsageIngestionConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -127,6 +135,7 @@ export class IngestionLogsServer implements NodeServer {
             ? new LogsMetricsEmitter(this.config.LOGS_METRICS_RULES_EXPORT_URL)
             : undefined
         const retentionRulesCache = new RetentionRulesCache(this.postgres)
+        const patternMessageKeysCache = new PatternMessageKeysCache(this.postgres)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -140,7 +149,7 @@ export class IngestionLogsServer implements NodeServer {
             this.pubsub,
             new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         )
-        const hogFunctionMonitoring = new HogFunctionMonitoringService(outputs)
+        const hogFunctionMonitoring = createTransformationsMonitoringService(outputs, this.config, teamManager)
 
         const logsTransformer = new LogsTransformerService(hogFunctionManager, hogFunctionMonitoring, {
             siteUrl: this.config.SITE_URL,
@@ -154,7 +163,11 @@ export class IngestionLogsServer implements NodeServer {
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
-            const consumer = new LogsIngestionConsumer(this.config, {
+            const usageBatch = new UsageRecordBatch(createUsageIngestionClient(this.config, 'logs'), {
+                unit: 'bytes',
+                isTeamEnabled: usageReportTeamMatcher(this.config),
+            })
+            const consumer = createLogsIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
                 outputs,
@@ -163,9 +176,22 @@ export class IngestionLogsServer implements NodeServer {
                 metricsEmitter,
                 logsTransformer,
                 retentionRulesCache,
+                patternMessageKeysCache,
+                usageBatch,
             })
             await consumer.start()
-            return consumer.service
+            const service = consumer.service
+            return {
+                ...service,
+                // Drains here rather than in additionalCleanup, which runs after Postgres and the HTTP agents close.
+                onShutdown: async () => {
+                    try {
+                        await service.onShutdown()
+                    } finally {
+                        await hogFunctionMonitoring.stop()
+                    }
+                },
+            }
         })
 
         const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))

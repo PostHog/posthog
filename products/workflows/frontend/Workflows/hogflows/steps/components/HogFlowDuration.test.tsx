@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { HogFlowDuration } from './HogFlowDuration'
+import { HogFlowDuration, MAX_DELAY_VALUE_FOR_DURATION_UNIT } from './HogFlowDuration'
 
 describe('HogFlowDuration', () => {
     afterEach(cleanup)
@@ -69,6 +69,30 @@ describe('HogFlowDuration', () => {
         render(<HogFlowDuration value="45s" onChange={jest.fn()} />)
         expect(screen.getByRole('spinbutton')).toHaveValue(45)
         expect(screen.getByText('Second(s)')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['holds a day amount to the 30-day ceiling on blur by default', '45d', {}, '30d'],
+        ['keeps a day amount past the ceiling on blur when unbounded', '45d', { allowUnbounded: true }, '45d'],
+        [
+            'keeps a 45-day delay with the delay ceilings',
+            '45d',
+            { maxValueForUnit: MAX_DELAY_VALUE_FOR_DURATION_UNIT },
+            '45d',
+        ],
+        [
+            'holds a delay to the 365-day ceiling',
+            '400d',
+            { maxValueForUnit: MAX_DELAY_VALUE_FOR_DURATION_UNIT },
+            '365d',
+        ],
+    ])('%s', (_name, value, props, expected) => {
+        const onChange = jest.fn()
+        render(<HogFlowDuration value={value} onChange={onChange} {...props} />)
+
+        fireEvent.blur(screen.getByRole('spinbutton'))
+
+        expect(onChange).toHaveBeenCalledWith(expected)
     })
 
     it('clears the field immediately on change even before the parent commits the new value', () => {

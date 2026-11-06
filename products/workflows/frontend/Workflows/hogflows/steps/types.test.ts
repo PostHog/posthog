@@ -37,9 +37,45 @@ describe('HogFlowActionSchema', () => {
                 config: { template_id: 'template-webhook', inputs: {} },
             },
         ],
+        [
+            'function_push with a UUIDT message category',
+            {
+                id: 'action_function_push_abc123',
+                name: 'Send push',
+                type: 'function_push',
+                description: '',
+                config: {
+                    template_id: 'template-native-push',
+                    message_category_id: '0192a1b2-c3d4-0000-8e5f-0a1b2c3d4e5f',
+                    template_uuid: '0192a1b2-c3d4-0000-8e5f-0a1b2c3d4e60',
+                    inputs: {},
+                },
+            },
+        ],
     ])('validates %s action without created_at/updated_at', (_label, action) => {
         const result = HogFlowActionSchema.safeParse(action)
         expect(result.success).toBe(true)
+    })
+
+    it('preserves account assignment status in batch trigger filters', () => {
+        const action = {
+            id: 'trigger_node',
+            name: 'Trigger',
+            type: 'trigger',
+            description: '',
+            config: {
+                type: 'batch',
+                filters: {
+                    audience_type: 'accounts',
+                    properties: [],
+                    assignment_status: 'assigned',
+                },
+            },
+        }
+
+        const result = HogFlowActionSchema.parse(action)
+
+        expect(result).toMatchObject(action)
     })
 
     // A cleared HogFlowDuration input emits just the unit (e.g. "d") and clobbering that with a
@@ -84,6 +120,30 @@ describe('HogFlowActionSchema', () => {
         ['0.0h', false],
     ])('delay_duration %p → valid=%p', (duration, valid) => {
         expect(HogFlowActionSchema.safeParse(delayAction(duration)).success).toBe(valid)
+    })
+
+    // The API takes exactly one of the two delay modes. A config the editor calls valid but the API
+    // rejects saves as a draft and then fails to activate, pointing at nothing visible on screen.
+    const delayConfigAction = (config: Record<string, unknown>): Record<string, unknown> => ({
+        id: 'delay_node',
+        name: 'Delay',
+        type: 'delay',
+        description: '',
+        config,
+    })
+
+    it.each([
+        ['a duration alone', { delay_duration: '1d' }, true],
+        ['a date alone', { delay_until: { expression: 'person.properties.expires_at' } }, true],
+        ['a date with an offset', { delay_until: { expression: 'person.properties.x', offset: '-1d' } }, true],
+        ['a date with a cap', { delay_until: { expression: 'person.properties.x' }, max_delay_duration: '7d' }, true],
+        ['both modes', { delay_duration: '1d', delay_until: { expression: 'person.properties.x' } }, false],
+        ['neither mode', {}, false],
+        ['a date with no expression', { delay_until: { expression: '' } }, false],
+        ['an offset in an unsupported unit', { delay_until: { expression: 'x', offset: '1w' } }, false],
+        ['a cap that is not a duration', { delay_until: { expression: 'x' }, max_delay_duration: '7' }, false],
+    ])('delay config with %s → valid=%p', (_label, config, valid) => {
+        expect(HogFlowActionSchema.safeParse(delayConfigAction(config)).success).toBe(valid)
     })
 
     it.each([

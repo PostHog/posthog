@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { IconGear, IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
@@ -14,19 +15,23 @@ import {
     LemonSwitch,
     LemonTabs,
     LemonTag,
+    LemonTextArea,
     Popover,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { INSIGHT_UNIT_OPTIONS_SHORT } from 'lib/insights/aggregationAxisFormat'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisFormat'
 
 import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { AxisSeries, Column, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
+import { drawsOnePartPerSeries, isBreakdownSeries, partOfWholeChartData } from './Charts/sqlPieGraphAdapter'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
@@ -50,20 +55,33 @@ export const SeriesTab = (): JSX.Element => {
     const { updateXSeries, addYSeries, updateSeriesIndex, deleteYSeries, setTransposeResults } =
         useActions(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
-    const { selectedSeriesBreakdownColumn, showSeriesBreakdown } = useValues(breakdownLogic)
+    const { selectedSeriesBreakdownColumn, showSeriesBreakdown, seriesBreakdownData } = useValues(breakdownLogic)
     const { addSeriesBreakdown } = useActions(breakdownLogic)
 
+    const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
+    const isMetric = effectiveVisualizationType === ChartDisplayType.Metric
     const availableBreakdownColumns = getAvailableSeriesBreakdownColumns(columns, selectedXAxis, selectedYAxis)
-    const hideAddYSeries = yData.length >= numericalColumns.length
+    const hideAddYSeries = isMetric ? yData.length >= 1 : yData.length >= numericalColumns.length
+    // Metric and scatter charts accept one series, so a breakdown does not apply.
     const hideAddSeriesBreakdown =
-        showSeriesBreakdown || selectedXAxis === null || availableBreakdownColumns.length === 0
+        isScatterPlot ||
+        isMetric ||
+        showSeriesBreakdown ||
+        selectedXAxis === null ||
+        availableBreakdownColumns.length === 0
     const showSeriesBreakdownSelector =
+        !isScatterPlot &&
+        !isMetric &&
         selectedXAxis !== null &&
         showSeriesBreakdown &&
         (selectedSeriesBreakdownColumn !== null || availableBreakdownColumns.length > 0)
 
     if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         return <HeatmapSeriesTab />
+    }
+
+    if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        return <BoxPlotSeriesTab />
     }
 
     if (showTableSettings) {
@@ -88,7 +106,7 @@ export const SeriesTab = (): JSX.Element => {
         )
     }
 
-    const options = columns.map(({ name, type }) => ({
+    const toColumnOption = ({ name, type }: Column): { value: string; label: JSX.Element } => ({
         value: name,
         label: (
             <div className="items-center flex-1">
@@ -98,9 +116,15 @@ export const SeriesTab = (): JSX.Element => {
                 </LemonTag>
             </div>
         ),
-    }))
+    })
 
-    if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+    const options = columns.map(toColumnOption)
+    // A scatter's x axis holds a second measure rather than a category, so only numeric columns fit.
+    const xAxisOptions = isScatterPlot ? numericalColumns.map(toColumnOption) : options
+
+    if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const parts = partOfWholeChartData(seriesBreakdownData, xData, yData)
+        const breakdownSplitsValue = parts.yData.some(isBreakdownSeries)
         const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
         const valueOptions = numericalColumns.map(({ name, type }) => ({
             value: name,
@@ -134,7 +158,16 @@ export const SeriesTab = (): JSX.Element => {
                     className="w-full"
                     value={xData !== null ? xData.column.name : 'None'}
                     options={options}
-                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    disabledReason={
+                        responseLoading
+                            ? 'Query loading...'
+                            : yData.length > 1
+                              ? 'A label splits one value column. Remove the other values to use it.'
+                              : breakdownSplitsValue
+                                ? 'The breakdown already splits the value. Remove the breakdown to use a label.'
+                                : undefined
+                    }
+                    data-attr="part-of-whole-label-column"
                     onChange={(value) => {
                         const column = columns.find((n) => n.name === value)
                         if (column) {
@@ -143,19 +176,27 @@ export const SeriesTab = (): JSX.Element => {
                     }}
                 />
 
-                <LemonLabel className="mt-4 mb-1">Value</LemonLabel>
-                <LemonSelect
-                    className="w-full"
-                    placeholder="Select a column"
-                    value={valueColumn}
-                    options={valueOptions}
-                    disabledReason={responseLoading ? 'Query loading...' : undefined}
-                    onChange={(value) => {
-                        if (value) {
-                            setValueColumn(value)
-                        }
-                    }}
-                />
+                {selectedSeriesBreakdownColumn && <SeriesBreakdownSelector />}
+
+                {drawsOnePartPerSeries(parts.xData, parts.yData) ? (
+                    <YSeriesList label="Values" addLabel="Add value" showAdd={!hideAddYSeries} />
+                ) : (
+                    <>
+                        <LemonLabel className="mt-4 mb-1">Value</LemonLabel>
+                        <LemonSelect
+                            className="w-full"
+                            placeholder="Select a column"
+                            value={valueColumn}
+                            options={valueOptions}
+                            disabledReason={responseLoading ? 'Query loading...' : undefined}
+                            onChange={(value) => {
+                                if (value) {
+                                    setValueColumn(value)
+                                }
+                            }}
+                        />
+                    </>
+                )}
             </div>
         )
     }
@@ -166,7 +207,7 @@ export const SeriesTab = (): JSX.Element => {
             <LemonSelect
                 className="w-full"
                 value={xData !== null ? xData.column.name : 'None'}
-                options={options}
+                options={xAxisOptions}
                 disabledReason={responseLoading ? 'Query loading...' : undefined}
                 onChange={(value) => {
                     const column = columns.find((n) => n.name === value)
@@ -188,11 +229,22 @@ export const SeriesTab = (): JSX.Element => {
             )}
             {showSeriesBreakdownSelector && <SeriesBreakdownSelector />}
 
-            <LemonLabel className="mt-4 mb-1">Y-axis</LemonLabel>
+            <YSeriesList label="Y-axis" addLabel="Add Y-series" showAdd={!hideAddYSeries} />
+        </div>
+    )
+}
+
+function YSeriesList({ label, addLabel, showAdd }: { label: string; addLabel: string; showAdd: boolean }): JSX.Element {
+    const { yData } = useValues(dataVisualizationLogic)
+    const { addYSeries } = useActions(dataVisualizationLogic)
+
+    return (
+        <>
+            <LemonLabel className="mt-4 mb-1">{label}</LemonLabel>
             {yData.map((series, index) => (
                 <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
-            {!hideAddYSeries && (
+            {showAdd && (
                 <LemonButton
                     className="mt-1"
                     type="tertiary"
@@ -200,10 +252,10 @@ export const SeriesTab = (): JSX.Element => {
                     icon={<IconPlusSmall />}
                     fullWidth
                 >
-                    Add Y-series
+                    {addLabel}
                 </LemonButton>
             )}
-        </div>
+        </>
     )
 }
 
@@ -265,14 +317,8 @@ const SeriesSelectLabel = ({
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: number }): JSX.Element => {
-    const {
-        columns,
-        numericalColumns,
-        responseLoading,
-        dataVisualizationProps,
-        showTableSettings,
-        effectiveVisualizationType,
-    } = useValues(dataVisualizationLogic)
+    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
+        useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
 
@@ -282,7 +328,6 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
-    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
     const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
@@ -317,19 +362,11 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
         ),
     }))
 
-    const settingsTabs = isPieChart
-        ? [
-              {
-                  label: Y_SERIES_SETTINGS_TABS[YSeriesSettingsTab.Formatting].label,
-                  key: YSeriesSettingsTab.Formatting,
-                  content: <YSeriesFormattingTab ySeriesLogicProps={seriesLogicProps} />,
-              },
-          ]
-        : Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
-              label: label,
-              key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
-              content: <Component ySeriesLogicProps={seriesLogicProps} />,
-          }))
+    const settingsTabs = Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
+        label: label,
+        key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
+        content: <Component ySeriesLogicProps={seriesLogicProps} />,
+    }))
 
     return (
         <div className="flex gap-1 mb-1">
@@ -368,7 +405,13 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
                     key="seriesSettings"
                     icon={<IconGear />}
                     noPadding
-                    onClick={() => setSettingsOpen(true)}
+                    data-attr="y-series-settings"
+                    onClick={() => {
+                        posthog.capture('sql column settings opened', {
+                            query_kind: dataVisualizationProps.query.kind,
+                        })
+                        setSettingsOpen(true)
+                    }}
                     disabledReason={!canOpenSettings && 'Select a column first'}
                 />
             </Popover>
@@ -481,13 +524,47 @@ export const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps:
 }
 
 export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
-    const { showTableSettings, dataVisualizationProps, effectiveVisualizationType } = useValues(dataVisualizationLogic)
+    const { showTableSettings, dataVisualizationProps, effectiveVisualizationType, chartSettings } =
+        useValues(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
-    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
+    const isPieChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
+    const hideChartSpecificOptions =
+        isPieChart ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBarValue ||
+        effectiveVisualizationType === ChartDisplayType.Metric ||
+        effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
+    const isPercentColumn = ySeriesLogicProps.series.settings?.formatting?.style === 'percent'
+    const seriesSwitches: {
+        name: 'trendLine' | 'excludeFromTotal'
+        label: string
+        info?: string
+        disabledReason?: string
+        checked?: boolean
+    }[] = [
+        { name: 'trendLine', label: 'Trend line' },
+        {
+            name: 'excludeFromTotal',
+            label: 'Exclude from total row',
+            info:
+                effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
+                    ? 'A bar still stacks with the other bars. Set the display type to line to draw it over the stack.'
+                    : undefined,
+            disabledReason:
+                chartSettings.showTotalRow === false
+                    ? 'Turn on "Show total row" to use this'
+                    : isPercentColumn
+                      ? 'Percent columns are always left out of the total row'
+                      : undefined,
+            checked: isPercentColumn || undefined,
+        },
+    ]
+    const valueLabelsInfo = chartSettings.showValuesOnSeries
+        ? 'Auto shows values, because "Show values on series" is on for the chart.'
+        : 'Auto hides values, because "Show values on series" is off for the chart.'
 
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="deprecated-space-y-4">
@@ -542,29 +619,43 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                     )}
                 </div>
             )}
-            {!showTableSettings && !isPieChart && (
-                <>
-                    {!selectedSeriesBreakdownColumn && (
-                        <LemonField name="trendLine" label="Trend line">
-                            {({ value, onChange }) => (
-                                <LemonSwitch
-                                    checked={value}
-                                    onChange={(newValue) => {
-                                        onChange(newValue)
-                                        updateSeriesIndex(
-                                            ySeriesLogicProps.seriesIndex,
-                                            ySeriesLogicProps.series.column.name,
-                                            {
-                                                display: {
-                                                    trendLine: newValue,
-                                                },
-                                            }
-                                        )
-                                    }}
-                                />
-                            )}
-                        </LemonField>
+            {showTableSettings && (
+                <LemonField name="description" label="Description">
+                    {({ value, onChange }) => (
+                        <LemonTextArea
+                            value={value ?? ''}
+                            placeholder="Explain what this column contains"
+                            onChange={(description) => {
+                                onChange(description)
+                                updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+                                    display: { description },
+                                })
+                            }}
+                        />
                     )}
+                </LemonField>
+            )}
+            {!showTableSettings && !hideChartSpecificOptions && (
+                <>
+                    {!selectedSeriesBreakdownColumn &&
+                        seriesSwitches.map(({ name, label, info, disabledReason, checked }) => (
+                            <LemonField key={name} name={name} label={label} info={info}>
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        checked={checked ?? value}
+                                        disabledReason={disabledReason}
+                                        onChange={(newValue) => {
+                                            onChange(newValue)
+                                            updateSeriesIndex(
+                                                ySeriesLogicProps.seriesIndex,
+                                                ySeriesLogicProps.series.column.name,
+                                                { display: { [name]: newValue } }
+                                            )
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
+                        ))}
                     <LemonField name="yAxisPosition" label="Y-axis position">
                         {({ value, onChange }) => (
                             <LemonSegmentedButton
@@ -633,6 +724,29 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                             />
                         )}
                     </LemonField>
+                    {!selectedSeriesBreakdownColumn && (
+                        <LemonField name="valueLabels" label="Values on series" info={valueLabelsInfo}>
+                            {({ value, onChange }) => (
+                                <LemonSegmentedButton
+                                    value={value}
+                                    className="w-full"
+                                    options={[
+                                        { label: 'Auto', value: 'auto' },
+                                        { label: 'Show', value: 'show' },
+                                        { label: 'Hide', value: 'hide' },
+                                    ]}
+                                    onChange={(newValue) => {
+                                        onChange(newValue)
+                                        updateSeriesIndex(
+                                            ySeriesLogicProps.seriesIndex,
+                                            ySeriesLogicProps.series.column.name,
+                                            { display: { valueLabels: newValue as 'auto' | 'show' | 'hide' } }
+                                        )
+                                    }}
+                                />
+                            )}
+                        </LemonField>
+                    )}
                 </>
             )}
         </Form>
@@ -729,7 +843,8 @@ const BreakdownSeries = ({
 
     const theme = getTheme(undefined)
     const themeTokens = theme ? (Object.keys(theme) as DataColorToken[]) : []
-    const selectedToken = chartSettings.resultCustomizations?.[series.breakdownValue]?.color ?? null
+    const customization = chartSettings.resultCustomizations?.[series.breakdownValue]
+    const selectedToken = customization?.customColor ? null : (customization?.color ?? null)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
@@ -738,13 +853,29 @@ const BreakdownSeries = ({
                 colorTokens={themeTokens}
                 selectedColorToken={selectedToken}
                 customButton={<LemonColorButton type="tertiary" color={seriesColor} className="mr-2" />}
+                showCustomColor
+                customColorValue={chartSettings.resultCustomizations?.[series.breakdownValue]?.customColor}
+                onSelectCustomColor={(customColor) =>
+                    updateChartSettings({
+                        resultCustomizations: {
+                            ...chartSettings.resultCustomizations,
+                            [series.breakdownValue]: {
+                                ...chartSettings.resultCustomizations?.[series.breakdownValue],
+                                assignmentBy: ResultCustomizationBy.Value,
+                                customColor,
+                            },
+                        },
+                    })
+                }
                 onSelectColorToken={(token) => {
                     updateChartSettings({
                         resultCustomizations: {
                             ...chartSettings.resultCustomizations,
                             [series.breakdownValue]: {
+                                ...chartSettings.resultCustomizations?.[series.breakdownValue],
                                 assignmentBy: ResultCustomizationBy.Value,
                                 color: token,
+                                customColor: undefined,
                             },
                         },
                     })

@@ -11,6 +11,8 @@ const WIDGET_PRODUCT_ACCESS_CHECKS = {
     experiment: () => userHasAccess(AccessControlResourceType.Experiment, AccessControlLevel.Viewer),
     survey: () => userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Viewer),
     logs: () => userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer),
+    metrics: () => userHasAccess(AccessControlResourceType.Metrics, AccessControlLevel.Viewer),
+    ticket: () => userHasAccess(AccessControlResourceType.Ticket, AccessControlLevel.Viewer),
 } satisfies Record<DashboardWidgetProductAccess, () => boolean>
 
 export function userHasDashboardWidgetProductAccess(productAccess: DashboardWidgetProductAccess | undefined): boolean {
@@ -23,4 +25,8 @@ export function userHasDashboardWidgetProductAccess(productAccess: DashboardWidg
 /** In-tile issue row edits and assignee filter picker: dashboard editor or Error tracking editor. */
 export function userCanMutateErrorTrackingIssuesOnDashboard(canEditDashboard: boolean): boolean {
     return canEditDashboard || userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Editor)
+}
+
+export function userCanMutateConversationsTicketsOnDashboard(canEditDashboard: boolean): boolean {
+    return canEditDashboard || userHasAccess(AccessControlResourceType.Ticket, AccessControlLevel.Editor)
 }

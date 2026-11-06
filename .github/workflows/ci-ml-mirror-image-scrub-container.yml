@@ -8,7 +8,8 @@ on:
             - 'master'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # Per-SHA on push: a shared group keeps one pending run, and the push that replaces it skips the build unless its own diff touches these paths.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -25,29 +26,38 @@ jobs:
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # The image and the unit tests both build the replay-anonymizer addon from these crates and the workspace files cargo reads.
                   filters: |
                       scrub_files:
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**'
+                        - 'rust/replay-anonymizer/**'
+                        - 'rust/replay-anonymizer-node/**'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
+                        - 'rust/.cargo/config.toml'
                         - 'Dockerfile.ml-mirror-image-scrub'
                         - '.github/workflows/ci-ml-mirror-image-scrub-container.yml'
 
     test:
         needs: changes
         name: Unit-test ml-mirror-image-scrub
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.scrub_files == 'true'
         runs-on: ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 15
         permissions:
             contents: read
         defaults:
@@ -64,7 +74,7 @@ jobs:
 
             - name: Install dependencies
               # Standalone package: own lockfile, outside the root pnpm workspace, so ignore the workspace.
-              run: corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
+              run: npm install -g corepack@0.36.0 && corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
 
             - name: Lint
               run: pnpm lint
@@ -76,16 +86,28 @@ jobs:
               # jest runs through babel (no type errors), so tsc is the only thing that typechecks the worker.
               run: pnpm typecheck
 
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Build the native addon
+              # src/pixel-convert.ts loads the addon at import, so every suite that reaches a detector needs it.
+              run: pnpm build:native
+
             - name: Run unit tests
               run: pnpm test:unit
 
     build:
         needs: changes
         name: Build and push ml-mirror-image-scrub image
+        # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
+        # pulls images pushed for them, and each constituent PR already built its own.
         if: |
-            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true') ||
-            (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.scrub_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.scrub_files == 'true') ||
+             (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
+             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.scrub_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         permissions:
@@ -100,24 +122,21 @@ jobs:
         # master → posthog-ml-mirror-image-scrub via the master role; else → the -prs repo via the prs role.
         env:
             ECR_IMAGE: ${{ github.ref == 'refs/heads/master' && 'posthog-ml-mirror-image-scrub' || 'posthog-ml-mirror-image-scrub-prs' }}
-            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE || vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE || secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
 
         steps:
             - name: Assert master publish role is configured
               if: github.ref == 'refs/heads/master'
               env:
-                  MASTER_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  MASTER_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
               run: |
                   if [[ -z "$MASTER_ROLE" ]]; then
-                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
+                    echo "::error::AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
                     exit 1
                   fi
 
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
@@ -151,6 +170,7 @@ jobs:
                   file: Dockerfile.ml-mirror-image-scrub
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
+                  annotations: ${{ steps.docker-meta.outputs.annotations }}
                   # Both arches: the charts-side Karpenter NodePool defaults to arm64 (Graviton), and an
                   # amd64-only manifest fails there with "no match for platform in manifest".
                   platforms: linux/amd64,linux/arm64
@@ -232,7 +252,7 @@ jobs:
                         },
                         "release": "ml-mirror-image-scrub",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

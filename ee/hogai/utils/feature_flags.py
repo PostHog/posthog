@@ -94,9 +94,9 @@ def is_core_memory_disabled(team: Team, user: User) -> bool:
     )
 
 
-def has_mcp_servers_feature_flag(team: Team, user: User) -> bool:
+def has_mcp_gateway_feature_flag(team: Team, user: User) -> bool:
     return feature_enabled_or_false(
-        "mcp-servers",
+        "mcp-gateway",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
@@ -114,9 +114,20 @@ def has_sandbox_mode_feature_flag(team: Team, user: User) -> bool:
     )
 
 
-def has_user_interview_mode_feature_flag(team: Team, user: User) -> bool:
+def has_conversation_task_mirror_feature_flag(team: Team, user: User) -> bool:
+    """Whether LangGraph conversations are mirrored into the task world after each turn."""
     return feature_enabled_or_false(
-        "user-interviews",
+        "phai-conversation-task-mirror",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+def has_replay_negative_event_filters_feature_flag(team: Team, user: User) -> bool:
+    return feature_enabled_or_false(
+        "replay-negative-event-filters",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},

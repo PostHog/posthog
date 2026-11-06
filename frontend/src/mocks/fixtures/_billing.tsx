@@ -6,7 +6,6 @@ import { defaultPlatformAddons } from './_billing_platform_addons'
 
 export const billingJson: BillingType = {
     customer_id: 'cus_Pg7PIL8MsKi6bx',
-    deactivated: false,
     has_active_subscription: true,
     billing_period: {
         current_period_start: dayjs('2024-03-07T22:54:32Z'),
@@ -2969,6 +2968,14 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
+                            key: 'oidc',
+                            name: 'OIDC SSO',
+                            description: "Allow your organization's users to log in with OpenID Connect.",
+                            unit: null,
+                            limit: null,
+                            note: null,
+                        },
+                        {
                             key: '2fa',
                             name: '2FA',
                             description: 'Secure your PostHog account with two-factor authentication.',
@@ -3198,6 +3205,14 @@ export const billingJson: BillingType = {
                     key: 'saml',
                     name: 'SAML SSO',
                     description: "Allow your organization's users to log in with SAML.",
+                    images: null,
+                    icon_key: null,
+                    type: null,
+                },
+                {
+                    key: 'oidc',
+                    name: 'OIDC SSO',
+                    description: "Allow your organization's users to log in with OpenID Connect.",
                     images: null,
                     icon_key: null,
                     type: null,

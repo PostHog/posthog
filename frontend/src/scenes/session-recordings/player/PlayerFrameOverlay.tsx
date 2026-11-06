@@ -5,9 +5,11 @@ import { MouseEvent } from 'react'
 
 import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
+import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
+import { humanizeBytes } from 'lib/utils/numbers'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -56,6 +58,7 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
         <div className="flex gap-1 mt-4">
             <CommentOnRecordingButton className="text-2xl text-white" data-attr="replay-overlay-comment" />
             <LemonButton
+                data-attr="replay-overlay-emoji"
                 size="xsmall"
                 icon={<IconEmoji className="text-2xl text-white" />}
                 onClick={(e) => {
@@ -69,10 +72,41 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
     )
 }
 
+// Failures that a fresh load attempt can fix (a snapshot API or blob fetch that failed in transit),
+// as opposed to a recording whose data is genuinely unplayable.
+const RECOVERABLE_SNAPSHOT_ERRORS = [
+    'loadSnapshotsForSourceFailure',
+    'loadSnapshotSourcesFailure',
+    'snapshotSourceLoadExhausted',
+    'snapshotRateLimited',
+]
+
+// The frame failure reports show an online browser and a frame that never started to load, and a retry
+// from this card almost always fixes it. So the message leads with the retry, and it mentions extensions
+// only after a retry from this card also failed.
+function playerFrameFailureMessage(restarts: number): string {
+    if (!navigator.onLine) {
+        return "Your browser is offline, so the player couldn't load. Reconnect to the internet and retry."
+    }
+    if (restarts === 0) {
+        return "The player didn't start in your browser. Retry usually fixes this."
+    }
+    return "The player still didn't start. A browser extension or security setting may be blocking it. Turn off extensions for PostHog, or try another browser."
+}
+
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion } =
-        useValues(sessionRecordingPlayerLogic)
-    const { setPlay } = useActions(sessionRecordingPlayerLogic)
+    const {
+        currentPlayerState,
+        endReached,
+        logicProps,
+        playerError,
+        playerFrameDocumentFailed,
+        playerFrameLoadRestarts,
+        isWaitingForIngestion,
+        sessionPlayerMetaData,
+        matchingEventSkipTarget,
+    } = useValues(sessionRecordingPlayerLogic)
+    const { setPlay, retryLoadingSnapshots, restartPlayerFrameLoad } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
         e.stopPropagation()
@@ -86,27 +120,97 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const showActionsOnOverlay = playerMode === SessionRecordingPlayerMode.Standard && pausedState
 
-    if (currentPlayerState === SessionPlayerState.ERROR) {
-        const isMissingFullSnapshot = playerError === 'noPlayableFullSnapshot'
-        const isUnauthorized = playerError === 'snapshotUnauthorized'
+    if (
+        currentPlayerState === SessionPlayerState.ERROR &&
+        playerError === 'recordingTooLarge' &&
+        !playerFrameDocumentFailed
+    ) {
+        const totalSize = sessionPlayerMetaData?.total_size
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
                 <IconWarning className="text-danger text-5xl" />
                 <div className="font-bold text-text-3000 text-lg">We're unable to play this recording</div>
                 <div className="text-secondary text-sm text-center">
-                    {isMissingFullSnapshot
-                        ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
-                        : isUnauthorized
-                          ? 'Your session has expired. Sign in again to keep watching this recording.'
-                          : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                    It contains {totalSize ? `${humanizeBytes(totalSize)} of` : 'too much'} snapshot data in very large
+                    chunks, more than the player can render. This usually comes from pages with rapidly changing
+                    content. You can exclude those elements from capture to keep future recordings playable.
+                </div>
+                <LemonButton
+                    targetBlank
+                    to="https://posthog.com/docs/session-replay/privacy"
+                    type="primary"
+                    fullWidth
+                    center
+                >
+                    Learn how to exclude elements
+                </LemonButton>
+            </div>
+        )
+    } else if (currentPlayerState === SessionPlayerState.ERROR) {
+        // A player frame that never loaded leaves nothing to draw into, so its message outranks any snapshot error.
+        const isMissingFullSnapshot = !playerFrameDocumentFailed && playerError === 'noPlayableFullSnapshot'
+        const isUnauthorized = !playerFrameDocumentFailed && playerError === 'snapshotUnauthorized'
+        const isRecoverable =
+            !playerFrameDocumentFailed && !!playerError && RECOVERABLE_SNAPSHOT_ERRORS.includes(playerError)
+        content = (
+            <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
+                <IconWarning className="text-danger text-5xl" />
+                <div className="font-bold text-text-3000 text-lg">
+                    {playerFrameDocumentFailed
+                        ? "We couldn't load the replay player"
+                        : isRecoverable
+                          ? "We couldn't load this recording"
+                          : "We're unable to play this recording"}
+                </div>
+                <div className="text-secondary text-sm text-center">
+                    {playerFrameDocumentFailed
+                        ? playerFrameFailureMessage(playerFrameLoadRestarts)
+                        : isMissingFullSnapshot
+                          ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
+                          : isUnauthorized
+                            ? 'Your session has expired. Sign in again to keep watching this recording.'
+                            : playerError === 'snapshotRateLimited'
+                              ? "You've loaded a lot of recording data in a short time. Wait a few minutes, then retry."
+                              : isRecoverable
+                                ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
+                                : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
                 {isUnauthorized && (
-                    <LemonButton to={urls.login()} type="primary" fullWidth center>
+                    <LemonButton data-attr="replay-overlay-sign-in" to={urls.login()} type="primary" fullWidth center>
                         Sign in
                     </LemonButton>
                 )}
-                {!isMissingFullSnapshot && !isUnauthorized && (
+                {isRecoverable && (
                     <LemonButton
+                        data-attr="replay-overlay-retry"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            retryLoadingSnapshots()
+                        }}
+                        type="primary"
+                        fullWidth
+                        center
+                    >
+                        Retry
+                    </LemonButton>
+                )}
+                {playerFrameDocumentFailed && (
+                    <LemonButton
+                        data-attr="replay-overlay-retry-player-frame"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            restartPlayerFrameLoad()
+                        }}
+                        type="primary"
+                        fullWidth
+                        center
+                    >
+                        Retry
+                    </LemonButton>
+                )}
+                {!playerFrameDocumentFailed && !isMissingFullSnapshot && !isUnauthorized && !isRecoverable && (
+                    <LemonButton
+                        data-attr="replay-overlay-reload"
                         onClick={() => {
                             window.location.reload()
                         }}
@@ -118,8 +222,8 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                     </LemonButton>
                 )}
                 <LemonButton
-                    targetBlank
-                    to="https://posthog.com/support?utm_medium=in-product&utm_campaign=recording-not-found"
+                    data-attr="replay-overlay-contact-support"
+                    onClick={() => openInAppSupport('recording-not-found')}
                     type="secondary"
                     fullWidth
                     center
@@ -165,7 +269,13 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
     if (currentPlayerState === SessionPlayerState.SKIP_TO_MATCHING_EVENT) {
-        content = <div className="text-3xl italic font-medium text-white">Skipping to filtered event</div>
+        content = (
+            <div className="text-3xl italic font-medium text-white">
+                {matchingEventSkipTarget === 'experiment-exposure'
+                    ? 'Skipping to experiment exposure'
+                    : 'Skipping to filtered event'}
+            </div>
+        )
     }
     return content ? (
         <div

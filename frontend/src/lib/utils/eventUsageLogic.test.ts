@@ -1,3 +1,6 @@
+import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
@@ -5,13 +8,93 @@ import type {
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentTrendsQuery,
+    Node,
 } from '~/queries/schema/schema-general'
-import { BaseMathType } from '~/types'
+import { initKeaTests } from '~/test/init'
+import {
+    BaseMathType,
+    BehavioralEventType,
+    ChartDisplayType,
+    FilterLogicalOperator,
+    FunnelVizType,
+    InsightModel,
+    PropertyFilterType,
+    StepOrderValue,
+} from '~/types'
 
-import { getEventPropertiesForMetric } from './eventUsageLogic'
+import { DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
 
-describe('getEventPropertiesForMetric', () => {
+import { eventUsageLogic, getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
+
+describe('eventUsageLogic', () => {
+    describe('experiments list viewed', () => {
+        it('sends the state of the list under its pinned property names', () => {
+            initKeaTests()
+            eventUsageLogic.mount()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+            eventUsageLogic.actions.reportExperimentsListViewed({
+                experimentsShown: 2,
+                statusFilter: 'running',
+                page: 2,
+                hasSearch: true,
+                archived: true,
+            })
+
+            expect(capture.mock.calls.map(([event, properties]) => [event, properties])).toEqual([
+                [
+                    'experiments list viewed',
+                    { experiments_shown: 2, status_filter: 'running', page: 2, has_search: true, archived: true },
+                ],
+            ])
+            capture.mockRestore()
+        })
+    })
+
+    describe('saved insight to dashboard', () => {
+        const biQuery = {
+            kind: NodeKind.BIVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+            config: DEFAULT_BI_CONFIG,
+        }
+
+        afterEach(() => {
+            jest.dontMock('products/business_intelligence/frontend/biEditorAnalytics')
+        })
+
+        it.each([
+            ['a BI insight', biQuery, false, ['saved insight to dashboard', 'bi-worksheet-action']],
+            [
+                'a BI insight when the BI chunk fails',
+                biQuery,
+                true,
+                ['saved insight to dashboard', 'bi-worksheet-action'],
+            ],
+            [
+                'a trends insight',
+                { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery, series: [] } },
+                false,
+                ['saved insight to dashboard'],
+            ],
+        ])('captures the dashboard events for %s', async (_, query, chunkFails, expectedEvents) => {
+            if (chunkFails) {
+                jest.doMock('products/business_intelligence/frontend/biEditorAnalytics', () => {
+                    throw new Error('chunk failed to load')
+                })
+            }
+            initKeaTests()
+            eventUsageLogic.mount()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+            await expectLogic(eventUsageLogic, () => {
+                eventUsageLogic.actions.reportSavedInsightToDashboard({ id: 1, query } as Partial<InsightModel>, 2)
+            }).toFinishAllListeners()
+
+            expect(capture.mock.calls.map(([event]) => event)).toEqual(expectedEvents)
+            capture.mockRestore()
+        })
+    })
+
     describe('ExperimentMetric (new format)', () => {
         it('extracts funnel metric properties', () => {
             const metric: ExperimentFunnelMetric = {
@@ -210,41 +293,136 @@ describe('getEventPropertiesForMetric', () => {
         })
     })
 
-    describe('legacy formats', () => {
-        it('extracts ExperimentFunnelsQuery properties', () => {
-            const metric = {
-                kind: NodeKind.ExperimentFunnelsQuery,
-                funnels_query: {
+    describe('sanitizeQuery', () => {
+        it('counts behavioral filters across global and series filters', () => {
+            const query = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
                     series: [
-                        { kind: NodeKind.EventsNode },
-                        { kind: NodeKind.EventsNode },
-                        { kind: NodeKind.EventsNode },
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Behavioral,
+                                    key: 'signed up',
+                                    value: BehavioralEventType.PerformEvent,
+                                    event_type: 'events',
+                                },
+                            ],
+                        },
                     ],
-                    filterTestAccounts: true,
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.Behavioral,
+                                        key: 'completed onboarding',
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: 'events',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
                 },
-            } as ExperimentFunnelsQuery
+            } as unknown as Node
 
-            const result = getEventPropertiesForMetric(metric) as Record<string, any>
-
-            expect(result.kind).toBe(NodeKind.ExperimentFunnelsQuery)
-            expect(result.steps_count).toBe(3)
-            expect(result.filter_test_accounts).toBe(true)
+            expect(sanitizeQuery(query).behavioral_filter_count).toBe(2)
         })
 
-        it('extracts ExperimentTrendsQuery properties', () => {
-            const metric = {
-                kind: NodeKind.ExperimentTrendsQuery,
-                count_query: {
-                    series: [{ kind: NodeKind.ActionsNode, id: 1 }],
-                    filterTestAccounts: false,
+        const trendsSource = {
+            kind: NodeKind.TrendsQuery,
+            dateRange: { date_from: '-7d', date_to: null },
+            interval: 'day',
+            samplingFactor: 0.1,
+            filterTestAccounts: true,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+                { kind: NodeKind.ActionsNode, id: 1 },
+                { kind: NodeKind.DataWarehouseNode, table_name: 'orders' },
+            ],
+            breakdownFilter: { breakdown_type: 'event', breakdown_limit: 5, breakdown_hide_other_aggregation: true },
+            compareFilter: { compare: true, compare_to: '-1w' },
+            trendsFilter: { formula: 'A + B' },
+        }
+        const trendsProperties = {
+            uses_data_warehouse_source: true,
+            date_from: '-7d',
+            interval: 'day',
+            samplingFactor: 0.1,
+            series_length: 3,
+            event_entity_count: 1,
+            action_entity_count: 1,
+            data_warehouse_entity_count: 1,
+            has_properties: false,
+            behavioral_filter_count: 0,
+            filter_test_accounts: true,
+            breakdown_type: 'event',
+            breakdown_limit: 5,
+            breakdown_hide_other_aggregation: true,
+            has_formula: true,
+            display: ChartDisplayType.ActionsLineGraph,
+            compare: true,
+            compare_to: '-1w',
+        }
+        const funnelsSource = {
+            kind: NodeKind.FunnelsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            funnelsFilter: { funnelVizType: FunnelVizType.Steps, funnelOrderType: StepOrderValue.STRICT },
+        }
+
+        const cases: [string, unknown, Record<string, unknown>][] = [
+            ['null', null, { uses_data_warehouse_source: false }],
+            [
+                'a trends query wrapped in an InsightVizNode',
+                { kind: NodeKind.InsightVizNode, source: trendsSource },
+                { query_kind: NodeKind.InsightVizNode, query_source_kind: NodeKind.TrendsQuery, ...trendsProperties },
+            ],
+            ['a bare trends query', trendsSource, { query_kind: NodeKind.TrendsQuery, ...trendsProperties }],
+            [
+                'a funnels query',
+                funnelsSource,
+                {
+                    query_kind: NodeKind.FunnelsQuery,
+                    uses_data_warehouse_source: false,
+                    series_length: 1,
+                    event_entity_count: 1,
+                    action_entity_count: 0,
+                    data_warehouse_entity_count: 0,
+                    has_properties: false,
+                    behavioral_filter_count: 0,
+                    has_formula: false,
+                    funnel_viz_type: FunnelVizType.Steps,
+                    funnel_order_type: StepOrderValue.STRICT,
                 },
-            } as ExperimentTrendsQuery
+            ],
+            [
+                'a non-insight query',
+                { kind: NodeKind.DataTableNode, source: { kind: NodeKind.HogQLQuery, query: 'select 1' } },
+                {
+                    query_kind: NodeKind.DataTableNode,
+                    query_source_kind: NodeKind.HogQLQuery,
+                    uses_data_warehouse_source: false,
+                },
+            ],
+        ]
 
-            const result = getEventPropertiesForMetric(metric) as Record<string, any>
-
-            expect(result.kind).toBe(NodeKind.ExperimentTrendsQuery)
-            expect(result.series_kind).toBe(NodeKind.ActionsNode)
-            expect(result.filter_test_accounts).toBe(false)
+        it.each(cases)('describes %s without its filter values', (_, query, expected) => {
+            expect(sanitizeQuery(query as Node | null)).toEqual(expected)
         })
+    })
+
+    it('reports only the kind for a legacy metric', () => {
+        const metric = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: { series: [{ kind: NodeKind.EventsNode }] },
+        } as ExperimentFunnelsQuery
+
+        expect(getEventPropertiesForMetric(metric)).toEqual({ kind: NodeKind.ExperimentFunnelsQuery })
     })
 })

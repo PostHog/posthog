@@ -6,16 +6,69 @@ import {
     AssistantToolCallMessage,
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
+import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DashboardType, InsightShortId, InsightModel } from '~/types'
 
 import { EnhancedToolCall } from './max-constants'
+import { MaxContextItem, MaxContextType, MaxUIContext } from './maxTypes'
 import {
     activeSceneLogicHasMaxContext,
+    dashboardToMaxContext,
+    insightToMaxContext,
     findPendingClientToolCall,
+    getContextSourceProperties,
     isMultiQuestionFormMessage,
     threadEndsWithMultiQuestionForm,
 } from './utils'
 
 describe('max/utils', () => {
+    it.each(['insight', 'dashboard'] as const)(
+        'removes nested query responses from %s context without changing the source',
+        (contextType) => {
+            const source = {
+                kind: NodeKind.HogQLQuery as const,
+                query: 'SELECT 1',
+                response: { results: [[1]] },
+                values: { response: 'keep this query value' },
+            }
+            const insight: Partial<InsightModel> = {
+                short_id: 'test-query' as InsightShortId,
+                query: {
+                    kind: NodeKind.DataVisualizationNode,
+                    source,
+                } as DataVisualizationNode,
+            }
+            const dashboard = {
+                id: 1,
+                tiles: [{ id: 1, insight }],
+            } as DashboardType
+            const context =
+                contextType === 'insight' ? insightToMaxContext(insight) : dashboardToMaxContext(dashboard).insights[0]
+
+            expect(context.query).toEqual({
+                kind: NodeKind.HogQLQuery as const,
+                query: 'SELECT 1',
+                values: { response: 'keep this query value' },
+            })
+            expect(source.response).toEqual({ results: [[1]] })
+        }
+    )
+
+    it('removes responses from direct queries and nested query arrays', () => {
+        const query = {
+            kind: NodeKind.TrendsQuery as const,
+            response: { results: [] },
+            series: [{ kind: NodeKind.EventsNode as const, event: '$pageview', response: { results: [] } }],
+        }
+
+        expect(insightToMaxContext({ query }).query).toEqual({
+            kind: NodeKind.TrendsQuery as const,
+            series: [{ kind: NodeKind.EventsNode as const, event: '$pageview' }],
+        })
+        expect(query.response).toEqual({ results: [] })
+        expect(query.series[0].response).toEqual({ results: [] })
+    })
+
     describe('isMultiQuestionFormMessage()', () => {
         it('returns true for AssistantMessage with create_form tool call', () => {
             const message = {
@@ -308,6 +361,34 @@ describe('max/utils', () => {
                 selectors: hasMaxContext ? { maxContext: () => [] } : {},
             } as unknown as BuiltLogic
             expect(activeSceneLogicHasMaxContext(logic)).toBe(expected)
+        })
+    })
+
+    describe('getContextSourceProperties()', () => {
+        const sceneContext = [
+            { type: MaxContextType.DASHBOARD, id: 1 },
+            { type: MaxContextType.EVENT, id: 'pageview' },
+        ] as MaxContextItem[]
+
+        it.each([
+            ['no context', undefined, { context_source: 'none', page_context_count: 0, added_context_count: 0 }],
+            [
+                'only items from the page',
+                { dashboards: [{ id: 1 }], events: [{ id: 'pageview' }] },
+                { context_source: 'page', page_context_count: 2, added_context_count: 0 },
+            ],
+            [
+                'only items the user added',
+                { insights: [{ id: 'abc' }], events: [{ id: 'signup' }] },
+                { context_source: 'added', page_context_count: 0, added_context_count: 2 },
+            ],
+            [
+                'page and added items, with an id shared across types',
+                { dashboards: [{ id: 1 }], actions: [{ id: 1 }] },
+                { context_source: 'mixed', page_context_count: 1, added_context_count: 1 },
+            ],
+        ])('classifies %s', (_, uiContext, expected) => {
+            expect(getContextSourceProperties(uiContext as MaxUIContext | undefined, sceneContext)).toEqual(expected)
         })
     })
 })

@@ -21,12 +21,12 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import sync_connect
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import WORKFLOW_EXECUTION_TIMEOUT
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME, GenerateBriefWorkflowInputs
@@ -277,7 +277,7 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             BriefConfig.objects.for_team(self.team_id)
             .filter(created_by=cast(User, self.request.user))
             .select_related("created_by")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
         # Lists hide soft-deleted configs; detail routes keep them reachable so a
         # PATCH {"deleted": false} can restore one.
@@ -292,6 +292,7 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "pulse config created",
             {"config_id": str(instance.id)},
             team=self.team,
+            request=self.request,
         )
 
     def perform_destroy(self, instance: BriefConfig) -> None:
@@ -302,6 +303,7 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "pulse config deleted",
             {"config_id": str(instance.id)},
             team=self.team,
+            request=self.request,
         )
 
 
@@ -326,7 +328,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             ProductBrief.objects.for_team(self.team_id)
             .filter(created_by=cast(User, self.request.user))
             .select_related("created_by", "config")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -425,6 +427,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 "pulse brief generation contended",
                 {"config_id": str(config.id) if config else None},
                 team=self.team,
+                request=request,
             )
             try:
                 brief.delete()
@@ -455,5 +458,6 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             "pulse brief generated",
             {"config_id": str(config.id) if config else None, "period": period, "trigger": "on_demand"},
             team=self.team,
+            request=request,
         )
         return Response(ProductBriefSerializer(brief).data, status=status.HTTP_201_CREATED)

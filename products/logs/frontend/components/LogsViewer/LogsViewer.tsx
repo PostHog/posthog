@@ -1,23 +1,26 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { TZLabelProps } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
 
 import { LogsGroupByResults } from 'products/logs/frontend/components/LogsGroupBy/LogsGroupByResults'
+import { LogsMetricRuleQuickCreateModal } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRuleQuickCreateModal'
 import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/LogsPatterns'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+import { LogsViewerFilters, LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
-import { FacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/FacetRail'
+import { LogsFacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/LogsFacetRail'
 import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsQueryBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
+import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 
@@ -26,6 +29,7 @@ import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { LogsDisplayBar } from './LogsDisplayBar'
 import { logsViewerLogic } from './logsViewerLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
+import type { LogsViewerSparklineProps } from './LogsViewerSparkline'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
@@ -43,9 +47,15 @@ export interface LogsViewerProps {
     // distinct-id log attributes — unlike a pinned distinct-ids filter, not capped by how
     // many ids the person page happened to load.
     personId?: string
+    sessionId?: string
     // Seed the facet/filter rail as collapsed on first mount for this id. Persisted per id,
     // so a user who expands it keeps that choice; the "Show filters" toggle still re-expands.
     defaultFacetRailCollapsed?: boolean
+    // Same, for the volume chart. Panels embedded in a short pane start without it.
+    defaultSparklineCollapsed?: boolean
+    // A panel embedded under other keyboard controls leaves focus where it is.
+    autoFocusSearch?: boolean
+    keyboardShortcutsEnabled?: boolean
 }
 
 export function LogsViewer({
@@ -55,11 +65,18 @@ export function LogsViewer({
     initialFilters,
     pinnedFilters,
     personId,
+    sessionId,
     defaultFacetRailCollapsed,
+    defaultSparklineCollapsed,
+    autoFocusSearch = true,
+    keyboardShortcutsEnabled = true,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId }}>
-            <BindLogic logic={logsViewerConfigLogic} props={{ id, defaultFacetRailCollapsed }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
+            <BindLogic
+                logic={logsViewerConfigLogic}
+                props={{ id, defaultFacetRailCollapsed, defaultSparklineCollapsed }}
+            >
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
@@ -68,6 +85,9 @@ export function LogsViewer({
                                     <LogsViewerContent
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
+                                        autoFocusSearch={autoFocusSearch}
+                                        keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+                                        scope={{ initialFilters, pinnedFilters, personId, sessionId }}
                                     />
                                 </BindLogic>
                             </BindLogic>
@@ -79,12 +99,26 @@ export function LogsViewer({
     )
 }
 
+/** `visibleRowDateRange` changes on every scroll tick, so it is subscribed here rather than in
+ *  `LogsViewerContent`, where it would re-render the row list and facet rail on each one.
+ *  `LogsSparkline` stays prop-driven so it can render in a story without the keyed logic. */
+function ConnectedLogsSparkline(props: Omit<LogsViewerSparklineProps, 'visibleRowDateRange'>): JSX.Element | null {
+    const { visibleRowDateRange } = useValues(logsViewerLogic)
+    return <LogsSparkline {...props} visibleRowDateRange={visibleRowDateRange} />
+}
+
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
+    autoFocusSearch,
+    keyboardShortcutsEnabled,
+    scope,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
+    autoFocusSearch: boolean
+    keyboardShortcutsEnabled: boolean
+    scope: LogsViewerScope
 }): JSX.Element {
     const {
         id,
@@ -109,23 +143,23 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
-        useValues(logsViewerConfigLogic)
-    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
+    const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogOpenLogic)
+    const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
+        logsError,
         parsedLogs,
         newLogUuids,
         sparklineData,
         sparklineLoading,
+        sparklineError,
         sparklineIncompleteBarIndices,
         hasMoreLogsToLoad,
         totalLogsMatchingFilters,
     } = useValues(logsViewerDataLogic)
-    const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
+    const { refreshQuery, fetchNextLogsPage, fetchLogs, fetchSparkline } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
-    const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
-    const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
@@ -168,7 +202,7 @@ function LogsViewerContent({
 
     // Handle keyboard scroll with keydown/keyup for smooth 60fps scrolling
     useEffect(() => {
-        if (!isFocused || wrapBody) {
+        if (!keyboardShortcutsEnabled || !isFocused || wrapBody || isTraceDialogOpen) {
             return
         }
 
@@ -199,7 +233,7 @@ function LogsViewerContent({
             window.removeEventListener('keyup', handleKeyUp)
             stopScrolling()
         }
-    }, [isFocused, wrapBody, startScrolling, stopScrolling])
+    }, [keyboardShortcutsEnabled, isFocused, wrapBody, isTraceDialogOpen, startScrolling, stopScrolling])
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
@@ -221,12 +255,16 @@ function LogsViewerContent({
         [moveCursorUp]
     )
 
+    // The trace dialog opens over the viewer, so the viewer's keys stop while it is open.
+    const listKeysEnabled = keyboardShortcutsEnabled && keyboardNavEnabled && !isTraceDialogOpen
+    const focusedListKeysEnabled = keyboardShortcutsEnabled && isFocused && !isTraceDialogOpen
+
     useKeyboardHotkeys(
         {
-            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled },
-            j: { action: handleMoveDown, disabled: !keyboardNavEnabled },
-            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled },
-            k: { action: handleMoveUp, disabled: !keyboardNavEnabled },
+            arrowdown: { action: handleMoveDown, disabled: !listKeysEnabled, allowRepeat: true },
+            j: { action: handleMoveDown, disabled: !listKeysEnabled, allowRepeat: true },
+            arrowup: { action: handleMoveUp, disabled: !listKeysEnabled, allowRepeat: true },
+            k: { action: handleMoveUp, disabled: !listKeysEnabled, allowRepeat: true },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
@@ -234,16 +272,16 @@ function LogsViewerContent({
                         openLogDetails(parsedLogs[cursorIndex])
                     }
                 },
-                disabled: !keyboardNavEnabled,
+                disabled: !listKeysEnabled,
             },
             r: {
                 action: () => {
                     if (!logsLoading) {
                         resetCursor()
-                        runQuery()
+                        refreshQuery()
                     }
                 },
-                disabled: !isFocused,
+                disabled: !focusedListKeysEnabled,
             },
             space: {
                 action: (e: KeyboardEvent) => {
@@ -252,7 +290,7 @@ function LogsViewerContent({
                         toggleSelectLog(cursorLogId)
                     }
                 },
-                disabled: !isFocused,
+                disabled: !focusedListKeysEnabled,
             },
             escape: {
                 action: () => {
@@ -262,7 +300,7 @@ function LogsViewerContent({
                         clearSelection()
                     }
                 },
-                disabled: !keyboardNavEnabled,
+                disabled: !listKeysEnabled,
             },
             p: {
                 action: () => {
@@ -270,18 +308,20 @@ function LogsViewerContent({
                         togglePrettifyLog(cursorLogId)
                     }
                 },
-                disabled: !isFocused,
+                disabled: !focusedListKeysEnabled,
             },
         },
         [
+            keyboardShortcutsEnabled,
             isFocused,
             keyboardNavEnabled,
+            isTraceDialogOpen,
             isLogDetailsOpen,
             cursorIndex,
             parsedLogs,
             openLogDetails,
             closeLogDetails,
-            runQuery,
+            refreshQuery,
             logsLoading,
             resetCursor,
             moveCursorDown,
@@ -295,18 +335,19 @@ function LogsViewerContent({
 
     const sparklineSection = (
         <>
-            <LogsSparkline
+            <ConnectedLogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
+                sparklineError={sparklineError}
+                onRetry={() => fetchSparkline()}
                 onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
-                breakdownBy={sparklineBreakdownBy}
-                onBreakdownByChange={setSparklineBreakdownBy}
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
                 incompleteBarIndices={sparklineIncompleteBarIndices}
             />
-            <SceneDivider />
+            {/* A plain divider: the viewer also renders in panes that have no scene padding to bleed into. */}
+            <LemonDivider className="my-0" />
         </>
     )
 
@@ -332,29 +373,37 @@ function LogsViewerContent({
                 />
             )}
 
-            <VirtualizedLogsList
-                dataSource={parsedLogs}
-                newLogUuids={newLogUuids}
-                loading={logsLoading}
-                wrapBody={wrapBody}
-                prettifyJson={prettifyJson}
-                tzLabelFormat={tzLabelFormat}
-                showPinnedWithOpacity
-                hasMoreLogsToLoad={hasMoreLogsToLoad}
-                onLoadMore={fetchNextLogsPage}
-                onExpandTimeRange={() => zoomDateRange(2)}
-                orderBy={orderBy}
-                onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
-            />
+            <div className="relative flex flex-col flex-1 min-h-0">
+                <VirtualizedLogsList
+                    dataSource={parsedLogs}
+                    newLogUuids={newLogUuids}
+                    loading={logsLoading}
+                    wrapBody={wrapBody}
+                    prettifyJson={prettifyJson}
+                    tzLabelFormat={tzLabelFormat}
+                    showPinnedWithOpacity
+                    hasMoreLogsToLoad={hasMoreLogsToLoad}
+                    onLoadMore={fetchNextLogsPage}
+                    onExpandTimeRange={() => zoomDateRange(2)}
+                    orderBy={orderBy}
+                    onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
+                />
+                <QueryFailedOverlay
+                    error={logsError}
+                    title="Couldn't load logs"
+                    onRetry={() => fetchLogs()}
+                    className="rounded border bg-bg-light"
+                />
+            </div>
         </>
     )
 
     // Patterns and Group are modes of the Viewer, not separate tabs: they swap only the results
     // region and reuse the same filter bar / FacetRail / date range (shared via
-    // logsViewerFiltersLogic). Each gates on its flag too, so its query stays unreachable when
-    // the flag is off regardless of the (non-persisted) viewMode state.
-    const inPatternsMode = showPatternsView && viewMode === 'patterns'
-    const inGroupByMode = showGroupBy && viewMode === 'group'
+    // logsViewerFiltersLogic). Each is reachable only in its viewMode, so its query stays down
+    // otherwise.
+    const inPatternsMode = viewMode === 'patterns'
+    const inGroupByMode = viewMode === 'group'
     const resultsRegion = inPatternsMode ? (
         <LogsPatterns id={id} />
     ) : inGroupByMode ? (
@@ -376,16 +425,22 @@ function LogsViewerContent({
     // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
     // row of [facet rail | display bar (operate on the data) + the log lists].
     return (
-        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
-            <LogsQueryBar showSavedViewsButton={showSavedViewsButton} showFullScreenButton={showFullScreenButton} />
+        <div className="@container/facet-rail-host flex flex-col gap-2 h-full" data-attr="logs-viewer">
+            <LogsQueryBar
+                showSavedViewsButton={showSavedViewsButton}
+                showFullScreenButton={showFullScreenButton}
+                autoFocusSearch={autoFocusSearch}
+                scope={scope}
+            />
             {sparklineSection}
-            <div className="flex flex-row gap-2 flex-1 min-h-0">
-                {!facetRailCollapsed && <FacetRail id={id} />}
-                <div className="flex flex-col gap-2 flex-1 min-w-0">
+            <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col">
+                {!facetRailCollapsed && <LogsFacetRail id={id} />}
+                <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                     {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}
                 </div>
             </div>
             <LogDetailsModal timezone={timezone} />
+            <LogsMetricRuleQuickCreateModal />
         </div>
     )
 }

@@ -10,11 +10,20 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.tasks.tasks import schedule_external_data_failure_digest
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    ExternalDataJob,
+    ExternalDataSchema,
+)
 from products.warehouse_sources.backend.facade.pipelines import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
     emit_data_import_app_metrics,
+)
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataJobPipelineVersion,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
 )
 
 JOB_STATUS_TRANSITION_REJECTED = Counter(
@@ -33,18 +42,51 @@ FINALIZE_QUEUE_SWEEP_ERRORS = Counter(
 )
 
 
+def _move_failure_streak(
+    schema: ExternalDataSchema, status: ExternalDataJobStatus, *, counts_as_source_failure: bool
+) -> bool:
+    """Move the schema's failure streak for one run's outcome. Returns whether it changed.
+
+    Only the first terminal write of a run may call this. A run is finalized more than once: the
+    load consumer and the workflow both write, and an auto-disable teardown re-fails still-running
+    jobs, so each repeat would otherwise charge the same run again.
+    """
+    if status == ExternalDataJobStatus.FAILED and counts_as_source_failure:
+        schema.note_failed_run(dt.datetime.now(dt.UTC))
+        return True
+    if status == ExternalDataJobStatus.COMPLETED:
+        schema.clear_failure_streak()
+        return True
+    return False
+
+
 def update_external_job_status(
-    job_id: str, team_id: int, status: ExternalDataJob.Status, logger: FilteringBoundLogger, latest_error: str | None
+    job_id: str,
+    team_id: int,
+    status: ExternalDataJobStatus,
+    logger: FilteringBoundLogger,
+    latest_error: str | None,
+    counts_as_source_failure: bool = True,
 ) -> ExternalDataJob:
+    """Record a run's terminal status on the job and its schema.
+
+    Pass `counts_as_source_failure=False` for a failure that says nothing about the source: a
+    worker restart, an unreachable app DB, a lock takeover, a cancellation. Only a failure that
+    does say something moves the schema's failure streak, which decides the retry cap and the run
+    gap of its next runs (see `retry_limits`).
+    """
     is_first_terminal_transition = False
     with transaction.atomic():
         model = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
 
+        was_already_terminal = model.status in TERMINAL_JOB_STATUSES
+        existing_error = model.latest_error
+
         # The loader may finish a run after lock takeover force-failed its job; only the
         # exact takeover sentinel unseals Failed -> Completed — genuine failures stay absorbing.
         is_takeover_recovery = (
-            model.status == ExternalDataJob.Status.FAILED
-            and status == ExternalDataJob.Status.COMPLETED
+            model.status == ExternalDataJobStatus.FAILED
+            and status == ExternalDataJobStatus.COMPLETED
             and model.latest_error == LOCK_TAKEOVER_LATEST_ERROR
         )
 
@@ -66,7 +108,16 @@ def update_external_job_status(
             )
 
         model.status = status
-        model.latest_error = latest_error
+
+        # Once a job records a terminal failure reason, a later write of the SAME terminal status
+        # must not overwrite it. When a schema auto-disables, its teardown force-fails every other
+        # still-running job of that schema with the real reason, then cancels their workflows;
+        # Temporal's cancellation re-finalizes each as FAILED with a bare "Cancelled", which would
+        # otherwise clobber the actionable error. Takeover recovery (Failed -> Completed) is exempt
+        # — it deliberately replaces the sentinel with the successful run's empty error.
+        preserve_existing_error = was_already_terminal and not is_takeover_recovery and existing_error is not None
+        error_to_persist = existing_error if preserve_existing_error else latest_error
+        model.latest_error = error_to_persist
 
         # Only stamp finished_at and emit metrics on the first terminal transition. Takeover
         # recovery re-stamps: the Failed stamp predates the load and never emitted success metrics.
@@ -81,8 +132,8 @@ def update_external_job_status(
         # Scoped save so concurrent F-updates to rows_synced aren't clobbered.
         model.save(update_fields=update_fields)
 
-        if status == ExternalDataJob.Status.FAILED:
-            schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.FAILED
+        if status == ExternalDataJobStatus.FAILED:
+            schema_status: ExternalDataSchemaStatus = ExternalDataSchemaStatus.FAILED
         else:
             schema_status = status  # type: ignore
 
@@ -95,6 +146,20 @@ def update_external_job_status(
         # source broke (or a non-retryable error paused extraction) must not repaint the schema
         # healthy while syncing is stopped. Which markers halt a schema is the model's business
         # (cdc_halted) — this generic layer only honors the state.
+
+        # The billing gate stops a run before extraction, so it learns nothing about the source.
+        # Clearing the error on its way through would erase the last real failure and hide a broken
+        # connection behind the billing status for as long as the limit holds. The status still
+        # moves: billing is what blocks this schema now.
+        billing_limited_run = schema_status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED
+
+        # The streak moves for a halted schema too. Its schedule keeps running, and the streak is
+        # the only thing that spaces out those runs, so skipping it lets a source that never
+        # answers fail on every slot.
+        streak_moved = is_first_terminal_transition and _move_failure_streak(
+            schema, status, counts_as_source_failure=counts_as_source_failure
+        )
+
         if schema.cdc_halted:
             logger.info(
                 "dwh_schema_status_update_skipped_cdc_halted",
@@ -102,20 +167,35 @@ def update_external_job_status(
                 schema_id=str(schema.id),
                 requested_status=schema_status,
             )
+            if streak_moved:
+                schema.save(update_fields=["sync_type_config", "updated_at"])
         else:
             schema.status = schema_status
-            schema.latest_error = latest_error
-            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            if not billing_limited_run:
+                schema.latest_error = error_to_persist
+            schema_update_fields = ["status", "latest_error", "updated_at"]
+            if streak_moved:
+                schema_update_fields.append("sync_type_config")
+
+            schema.save(update_fields=schema_update_fields)
 
         # Every risky terminal write (any non-Completed terminal, plus the takeover-recovery
         # Completed flip) can leave still-claimable batches in the v3 queue; a straggler loaded
         # later can stale-overwrite newer data or flip this job's status. A normal v3 completion
         # has drained the queue by construction, so the common completion path stays queue-free.
         # on_commit: the queue is a separate Postgres; never call it holding these row locks.
+        # Worker restarts stop a run without a final batch, and Failed stays absorbing, so a later
+        # batch can neither complete the job nor promote its cursor. The loader drains those batches
+        # for a merge sync and fails them for any other, and the next job continues from the cursor
+        # that this run committed. Sweeping them would leave a gap of rows that no run reads again.
+        stopped_by_worker_restarts = (
+            status == ExternalDataJobStatus.FAILED and error_to_persist == WORKER_RESTART_ERROR_MESSAGE
+        )
         should_sweep_queue = (
-            model.pipeline_version == ExternalDataJob.PipelineVersion.V3
+            model.pipeline_version == ExternalDataJobPipelineVersion.V3
             and status in TERMINAL_JOB_STATUSES
-            and (status != ExternalDataJob.Status.COMPLETED or is_takeover_recovery)
+            and (status != ExternalDataJobStatus.COMPLETED or is_takeover_recovery)
+            and not stopped_by_worker_restarts
         )
         if should_sweep_queue:
             transaction.on_commit(
@@ -128,7 +208,7 @@ def update_external_job_status(
         logger.debug("Emitting app metrics")
         emit_data_import_app_metrics(model)
 
-        if status == ExternalDataJob.Status.FAILED:
+        if status == ExternalDataJobStatus.FAILED:
             try:
                 schedule_external_data_failure_digest(team_id)
             except Exception:
@@ -148,7 +228,7 @@ def _is_cancellation(error: BaseException) -> bool:
 
 
 def _sweep_v3_queue_batches_swallowing_errors(
-    *, job_id: str, status: ExternalDataJob.Status, logger: FilteringBoundLogger
+    *, job_id: str, status: ExternalDataJobStatus, logger: FilteringBoundLogger
 ) -> None:
     # A queue-DB error must never surface into the caller that just committed the status write.
     # The stale-stranded reconcile sweep on the loader retries what this misses.
@@ -164,7 +244,7 @@ def _sweep_v3_queue_batches_swallowing_errors(
         capture_exception(e)
 
 
-def _sweep_v3_queue_batches(*, job_id: str, status: ExternalDataJob.Status, logger: FilteringBoundLogger) -> None:
+def _sweep_v3_queue_batches(*, job_id: str, status: ExternalDataJobStatus, logger: FilteringBoundLogger) -> None:
     """Fail any still-non-terminal queue batches of a v3 job that just went terminal."""
     # Deferred: the queue package imports back through this module (see postgres_queue.consumer),
     # so a top-level import would cycle.

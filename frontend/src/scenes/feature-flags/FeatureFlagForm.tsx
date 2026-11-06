@@ -15,7 +15,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     IconBalance,
@@ -32,11 +32,13 @@ import {
     IconTrash,
 } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonInput,
+    LemonInputSelect,
     LemonLabel,
     LemonSelect,
     LemonSwitch,
@@ -47,6 +49,7 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -62,13 +65,28 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { cohortsModel } from '~/models/cohortsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, MultivariateFlagVariant } from '~/types'
+import {
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagWithV1Config,
+    MultivariateFlagVariant,
+} from '~/types'
+
+import { runningExperimentId } from 'products/feature_flags/frontend/runningExperimentId'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
-import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
+import {
+    FeatureFlagLogicProps,
+    featureFlagLogic,
+    hasStaticCohortDependency,
+    slugifyFeatureFlagKey,
+    validateVariantRolloutSum,
+} from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { BULK_COPY_MAX_TARGET_PROJECTS } from './flagSelectionLogic'
 import { PercentageInput } from './PercentageInput'
 
 interface SortableVariantHeaderProps {
@@ -148,7 +166,7 @@ function SortableVariantHeader({
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
-        featureFlag,
+        featureFlag: loadedFeatureFlag,
         originalFeatureFlag,
         multivariateEnabled,
         variants,
@@ -158,9 +176,16 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         showImplementation,
         openVariants,
         payloadExpanded,
-        expandAdvancedOnEdit,
+        advancedPanelOpen,
         hasEncryptedPayloadBeenSaved,
+        hasEarlyAccessFeatures,
+        alsoCreateInProjects,
+        alsoCreateInProjectOptions,
+        currentKeyConflict,
     } = useValues(featureFlagLogic)
+    // The form never mounts for another config version (FeatureFlag.tsx), so the document is v1.
+    const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
+    const lockedByExperimentId = runningExperimentId(featureFlag)
     const {
         setMultivariateEnabled,
         setFeatureFlag,
@@ -176,13 +201,38 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
+        setAdvancedExpanded,
         resetEncryptedPayload,
+        setAlsoCreateInProjects,
+        startNewFlagDisabled,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
+    const { allCohorts } = useValues(cohortsModel)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const requiresApprovalToEnable = isNewFeatureFlag && isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
+    const renamedFromKey =
+        !isNewFeatureFlag && originalFeatureFlag && featureFlag.key !== originalFeatureFlag.key
+            ? originalFeatureFlag.key
+            : null
     const implementationRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (requiresApprovalToEnable && featureFlag.active) {
+            startNewFlagDisabled()
+        }
+    }, [requiresApprovalToEnable, featureFlag.active, startNewFlagDisabled])
+
+    const cancelEditing = (): void => {
+        if (isEditingFlag) {
+            editFeatureFlag(false)
+            loadFeatureFlag()
+        } else {
+            router.actions.push(urls.featureFlags())
+        }
+    }
 
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
@@ -296,6 +346,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         }
     }
 
+    const rolloutSumError = validateVariantRolloutSum(variants)
+
     const FLAG_TYPE_OPTIONS = [
         {
             value: 'boolean',
@@ -394,32 +446,41 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             : undefined
                     }
                     actions={
-                        <>
-                            <LemonButton
-                                data-attr="cancel-feature-flag"
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    if (isEditingFlag) {
-                                        editFeatureFlag(false)
-                                        loadFeatureFlag()
-                                    } else {
-                                        router.actions.push(urls.featureFlags())
-                                    }
-                                }}
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-feature-flag"
-                                htmlType="submit"
-                                form="feature-flag"
-                                size="small"
-                            >
-                                Save
-                            </LemonButton>
-                        </>
+                        todayRailNav ? (
+                            <>
+                                <Button data-attr="cancel-feature-flag" variant="outline" onClick={cancelEditing}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    data-attr="save-feature-flag"
+                                    type="submit"
+                                    form="feature-flag"
+                                >
+                                    Save
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    data-attr="cancel-feature-flag"
+                                    type="secondary"
+                                    size="small"
+                                    onClick={cancelEditing}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="save-feature-flag"
+                                    htmlType="submit"
+                                    form="feature-flag"
+                                    size="small"
+                                >
+                                    Save
+                                </LemonButton>
+                            </>
+                        )
                     }
                 />
 
@@ -435,17 +496,42 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     label="Flag key"
                                     info="Unique identifier used in your code."
                                     help={
-                                        !isNewFeatureFlag &&
-                                        originalFeatureFlag &&
-                                        featureFlag.key !== originalFeatureFlag.key ? (
-                                            <span className="text-warning">
-                                                <b>Warning! </b>Changing this key will break any existing code that
-                                                references it (e.g.{' '}
-                                                <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
-                                                    getFeatureFlag('{originalFeatureFlag.key}')
-                                                </code>
-                                                ). Make sure to update all SDK calls and integrations.
-                                            </span>
+                                        currentKeyConflict || renamedFromKey ? (
+                                            <div className="flex flex-col gap-1">
+                                                {currentKeyConflict ? (
+                                                    <span
+                                                        className={
+                                                            currentKeyConflict.exact ? 'text-danger' : 'text-warning'
+                                                        }
+                                                        role="status"
+                                                        aria-live="polite"
+                                                    >
+                                                        {currentKeyConflict.exact
+                                                            ? 'A feature flag with this key already exists. Choose another key or '
+                                                            : `A feature flag with the key "${currentKeyConflict.existingFlagKey}" already exists. Keys that differ only by case are easy to confuse. `}
+                                                        <Link
+                                                            to={urls.featureFlag(currentKeyConflict.existingFlagId)}
+                                                            target="_blank"
+                                                            data-attr="feature-flag-key-conflict-link"
+                                                        >
+                                                            {currentKeyConflict.exact
+                                                                ? 'open the existing flag'
+                                                                : 'Open it'}
+                                                        </Link>
+                                                        .
+                                                    </span>
+                                                ) : null}
+                                                {renamedFromKey ? (
+                                                    <span className="text-warning">
+                                                        <b>Warning! </b>Changing this key will break any existing code
+                                                        that references it (e.g.{' '}
+                                                        <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
+                                                            getFeatureFlag('{renamedFromKey}')
+                                                        </code>
+                                                        ). Make sure to update all SDK calls and integrations.
+                                                    </span>
+                                                ) : null}
+                                            </div>
                                         ) : undefined
                                     }
                                 >
@@ -476,14 +562,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                                 <LemonField name="active">
                                     {({ value, onChange }) => {
-                                        const requiresApprovalToEnable =
-                                            isNewFeatureFlag &&
-                                            isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
-
-                                        if (requiresApprovalToEnable && value) {
-                                            queueMicrotask(() => onChange(false))
-                                        }
-
                                         return (
                                             <LemonSwitch
                                                 checked={value}
@@ -508,12 +586,46 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         )
                                     }}
                                 </LemonField>
+
+                                {isNewFeatureFlag && alsoCreateInProjectOptions.length > 0 && (
+                                    <>
+                                        <LemonDivider />
+                                        <LemonField.Pure
+                                            label="Also create in these projects"
+                                            info="The flag is created in the current project, then copied to each selected project. If a project already has a flag with this key, that flag is overwritten. If a project requires approval for flag changes, a change request is created there instead."
+                                            showOptional
+                                        >
+                                            <LemonInputSelect<number>
+                                                mode="multiple"
+                                                value={alsoCreateInProjects}
+                                                onChange={setAlsoCreateInProjects}
+                                                options={alsoCreateInProjectOptions}
+                                                limit={BULK_COPY_MAX_TARGET_PROJECTS}
+                                                placeholder="Select projects"
+                                                data-attr="feature-flag-also-create-in-projects"
+                                            />
+                                        </LemonField.Pure>
+                                        {alsoCreateInProjects.length > 0 &&
+                                            hasStaticCohortDependency(featureFlag, allCohorts.results) && (
+                                                <LemonBanner
+                                                    type="warning"
+                                                    data-attr="feature-flag-also-create-in-projects-static-cohort-warning"
+                                                >
+                                                    This flag targets a static cohort. Projects that don't have a cohort
+                                                    with the same name get an empty copy of it, so that condition
+                                                    matches nobody there until you add people to it.
+                                                </LemonBanner>
+                                            )}
+                                    </>
+                                )}
                             </div>
 
-                            {/* Advanced options - collapsed by default unless opened via overview pencil */}
+                            {/* Advanced options - collapsed by default. Controlled rather than seeded,
+                                because a failed save has to open the panel to show a tag error inside it. */}
                             <LemonCollapse
                                 className="bg-bg-light"
-                                defaultActiveKey={expandAdvancedOnEdit ? 'advanced' : undefined}
+                                activeKey={advancedPanelOpen ? 'advanced' : null}
+                                onChange={(key) => setAdvancedExpanded(key === 'advanced')}
                                 panels={[
                                     {
                                         key: 'advanced',
@@ -809,6 +921,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             </div>
                                         </div>
 
+                                        {rolloutSumError && (
+                                            <span className="Field--error text-danger text-xs">{rolloutSumError}</span>
+                                        )}
+
                                         <DndContext
                                             sensors={sensors}
                                             onDragStart={handleDragStart}
@@ -857,17 +973,19 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 )}
 
                                                                 <LemonLabel>Rollout percentage</LemonLabel>
-                                                                <PercentageInput
-                                                                    value={variant.rollout_percentage}
-                                                                    onChange={(value) =>
-                                                                        updateVariant(
-                                                                            index,
-                                                                            'rollout_percentage',
-                                                                            value
-                                                                        )
-                                                                    }
-                                                                    data-attr={`feature-flag-variant-rollout-${index}`}
-                                                                />
+                                                                <LemonField.Pure error={!!rolloutSumError}>
+                                                                    <PercentageInput
+                                                                        value={variant.rollout_percentage}
+                                                                        onChange={(value) =>
+                                                                            updateVariant(
+                                                                                index,
+                                                                                'rollout_percentage',
+                                                                                value
+                                                                            )
+                                                                        }
+                                                                        data-attr={`feature-flag-variant-rollout-${index}`}
+                                                                    />
+                                                                </LemonField.Pure>
 
                                                                 <LemonLabel>Description</LemonLabel>
                                                                 <LemonTextArea
@@ -1057,15 +1175,28 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                             {/* Release conditions card - skip for remote config */}
                             {!featureFlag.is_remote_configuration && (
-                                <div className="rounded border p-3 bg-bg-light">
+                                <div className="rounded border p-3 bg-bg-light flex flex-col gap-2">
+                                    {lockedByExperimentId !== null && (
+                                        <LemonBanner type="info">
+                                            Release conditions are managed by the running experiment.{' '}
+                                            <Link
+                                                to={urls.experiment(lockedByExperimentId, null, { tab: 'variants' })}
+                                                data-attr="feature-flag-form-experiment-release-conditions-link"
+                                            >
+                                                Edit them in the experiment
+                                            </Link>
+                                        </LemonBanner>
+                                    )}
                                     <FeatureFlagReleaseConditionsCollapsible
                                         id={String(props.id)}
                                         flagId={props.id}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
+                                        readOnly={lockedByExperimentId !== null}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
+                                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                         onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
                                             // Always go through setFeatureFlag so this caller and
                                             // FeatureFlagReleaseConditions use the same shape — listeners on

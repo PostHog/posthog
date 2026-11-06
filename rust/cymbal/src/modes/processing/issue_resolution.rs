@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_producer::{
@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::core::types::notification::{
     IngestionNotification, IssueCreated, IssueNotificationContext, IssueReopened, IssueSnapshot,
-    IssueSpiking, NotificationMeta,
+    IssueSpiking, NotificationMeta, SeveritySource,
 };
 use crate::modes::processing::rules::assignment::{Assignee, Assignment};
 use crate::types::ProcessedExceptionProperties;
@@ -46,6 +46,7 @@ pub struct Issue {
     pub id: Uuid,
     pub team_id: i32,
     pub status: IssueStatus,
+    pub severity: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -55,6 +56,7 @@ pub struct IssueWithFirstSeen {
     pub id: Uuid,
     pub team_id: i32,
     pub status: IssueStatus,
+    pub severity: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -68,6 +70,7 @@ impl IssueWithFirstSeen {
                 id: self.id,
                 team_id: self.team_id,
                 status: self.status,
+                severity: self.severity,
                 name: self.name,
                 description: self.description,
                 created_at: self.created_at,
@@ -87,6 +90,51 @@ pub enum IssueStatus {
     Suppressed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IssueSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl FromStr for IssueSeverity {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.eq_ignore_ascii_case("low") {
+            Ok(Self::Low)
+        } else if value.eq_ignore_ascii_case("medium") {
+            Ok(Self::Medium)
+        } else if value.eq_ignore_ascii_case("high") {
+            Ok(Self::High)
+        } else if value.eq_ignore_ascii_case("critical") {
+            Ok(Self::Critical)
+        } else {
+            Err(())
+        }
+    }
+}
+
+pub(crate) fn infer_issue_severity(
+    exception_level: Option<&str>,
+    handled: Option<bool>,
+) -> Option<IssueSeverity> {
+    match exception_level.map(str::to_ascii_lowercase).as_deref() {
+        Some("fatal" | "critical") => Some(IssueSeverity::Critical),
+        Some("warning" | "warn") => Some(IssueSeverity::Medium),
+        Some("info" | "log" | "debug" | "trace") => Some(IssueSeverity::Low),
+        Some("error") => handled.map(|handled| {
+            if handled {
+                IssueSeverity::Medium
+            } else {
+                IssueSeverity::High
+            }
+        }),
+        _ => None,
+    }
+}
+
 impl Issue {
     pub async fn load_by_fingerprint<'c, E>(
         executor: E,
@@ -99,7 +147,7 @@ impl Issue {
         let res = sqlx::query_as!(
             IssueWithFirstSeen,
             r#"
-            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
+            SELECT i.id, i.team_id, i.status, i.severity, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -124,7 +172,7 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
-            SELECT id, team_id, status, name, description, created_at FROM posthog_errortrackingissue
+            SELECT id, team_id, status, severity, name, description, created_at FROM posthog_errortrackingissue
             WHERE team_id = $1 AND id = $2
             "#,
             team_id,
@@ -136,10 +184,11 @@ impl Issue {
         Ok(res)
     }
 
-    pub async fn insert_new<'c, E>(
+    pub(crate) async fn insert_new<'c, E>(
         team_id: i32,
         name: String,
         description: String,
+        severity: Option<IssueSeverity>,
         executor: E,
     ) -> Result<Issue, UnhandledError>
     where
@@ -158,6 +207,7 @@ impl Issue {
             id: Uuid::now_v7(),
             team_id,
             status: IssueStatus::Active,
+            severity: severity.map(|severity| severity.to_string()),
             name: Some(name),
             description: Some(description),
             created_at: Utc::now(),
@@ -165,12 +215,13 @@ impl Issue {
 
         sqlx::query!(
             r#"
-            INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO posthog_errortrackingissue (id, team_id, status, severity, name, description, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
             issue.id,
             issue.team_id,
             issue.status.to_string(),
+            issue.severity,
             issue.name,
             issue.description,
             issue.created_at
@@ -179,6 +230,23 @@ impl Issue {
         .await?;
 
         Ok(issue)
+    }
+
+    pub async fn apply_initial_severity<'c, E>(
+        &mut self,
+        severity: String,
+        executor: E,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        sqlx::query("UPDATE posthog_errortrackingissue SET severity = $1 WHERE id = $2")
+            .bind(&severity)
+            .bind(self.id)
+            .execute(executor)
+            .await?;
+        self.severity = Some(severity);
+        Ok(())
     }
 
     pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
@@ -243,6 +311,7 @@ pub struct FingerprintIssueState {
     pub issue_name: Option<String>,
     pub issue_description: Option<String>,
     pub issue_status: String,
+    pub issue_severity: Option<String>,
     pub assigned_user_id: Option<i64>,
     pub assigned_role_id: Option<String>,
     pub first_seen: String,
@@ -281,6 +350,7 @@ impl FingerprintIssueState {
             issue_name: issue.name.clone(),
             issue_description: issue.description.clone(),
             issue_status: issue.status.to_string(),
+            issue_severity: issue.severity.clone(),
             assigned_user_id,
             assigned_role_id,
             first_seen: first_seen.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
@@ -308,6 +378,29 @@ pub async fn send_fingerprint_issue_state(
     .collect::<Result<Vec<_>, KafkaProduceError>>()
     .map_err(UnhandledError::KafkaProduceError)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_issue_state_serializes_severity() {
+        let issue = Issue {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            status: IssueStatus::Active,
+            severity: Some("high".to_string()),
+            name: Some("Issue".to_string()),
+            description: None,
+            created_at: Utc::now(),
+        };
+
+        let state = FingerprintIssueState::new(&issue, "fingerprint", None, Utc::now());
+        let payload = serde_json::to_value(state).unwrap();
+
+        assert_eq!(payload["issue_severity"], "high");
+    }
 }
 
 impl IssueFingerprintOverride {
@@ -355,24 +448,22 @@ impl IssueFingerprintOverride {
         Ok(res)
     }
 
-    pub async fn create_or_load<'c, E>(
-        executor: E,
+    pub async fn create_or_load(
+        conn: &mut sqlx::PgConnection,
         team_id: i32,
         fingerprint: &str,
         issue: &Issue,
         first_seen: DateTime<Utc>,
-    ) -> Result<Self, UnhandledError>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
+    ) -> Result<Self, UnhandledError> {
         // We do an "ON CONFLICT DO NOTHING" here because callers can compare the returned issue id
-        // to the passed Issue, to see if the issue was actually inserted or not.
-        let res = sqlx::query_as!(
+        // to the passed Issue, to see if the issue was actually inserted or not. DO NOTHING takes
+        // no row lock and writes no dead tuple on a losing racer, unlike a self-assigning DO UPDATE.
+        let inserted = sqlx::query_as!(
             IssueFingerprintOverride,
             r#"
             INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)
             VALUES ($1, $2, $3, $4, 0, $5, NOW())
-            ON CONFLICT (team_id, fingerprint) DO UPDATE SET team_id = EXCLUDED.team_id -- a no-op update to force a returned row
+            ON CONFLICT (team_id, fingerprint) DO NOTHING
             RETURNING id, team_id, issue_id, fingerprint, version
             "#,
             Uuid::new_v4(),
@@ -380,9 +471,20 @@ impl IssueFingerprintOverride {
             issue.id,
             fingerprint,
             first_seen
-        ).fetch_one(executor).await.expect("Got at least one row back");
+        ).fetch_optional(&mut *conn).await?;
 
-        Ok(res)
+        if let Some(inserted) = inserted {
+            return Ok(inserted);
+        }
+
+        // Someone else won the insert, so DO NOTHING returned no row. Read the existing one back.
+        Self::load(&mut *conn, team_id, fingerprint)
+            .await?
+            .ok_or_else(|| {
+                UnhandledError::Other(
+                    "fingerprint override conflict but existing row not found".to_string(),
+                )
+            })
     }
 }
 
@@ -393,12 +495,16 @@ pub async fn send_issue_created_notification(
     processed_properties: ProcessedExceptionProperties,
     event_uuid: Uuid,
     event_timestamp: &DateTime<Utc>,
+    severity_source: Option<SeveritySource>,
 ) -> Result<(), UnhandledError> {
     let fingerprint = processed_properties.fingerprint().to_string();
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
-        context.config.event_properties_ttl_seconds,
-        context.config.event_properties_max_bytes,
+        context.shadow_redis_client.as_ref(),
+        EventPropertiesLimits {
+            ttl_seconds: context.config.event_properties_ttl_seconds,
+            max_bytes: context.config.event_properties_max_bytes,
+        },
         issue.team_id,
         event_uuid,
         "issue_created",
@@ -414,6 +520,7 @@ pub async fn send_issue_created_notification(
             event_uuid,
             event_timestamp: event_timestamp.to_rfc3339(),
             assignee: assignment_to_string(assignment)?,
+            severity_source,
         }),
     )
     .await
@@ -423,10 +530,15 @@ fn error_tracking_event_properties_key(team_id: i32, event_uuid: Uuid) -> String
     format!("{ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX}:{team_id}:{event_uuid}")
 }
 
-async fn store_error_tracking_event_properties(
-    redis: &(dyn common_redis::Client + Send + Sync),
+struct EventPropertiesLimits {
     ttl_seconds: u64,
     max_bytes: usize,
+}
+
+async fn store_error_tracking_event_properties(
+    redis: &(dyn common_redis::Client + Send + Sync),
+    shadow: Option<&std::sync::Arc<dyn common_redis::Client + Send + Sync>>,
+    limits: EventPropertiesLimits,
     team_id: i32,
     event_uuid: Uuid,
     notification_type: &'static str,
@@ -444,14 +556,15 @@ async fn store_error_tracking_event_properties(
 
     metrics::histogram!(ISSUE_CREATED_EVENT_PROPERTIES_BYTES, "notification_type" => notification_type)
         .record(payload.len() as f64);
-    if payload.len() > max_bytes {
+    if payload.len() > limits.max_bytes {
         metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED, "reason" => "payload_too_large", "notification_type" => notification_type)
             .increment(1);
         return;
     }
 
+    let shadow_payload = shadow.map(|_| payload.clone());
     if let Err(error) = redis
-        .set_bytes(key.clone(), payload, Some(ttl_seconds))
+        .set_bytes(key.clone(), payload, Some(limits.ttl_seconds))
         .await
     {
         metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "redis", "notification_type" => notification_type)
@@ -460,6 +573,9 @@ async fn store_error_tracking_event_properties(
         return;
     }
 
+    if let Some(payload) = shadow_payload {
+        crate::modes::shadow_redis::set_bytes(shadow, key, payload, limits.ttl_seconds);
+    }
     metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORED, "notification_type" => notification_type)
         .increment(1);
 }
@@ -474,8 +590,11 @@ pub async fn send_issue_reopened_notification(
 ) -> Result<(), UnhandledError> {
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
-        context.config.event_properties_ttl_seconds,
-        context.config.event_properties_max_bytes,
+        context.shadow_redis_client.as_ref(),
+        EventPropertiesLimits {
+            ttl_seconds: context.config.event_properties_ttl_seconds,
+            max_bytes: context.config.event_properties_max_bytes,
+        },
         issue.team_id,
         event_uuid,
         "issue_reopened",
@@ -506,8 +625,11 @@ pub async fn send_issue_spiking_notification(
 ) -> Result<(), UnhandledError> {
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
-        context.config.event_properties_ttl_seconds,
-        context.config.event_properties_max_bytes,
+        context.shadow_redis_client.as_ref(),
+        EventPropertiesLimits {
+            ttl_seconds: context.config.event_properties_ttl_seconds,
+            max_bytes: context.config.event_properties_max_bytes,
+        },
         issue.team_id,
         event_uuid,
         "issue_spiking",
@@ -558,6 +680,7 @@ fn issue_snapshot(issue: &Issue) -> IssueSnapshot {
         name: issue.name.clone(),
         description: issue.description.clone(),
         status: issue.status.to_string(),
+        severity: issue.severity.clone(),
         created_at: issue.created_at,
     }
 }
@@ -613,6 +736,17 @@ impl Display for IssueStatus {
     }
 }
 
+impl Display for IssueSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IssueSeverity::Low => write!(f, "low"),
+            IssueSeverity::Medium => write!(f, "medium"),
+            IssueSeverity::High => write!(f, "high"),
+            IssueSeverity::Critical => write!(f, "critical"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use common_redis::{MockRedisClient, MockRedisValue};
@@ -646,48 +780,123 @@ mod test {
         );
     }
 
+    #[test]
+    fn infers_issue_severity_only_from_confident_signals() {
+        for (level, handled, expected) in [
+            (Some("fatal"), Some(true), Some("critical")),
+            (Some("critical"), Some(false), Some("critical")),
+            (Some("error"), Some(false), Some("high")),
+            (Some("error"), Some(true), Some("medium")),
+            (Some("error"), None, None),
+            (Some("warning"), Some(false), Some("medium")),
+            (Some("warn"), None, Some("medium")),
+            (Some("info"), Some(false), Some("low")),
+            (Some("log"), Some(true), Some("low")),
+            (Some("debug"), None, Some("low")),
+            (Some("trace"), Some(true), Some("low")),
+            (None, Some(false), None),
+            (None, Some(true), None),
+            (Some("custom"), Some(false), None),
+            (Some("CUSTOM"), Some(true), None),
+        ] {
+            assert_eq!(
+                super::infer_issue_severity(level, handled).map(|severity| severity.to_string()),
+                expected.map(str::to_string)
+            );
+        }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn initial_severity_update_reaches_state_and_notification_payloads(pool: sqlx::PgPool) {
+        let mut issue = super::Issue::insert_new(
+            1,
+            "TypeError".to_string(),
+            "Example".to_string(),
+            None,
+            &pool,
+        )
+        .await
+        .unwrap();
+
+        issue
+            .apply_initial_severity("critical".to_string(), &pool)
+            .await
+            .unwrap();
+
+        let state =
+            super::FingerprintIssueState::new(&issue, "fingerprint", None, chrono::Utc::now());
+        let snapshot = super::issue_snapshot(&issue);
+        assert_eq!(state.issue_severity.as_deref(), Some("critical"));
+        assert_eq!(snapshot.severity.as_deref(), Some("critical"));
+    }
+
     #[tokio::test]
     async fn stores_full_event_properties_as_raw_json_with_a_ttl() {
-        let redis = MockRedisClient::new();
-        let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
-        let properties_json = serde_json::json!({
-            "$exception_list": [{"type": "Error", "value": "boom 💥"}],
-            "$exception_fingerprint": "abc",
-            "$exception_fingerprint_record": [{"type": "manual"}],
-            "$exception_issue_id": Uuid::nil(),
-            "$exception_handled": false,
-            "$exception_types": ["Error"],
-            "$exception_values": ["boom 💥"],
-            "$exception_sources": [],
-            "$exception_functions": [],
-            "custom": {"nested": [1, null, true]},
-        });
-        let properties: ProcessedExceptionProperties =
-            serde_json::from_value(properties_json.clone()).unwrap();
+        crate::modes::shadow_redis::with_test_circuit(async {
+            let redis = MockRedisClient::new();
+            let shadow = std::sync::Arc::new(MockRedisClient::new());
+            let shadow_client: std::sync::Arc<dyn common_redis::Client + Send + Sync> =
+                shadow.clone();
+            let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
+            let properties_json = serde_json::json!({
+                "$exception_list": [{"type": "Error", "value": "boom 💥"}],
+                "$exception_fingerprint": "abc",
+                "$exception_fingerprint_record": [{"type": "manual"}],
+                "$exception_issue_id": Uuid::nil(),
+                "$exception_handled": false,
+                "$exception_types": ["Error"],
+                "$exception_values": ["boom 💥"],
+                "$exception_sources": [],
+                "$exception_functions": [],
+                "custom": {"nested": [1, null, true]},
+            });
+            let properties: ProcessedExceptionProperties =
+                serde_json::from_value(properties_json.clone()).unwrap();
 
-        super::store_error_tracking_event_properties(
-            &redis,
-            172_800,
-            1_048_576,
-            42,
-            event_uuid,
-            "issue_created",
-            &properties,
-        )
-        .await;
+            super::store_error_tracking_event_properties(
+                &redis,
+                Some(&shadow_client),
+                super::EventPropertiesLimits {
+                    ttl_seconds: 172_800,
+                    max_bytes: 1_048_576,
+                },
+                42,
+                event_uuid,
+                "issue_created",
+                &properties,
+            )
+            .await;
 
-        let calls = redis.get_calls();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].op, "set_bytes");
-        match &calls[0].value {
-            MockRedisValue::Bytes(payload, Some(172_800)) => {
-                assert_eq!(
-                    serde_json::from_slice::<serde_json::Value>(payload).unwrap(),
-                    properties_json
-                );
+            let calls = redis.get_calls();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].op, "set_bytes");
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while shadow.get_calls().is_empty() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let shadow_calls = shadow.get_calls();
+            assert_eq!(shadow_calls.len(), 1);
+            assert_eq!(shadow_calls[0].op, calls[0].op);
+            assert_eq!(shadow_calls[0].key, calls[0].key);
+            assert!(matches!(
+                (&shadow_calls[0].value, &calls[0].value),
+                (MockRedisValue::Bytes(shadow_bytes, shadow_ttl), MockRedisValue::Bytes(bytes, ttl))
+                    if shadow_bytes == bytes && shadow_ttl == ttl
+            ));
+            match &calls[0].value {
+                MockRedisValue::Bytes(payload, Some(172_800)) => {
+                    assert_eq!(
+                        serde_json::from_slice::<serde_json::Value>(payload).unwrap(),
+                        properties_json
+                    );
+                }
+                value => panic!("unexpected Redis value: {value:?}"),
             }
-            value => panic!("unexpected Redis value: {value:?}"),
-        }
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -710,8 +919,11 @@ mod test {
 
         super::store_error_tracking_event_properties(
             &redis,
-            172_800,
-            128,
+            None,
+            super::EventPropertiesLimits {
+                ttl_seconds: 172_800,
+                max_bytes: 128,
+            },
             42,
             Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap(),
             "issue_created",

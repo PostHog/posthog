@@ -4,6 +4,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     IntegerDatabaseField,
     MapStringDatabaseField,
+    StringArrayDatabaseField,
     StringDatabaseField,
     Table,
 )
@@ -66,9 +67,32 @@ class TraceSpansTable(Table):
             nullable=False,
             description="Instrumentation scope (library/module) that emitted the span.",
         ),
+        "events": StringArrayDatabaseField(
+            name="events",
+            nullable=False,
+            description="OpenTelemetry span events. Each element is a JSON object with time_unix_nano, name and attributes.",
+        ),
+        "dropped_events_count": IntegerDatabaseField(
+            name="dropped_events_count",
+            nullable=False,
+            description="Number of span events the SDK dropped before export.",
+        ),
+        "links": StringArrayDatabaseField(
+            name="links",
+            nullable=False,
+            description="OpenTelemetry span links to other spans. Each element is a JSON object with trace_id, span_id and attributes.",
+        ),
+        "dropped_links_count": IntegerDatabaseField(
+            name="dropped_links_count",
+            nullable=False,
+            description="Number of span links the SDK dropped before export.",
+        ),
         "time_bucket": DateTimeDatabaseField(
             name="time_bucket", nullable=False, description="Coarse time bucket used for partitioning and filtering."
         ),
+        # internal fields for query optimization
+        "_part": StringDatabaseField(name="_part", nullable=True, hidden=True),
+        "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
     }
 
     def to_printed_clickhouse(self, context):

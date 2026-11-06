@@ -3,9 +3,8 @@
 ReviewHog's review **perspectives**, its **validation criteria**, and its **blind-spot check** are
 stored and synced the way Signals' scouts store theirs: canonical `SKILL.md` on disk
 (`products/review_hog/skills/`) mirrored into per-team `LLMSkill` rows by `lazy_seed.sync_canonical_*`.
-Delivery is **pull** — the review / validation prompts instruct the sandbox agent to `skill-get` the
-skill body over the PostHog MCP — so these loaders only need to pin the current version per skill
-(not the body).
+Each run pins the current version per skill. Both full and Flash prompts instruct the agent to pull
+bodies and bundled files over the PostHog MCP.
 """
 
 from __future__ import annotations
@@ -211,16 +210,22 @@ def register_missing_validation_config(team_id: int, user_id: int) -> None:
 
 
 def _load_single_active_skill(
-    team_id: int, acting_user_id: int, *, prefix: str, canonical_name: str, error: type[LookupError]
+    team_id: int,
+    acting_user_id: int,
+    *,
+    prefix: str,
+    canonical_name: str,
+    canonical_names: tuple[str, ...],
+    error: type[LookupError],
 ) -> tuple[str, int]:
     """Resolve a user's single-active `<prefix>*` skill selection to a (name, pinned version).
 
-    Reads the user's one enabled row for the prefix, falling back to the canonical when none is
-    enabled — there is always a default, so no min-1 floor. A selected custom whose skill row is
-    dead (e.g. archived from the Skills UI) also falls back to the canonical rather than failing
-    the run, as does a selected custom the acting user did not author (a leftover from before
-    visibility became author-only — the config API no longer allows such a selection). Raises
-    `error` only when the canonical itself has no live row (the sync recreates archived canonicals,
+    Reads the user's one enabled row for the prefix, falling back to the default `canonical_name`
+    when none is enabled — there is always a default, so no min-1 floor. Every name in
+    `canonical_names` is selectable by any user. A selected custom whose skill row is dead (e.g.
+    archived from the Skills UI) also falls back to the canonical rather than failing the run, as
+    does a selected custom the acting user did not author (a leftover from before visibility
+    became author-only — the config API no longer allows such a selection). Raises `error` only when the canonical itself has no live row (the sync recreates archived canonicals,
     so this is a genuine seeding failure). The enabled set is single-active in app code;
     `sorted(...)[0]` is only a deterministic tiebreak.
     """
@@ -231,7 +236,7 @@ def _load_single_active_skill(
     )
     skill_name = enabled_names[0] if enabled_names else canonical_name
     if skill_name != canonical_name and skill_name not in visible_skill_names(
-        team_id, acting_user_id, prefix=prefix, canonical_names=(canonical_name,)
+        team_id, acting_user_id, prefix=prefix, canonical_names=canonical_names
     ):
         logger.warning(
             "review_hog: selected skill '%s' was not authored by user %s on team %s; falling back to canonical '%s'",
@@ -278,6 +283,7 @@ def load_validation_skill_for_run(team_id: int, acting_user_id: int) -> LoadedVa
         acting_user_id,
         prefix=REVIEW_HOG_VALIDATION_PREFIX,
         canonical_name=REVIEW_HOG_VALIDATION_SKILL_NAME,
+        canonical_names=CANONICAL_VALIDATION_SKILL_NAMES,
         error=ValidationSkillNotFoundError,
     )
     return LoadedValidationSkill(skill_name=skill_name, version=version)
@@ -330,9 +336,87 @@ def load_blind_spots_skill_for_run(team_id: int, acting_user_id: int) -> LoadedB
         acting_user_id,
         prefix=REVIEW_HOG_BLIND_SPOTS_PREFIX,
         canonical_name=REVIEW_HOG_BLIND_SPOTS_SKILL_NAME,
+        canonical_names=CANONICAL_BLIND_SPOTS_SKILL_NAMES,
         error=BlindSpotsSkillNotFoundError,
     )
     return LoadedBlindSpotsSkill(skill_name=skill_name, version=version)
+
+
+# Naming contract for the resolution-criteria skill: the bar the resolution stage applies per thread
+# ("worth implementing" / "safe to implement unattended"). Single-active per user, exactly the
+# validator pattern — the hard floors stay in code (the prompt); the skill may tighten, never loosen.
+REVIEW_HOG_RESOLUTION_PREFIX = "review-hog-resolution-"
+REVIEW_HOG_RESOLUTION_SKILL_NAME = f"{REVIEW_HOG_RESOLUTION_PREFIX}criteria"
+
+# Fix profiles: canonical alternatives a user can select to change how eager autofix is.
+REVIEW_HOG_RESOLUTION_GAPS_SKILL_NAME = f"{REVIEW_HOG_RESOLUTION_SKILL_NAME}-gaps"
+REVIEW_HOG_RESOLUTION_SMALL_SKILL_NAME = f"{REVIEW_HOG_RESOLUTION_SKILL_NAME}-small"
+
+# Canonical resolution names every user can see and select. Only the default
+# `REVIEW_HOG_RESOLUTION_SKILL_NAME` auto-enables: seeding every name would make several rows active
+# at once, and the sorted tiebreak would then move a user off their selected custom.
+CANONICAL_RESOLUTION_SKILL_NAMES: tuple[str, ...] = (
+    REVIEW_HOG_RESOLUTION_SKILL_NAME,
+    REVIEW_HOG_RESOLUTION_GAPS_SKILL_NAME,
+    REVIEW_HOG_RESOLUTION_SMALL_SKILL_NAME,
+)
+
+
+class ResolutionSkillNotFoundError(LookupError):
+    """The acting user's selected resolution skill has no live `LLMSkill` row (a real setup error)."""
+
+
+@dataclass(frozen=True)
+class LoadedResolutionSkill:
+    """The resolution-criteria skill resolved for one run: its skill name and pinned version."""
+
+    skill_name: str
+    # Snapshotted so the sandbox agent's `skill-get` pulls the exact version this run was planned
+    # against, even if a new version is published mid-run.
+    version: int
+
+
+def register_missing_resolution_config(team_id: int, user_id: int) -> None:
+    """Seed an enabled `ReviewSkillConfig` for the canonical resolution skill this user lacks.
+
+    Mirrors `register_missing_validation_config`: single-active is enforced in app code, so this
+    only ever seeds the default. The fix profiles get a row only when the user selects one.
+    """
+    _register_missing_configs(team_id, user_id, (REVIEW_HOG_RESOLUTION_SKILL_NAME,))
+
+
+def load_resolution_skill_for_run(team_id: int, acting_user_id: int | None) -> LoadedResolutionSkill:
+    """Resolve the acting user's selected resolution criteria, pinned to its current latest version.
+
+    Mirrors `load_validation_skill_for_run`: seeds the canonical config, then resolves the user's one
+    enabled `review-hog-resolution-*` row (canonical fallback when none is enabled or the selection's
+    row is dead; loud `ResolutionSkillNotFoundError` only when the canonical itself is missing).
+    A `None` acting user (an unmapped PR author on the standalone path) pins the canonical directly —
+    nobody's personal selection applies to someone else's PR.
+    """
+    if acting_user_id is None:
+        version = (
+            LLMSkill.objects.filter(
+                team_id=team_id, name=REVIEW_HOG_RESOLUTION_SKILL_NAME, deleted=False, is_latest=True
+            )
+            .values_list("version", flat=True)
+            .first()
+        )
+        if version is None:
+            raise ResolutionSkillNotFoundError(
+                f"No live skill '{REVIEW_HOG_RESOLUTION_SKILL_NAME}' on team {team_id} — the canonical sync has not seeded it"
+            )
+        return LoadedResolutionSkill(skill_name=REVIEW_HOG_RESOLUTION_SKILL_NAME, version=version)
+    register_missing_resolution_config(team_id, acting_user_id)
+    skill_name, version = _load_single_active_skill(
+        team_id,
+        acting_user_id,
+        prefix=REVIEW_HOG_RESOLUTION_PREFIX,
+        canonical_name=REVIEW_HOG_RESOLUTION_SKILL_NAME,
+        canonical_names=CANONICAL_RESOLUTION_SKILL_NAMES,
+        error=ResolutionSkillNotFoundError,
+    )
+    return LoadedResolutionSkill(skill_name=skill_name, version=version)
 
 
 # Naming contract for the authoring companion (mirrors scouts' `authoring-scouts`): the one canonical

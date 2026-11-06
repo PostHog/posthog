@@ -7,7 +7,6 @@ import {
     IconCopy,
     IconDatabase,
     IconDay,
-    IconExpand45,
     IconFeatures,
     IconGear,
     IconLaptop,
@@ -23,14 +22,16 @@ import {
     IconToggle,
 } from '@posthog/icons'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inviteLogic } from 'lib/logic/inviteLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -49,18 +50,14 @@ import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { getTreeItemsGames } from '~/products'
 import { UserTheme } from '~/types'
 
-import { shortcutLogic } from '../Shortcuts/shortcutLogic'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
 
@@ -143,13 +140,11 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { currentOrganization } = useValues(organizationLogic)
     const { isCloudOrDev, isCloud, preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { billing, canAccessBilling } = useValues(billingLogic)
+    const { billing, billingEntryUrl } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
-    const { setShortcutMenuOpen } = useActions(shortcutLogic)
-    const { toggleZenMode } = useActions(navigation3000Logic)
 
     return (
         <DropdownMenu>
@@ -187,14 +182,10 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             </div>
                         </Link>
                     </DropdownMenuItem>
-                    {isCloudOrDev && canAccessBilling ? (
+                    {isCloudOrDev && billingEntryUrl ? (
                         <DropdownMenuItem asChild>
                             <Link
-                                to={
-                                    featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                        ? urls.organizationBillingSection('overview')
-                                        : urls.organizationBilling()
-                                }
+                                to={billingEntryUrl}
                                 buttonProps={{
                                     className: 'flex items-center gap-2',
                                     menuItem: true,
@@ -202,7 +193,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 }}
                             >
                                 <IconReceipt />
-                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
+                                Billing & Usage
                             </Link>
                         </DropdownMenuItem>
                     ) : null}
@@ -312,36 +303,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                     )}
 
                     <ThemeMenu />
-
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive
-                            tooltip="Hide navigation and focus on content"
-                            tooltipPlacement="right"
-                            onClick={() => toggleZenMode('account_menu')}
-                            menuItem
-                        >
-                            <IconExpand45 />
-                            Zen mode
-                            <KeyboardShortcut command option z className="ml-auto" />
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive
-                            tooltip="Open shortcut menu"
-                            tooltipPlacement="right"
-                            onClick={() => setShortcutMenuOpen(true)}
-                            menuItem
-                        >
-                            <span className="size-4 flex items-center justify-center">⌘</span>
-                            Shortcuts
-                            <div className="flex gap-1 ml-auto items-center">
-                                <KeyboardShortcut command option k />
-                                <span className="text-xs opacity-75">or</span>
-                                <KeyboardShortcut command shift k />
-                            </div>
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
 
                     <DropdownMenuItem asChild>
                         <Link

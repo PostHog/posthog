@@ -10,7 +10,7 @@ PR-mode stop rules (apply only when a `PR_REF` was parsed and PR mode was chosen
 - `git status --porcelain` is non-empty at skill start.
 - `gh pr checkout` fails repeatedly. Transient SSH-signing, GraphQL TLS-handshake, and network blips during checkout are common; retry the same `gh pr checkout <N>` up to 2 times before treating it as a hard stop. Do not bypass commit signing (no `--no-gpg-sign`) and do not switch to a manual `git fetch + checkout` dance to dodge a transient error.
 
-Stop rules that apply to both modes:
+Stop rules that apply to PR mode and local mode:
 
 - The local PostHog stack is not reachable.
 - Browser MCP/tooling cannot navigate or login. (Credentials always resolve to at least the documented seed defaults, so a missing-credentials stop is no longer separately required; if the resolved credentials do not work, the login step itself fails and aborts here.)
@@ -75,6 +75,8 @@ Read-only-on-push does not make running fork code safe. `gh pr checkout` of a fo
 Evidence upload publishes local-stack screenshots, demo reels, and demo videos to the public `PostHog/pr-assets` repo via `hogli pr:upload-image` and `hogli pr:upload-video`. Uploads are public and permanent: URLs are SHA-pinned and keep serving even after the file is deleted, so an upload cannot be taken back. Pixels are not scrubbed: a screenshot can include emails, workspace names, dashboard contents, rendered tokens, or admin UI not intended for public viewing.
 
 Get explicit approval for the upload set in the same gate as the PR comment. Show the user the list of files about to be uploaded and what each one shows. Do not upload first and ask later; the upload is the disclosure. The command's `--yes` flag exists as a speed bump for exactly this reason - passing it is a statement that the user approved this exact upload set.
+
+One exception: a feature reel made only from Storybook stills follows the screenshot rule in `/writing-pr-descriptions`, because Storybook renders mock data. `references/feature-reel.md` has the check to run before that upload. A reel from the running app keeps this gate.
 
 ## Autonomous Fix Bounds
 

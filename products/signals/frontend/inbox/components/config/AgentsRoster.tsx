@@ -1,81 +1,279 @@
 import { useActions, useValues } from 'kea'
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 
-import { IconArrowUpRight } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonSwitch, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { IconArrowUpRight, IconChevronDown, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTag,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { isExternalSignalSource } from '../../externalSignalSources'
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
+import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import type { SourceToolDataStatus, SourceToolStatus } from '../../signalSourcesLogic'
-import { SignalSourceConfig, SignalSourceConfigStatus } from '../../types'
-import { getSourceProductMeta } from '../badges/sourceProductIcons'
-import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterSource } from './agentRosterMeta'
+import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
+import {
+    SignalAlertScope,
+    SignalSourceConfig,
+    SignalSourceConfigStatus,
+    SignalSourceType,
+    linearTeamIdsFromConfig,
+} from '../../types'
+import { SourceSpendLabel } from '../spend/SourceSpendLabel'
+import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
+import { DataSourceSetupModal } from './DataSourceSetupModal'
+import { LinearTeamsModal } from './LinearTeamsModal'
+import { SourceAgentIcon } from './SourceAgentIcon'
+import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
 
-const STATUS_TAG: Record<AgentRosterStatus, { label: string; type: LemonTagType }> = {
-    standby: { label: 'Standby', type: 'muted' },
-    watching: { label: 'Watching', type: 'success' },
-    syncing: { label: 'Syncing', type: 'primary' },
-    sync_failed: { label: 'Sync failed', type: 'danger' },
+/** Copy for the three error tracking signal types, which are enum values rather than named records. */
+const ERROR_TRACKING_TYPE_LABELS: Partial<Record<string, { name: string; detail: string }>> = {
+    [SignalSourceType.IssueCreated]: {
+        name: 'New issue',
+        detail: 'An error that has not been seen before.',
+    },
+    [SignalSourceType.IssueReopened]: {
+        name: 'Reopened issue',
+        detail: 'A resolved issue that came back.',
+    },
+    [SignalSourceType.IssueSpiking]: {
+        name: 'Spiking issue',
+        detail: 'A known issue whose rate jumped above its baseline.',
+    },
 }
+
+/** Entity kinds arrive as raw enum values, so they need display copy before they reach a tag. */
+const ENTITY_KIND_LABELS: Record<string, string> = {
+    monitor: 'Monitor',
+    classifier: 'Classifier',
+    scorer: 'Scorer',
+    summarizer: 'Summarizer',
+}
+
+function entityKindLabel(kind: string): string {
+    return ENTITY_KIND_LABELS[kind] ?? kind
+}
+
+/** Above this many entities the list gets a filter box. */
+const ENTITY_FILTER_THRESHOLD = 8
+
+function linearTeamsSummary(config: SignalSourceConfig): string {
+    const count = linearTeamIdsFromConfig(config.config).length
+    if (count === 0) {
+        return 'Reads issues from all Linear teams.'
+    }
+    return `Reads issues from ${count} Linear ${count === 1 ? 'team' : 'teams'}.`
+}
+
+/** The entity rows are part of the source list, so an unbounded one would push every source below it off screen. */
+const ENTITY_VISIBLE_LIMIT = 8
 
 function resolveAgentStatus(
     armed: boolean,
-    syncStatus: SignalSourceConfigStatus | SyncStatusEnumApi | null | undefined
+    syncStatus: SignalSourceConfigStatus | CISignalsSyncStatusEnumApi | null | undefined
 ): AgentRosterStatus {
+    if (syncStatus === SignalSourceConfigStatus.FAILED) {
+        return 'sync_failed'
+    }
     if (!armed) {
         return 'standby'
     }
     if (syncStatus === SignalSourceConfigStatus.RUNNING) {
         return 'syncing'
     }
-    if (syncStatus === SignalSourceConfigStatus.FAILED) {
-        return 'sync_failed'
-    }
     return 'watching'
 }
+
+/** One individually switchable thing inside a source: a scanner or a signal type. */
+interface RosterEntity {
+    id: string
+    name: string
+    detail?: string
+    kind?: string
+    enabled: boolean
+}
+
+interface SourceFilters {
+    summary: string
+    changeLabel: string
+    onChange: () => void
+    disabledReason?: string
+}
+
+/** Product analytics only: which firing alerts become signals. */
+interface SourceAlertScope {
+    options: typeof ALERT_SCOPE_OPTIONS
+    value: SignalAlertScope
+    onChange: (value: SignalAlertScope) => void
+    /** False before the source was ever turned on, as the choice is stored on its config row. */
+    canChange: boolean
+    disabledReason?: string
+}
+
+/** Product analytics only: whether anomaly scoring runs while the source is on. */
+interface SourceAnomalyScoring {
+    enabled: boolean
+    onChange: (enabled: boolean) => void
+    saving: boolean
+}
+
+// Replaces the source detail while the alert scope control shows, since the default copy only covers investigated alerts.
+const ALERT_SCOPE_SOURCE_DETAIL = 'Fires when an insight alert goes off. Choose which alerts count below.'
+
+const ALERT_SCOPE_OPTIONS: { value: SignalAlertScope; label: string; description: string; dataAttr: string }[] = [
+    {
+        value: SignalAlertScope.InvestigatedOnly,
+        label: 'Investigated alerts only',
+        description: 'Only alerts where you turned on the investigation agent, once the agent confirms the change.',
+        dataAttr: 'signal-source-alert-scope-investigated-only',
+    },
+    {
+        value: SignalAlertScope.AllFiringAlerts,
+        label: 'All firing alerts',
+        description:
+            'Each time an insight alert starts firing, including alerts without the investigation agent. An alert that is already firing is included the next time it starts firing.',
+        dataAttr: 'signal-source-alert-scope-all-firing-alerts',
+    },
+    {
+        value: SignalAlertScope.Off,
+        label: 'Off',
+        description: 'No alerts become signals. Alert checks, notifications, and investigations keep running.',
+        dataAttr: 'signal-source-alert-scope-off',
+    },
+]
 
 /** Per-source derived state assembled by `AgentsRoster` from `signalSourcesLogic`. */
 interface AgentSourceState {
     armed: boolean
+    connected?: boolean
     loading: boolean
     /** True for data-warehouse sources that haven't been connected yet – shows a Connect button. */
     requiresSetup: boolean
-    syncStatus: SignalSourceConfigStatus | SyncStatusEnumApi | null | undefined
+    syncStatus: SignalSourceConfigStatus | CISignalsSyncStatusEnumApi | null | undefined
+    entities: RosterEntity[]
+    /** The entity list is still loading, so the count would read as a wrong zero. */
+    entitiesLoading: boolean
+    /**
+     * The source's `SignalSourceConfig` rows, for sources that persist them. Guidance writes to all
+     * of them, so a source with a row per signal type is steered from its one card.
+     */
+    steeringConfigs: SignalSourceConfig[]
+    /** Why the switches cannot be used right now. Set while the source list is missing. */
+    blockedReason?: string
 }
 
-function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element {
-    const meta = getSourceProductMeta(source.sourceProduct)
-    const Icon = meta?.Icon
+/**
+ * Sources whose switch reads nothing from the source list: Replay vision reads its scanners and
+ * GitHub CI reads its own config.
+ */
+const SOURCES_WITHOUT_CONFIG_ROWS: ReadonlySet<AgentRosterSource> = new Set(['replay_vision', 'engineering_analytics'])
+
+const SOURCE_CONFIGS_LOADING_REASON = 'Loading your signal sources'
+const SOURCE_CONFIGS_FAILED_REASON = "Couldn't load your signal sources. Select Retry above to try again."
+
+/** Only the states worth interrupting a scan for. Everything healthy shows no tag at all. */
+function notableTag(
+    status: AgentRosterStatus,
+    armed: boolean,
+    productOff: boolean,
+    product?: SourceProductStatus
+): { label: string; type: LemonTagType } | null {
+    if (productOff) {
+        return { label: 'Product off', type: 'warning' }
+    }
+    if (status === 'sync_failed') {
+        return { label: 'Sync failed', type: 'danger' }
+    }
+    if (status === 'syncing') {
+        return { label: 'Syncing', type: 'primary' }
+    }
+    if (armed && product?.dataStatus === 'none') {
+        return { label: 'No recent data', type: 'muted' }
+    }
+    return null
+}
+
+function EntityRow({
+    entity,
+    onToggle,
+    disabledReason,
+}: {
+    entity: RosterEntity
+    onToggle: () => void
+    disabledReason?: string
+}): JSX.Element {
     return (
-        <div className="flex size-8 shrink-0 items-center justify-center rounded bg-surface-secondary ring-1 ring-inset ring-primary">
-            {Icon ? <Icon className={`text-lg ${meta.colorClass}`} /> : null}
+        <div className="flex h-10 items-center gap-2 border-t border-primary bg-surface-secondary pl-8 pr-2">
+            <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex items-center gap-1.5">
+                    <span
+                        className={`truncate text-[13px] font-medium leading-[18px] ${
+                            entity.enabled ? 'text-default' : 'text-muted'
+                        }`}
+                    >
+                        {entity.name}
+                    </span>
+                    {entity.kind && (
+                        <LemonTag className="shrink-0" size="small" type="muted">
+                            {entityKindLabel(entity.kind)}
+                        </LemonTag>
+                    )}
+                </div>
+                {entity.detail && <span className="truncate text-xs leading-4 text-muted">{entity.detail}</span>}
+            </div>
+            <div className="flex w-13 shrink-0 justify-end">
+                <LemonSwitch
+                    checked={entity.enabled}
+                    onChange={onToggle}
+                    disabledReason={disabledReason}
+                    aria-label={entity.name}
+                />
+            </div>
+            {/* Stands in for the parent row's xsmall icon-only chevron button, so a sub-row switch
+                lines up under the parent switch instead of under the chevron. */}
+            <span className="w-[26px] shrink-0" />
         </div>
     )
 }
 
-interface AgentCardProps {
+interface ExpansionProps {
     agent: AgentRosterDefinition
     state: AgentSourceState
-    tool?: SourceToolStatus
-    enablingTool: boolean
-    onToggle: (source: AgentRosterSource) => void
-    onEnableTool: (tool: SourceToolStatus) => void
+    product?: SourceProductStatus
+    enablingProduct: boolean
+    onEnableProduct: (product: SourceProductStatus) => void
+    onToggleEntity: (entityId: string) => void
+    filters?: SourceFilters
+    alertScope?: SourceAlertScope
+    /** Only set while the source is on for a project the anomaly scoring rollout covers. */
+    anomalyScoring?: SourceAnomalyScoring
+    /** Opens the steering form. Only set for steerable sources that are on with a persisted config row. */
+    onSteer?: () => void
     onRetryData: () => void
 }
 
-function ToolDataStatus({
+function ProductDataStatus({
     agent,
     status,
     onRetry,
 }: {
     agent: AgentRosterDefinition
-    status: SourceToolDataStatus
+    status: SourceProductDataStatus
     onRetry: () => void
 }): JSX.Element | null {
     if (status === 'unavailable') {
@@ -84,7 +282,7 @@ function ToolDataStatus({
 
     if (status === 'loading') {
         return (
-            <div className="flex items-center gap-1.5 mt-2 ml-11 text-xs text-muted">
+            <div className="flex items-center gap-1.5 text-xs text-muted">
                 <Spinner className="text-xs" />
                 Checking for recent data
             </div>
@@ -93,16 +291,9 @@ function ToolDataStatus({
 
     if (status === 'error') {
         return (
-            <div className="flex items-center gap-2 mt-2 ml-11 text-xs text-muted">
+            <div className="flex items-center gap-2 text-xs text-muted">
                 <span>Couldn't check recent data.</span>
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    onClick={(event) => {
-                        event.stopPropagation()
-                        onRetry()
-                    }}
-                >
+                <LemonButton type="tertiary" size="xsmall" onClick={onRetry}>
                     Try again
                 </LemonButton>
             </div>
@@ -111,7 +302,7 @@ function ToolDataStatus({
 
     if (status === 'recent') {
         return (
-            <div className="flex items-center gap-1.5 mt-2 ml-11 text-xs text-muted">
+            <div className="flex items-center gap-1.5 text-xs text-muted">
                 <span className="size-1.5 rounded-full bg-success" />
                 Data received in the last 30 days
             </div>
@@ -119,16 +310,11 @@ function ToolDataStatus({
     }
 
     return (
-        <div className="flex items-center gap-2 mt-2 ml-11 text-xs text-muted">
+        <div className="flex items-center gap-2 text-xs text-muted">
             <span className="size-1.5 rounded-full bg-border-bold" />
             <span>No data received in the last 30 days.</span>
             {agent.docsUrl && (
-                <Link
-                    to={agent.docsUrl}
-                    target="_blank"
-                    className="inline-flex items-center gap-1"
-                    onClick={(event) => event.stopPropagation()}
-                >
+                <Link to={agent.docsUrl} target="_blank" className="inline-flex items-center gap-1">
                     Check setup
                     <IconArrowUpRight />
                 </Link>
@@ -137,205 +323,541 @@ function ToolDataStatus({
     )
 }
 
-const AgentCard = memo(function AgentCard({
+function Expansion({
     agent,
     state,
-    tool,
-    enablingTool,
-    onToggle,
-    onEnableTool,
+    product,
+    enablingProduct,
+    onEnableProduct,
+    onToggleEntity,
+    filters,
+    alertScope,
+    anomalyScoring,
+    onSteer,
     onRetryData,
-}: AgentCardProps): JSX.Element {
-    const { armed, loading, requiresSetup, syncStatus } = state
-    const status = resolveAgentStatus(armed, syncStatus)
-    const statusTag = STATUS_TAG[status]
-    const toolOff = tool?.enabled === false
-    // An off tool blocks arming (the source would watch nothing), never disarming.
-    const armingBlocked = toolOff && !armed
-    const isInteractive = !loading && !armingBlocked
-
-    const handleCardClick = useCallback(() => {
-        if (!isInteractive) {
-            return
-        }
-        onToggle(agent.source)
-    }, [agent.source, isInteractive, onToggle])
+}: ExpansionProps): JSX.Element {
+    const [filter, setFilter] = useState('')
+    const [showAll, setShowAll] = useState(false)
+    const { entities } = state
+    const noun = agent.entityNoun ?? 'items'
+    const query = filter.trim().toLowerCase()
+    const matching = query ? entities.filter((entity) => entity.name.toLowerCase().includes(query)) : entities
+    // A filter already narrows the list, so the cap only applies while the person is browsing it.
+    const capped = !query && !showAll
+    const visible = capped ? matching.slice(0, ENTITY_VISIBLE_LIMIT) : matching
+    const hiddenCount = matching.length - visible.length
+    const expandedPastCap = !query && showAll && matching.length > ENTITY_VISIBLE_LIMIT
+    const productOff = product?.enabled === false
+    const steeringIsSet = state.steeringConfigs.some(sourceSteeringIsSet)
+    // `ProductDataStatus` renders nothing for an unavailable status, so the meta line would be empty.
+    const hasProductLine = !!product && (productOff || product.dataStatus !== 'unavailable')
+    const hasMetaLine = hasProductLine || !!onSteer
+    const newEntityButton = agent.manageUrl ? (
+        <LemonButton size="xsmall" type="secondary" to={agent.manageUrl} icon={<IconPlus />} targetBlank>
+            New {agent.entityNounSingular}
+        </LemonButton>
+    ) : null
+    const docsLink = agent.docsUrl ? (
+        <Link to={agent.docsUrl} target="_blank" className="whitespace-nowrap text-xs">
+            Learn about {agent.docsLabel ?? agent.label}
+            <IconArrowUpRight />
+        </Link>
+    ) : null
 
     return (
-        <div
-            onClick={isInteractive ? handleCardClick : undefined}
-            className={[
-                'rounded border p-3 transition-colors',
-                armed ? 'border-accent bg-accent-highlight-secondary' : 'border-primary bg-surface-primary',
-                isInteractive ? 'cursor-pointer hover:border-secondary' : 'cursor-default',
-            ].join(' ')}
-        >
-            <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <AgentIcon source={agent} />
-                    <div className="flex flex-col gap-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-sm text-default">{agent.label}</span>
+        <div className="flex flex-col border-t border-primary bg-surface-secondary">
+            <div className="flex flex-col gap-1.5 py-2.5 pl-8 pr-3">
+                {/* Never the tagline again: this line says what triggers a signal, not what is watched. */}
+                {/* Each part is its own element: a page-translation extension detaches a bare text
+                    node, and React then throws when the link next to it appears or disappears. */}
+                <p className="mb-0 text-xs text-secondary">
+                    <span>{alertScope ? ALERT_SCOPE_SOURCE_DETAIL : agent.detail}</span>
+                    {!hasMetaLine && docsLink ? <span> {docsLink}</span> : null}
+                </p>
+
+                {hasMetaLine && (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        {productOff && product ? (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-warning">
+                                    {product.productName} is off, so this source has nothing to read.
+                                </span>
+                                {product.enablement && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        loading={enablingProduct}
+                                        onClick={() => onEnableProduct(product)}
+                                    >
+                                        Turn it on
+                                    </LemonButton>
+                                )}
+                            </div>
+                        ) : product ? (
+                            <ProductDataStatus agent={agent} status={product.dataStatus} onRetry={onRetryData} />
+                        ) : (
+                            <span />
+                        )}
+                        <div className="flex items-center gap-2">
+                            {docsLink}
+                            {onSteer && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconGear />}
+                                    onClick={onSteer}
+                                    data-attr="signal-source-steering-open"
+                                >
+                                    {steeringIsSet ? 'Edit guidance' : 'Add guidance'}
+                                </LemonButton>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {filters && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-secondary">{filters.summary}</span>
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            onClick={filters.onChange}
+                            disabledReason={filters.disabledReason}
+                            data-attr="signal-source-change-filters"
+                        >
+                            {filters.changeLabel}
+                        </LemonButton>
+                    </div>
+                )}
+                {alertScope && (
+                    <div className="flex flex-col gap-1.5 pt-1">
+                        <span className="text-xs font-semibold text-default">Alerts that become signals</span>
+                        {alertScope.canChange ? (
+                            <LemonRadio
+                                value={alertScope.value}
+                                onChange={alertScope.onChange}
+                                aria-label="Alerts that become signals"
+                                data-attr="signal-source-alert-scope"
+                                radioPosition="top"
+                                options={alertScope.options.map(({ value, label, description, dataAttr }) => ({
+                                    value,
+                                    label,
+                                    description,
+                                    disabledReason: alertScope.disabledReason,
+                                    'data-attr': dataAttr,
+                                }))}
+                            />
+                        ) : (
+                            <span className="text-xs text-secondary">
+                                Turn on this source to choose which alerts become signals.
+                            </span>
+                        )}
+                    </div>
+                )}
+                {anomalyScoring && (
+                    <div className="flex items-start justify-between gap-3 pt-1">
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className="text-xs font-semibold text-default">Anomaly scoring</span>
+                            <span className="text-xs text-secondary">
+                                Checks your active trends insights for anomalies and saves the results as $anomaly_score
+                                events, which are not billed. Turn it off to keep alert signals without scoring.
+                            </span>
+                        </div>
+                        <LemonSwitch
+                            checked={anomalyScoring.enabled}
+                            onChange={anomalyScoring.onChange}
+                            loading={anomalyScoring.saving}
+                            aria-label="Score active trends insights for anomalies"
+                            data-attr="signals-anomaly-scoring-enabled"
+                        />
+                    </div>
+                )}
+            </div>
+
+            {state.entitiesLoading ? (
+                <div className="border-t border-primary py-2.5 pl-8 pr-3">
+                    <LemonSkeleton className="h-16 w-full" />
+                </div>
+            ) : entities.length > 0 ? (
+                <>
+                    {entities.length > ENTITY_FILTER_THRESHOLD && (
+                        <div className="flex items-center border-t border-primary py-1.5 pl-8 pr-3">
+                            <LemonInput
+                                type="search"
+                                size="xsmall"
+                                className="w-52"
+                                placeholder={`Filter ${noun}`}
+                                value={filter}
+                                onChange={setFilter}
+                            />
+                        </div>
+                    )}
+                    {visible.length === 0 ? (
+                        <p className="mb-0 border-t border-primary py-2 pl-8 pr-3 text-xs text-muted">
+                            No {noun} match that filter.
+                        </p>
+                    ) : (
+                        visible.map((entity) => (
+                            <EntityRow
+                                key={entity.id}
+                                entity={entity}
+                                onToggle={() => onToggleEntity(entity.id)}
+                                disabledReason={
+                                    state.blockedReason ??
+                                    (state.loading
+                                        ? 'Saving'
+                                        : productOff && !entity.enabled
+                                          ? `Turn on ${product?.productName} first. This source reads its data.`
+                                          : undefined)
+                                }
+                            />
+                        ))
+                    )}
+                    {(hiddenCount > 0 || expandedPastCap || newEntityButton) && (
+                        <div className="flex h-9 items-center justify-between border-t border-primary pl-8 pr-3">
+                            {hiddenCount > 0 ? (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    icon={<IconChevronDown />}
+                                    onClick={() => setShowAll(true)}
+                                >
+                                    Show {hiddenCount} more {noun}
+                                </LemonButton>
+                            ) : expandedPastCap ? (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    icon={<IconChevronDown className="rotate-180" />}
+                                    onClick={() => setShowAll(false)}
+                                >
+                                    Show fewer
+                                </LemonButton>
+                            ) : (
+                                <span />
+                            )}
+                            {newEntityButton}
+                        </div>
+                    )}
+                </>
+            ) : agent.entityNoun ? (
+                <div className="flex items-center gap-2 border-t border-primary py-2.5 pl-8 pr-3">
+                    <span className="text-xs text-secondary">No {noun} yet.</span>
+                    {newEntityButton}
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+interface AgentRowProps {
+    agent: AgentRosterDefinition
+    state: AgentSourceState
+    product?: SourceProductStatus
+    expanded: boolean
+    enablingProduct: boolean
+    onExpand: () => void
+    onToggle: (source: AgentRosterSource) => void
+    onToggleEntity: (source: AgentRosterSource, entityId: string) => void
+    onEnableProduct: (product: SourceProductStatus) => void
+    filters?: SourceFilters
+    alertScope?: SourceAlertScope
+    anomalyScoring?: SourceAnomalyScoring
+    onSteer?: () => void
+    onRetryData: () => void
+}
+
+const AgentRow = memo(function AgentRow({
+    agent,
+    state,
+    product,
+    expanded,
+    enablingProduct,
+    onExpand,
+    onToggle,
+    onToggleEntity,
+    onEnableProduct,
+    filters,
+    alertScope,
+    anomalyScoring,
+    onSteer,
+    onRetryData,
+}: AgentRowProps): JSX.Element {
+    const { armed, loading, requiresSetup, syncStatus, entities } = state
+    const status = resolveAgentStatus(armed, syncStatus)
+    const productOff = product?.enabled === false
+    // An off product blocks arming (the source would watch nothing), never disarming.
+    const armingBlocked = productOff && !armed
+    const warehouseSource = isExternalSignalSource(agent.source)
+    const tag =
+        warehouseSource && !loading && !armed
+            ? { label: state.connected ? 'Connected · Off' : 'Not connected', type: 'default' as LemonTagType }
+            : notableTag(status, armed, productOff, product)
+    // A source whose entities the user creates gets no master switch. Arming it would write to
+    // every entity at once, and turning it off and on again would not restore the earlier subset.
+    const hasMasterSwitch = !agent.entitiesAreUserCreated
+    const enabledCount = entities.filter((entity) => entity.enabled).length
+    return (
+        <div data-attr="signal-source-row" data-source={agent.source}>
+            {/* A legacy row stays dimmed even while in use, so it reads as the older option. */}
+            <div
+                className={`group flex min-h-13 items-center gap-2 px-2 py-2 transition-colors ${
+                    expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
+                } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
+            >
+                <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
+                    onClick={onExpand}
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
+                    data-attr="signal-source-expand"
+                >
+                    <SourceAgentIcon agent={agent} />
+                    <div className="flex min-w-0 flex-1 flex-col">
+                        <div className="flex items-center gap-2">
+                            <span
+                                className={`truncate text-sm leading-5 ${armed ? 'font-medium text-default' : 'text-secondary'}`}
+                            >
+                                {agent.label}
+                            </span>
                             {agent.alpha && (
                                 <LemonTag type="completion" size="small">
                                     Alpha
                                 </LemonTag>
                             )}
+                            {agent.legacy && (
+                                <LemonTag type="caution" size="small">
+                                    Legacy
+                                </LemonTag>
+                            )}
                         </div>
-                        <p className="text-sm text-secondary leading-snug mb-0">{agent.description}</p>
-                        {agent.docsUrl && (
-                            <Link
-                                to={agent.docsUrl}
-                                target="_blank"
-                                className="inline-flex items-center gap-1 text-sm w-fit"
-                                onClick={(e) => e.stopPropagation()}
+                        <span className="truncate text-xs leading-4 text-muted">
+                            {agent.category ? `${agent.category} · ${agent.watches}` : agent.watches}
+                        </span>
+                    </div>
+                </button>
+                {tag && (
+                    <LemonTag type={tag.type} size="small">
+                        {tag.label}
+                    </LemonTag>
+                )}
+                {entities.length > 0 && (
+                    <span className="shrink-0 truncate text-right text-xs text-muted">
+                        {enabledCount} of {entities.length} {agent.entityNoun} on
+                    </span>
+                )}
+                {armed && !productOff && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
+                        <SourceSpendLabel sourceProduct={agent.sourceProduct} />
+                    </FlaggedFeature>
+                )}
+                {(loading || requiresSetup || hasMasterSwitch) && (
+                    <div className={`flex shrink-0 justify-end ${warehouseSource ? 'w-20' : 'w-13'}`}>
+                        {loading ? (
+                            <Spinner className="text-base" />
+                        ) : warehouseSource || requiresSetup ? (
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                onClick={() => onToggle(agent.source)}
+                                disabledReason={state.blockedReason}
+                                aria-label={`${requiresSetup ? 'Connect' : armed ? 'Pause' : 'Turn on'} ${agent.label}`}
+                                data-attr="signal-source-toggle"
                             >
-                                Learn about {agent.docsLabel ?? agent.label}
-                                <IconArrowUpRight />
-                            </Link>
+                                {requiresSetup ? 'Connect' : armed ? 'Pause' : 'Turn on'}
+                            </LemonButton>
+                        ) : (
+                            <LemonSwitch
+                                checked={armed}
+                                onChange={() => onToggle(agent.source)}
+                                disabledReason={
+                                    state.blockedReason ??
+                                    (armingBlocked
+                                        ? `Turn on ${product?.productName} first. This source reads its data.`
+                                        : undefined)
+                                }
+                                aria-label={`Arm ${agent.label}`}
+                            />
                         )}
                     </div>
-                </div>
-
-                {/* eslint-disable-next-line react/no-unknown-property */}
-                <div className="flex flex-col items-end gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {toolOff ? (
-                        <LemonTag type="warning" size="small">
-                            Tool off
-                        </LemonTag>
-                    ) : (
-                        <LemonTag type={statusTag.type} size="small">
-                            {statusTag.label}
-                        </LemonTag>
-                    )}
-                    {loading ? (
-                        <Spinner className="text-lg" />
-                    ) : requiresSetup ? (
-                        <LemonButton type="primary" size="small" onClick={() => onToggle(agent.source)}>
-                            Connect
-                        </LemonButton>
-                    ) : (
-                        <LemonSwitch
-                            checked={armed}
-                            onChange={() => onToggle(agent.source)}
-                            disabledReason={
-                                armingBlocked
-                                    ? `Turn on ${tool?.toolName} first. This source reads its data.`
-                                    : undefined
-                            }
-                            aria-label={`Arm ${agent.label}`}
+                )}
+                <LemonButton
+                    size="xsmall"
+                    icon={
+                        <IconChevronRight
+                            className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
                         />
-                    )}
-                </div>
+                    }
+                    onClick={onExpand}
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
+                />
             </div>
-
-            {toolOff && tool ? (
-                // eslint-disable-next-line react/no-unknown-property
-                <div className="flex items-center gap-2 mt-2 ml-11" onClick={(e) => e.stopPropagation()}>
-                    <span className="text-sm text-warning">
-                        {tool.toolName} is off, so this source has nothing to read.
-                    </span>
-                    {tool.enablement && (
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            loading={enablingTool}
-                            onClick={() => onEnableTool(tool)}
-                        >
-                            Turn it on
-                        </LemonButton>
-                    )}
-                </div>
-            ) : tool ? (
-                <ToolDataStatus agent={agent} status={tool.dataStatus} onRetry={onRetryData} />
-            ) : null}
-
-            {armed && agent.source === 'session_replay' && status === 'syncing' && (
-                <div className="flex items-center gap-2 mt-2 ml-11">
-                    <Spinner className="text-sm text-accent" />
-                    <span className="text-sm text-accent">Session analysis run in progress…</span>
-                </div>
+            {expanded && (
+                <Expansion
+                    agent={agent}
+                    state={state}
+                    product={product}
+                    enablingProduct={enablingProduct}
+                    onEnableProduct={onEnableProduct}
+                    onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
+                    filters={filters}
+                    alertScope={alertScope}
+                    anomalyScoring={anomalyScoring}
+                    onSteer={onSteer}
+                    onRetryData={onRetryData}
+                />
             )}
         </div>
     )
 })
 
+/**
+ * Heading for one group of sources, set in the same type as the row titles so it reads as a section
+ * of the Settings card.
+ */
+function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Element {
+    return <h4 className="m-0 text-sm font-semibold text-default">{group.label}</h4>
+}
+
 export function AgentsRoster(): JSX.Element {
+    const { anomalyScoringAvailable, anomalyScoringEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
     const {
-        sessionAnalysisConfig,
+        externalSourceStates,
+        rosterGroups,
+        sourcesLoadError,
+        dataWarehouseSources,
+        dataWarehouseSourcesLoading,
         conversationsConfig,
         evalReportsConfig,
         anomalyInvestigationConfig,
-        githubIssuesConfig,
         linearIssuesConfig,
-        zendeskTicketsConfig,
-        pgAnalyzeIssuesConfig,
         healthChecksConfig,
         ciSignalsConfig,
         ciSignalsConfigLoading,
         ciSignalsIsFullyEnabled,
-        errorTrackingIsFullyEnabled,
-        isSessionAnalysisToggling,
+        errorTrackingConfigs,
+        errorTrackingTypeStates,
+        visionScanners,
+        visionScannersLoading,
         isConversationsToggling,
         isEvalReportsToggling,
         isAnomalyInvestigationToggling,
         isErrorTrackingToggling,
-        isGithubIssuesToggling,
         isLinearIssuesToggling,
-        isZendeskTicketsToggling,
-        isPgAnalyzeIssuesToggling,
         isHealthChecksToggling,
         isCiSignalsToggling,
-        toolStatusBySource,
-        enablingTool,
+        productStatusBySource,
+        enablingProduct,
+        sourceConfigs,
+        sourceConfigsLoadFailed,
+        sourceConfigsLoading,
+        linearTeamsPicker,
+        analyticsAlertScope,
+        savingAnalyticsAlertScope,
+        featureFlags,
     } = useValues(signalSourcesLogic)
     const {
-        toggleSessionAnalysis,
+        loadSources,
+        openLinearTeamsPicker,
+        closeLinearTeamsPicker,
         toggleConversations,
         toggleErrorTracking,
+        toggleErrorTrackingType,
         toggleEvalReports,
         toggleCiSignals,
         toggleAnomalyInvestigation,
         toggleHealthChecks,
+        toggleScannerSignals,
         initiateDataWarehouseSourceToggle,
-        enableSourceTool,
-        loadToolDataEvents,
+        enableSourceProduct,
+        loadProductDataEvents,
+        loadSourceConfigs,
+        setAnalyticsAlertScope,
     } = useActions(signalSourcesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
+    // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
+    const [steeringTarget, setSteeringTarget] = useState<{ configs: SignalSourceConfig[]; label: string } | null>(null)
 
-    const stateFor = useCallback(
+    const scannerEntities = useMemo(
+        (): RosterEntity[] =>
+            (visionScanners ?? []).map((scanner) => ({
+                id: scanner.id,
+                name: scanner.name,
+                detail: scanner.description || undefined,
+                kind: scanner.scanner_type,
+                enabled: scanner.emits_signals ?? false,
+            })),
+        [visionScanners]
+    )
+
+    const errorTrackingEntities = useMemo(
+        (): RosterEntity[] =>
+            errorTrackingTypeStates.map(({ sourceType, enabled }) => ({
+                id: sourceType,
+                name: ERROR_TRACKING_TYPE_LABELS[sourceType]?.name ?? sourceType,
+                detail: ERROR_TRACKING_TYPE_LABELS[sourceType]?.detail,
+                enabled,
+            })),
+        [errorTrackingTypeStates]
+    )
+
+    const sourceStateFor = useCallback(
         (source: AgentRosterSource): AgentSourceState => {
-            const dwState = (config: SignalSourceConfig | null, loading: boolean): AgentSourceState => ({
-                armed: !!config?.enabled,
-                loading,
-                // No config row yet → the source has never been connected; surface a Connect button.
-                requiresSetup: config === null,
-                syncStatus: config?.status,
-            })
+            const base = {
+                entities: [] as RosterEntity[],
+                entitiesLoading: false,
+                steeringConfigs: [] as SignalSourceConfig[],
+            }
+            if (isExternalSignalSource(source)) {
+                const state = externalSourceStates[source]
+                return {
+                    ...base,
+                    armed: !!state.config?.enabled,
+                    connected: state.connected,
+                    loading: state.loading,
+                    requiresSetup: state.requiresSetup,
+                    syncStatus: state.config?.status,
+                    steeringConfigs: state.config ? [state.config] : [],
+                    blockedReason: state.blockedReason,
+                }
+            }
             switch (source) {
                 case 'error_tracking':
                     return {
-                        armed: errorTrackingIsFullyEnabled,
+                        ...base,
+                        // Any type on means it is emitting, so the row reads Watching rather than
+                        // Standby while two of the three are armed.
+                        armed: errorTrackingTypeStates.some(({ enabled }) => enabled),
                         loading: isErrorTrackingToggling,
                         requiresSetup: false,
                         syncStatus: null,
+                        entities: errorTrackingEntities,
+                        steeringConfigs: errorTrackingConfigs,
                     }
                 case 'conversations':
                     return {
+                        ...base,
                         armed: !!conversationsConfig?.enabled,
                         loading: isConversationsToggling,
                         requiresSetup: false,
                         syncStatus: conversationsConfig?.status,
+                        steeringConfigs: conversationsConfig ? [conversationsConfig] : [],
                     }
-                case 'session_replay':
+                case 'replay_vision':
                     return {
-                        armed: !!sessionAnalysisConfig?.enabled,
-                        loading: isSessionAnalysisToggling,
+                        ...base,
+                        armed: scannerEntities.some((entity) => entity.enabled),
+                        loading: visionScannersLoading,
                         requiresSetup: false,
-                        syncStatus: sessionAnalysisConfig?.status,
+                        syncStatus: null,
+                        entities: scannerEntities,
+                        entitiesLoading: visionScanners === null && visionScannersLoading,
                     }
                 case 'llm_analytics':
                     return {
+                        ...base,
                         armed: !!evalReportsConfig?.enabled,
                         loading: isEvalReportsToggling,
                         requiresSetup: false,
@@ -343,28 +865,25 @@ export function AgentsRoster(): JSX.Element {
                     }
                 case 'analytics':
                     return {
+                        ...base,
                         armed: !!anomalyInvestigationConfig?.enabled,
                         loading: isAnomalyInvestigationToggling,
                         requiresSetup: false,
                         syncStatus: anomalyInvestigationConfig?.status,
+                        steeringConfigs: anomalyInvestigationConfig ? [anomalyInvestigationConfig] : [],
                     }
                 case 'health_checks':
                     return {
+                        ...base,
                         armed: !!healthChecksConfig?.enabled,
                         loading: isHealthChecksToggling,
                         requiresSetup: false,
                         syncStatus: healthChecksConfig?.status,
+                        steeringConfigs: healthChecksConfig ? [healthChecksConfig] : [],
                     }
-                case 'github':
-                    return dwState(githubIssuesConfig, isGithubIssuesToggling)
-                case 'linear':
-                    return dwState(linearIssuesConfig, isLinearIssuesToggling)
-                case 'zendesk':
-                    return dwState(zendeskTicketsConfig, isZendeskTicketsToggling)
-                case 'pganalyze':
-                    return dwState(pgAnalyzeIssuesConfig, isPgAnalyzeIssuesToggling)
                 case 'engineering_analytics':
                     return {
+                        ...base,
                         armed: ciSignalsIsFullyEnabled,
                         // Config load counts as loading: rendering Connect before it resolves misleads.
                         loading: isCiSignalsToggling || ciSignalsConfigLoading,
@@ -374,26 +893,24 @@ export function AgentsRoster(): JSX.Element {
             }
         },
         [
-            errorTrackingIsFullyEnabled,
+            externalSourceStates,
+            errorTrackingEntities,
+            errorTrackingConfigs,
+            errorTrackingTypeStates,
             isErrorTrackingToggling,
             conversationsConfig,
             isConversationsToggling,
-            sessionAnalysisConfig,
-            isSessionAnalysisToggling,
+            scannerEntities,
+            visionScanners,
+            visionScannersLoading,
             evalReportsConfig,
             isEvalReportsToggling,
             anomalyInvestigationConfig,
             isAnomalyInvestigationToggling,
             healthChecksConfig,
             isHealthChecksToggling,
-            githubIssuesConfig,
-            isGithubIssuesToggling,
             linearIssuesConfig,
             isLinearIssuesToggling,
-            zendeskTicketsConfig,
-            isZendeskTicketsToggling,
-            pgAnalyzeIssuesConfig,
-            isPgAnalyzeIssuesToggling,
             ciSignalsConfig,
             ciSignalsConfigLoading,
             ciSignalsIsFullyEnabled,
@@ -401,17 +918,40 @@ export function AgentsRoster(): JSX.Element {
         ]
     )
 
+    // Without the source list every switch reads off and every data-import source reads as never
+    // connected, so a click would try to create a row that may already exist. Hold the switches
+    // until the list is in.
+    const stateFor = useCallback(
+        (source: AgentRosterSource): AgentSourceState => {
+            const state = sourceStateFor(source)
+            if (sourceConfigs !== null || SOURCES_WITHOUT_CONFIG_ROWS.has(source)) {
+                return state
+            }
+            return {
+                ...state,
+                loading: state.loading || sourceConfigsLoading,
+                requiresSetup: false,
+                blockedReason: sourceConfigsLoading ? SOURCE_CONFIGS_LOADING_REASON : SOURCE_CONFIGS_FAILED_REASON,
+            }
+        },
+        [sourceStateFor, sourceConfigs, sourceConfigsLoading]
+    )
+
     const handleToggle = useCallback(
         (source: AgentRosterSource) => {
+            if (isExternalSignalSource(source)) {
+                initiateDataWarehouseSourceToggle(source)
+                return
+            }
             switch (source) {
+                case 'replay_vision':
+                    // Switched per scanner, in the expanded list. No row-level control to fire.
+                    return
                 case 'error_tracking':
                     toggleErrorTracking()
                     return
                 case 'conversations':
                     toggleConversations()
-                    return
-                case 'session_replay':
-                    toggleSessionAnalysis()
                     return
                 case 'llm_analytics':
                     toggleEvalReports()
@@ -422,12 +962,6 @@ export function AgentsRoster(): JSX.Element {
                 case 'health_checks':
                     toggleHealthChecks()
                     return
-                case 'github':
-                case 'linear':
-                case 'zendesk':
-                case 'pganalyze':
-                    initiateDataWarehouseSourceToggle(source)
-                    return
                 case 'engineering_analytics':
                     toggleCiSignals()
                     return
@@ -436,7 +970,6 @@ export function AgentsRoster(): JSX.Element {
         [
             toggleErrorTracking,
             toggleConversations,
-            toggleSessionAnalysis,
             toggleEvalReports,
             toggleCiSignals,
             toggleAnomalyInvestigation,
@@ -445,62 +978,223 @@ export function AgentsRoster(): JSX.Element {
         ]
     )
 
+    const handleToggleEntity = useCallback(
+        (source: AgentRosterSource, entityId: string) => {
+            if (source === 'replay_vision') {
+                toggleScannerSignals(entityId)
+            } else if (source === 'error_tracking') {
+                toggleErrorTrackingType(entityId as SignalSourceType)
+            }
+        },
+        [toggleScannerSignals, toggleErrorTrackingType]
+    )
+
+    const allFiringAlertsEnabled = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
+    const alertScope = useMemo((): SourceAlertScope => {
+        const blockedReason = stateFor('analytics').blockedReason
+        return {
+            options: allFiringAlertsEnabled
+                ? ALERT_SCOPE_OPTIONS
+                : ALERT_SCOPE_OPTIONS.filter(({ value }) => value !== SignalAlertScope.AllFiringAlerts),
+            // Without the flag the backend treats a stored all firing scope as investigated only.
+            value:
+                !allFiringAlertsEnabled && analyticsAlertScope === SignalAlertScope.AllFiringAlerts
+                    ? SignalAlertScope.InvestigatedOnly
+                    : analyticsAlertScope,
+            onChange: setAnalyticsAlertScope,
+            canChange: !!anomalyInvestigationConfig && !anomalyInvestigationConfig.id.startsWith('new_'),
+            disabledReason:
+                blockedReason ??
+                (savingAnalyticsAlertScope !== null || isAnomalyInvestigationToggling ? 'Saving' : undefined),
+        }
+    }, [
+        allFiringAlertsEnabled,
+        stateFor,
+        analyticsAlertScope,
+        setAnalyticsAlertScope,
+        anomalyInvestigationConfig,
+        savingAnalyticsAlertScope,
+        isAnomalyInvestigationToggling,
+    ])
+
+    // `anomaly_scoring_available` only reports the rollout, so the source state gates the switch here.
+    const analyticsArmed = stateFor('analytics').armed
+    const anomalyScoring = useMemo(
+        (): SourceAnomalyScoring | undefined =>
+            analyticsArmed && anomalyScoringAvailable
+                ? {
+                      enabled: anomalyScoringEnabled,
+                      onChange: (enabled) => patchTeamConfig({ anomaly_scoring_enabled: enabled }),
+                      saving: teamConfigUpdating,
+                  }
+                : undefined,
+        [analyticsArmed, anomalyScoringAvailable, anomalyScoringEnabled, patchTeamConfig, teamConfigUpdating]
+    )
+
+    const renderAgent = useCallback(
+        (agent: AgentRosterDefinition): JSX.Element => {
+            const state = stateFor(agent.source)
+            // Steering needs a persisted row to write to, so optimistic `new_`
+            // placeholder rows wait until the reload lands. Disabled sources keep
+            // the control: enabling starts a sync immediately, so rules must be
+            // settable before the first sync runs.
+            const steeringConfigs =
+                agent.steerable &&
+                state.steeringConfigs.length > 0 &&
+                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
+                    ? state.steeringConfigs
+                    : null
+            const filters =
+                agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
+                    ? {
+                          summary: linearTeamsSummary(linearIssuesConfig),
+                          changeLabel: 'Change teams',
+                          onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+                          // A save or reload can replace the row, and the picker reads it on open.
+                          disabledReason: isLinearIssuesToggling
+                              ? 'Saving'
+                              : sourceConfigsLoading
+                                ? 'Refreshing'
+                                : undefined,
+                      }
+                    : undefined
+            return (
+                <AgentRow
+                    key={agent.source}
+                    agent={agent}
+                    state={state}
+                    product={productStatusBySource[agent.source]}
+                    expanded={expandedSource === agent.source}
+                    enablingProduct={
+                        !!enablingProduct && enablingProduct === productStatusBySource[agent.source]?.enablement
+                    }
+                    onExpand={() => setExpandedSource((current) => (current === agent.source ? null : agent.source))}
+                    onToggle={handleToggle}
+                    onToggleEntity={handleToggleEntity}
+                    onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
+                    filters={filters}
+                    alertScope={agent.source === 'analytics' ? alertScope : undefined}
+                    anomalyScoring={agent.source === 'analytics' ? anomalyScoring : undefined}
+                    onSteer={
+                        steeringConfigs
+                            ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
+                            : undefined
+                    }
+                    onRetryData={loadProductDataEvents}
+                />
+            )
+        },
+        [
+            stateFor,
+            linearIssuesConfig,
+            openLinearTeamsPicker,
+            isLinearIssuesToggling,
+            sourceConfigsLoading,
+            productStatusBySource,
+            expandedSource,
+            enablingProduct,
+            handleToggle,
+            handleToggleEntity,
+            enableSourceProduct,
+            loadProductDataEvents,
+            alertScope,
+            anomalyScoring,
+        ]
+    )
+
     return (
-        <div className="flex flex-col gap-5">
-            {AGENT_ROSTER_GROUPS.map((group) => (
-                <div key={group.label} className="flex flex-col gap-2">
-                    <span className="text-[13px] font-medium text-muted">{group.label}</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {group.agents
-                            .filter((agent) => !agent.flag || featureFlags[agent.flag])
-                            .map((agent) => (
-                                <AgentCard
-                                    key={agent.source}
-                                    agent={agent}
-                                    state={stateFor(agent.source)}
-                                    tool={toolStatusBySource[agent.source]}
-                                    enablingTool={
-                                        !!enablingTool && enablingTool === toolStatusBySource[agent.source]?.enablement
-                                    }
-                                    onToggle={handleToggle}
-                                    onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
-                                    onRetryData={loadToolDataEvents}
-                                />
-                            ))}
-                    </div>
+        <div className="flex flex-col gap-3">
+            {sourcesLoadError && (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Retry', onClick: () => loadSources(), loading: dataWarehouseSourcesLoading }}
+                >
+                    Couldn't load your connections. Retry to check which sources are already connected.
+                </LemonBanner>
+            )}
+            {sourceConfigsLoadFailed && (
+                // Without the configs every data-import source reads as never connected, so warn
+                // instead of letting a person act on switches that do not reflect the server.
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Retry',
+                        onClick: () => loadSourceConfigs(),
+                        loading: sourceConfigsLoading,
+                        'data-attr': 'signals-retry-source-configs',
+                    }}
+                >
+                    {sourceConfigs === null
+                        ? "Couldn't load your signal sources, so you can't turn them on or off yet. Retry to load them."
+                        : "Couldn't refresh your signal sources, so the switches below may not match what's on."}
+                </LemonBanner>
+            )}
+
+            {rosterGroups.map((group) => (
+                <div key={group.label} className="flex flex-col gap-2 pt-2">
+                    <AgentRosterGroupHeader group={group} />
+                    {group.agents.length > 0 && (
+                        <div className="-mx-2 divide-y divide-primary">{group.agents.map(renderAgent)}</div>
+                    )}
+                    {group.id === 'external' &&
+                        group.agents.length === 0 &&
+                        dataWarehouseSources !== null &&
+                        sourceConfigs !== null && (
+                            <p className="m-0 text-xs text-secondary">
+                                Connect external tools from the available sources below.
+                            </p>
+                        )}
                 </div>
             ))}
+
+            <DataSourceSetupModal />
+
+            {linearTeamsPicker && (
+                <LinearTeamsModal
+                    config={linearIssuesConfig}
+                    enableOnSave={linearTeamsPicker.enableOnSave}
+                    viaSetupWizard={linearTeamsPicker.viaSetupWizard}
+                    onClose={closeLinearTeamsPicker}
+                />
+            )}
+
+            {/* Remounts per target (the key), so the form defaults re-derive from that source's config. */}
+            {steeringTarget && (
+                <SourceSteeringModal
+                    key={steeringTarget.configs.map((config) => config.id).join(',')}
+                    sourceConfigs={steeringTarget.configs}
+                    sourceLabel={steeringTarget.label}
+                    onClose={() => setSteeringTarget(null)}
+                />
+            )}
         </div>
     )
 }
 
-function AgentCardSkeleton(): JSX.Element {
+function AgentRowSkeleton(): JSX.Element {
     return (
-        <div className="rounded border border-primary bg-surface-primary p-3">
-            <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <LemonSkeleton className="size-8 shrink-0 rounded" />
-                    <div className="flex flex-col gap-2 min-w-0 flex-1">
-                        <LemonSkeleton className="h-3 w-1/2" />
-                        <LemonSkeleton className="h-3 w-1/3" />
-                        <LemonSkeleton className="h-3 w-4/5" />
-                    </div>
-                </div>
-                <LemonSkeleton className="h-5 w-16 shrink-0" />
+        <div className="flex h-13 items-center gap-2 px-2">
+            <LemonSkeleton className="size-2 shrink-0 rounded-full" />
+            <LemonSkeleton className="size-4 shrink-0 rounded" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <LemonSkeleton className="h-3 w-32" />
+                <LemonSkeleton className="h-2.5 w-56" />
             </div>
+            <LemonSkeleton className="h-4 w-8 shrink-0 rounded-full" />
         </div>
     )
 }
 
 export function AgentsRosterSkeleton(): JSX.Element {
     return (
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-3">
+            <LemonSkeleton className="h-3 w-48" />
             {AGENT_ROSTER_GROUPS.map((group) => (
-                <div key={group.label} className="flex flex-col gap-2">
-                    <LemonSkeleton className="h-3 w-24" />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div key={group.label} className="flex flex-col gap-2 pt-2">
+                    <AgentRosterGroupHeader group={group} />
+                    <div className="-mx-2 divide-y divide-primary">
                         {group.agents.map((agent) => (
-                            <AgentCardSkeleton key={agent.source} />
+                            <AgentRowSkeleton key={agent.source} />
                         ))}
                     </div>
                 </div>

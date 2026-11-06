@@ -8,9 +8,10 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
+    outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared},
     quota_limiters::CaptureQuotaLimiter,
     router::router,
-    sinks::Event,
+    sinks::sink::SinkResult,
     time::TimeSource,
     v0_request::{DataType, ProcessedEvent},
 };
@@ -1031,15 +1032,21 @@ impl MemorySink {
 }
 
 #[async_trait]
-impl Event for MemorySink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for MemorySink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend_from_slice(&events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for MemorySink {
+    /// The v1 route-surface tests publish here and assert only the status.
+    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        events
+            .iter()
+            .map(|event| SinkResult::published(event.uuid))
+            .collect()
     }
 }
 
@@ -1095,7 +1102,7 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             timesource,
             readiness,
             liveness,
-            Arc::new(sink.clone()),
+            Arc::new(OutputRegistry::single(sink.clone())),
             redis,
             None, // global_rate_limiter_token_distinctid
             quota_limiter,
@@ -1110,17 +1117,17 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             is_mirror_deploy,
             verbose_sample_percent,
             26_214_400,       // 25MB default for AI endpoint
+            983_040,          // ai_max_event_bytes (960KB)
             None,             // body_chunk_read_timeout_ms
             256,              // body_read_chunk_size_kb
             10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
             50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
             None,             // overflow_limiter
             None,             // ai_events_overflow_limiter
+            None,             // ai_byte_rate_limiter
             None,             // replay_overflow_limiter
-            None,             // v1_sink_router
             8,                // capture_v1_scatter_gather_min_batch
             None,             // ai_gateway_signing_secret
-            false,            // ai_events_overflow_enabled
             None,             // ingestion_warning_emitter
         ),
         sink,

@@ -8,18 +8,70 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
 from typing import Any
+from uuid import UUID
+
+from redis.asyncio.client import PubSub
+
+from posthog.paging import Page, PageRequest
 
 from products.wizard.backend import metrics
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
-from products.wizard.backend.logic import pubsub, sessions
+from products.wizard.backend.facade.contracts import (
+    CreatePullRequestArtifactInput,
+    CreateWizardRunInput,
+    ListWizardRunsInput,
+    RecordWizardScanInput,
+    StartWizardInstallInput,
+    UpdateWizardRunTaskInput,
+    UpsertWizardSessionInput,
+    WizardInstallStatusDTO,
+    WizardProgram,
+    WizardRunArtifactDTO,
+    WizardRunCreationResult,
+    WizardRunDTO,
+    WizardRunGitDiffArtifactDTO,
+    WizardRunPullRequestArtifactDTO,
+    WizardRunTaskDTO,
+    WizardScanResult,
+    WizardSessionDTO,
+)
+from products.wizard.backend.facade.enums import WizardRunStage, WizardRunStatus
+from products.wizard.backend.facade.validation import validate_wizard_version as validate_wizard_version_value
+from products.wizard.backend.logic import (
+    registry as registry_service,
+    runs as run_service,
+    scans,
+    sessions,
+)
+from products.wizard.backend.logic.artifacts import service as artifacts
+from products.wizard.backend.logic.installs import service as installs
+from products.wizard.backend.logic.runs import pubsub as run_pubsub
+from products.wizard.backend.logic.sessions import pubsub
+from products.wizard.backend.tool_catalog.catalog import tool_catalog_json
+from products.wizard.backend.tool_catalog.warehouse_destinations import CATALOG_DESTINATION_CHOICES
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
     """Returns `(dto, created)` so callers can pick 201 vs 200."""
     return sessions.upsert_session(params)
+
+
+def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
+    return scans.record_scan(params)
+
+
+def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:
+    """Whether the latest scan of any workspace in the organization still finds one of `kinds`."""
+    return scans.organization_has_detected_tool(organization_id=organization_id, kinds=kinds)
+
+
+TOOL_CATALOG_DESTINATION_CHOICES: list[tuple[str, str]] = CATALOG_DESTINATION_CHOICES
+
+
+def get_tool_catalog_json() -> bytes:
+    return tool_catalog_json()
 
 
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:
@@ -35,16 +87,9 @@ def list_for_team(
     workflow_id: str | None = None,
     skill_id: str | None = None,
     *,
-    offset: int = 0,
-    limit: int | None = None,
-) -> list[WizardSessionDTO]:
-    return sessions.list_sessions(
-        team_id,
-        workflow_id=workflow_id,
-        skill_id=skill_id,
-        offset=offset,
-        limit=limit,
-    )
+    page: PageRequest,
+) -> Page[WizardSessionDTO]:
+    return sessions.list_sessions(team_id, workflow_id=workflow_id, skill_id=skill_id, page=page)
 
 
 @asynccontextmanager
@@ -65,3 +110,110 @@ def record_latest_session_poll(raw_source: str | None, result: str) -> None:
     metrics.WIZARD_LATEST_SESSION_REQUESTS_TOTAL.labels(
         source=metrics.poll_source_label(raw_source), result=result
     ).inc()
+
+
+# Wizard Workers
+
+
+def get_registry(*, distinct_id: str, organization_id: str) -> tuple[WizardProgram, ...]:
+    """
+    Returns the Wizard registry, which is a list of all available programs the Wizard might run for an user.
+    """
+    return registry_service.get_registry(distinct_id=distinct_id, organization_id=organization_id)
+
+
+def create_run(params: CreateWizardRunInput) -> WizardRunDTO:
+    return run_service.create_run(params)
+
+
+def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationResult:
+    return run_service.create_run_with_result(params)
+
+
+def get_run(team_id: int, run_id: UUID) -> WizardRunDTO:
+    return run_service.get_run(team_id, run_id)
+
+
+def start_install(params: StartWizardInstallInput) -> WizardRunCreationResult:
+    """
+    Starts the PostHog setup program in the cloud on a GitHub repository of the project.
+    """
+    return installs.start_install(params)
+
+
+def get_install_status(team_id: int, run_id: UUID) -> WizardInstallStatusDTO:
+    return installs.get_install_status(team_id, run_id)
+
+
+@asynccontextmanager
+async def subscribe_to_run_updates(team_id: int, run_id: UUID) -> AsyncIterator[PubSub]:
+    async with run_pubsub.subscribe(team_id, run_id) as subscription:
+        yield subscription
+
+
+def list_runs(params: ListWizardRunsInput, page: PageRequest) -> Page[WizardRunDTO]:
+    return run_service.list_runs(params, page)
+
+
+def update_run_stage(team_id: int, run_id: UUID, stage: WizardRunStage) -> WizardRunDTO:
+    return run_service.update_run_stage(team_id, run_id, stage)
+
+
+def cancel_run(team_id: int, run_id: UUID) -> WizardRunDTO:
+    return run_service.cancel_run(team_id, run_id)
+
+
+def update_run_status(
+    team_id: int,
+    run_id: UUID,
+    status: WizardRunStatus,
+    *,
+    error_code: str | None = None,
+) -> WizardRunDTO:
+    return run_service.transition_run(team_id, run_id, status, error_code=error_code)
+
+
+def update_run_task_list(
+    team_id: int, run_id: UUID, tasks: tuple[UpdateWizardRunTaskInput, ...]
+) -> tuple[WizardRunTaskDTO, ...]:
+    return run_service.update_run_task_list(team_id, run_id, tasks)
+
+
+def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> WizardRunGitDiffArtifactDTO | None:
+    """
+    Uploads a git diff generated in a Wizard run.
+    """
+    return artifacts.create_git_diff_artifact(team_id, run_id, content)
+
+
+def create_pull_request_artifact(params: CreatePullRequestArtifactInput) -> WizardRunPullRequestArtifactDTO:
+    """
+    Uploads a pull request artifact generated in a Wizard run.
+    """
+    return artifacts.create_pull_request_artifact(params)
+
+
+def list_run_artifacts(team_id: int, run_id: UUID) -> list[WizardRunArtifactDTO]:
+    """
+    Lists all artifacts generated by a Wizard run.
+    """
+    return artifacts.list_run_artifacts(team_id, run_id)
+
+
+def get_git_diff_artifact_content(team_id: int, run_id: UUID, artifact_id: UUID) -> bytes:
+    """
+    Returns the content of a git diff artifact generated in a Wizard run.
+    """
+    return artifacts.get_git_diff_artifact_content(team_id, run_id, artifact_id)
+
+
+def validate_git_repository(repository: str) -> None:
+    run_service.validate_git_repository_name(repository)
+
+
+def validate_git_branch(branch: str) -> None:
+    run_service.validate_git_branch_name(branch)
+
+
+def validate_wizard_version(wizard_version: object) -> str:
+    return validate_wizard_version_value(wizard_version)

@@ -11,8 +11,10 @@ per organization (not per team).
 """
 
 import re
+from collections.abc import Callable
 from datetime import date
-from typing import TypedDict
+from functools import partial
+from typing import Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -25,9 +27,15 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-logger = structlog.get_logger(__name__)
+from products.managed_warehouse.backend.facade.access import (
+    background_loading_configured,
+    enable_customer_warehouse_access,
+    is_internal_warehouse,
+)
+from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
+from products.managed_warehouse.backend.presentation import hogtower
 
-DATA_WAREHOUSE_SCENE_FLAG = "data-warehouse-scene"
+logger = structlog.get_logger(__name__)
 
 # The Postgres database to connect to is always "ducklake"; the user-chosen warehouse
 # name becomes the SNI subdomain (e.g. my-warehouse.dw.us.postwh.com) and the DNS zone
@@ -54,7 +62,59 @@ class PresentedConnection(TypedDict):
     username: str
 
 
+class PresentedTrinoConnection(TypedDict):
+    host: str
+    port: int
+    catalog: str
+    username: str
+
+
+TrinoStatusState = Literal["not_enabled", "pending", "provisioning", "ready", "failed", "unavailable"]
+
+
+class PresentedTrinoStatus(TypedDict):
+    state: TrinoStatusState
+    ready_at: str | None
+    connection: PresentedTrinoConnection | None
+
+
+_TRINO_LIFECYCLE_STATES = frozenset({"pending", "provisioning", "ready", "failed"})
+
+
+ManagedWarehouseMonitoringMetric = Literal[
+    "query_rate",
+    "error_ratio",
+    "duration_p50",
+    "duration_p95",
+    "sessions_active",
+    "s3_bytes_rate",
+    "acquire_p95",
+    "acquire_by_source",
+    "storage_bytes",
+    "worker_crash_rate",
+]
+ManagedWarehouseTrinoMonitoringMetric = Literal[
+    "queries_in_flight",
+    "query_rate",
+    "error_ratio",
+    "duration_p50",
+    "duration_p95",
+    "queue_time_p95",
+    "scanned_bytes_rate",
+    "cpu_seconds_rate",
+    "storage_bytes",
+]
+ManagedWarehouseMonitoringWindow = Literal["1h", "6h", "24h", "7d", "30d"]
+DataOpsVariant = Literal["trino", "duckdb"]
+
+
 def managed_warehouse_domain() -> str:
+    """The zone managed warehouse hostnames are served under in this deployment.
+
+    The value is shared with `managed_ingress`, which the warehouse-source host guard reads. It
+    is defined here because a presentation module cannot import a plain backend module without
+    breaking the facade contract.
+    """
     deployment = (getattr(settings, "CLOUD_DEPLOYMENT", None) or "").upper()
     return _MANAGED_WAREHOUSE_DOMAINS.get(deployment, "test.local")
 
@@ -73,8 +133,8 @@ def validate_warehouse_name(name: str | None) -> str | None:
     return None
 
 
-def is_enabled(organization_id: UUID | str) -> bool:
-    """Evaluate the managed-warehouse flag for the organization.
+def _organization_flag_enabled(flag: str, organization_id: UUID | str) -> bool:
+    """Evaluate one managed-warehouse flag for the organization.
 
     Identity is the organization so every team in the org resolves the same value.
     """
@@ -82,7 +142,7 @@ def is_enabled(organization_id: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                DATA_WAREHOUSE_SCENE_FLAG,
+                flag,
                 org_id,
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
@@ -91,8 +151,27 @@ def is_enabled(organization_id: UUID | str) -> bool:
             )
         )
     except Exception:
-        logger.warning("Failed to evaluate managed warehouse feature flag", organization_id=org_id)
+        logger.warning("Failed to evaluate managed warehouse feature flag", organization_id=org_id, flag=flag)
         return False
+
+
+def data_ops_variant(organization_id: UUID | str) -> DataOpsVariant | None:
+    """Which Data ops variant the organization gets, or None when it has neither flag.
+
+    The Trino flag wins when both are on, so an organization never moves between variants
+    because of Trino's state.
+    """
+    variant: DataOpsVariant | None = None
+    if _organization_flag_enabled(MANAGED_TRINO_QUERY_FLAG, organization_id):
+        return "trino" if enable_customer_warehouse_access(organization_id, trino_enabled=True) else None
+    elif _organization_flag_enabled(DATA_WAREHOUSE_SCENE_FLAG, organization_id):
+        variant = "duckdb"
+    return None if variant is not None and is_internal_warehouse(organization_id) else variant
+
+
+def is_enabled(organization_id: UUID | str) -> bool:
+    """Whether the organization has the managed warehouse through either flag."""
+    return data_ops_variant(organization_id) is not None
 
 
 def _present_connection(raw: dict) -> PresentedConnection:
@@ -120,13 +199,17 @@ def _request(
     timeout: int = 30,
     require_enabled: bool = True,
 ) -> Response:
-    """Proxy a request to the duckgres provisioning API, gated on the org's feature flag.
+    """Proxy a request to the managed-warehouse control plane, gated on the org's feature flag.
+
+    The control plane is duckgres (`DUCKGRES_API_URL`, /api/v1) unless `HOGTOWER_API_URL`
+    is set, in which case the same call is served by hogtower's /api/v2 through
+    `products.managed_warehouse.backend.presentation.hogtower`, which returns the duckgres v1 body.
 
     An empty path targets the org resource itself (`/api/v1/orgs/{org}`, e.g. to delete it);
     paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
     API paths (`/api/v1/{path}`).
 
-    `require_enabled` gates on the user-facing `data-warehouse-scene` flag and is the right
+    `require_enabled` gates on the user-facing managed warehouse flags and is the right
     default for UI-driven calls. Backend/background callers (e.g. the Dagster duckling
     backfill) must pass `require_enabled=False`: the flag is evaluated only-locally and a
     worker without the flag definition loaded would otherwise get a spurious 403 even when
@@ -135,30 +218,40 @@ def _request(
     if require_enabled and not is_enabled(organization_id):
         return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
-    base_url = getattr(settings, "DUCKGRES_API_URL", None)
-    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
     org_id = str(organization_id)
+    send: Callable[[], http_requests.Response | hogtower.TranslatedResponse]
+    if hogtower.is_configured():
+        # hogtower serves the same calls from its /api/v2 routes, translated back to the
+        # duckgres v1 bodies below.
+        send = partial(hogtower.request, method, org_id, path, json_body=json_body, params=params, timeout=timeout)
+    else:
+        base_url = getattr(settings, "DUCKGRES_API_URL", None)
+        token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
 
-    if not base_url:
-        logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
-        return Response(
-            {"error": "Managed warehouse provisioning is not configured"},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
+        if not base_url:
+            logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
+            return Response(
+                {"error": "Managed warehouse provisioning is not configured"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
+        if path == "":
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
+        elif path.startswith("/"):
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
+        else:
+            url = f"{base_url.rstrip('/')}/api/v1/{path}"
+
+        headers = {}
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        send = partial(
+            internal_requests.request, method, url, json=json_body, params=params, headers=headers, timeout=timeout
         )
 
-    if path == "":
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
-    elif path.startswith("/"):
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
-    else:
-        url = f"{base_url.rstrip('/')}/api/v1/{path}"
-
-    headers = {}
-    if token:
-        headers["X-Duckgres-Internal-Secret"] = token
-
     try:
-        resp = internal_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
+        resp = send()
     except http_requests.Timeout:
         logger.warning("Provisioning API timeout", method=method, path=path, organization_id=org_id)
         return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
@@ -239,6 +332,9 @@ def provision(
     team_id: int,
     schema_name: str | None,
     require_enabled: bool = True,
+    *,
+    triggered_by: str,
+    internal_only: bool = False,
 ) -> Response:
     pending_deletion = _block_if_pending_deletion(organization_id)
     if pending_deletion is not None:
@@ -251,6 +347,23 @@ def provision(
     schema_name_error = _validate_schema_name(schema_name)
     if schema_name_error or schema_name is None:
         return Response({"error": schema_name_error or "schema_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+    if internal_only and require_enabled:
+        return Response({"error": "Internal provisioning requires the staff admin."}, status=status.HTTP_403_FORBIDDEN)
+    if internal_only:
+        from products.managed_warehouse.backend.facade.connection import reserve_internal_warehouse  # noqa: PLC0415
+
+        if not reserve_internal_warehouse(organization_id=organization_id):
+            return Response(
+                {"error": "Deprovision the warehouse before enabling internal testing mode."},
+                status=status.HTTP_409_CONFLICT,
+            )
+    existing_internal = is_internal_warehouse(organization_id)
+    if _org_has_warehouse(organization_id) and existing_internal != internal_only:
+        return Response(
+            {"error": "Deprovision the warehouse before changing its internal testing mode."},
+            status=status.HTTP_409_CONFLICT,
+        )
+    source_generation = _managed_source_generation(organization_id)
     resp = _request(
         "POST",
         organization_id,
@@ -266,16 +379,47 @@ def provision(
             "ducklake": {"enabled": True},
             "metadata_store": {"type": "cnpg-shard"},
             "data_store": {"type": "s3bucket"},
+            # Onboarding also enrolls the org in the shared Trino cell, so Trino is
+            # available as a compute engine over the same DuckLake catalog the duckgres
+            # server reads. The control plane writes the opt-in row inside the provision
+            # transaction and its provisioner claims the org into a cell on the next
+            # reconcile. Idempotent, so re-provisioning is safe; omitting the key (the
+            # behavior before this) means PG-only, which is not the same as sending
+            # enabled=false — that is also a no-op, never a disable.
+            "trino": {"enabled": True},
         },
         require_enabled=require_enabled,
     )
+    if status.is_success(resp.status_code):
+        logger.info(
+            "managed_warehouse_action",
+            action="provision",
+            internal_only=internal_only,
+            triggered_by=triggered_by,
+            organization_id=str(organization_id),
+            team_id=team_id,
+            database_name=database_name,
+            schema_name=schema_name,
+        )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        activated_generation = _activate_managed_source_lifecycle(
+            organization_id,
+            expected_generation=source_generation,
+            internal_only=internal_only,
+        )
+        if activated_generation is None:
+            logger.warning(
+                "Skipping stale managed warehouse provision completion",
+                organization_id=str(organization_id),
+                expected_generation=source_generation,
+            )
+            return resp
         _invalidate_team_state_cache(organization_id)
         _persist_duckgres_server(organization_id, database_name, resp.data)
         # Complete the row BEFORE registering the team: registration kicks off the
         # SQL-editor query-source setup and discovery against this row's warehouse.
         _complete_provisioning_team_row(organization_id, team_id, schema_name, require_enabled=require_enabled)
-        _register_provisioning_team(organization_id, team_id)
+        _register_provisioning_team(organization_id, team_id, activated_generation)
         # The bucket is internal infra detail, persisted above and consumed by the
         # backfill via cp_bucket_for — not part of the UI-facing ProvisionWarehouseResponse
         # schema. Strip it so the response matches its OpenAPI contract.
@@ -335,39 +479,108 @@ def team_backfill_state(team_id: int) -> dict[str, object]:
     return {"has_backfill": state.has_backfill, "table_suffix": state.table_suffix}
 
 
-def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> None:
+def _register_provisioning_team(organization_id: UUID | str, team_id: int, source_generation: int) -> None:
     """Finish the provisioning (calling) team's onboarding after its row exists.
 
     duckgres creates the provisioning team's row from the provision request itself (and
     `_complete_provisioning_team_row` pins its legacy table names), so nothing is written
-    here — the team just gets its SQL-editor query connection and its earliest-event-date
-    sync kicked off, the same tail `onboard_team` runs for later teams.
+    here. The team gets its managed SQL-editor source and starts its earliest-event-date
+    sync, matching the tail that `onboard_team` runs later.
 
     Best-effort, mirroring `_persist_duckgres_server`: a failure is logged, not raised, so
     the one-time provision password is never lost to it.
     """
     try:
-        _ensure_direct_source(team_id, organization_id)
-        _schedule_earliest_event_date_sync(team_id)
+        _finish_team_loading_setup(organization_id, team_id, source_generation)
     except Exception:
         logger.exception("Failed to register provisioning team after provision", team_id=team_id)
 
 
-def _ensure_direct_source(team_id: int, organization_id: UUID | str) -> None:
-    """Best-effort: register the org's managed warehouse as the team's query connection.
+def _finish_team_loading_setup(organization_id: UUID | str, team_id: int, source_generation: int) -> None:
+    _schedule_earliest_event_date_sync(team_id)
+    if background_loading_configured(organization_id):
+        from django.db import transaction  # noqa: PLC0415
 
-    A managed warehouse speaks the Postgres wire protocol, so each member team gets an
-    ExternalDataSource pointed at the org server and authenticated with its org root
-    credential. A failure here must never block onboarding.
-    """
+        from products.managed_warehouse.backend.facade.tasks import load_internal_warehouse  # noqa: PLC0415
+
+        transaction.on_commit(lambda: load_internal_warehouse.delay(str(organization_id), team_id, source_generation))
+    if not is_internal_warehouse(organization_id):
+        _ensure_direct_source(team_id, organization_id, source_generation)
+
+
+def _active_managed_source_generation(organization_id: UUID | str) -> int | None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        get_active_managed_warehouse_source_generation,
+    )
+
+    return get_active_managed_warehouse_source_generation(organization_id=organization_id)
+
+
+def _managed_source_generation(organization_id: UUID | str) -> int:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        get_managed_warehouse_source_generation,
+    )
+
+    return get_managed_warehouse_source_generation(organization_id=organization_id)
+
+
+def _activate_managed_source_lifecycle(
+    organization_id: UUID | str,
+    *,
+    expected_generation: int,
+    internal_only: bool = False,
+) -> int | None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        activate_managed_warehouse_source_lifecycle,
+    )
+
+    return activate_managed_warehouse_source_lifecycle(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+        internal_only=internal_only,
+    )
+
+
+def _deactivate_managed_source_lifecycle(
+    organization_id: UUID | str,
+    *,
+    expected_generation: int,
+) -> int | None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        deactivate_managed_warehouse_source_lifecycle,
+    )
+
+    return deactivate_managed_warehouse_source_lifecycle(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
+
+
+def _ensure_direct_source(team_id: int, organization_id: UUID | str, source_generation: int) -> None:
     try:
         from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
             ensure_managed_warehouse_direct_source,
         )
 
-        ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
+        ensure_managed_warehouse_direct_source(
+            team_id=team_id,
+            organization_id=organization_id,
+            expected_generation=source_generation,
+        )
     except Exception:
         logger.exception("Failed to register managed warehouse query source", team_id=team_id)
+        try:
+            from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+                schedule_managed_warehouse_direct_source_ensure,
+            )
+
+            schedule_managed_warehouse_direct_source_ensure(
+                team_id=team_id,
+                organization_id=organization_id,
+                expected_generation=source_generation,
+            )
+        except Exception:
+            logger.exception("Failed to schedule managed warehouse query source recovery", team_id=team_id)
 
 
 def _persist_duckgres_server(organization_id: UUID | str, database_name: str | None, body: dict) -> None:
@@ -488,8 +701,8 @@ def update_team(
 
 
 def push_team_earliest_event_date(organization_id: UUID | str, team_id: int, earliest: date | None) -> bool:
-    """Persist a team's resolved earliest event date (incl. the no-history sentinel) onto
-    its duckgres team row — the read source for the backfill sensors.
+    """Persist a team's resolved earliest event date onto its duckgres team row — the
+    read source for the backfill sensors.
 
     A failure is logged and swallowed; returns True when the control plane accepted the
     value, so callers (the provisioning-time task, the full-backfill sensor) can leave
@@ -552,7 +765,12 @@ def _invalidate_team_state_cache(organization_id: UUID | str) -> None:
 
 
 def onboard_team(
-    organization_id: UUID | str, team_id: int, schema_name: str | None, require_enabled: bool = True
+    organization_id: UUID | str,
+    team_id: int,
+    schema_name: str | None,
+    require_enabled: bool = True,
+    *,
+    triggered_by: str,
 ) -> Response:
     """Onboard a team onto the org's existing managed warehouse with its own schema.
 
@@ -577,6 +795,13 @@ def onboard_team(
     if schema_error or schema_name is None:
         return Response({"error": schema_error or "schema_name is required"}, status=status.HTTP_400_BAD_REQUEST)
     if not _org_has_warehouse(organization_id):
+        return Response(
+            {"error": "No managed warehouse is provisioned for this organization. Provision one first."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    source_generation = _active_managed_source_generation(organization_id)
+    if source_generation is None:
         return Response(
             {"error": "No managed warehouse is provisioned for this organization. Provision one first."},
             status=status.HTTP_400_BAD_REQUEST,
@@ -624,8 +849,16 @@ def onboard_team(
         if not status.is_success(resp.status_code):
             return resp
 
-    _ensure_direct_source(team_id, organization_id)
-    _schedule_earliest_event_date_sync(team_id)
+    logger.info(
+        "managed_warehouse_action",
+        action="onboard_team",
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        team_id=team_id,
+        schema_name=schema_name,
+        created=existing is None,
+    )
+    _finish_team_loading_setup(organization_id, team_id, source_generation)
     return Response({"onboarded": True, "schema_name": schema_name}, status=status.HTTP_200_OK)
 
 
@@ -747,30 +980,75 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
     return None
 
 
-def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+def deprovision(organization_id: UUID | str, require_enabled: bool = True, *, triggered_by: str) -> Response:
+    expected_generation = _active_managed_source_generation(organization_id)
+    inactive_cleanup_generation = _managed_source_generation(organization_id) if expected_generation is None else None
     resp = _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
-    if status.is_success(resp.status_code):
-        _invalidate_team_state_cache(organization_id)
-        # Deprovision is not re-POSTable (Duckgres 409s once the org leaves a deprovisionable
-        # state), so a failed local cleanup must converge via the retrying task, not the operator.
+    control_plane_converged = status.is_success(resp.status_code) or resp.status_code == status.HTTP_404_NOT_FOUND
+    if not control_plane_converged and (
+        resp.status_code == status.HTTP_409_CONFLICT or resp.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR
+    ):
+        status_response = _request(
+            "GET",
+            organization_id,
+            "/warehouse/status",
+            require_enabled=False,
+        )
+        control_plane_converged = status_response.status_code == status.HTTP_404_NOT_FOUND or (
+            status_response.status_code == status.HTTP_200_OK
+            and isinstance(status_response.data, dict)
+            and status_response.data.get("state") in {"deleting", "deleted"}
+        )
+    if not control_plane_converged:
+        return resp
+    converged_response = (
+        resp
+        if status.is_success(resp.status_code)
+        else Response({"status": "deprovisioning started"}, status=status.HTTP_202_ACCEPTED)
+    )
+    logger.info(
+        "managed_warehouse_action",
+        action="deprovision",
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        status_code=resp.status_code,
+    )
+    _invalidate_team_state_cache(organization_id)
+    cleanup_generation = inactive_cleanup_generation
+    if expected_generation is not None:
         try:
-            _remove_direct_connection_sources(organization_id)
+            cleanup_generation = _deactivate_managed_source_lifecycle(
+                organization_id,
+                expected_generation=expected_generation,
+            )
         except Exception:
-            logger.exception("Failed to remove managed warehouse query sources", organization_id=str(organization_id))
-            try:
-                _schedule_remove_direct_connection_sources(organization_id)
-            except Exception:
-                logger.exception(
-                    "Failed to schedule managed warehouse query source removal",
-                    organization_id=str(organization_id),
-                )
-                return Response(
-                    {
-                        "error": "The warehouse was deprovisioned but its SQL connections could not be removed or scheduled for removal. They must be cleaned up manually."
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-    return resp
+            logger.exception("Failed to record managed warehouse deprovision", organization_id=str(organization_id))
+            return Response(
+                {
+                    "error": "The warehouse accepted deprovisioning, but its local SQL connection state was not updated. Retry deprovisioning."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    if cleanup_generation is None:
+        return converged_response
+    try:
+        _remove_direct_connection_sources(organization_id, cleanup_generation)
+    except Exception:
+        logger.exception("Failed to remove managed warehouse query sources", organization_id=str(organization_id))
+        try:
+            _schedule_remove_direct_connection_sources(organization_id, cleanup_generation)
+        except Exception:
+            logger.exception(
+                "Failed to schedule managed warehouse query source removal",
+                organization_id=str(organization_id),
+            )
+            return Response(
+                {
+                    "error": "The warehouse was deprovisioned but its SQL connections could not be removed or scheduled for removal. They must be cleaned up manually."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    return converged_response
 
 
 def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
@@ -784,8 +1062,8 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
 
     No-op for orgs without a managed warehouse (mirrors ``block_team_deletion``'s gating,
     so unrelated org deletions never touch the control plane). Idempotent against
-    duckgres: 404 (warehouse unknown to the control plane) and 409 (teardown already
-    started or finished — deprovision is not re-POSTable) are treated as converged. Any
+    duckgres: 404 means the warehouse is absent. A repeated deprovision that returns 409
+    is normalized to 202 only after status reports ``deleting`` or ``deleted``. Any
     other failure raises so the Temporal activity retries: the org-record deletion (whose
     cascade drops the ``DuckgresServer`` pointer) is conditional on this call being
     accepted, so a persistent duckgres outage stalls the deletion workflow — visibly, and
@@ -800,23 +1078,20 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
 
     # Backend caller: bypass the user-facing feature flag so the deletion never depends on
     # flag evaluation on the Temporal worker.
-    resp = deprovision(organization_id, require_enabled=False)
+    resp = deprovision(organization_id, require_enabled=False, triggered_by="system:organization-deletion")
     if status.is_success(resp.status_code):
-        logger.info(
-            "Managed warehouse deprovisioning started for organization deletion",
-            organization_id=org_id,
-        )
         return
-    if resp.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT):
+    if resp.status_code == status.HTTP_404_NOT_FOUND:
         logger.info(
             "Managed warehouse already deprovisioned or unknown to duckgres; continuing organization deletion",
             organization_id=org_id,
             status_code=resp.status_code,
         )
         return
-    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED:
-        # DUCKGRES_API_URL is not configured (e.g. a dev/env-var-backed DuckgresServer
-        # row): there is no control plane to deprovision against.
+    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED and not hogtower.is_configured():
+        # Neither HOGTOWER_API_URL nor DUCKGRES_API_URL is configured (e.g. a
+        # dev/env-var-backed DuckgresServer row): there is no control plane to deprovision against.
+        # A 501 from the hogtower adapter means an unmapped route instead, and must not skip.
         logger.warning(
             "Managed warehouse deprovisioning skipped: provisioning API not configured",
             organization_id=org_id,
@@ -828,23 +1103,29 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
     )
 
 
-def _remove_direct_connection_sources(organization_id: UUID | str) -> None:
+def _remove_direct_connection_sources(organization_id: UUID | str, expected_generation: int) -> None:
     """Soft-delete the org's auto-created Postgres query connections after deprovisioning."""
     from products.managed_warehouse.backend.facade.connection import (
         soft_delete_managed_warehouse_sources,  # noqa: PLC0415
     )
 
-    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+    soft_delete_managed_warehouse_sources(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
 
 
-def _schedule_remove_direct_connection_sources(organization_id: UUID | str) -> None:
+def _schedule_remove_direct_connection_sources(organization_id: UUID | str, expected_generation: int) -> None:
     """Queue the retrying cleanup task when the inline soft-delete failed."""
     # Keep the Celery task stack off this adapter's import path.
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
         schedule_soft_delete_managed_warehouse_sources,
     )
 
-    schedule_soft_delete_managed_warehouse_sources(organization_id=organization_id)
+    schedule_soft_delete_managed_warehouse_sources(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
 
 
 def ensure_direct_connection_tables(team_id: int, organization_id: UUID | str) -> None:
@@ -867,7 +1148,7 @@ def ensure_direct_connection_tables(team_id: int, organization_id: UUID | str) -
         )
 
 
-def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+def delete_org(organization_id: UUID | str, require_enabled: bool = True, *, triggered_by: str) -> Response:
     """Delete the org's provisioning record once teardown has finished, freeing its warehouse name.
 
     `deprovision` tears the warehouse down (status goes deleting → deleted); this removes the
@@ -875,7 +1156,15 @@ def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Res
     teardown has no terminal failed state (the provisioner retries indefinitely), so callers
     should only issue this once the warehouse status reports `deleted`.
     """
-    return _request("DELETE", organization_id, "", require_enabled=require_enabled)
+    resp = _request("DELETE", organization_id, "", require_enabled=require_enabled)
+    if status.is_success(resp.status_code):
+        logger.info(
+            "managed_warehouse_action",
+            action="delete_org",
+            triggered_by=triggered_by,
+            organization_id=str(organization_id),
+        )
+    return resp
 
 
 def status_for(organization_id: UUID | str) -> Response:
@@ -894,6 +1183,104 @@ def status_for(organization_id: UUID | str) -> Response:
         # WarehouseStatusResponse schema. Backend callers use cp_bucket_for instead.
         _strip_bucket_fields(resp.data)
     return resp
+
+
+def _present_trino_connection(trino_status: dict) -> PresentedTrinoConnection | None:
+    catalog = trino_status.get("trino_catalog_name") or trino_status.get("catalog")
+    connection = trino_status.get("connection")
+    if not isinstance(catalog, str) or not catalog.strip() or not isinstance(connection, dict):
+        return None
+    host = connection.get("host")
+    username = connection.get("username")
+    port = connection.get("port")
+    if not isinstance(host, str) or not host.strip() or not isinstance(username, str) or not username.strip():
+        return None
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        return None
+    return PresentedTrinoConnection(host=host.strip(), port=port, catalog=catalog.strip(), username=username.strip())
+
+
+def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
+    """Customer-safe summary of the organization's Trino enablement, for the Trino Data ops variant.
+
+    The control plane's Trino status is an operator payload. Only the lifecycle state, the ready
+    time, and the connection target leave this function.
+    """
+    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None)
+    resp = _request("GET", organization_id, "/trino", timeout=10)
+    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
+        return unavailable
+    if resp.data.get("enabled") is not True:
+        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None)
+
+    trino_status = resp.data.get("status")
+    if not isinstance(trino_status, dict):
+        return unavailable
+    if str(trino_status.get("org")) != str(organization_id):
+        logger.warning(
+            "refusing_trino_status_for_mismatched_organization",
+            requested_organization_id=str(organization_id),
+            response_organization_id=str(trino_status.get("org")),
+        )
+        return unavailable
+
+    raw_state = trino_status.get("state")
+    # A row that has not been reconciled yet has no state, which means pending.
+    if raw_state is None or raw_state == "":
+        state: TrinoStatusState = "pending"
+    elif isinstance(raw_state, str) and raw_state in _TRINO_LIFECYCLE_STATES:
+        state = cast(TrinoStatusState, raw_state)
+    else:
+        # The control plane has lifecycle states this view does not present, such as deleting. Showing
+        # them as pending would make the scene poll for a setup that never completes.
+        logger.warning("unexpected_trino_lifecycle_state", organization_id=str(organization_id), state=str(raw_state))
+        return unavailable
+    ready_at = trino_status.get("ready_at")
+    return PresentedTrinoStatus(
+        state=state,
+        ready_at=ready_at if isinstance(ready_at, str) else None,
+        connection=_present_trino_connection(trino_status) if state == "ready" else None,
+    )
+
+
+def monitoring_snapshot_for(organization_id: UUID | str) -> Response:
+    """Fetch tenant-safe live monitoring data for one organization."""
+    return _request("GET", organization_id, "/monitoring/snapshot", timeout=10)
+
+
+def monitoring_series_for(
+    organization_id: UUID | str,
+    metric: ManagedWarehouseMonitoringMetric,
+    window: ManagedWarehouseMonitoringWindow,
+) -> Response:
+    """Fetch one allow-listed monitoring series for one organization."""
+    return _request(
+        "GET",
+        organization_id,
+        "/monitoring/series",
+        params={"metric": metric, "window": window},
+        timeout=10,
+    )
+
+
+def trino_monitoring_snapshot_for(organization_id: UUID | str) -> Response:
+    """Fetch tenant-safe live Trino query data for one organization."""
+    return _request("GET", organization_id, "/monitoring/trino/snapshot", timeout=10)
+
+
+def trino_monitoring_series_for(
+    organization_id: UUID | str,
+    metric: ManagedWarehouseTrinoMonitoringMetric,
+    window: ManagedWarehouseMonitoringWindow,
+) -> Response:
+    """Fetch one allow-listed Trino monitoring series for one organization."""
+    return _request(
+        "GET",
+        organization_id,
+        "/monitoring/trino/series",
+        params={"metric": metric, "window": window},
+        timeout=10,
+    )
 
 
 def cp_bucket_for(organization_id: UUID | str) -> str | None:
@@ -977,8 +1364,15 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
         )
 
 
-def reset_password(organization_id: UUID | str) -> Response:
+def reset_password(organization_id: UUID | str, *, triggered_by: str) -> Response:
     resp = _request("POST", organization_id, "/reset-password")
+    if status.is_success(resp.status_code):
+        logger.info(
+            "managed_warehouse_action",
+            action="reset_password",
+            triggered_by=triggered_by,
+            organization_id=str(organization_id),
+        )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict) and resp.data.get("password"):
         try:
             _update_direct_connection_password(organization_id, resp.data["password"])

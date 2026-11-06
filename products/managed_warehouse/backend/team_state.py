@@ -18,8 +18,8 @@ from products.managed_warehouse.backend import cp_teams
 from products.managed_warehouse.backend.common import _get_org_id_for_team, validate_duckgres_identifier
 from products.managed_warehouse.backend.facade.contracts import (
     CPUnavailableError,
+    DucklingTables,
     ManagedWarehouseBackfillState,
-    ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
 
@@ -39,40 +39,49 @@ def _get_cp_row(team_id: int) -> cp_teams.CPTeam | None:
     return next((team for team in teams if team.team_id == team_id), None)
 
 
-def _to_membership(row: cp_teams.CPTeam) -> ManagedWarehouseTeamMembership:
-    return ManagedWarehouseTeamMembership(
-        team_id=row.team_id,
-        organization_id=row.organization_id,
-        schema_name=row.schema_name,
-        enabled=row.enabled,
-        backfill_enabled=row.backfill_enabled,
-        table_names=ManagedWarehouseTableNames(
-            events_table=row.resolved_events_table,
-            persons_table=row.resolved_persons_table,
-            data_imports_schema=row.resolved_data_imports_schema,
-        ),
-        earliest_event_date=row.earliest_event_date,
+def _refuse_base_tables_another_team_writes(team_id: int, tables: tuple[str, ...]) -> None:
+    # Rows of a second team in a base table make every Trino replacement on that table refuse. A cached read can miss
+    # a team that started to write the table within the cache TTL.
+    teams = cp_teams.list_org_teams(_get_org_id_for_team(team_id), use_cache=False)
+    if teams is None:
+        raise CPUnavailableError(f"duckgres control plane unreachable reading team state for team {team_id}")
+    claimed = sorted(
+        {name for team in teams for name in (team.resolved_events_table, team.resolved_persons_table)} & set(tables)
     )
+    if claimed:
+        raise ValueError(
+            f"Team {team_id} has no control-plane row, so it would write to {claimed}, "
+            "which another team of the organization writes"
+        )
 
 
 # --- events/persons table names (Dagster duckling backfill) -----------------------
 
 
-def resolve_events_persons_tables(team_id: int) -> tuple[str, str]:
-    """The per-team (events, persons) duckling table names the backfill writes to.
+def resolve_events_persons_tables(team_id: int) -> DucklingTables:
+    """The per-team events/persons duckling table names the backfill writes to.
 
     Failure posture: raises :class:`CPUnavailableError` when the control plane can't
     answer and the cache is cold — the backfill run fails and retries rather than
-    writing to guessed tables.
+    writing to guessed tables. Raises ValueError when a team without a control-plane
+    row would fall back to a base table that another team of the organization writes.
     """
     row = _get_cp_row(team_id)
     if row is None:
         # Legacy single-team ducklings without a team row share the base tables.
-        return "events", "persons"
+        _refuse_base_tables_another_team_writes(team_id, ("events", "persons"))
+        return DucklingTables(events_table="events", persons_table="persons")
     events_table, persons_table = row.resolved_events_table, row.resolved_persons_table
     validate_duckgres_identifier(events_table)
     validate_duckgres_identifier(persons_table)
-    return events_table, persons_table
+    return DucklingTables(events_table=events_table, persons_table=persons_table)
+
+
+def resolve_groups_table(team_id: int) -> str:
+    row = _get_cp_row(team_id)
+    table = row.resolved_groups_table if row is not None else "groups"
+    validate_duckgres_identifier(table)
+    return table
 
 
 # --- data-imports schema (v3 sink hot path) ---------------------------------------
@@ -116,7 +125,7 @@ def team_backfill_row(team_id: int) -> ManagedWarehouseTeamMembership | None:
     except CPUnavailableError:
         logger.warning("duckgres_team_state_cp_unavailable", call_site="team_backfill_row", team_id=team_id)
         return None
-    return _to_membership(row) if row is not None else None
+    return row.to_membership() if row is not None else None
 
 
 def team_backfill_state(team_id: int) -> ManagedWarehouseBackfillState:
@@ -158,13 +167,13 @@ def backfill_row_exists(team_id: int, organization_id: str) -> bool:
 
 
 def list_enabled_backfill_rows(call_site: str) -> list[ManagedWarehouseTeamMembership]:
-    """Every team with warehouse backfills enabled, for sensor enumeration.
+    """Every backfill-enabled team in a ready warehouse, for sensor enumeration.
 
-    Failure posture: an unreachable control plane yields an empty enumeration (the
-    sensor tick becomes a no-op and the next tick retries) — it must never raise.
+    Failure posture: an unavailable team or warehouse listing yields an empty enumeration.
+    The sensor tick becomes a no-op and the next tick retries; it must never raise.
     """
     cp_rows = cp_teams.list_enabled_backfills()
     if cp_rows is None:
         logger.warning("duckgres_team_state_cp_unavailable", call_site=call_site)
         return []
-    return [_to_membership(row) for row in sorted(cp_rows, key=lambda row: row.team_id)]
+    return [row.to_membership() for row in sorted(cp_rows, key=lambda row: row.team_id)]

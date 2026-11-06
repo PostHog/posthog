@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, call, patch
 
@@ -30,14 +30,21 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
 
 # Tuesday
 FROZEN_TIME = dateutil.parser.parse("2024-06-04T08:55:00.000Z")
 
 
-@freeze_time(FROZEN_TIME)
-@patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches")
+@time_machine.travel(FROZEN_TIME, tick=False)
+@patch(
+    "posthog.tasks.alerts.utils.send_notifications_for_errors",
+    return_value=[AlertDelivery(channel="email", target="alerts@example.com", at="2024-06-04T08:55:00+00:00")],
+)
+@patch(
+    "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+    return_value=[AlertDelivery(channel="email", target="alerts@example.com", at="2024-06-04T08:55:00+00:00")],
+)
 class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -161,7 +168,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # Previous to previous interval (last to last week) has 0 events
         # add events for previous interval (last week on Sat)
         last_sat = FROZEN_TIME - dateutil.relativedelta.relativedelta(days=3)
-        with freeze_time(last_sat):
+        with time_machine.travel(last_sat, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -196,6 +203,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_increase_upper_threshold_breached(
@@ -227,7 +235,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 1 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -239,7 +247,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 2 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -322,7 +330,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 2 events
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -340,7 +348,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 1 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -371,6 +379,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (-1) increased less than lower threshold (2)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         # check percentage alert
@@ -394,6 +403,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (-50.00%) increased less than lower threshold (50.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_increase_lower_threshold_breached_2(
@@ -425,7 +435,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 1 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -437,7 +447,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 2 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -515,7 +525,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 3 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -539,7 +549,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 1 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -569,6 +579,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (2) decreased more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         run_alert_check(percentage_alert["id"])
@@ -591,6 +602,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (66.67%) decreased more than upper threshold (20.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_decrease_lower_threshold_breached(
@@ -622,7 +634,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 2 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -640,7 +652,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 1 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -670,6 +682,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (1) decreased less than lower threshold (2)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         run_alert_check(percentage_alert["id"])
@@ -692,6 +705,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (50.00%) decreased less than lower threshold (80.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_increase_no_threshold_breached(
@@ -723,7 +737,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 1 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -735,7 +749,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 3 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -816,7 +830,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 3 events
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -840,7 +854,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 1 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -911,7 +925,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 1 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -929,7 +943,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 2 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -997,6 +1011,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (2) increased more than upper threshold (1)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
                 call(
                     ANY,
@@ -1004,6 +1019,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (200.00%) increased more than upper threshold (20.00%)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
             ]
         )
@@ -1039,7 +1055,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 1 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1057,7 +1073,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 2 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1125,6 +1141,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Firefox) for previous week (0) increased less than lower threshold (1)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
                 call(
                     ANY,
@@ -1132,6 +1149,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Firefox) for previous week (0.00%) increased less than lower threshold (20.00%)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
             ]
         )
@@ -1167,7 +1185,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 1 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1185,7 +1203,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 2 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1253,6 +1271,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (-2) decreased less than lower threshold (1)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
                 call(
                     ANY,
@@ -1260,6 +1279,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (-200.00%) decreased less than lower threshold (20.00%)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
             ]
         )
@@ -1295,7 +1315,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 1 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1325,7 +1345,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 2 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1382,6 +1402,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (2) decreased more than upper threshold (1)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
                 call(
                     ANY,
@@ -1389,6 +1410,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (66.67%) decreased more than upper threshold (20.00%)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
             ]
         )
@@ -1424,7 +1446,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 1 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1442,7 +1464,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 2 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1524,7 +1546,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 1 event
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1542,7 +1564,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval to have 2 event
         # add events for last week (last Tue)
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1622,7 +1644,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # we aggregate our weekly insight numbers to display for Sun (19th May, 26th May, 2nd June)
 
         # set current interval to have 3 events
-        with freeze_time(FROZEN_TIME):
+        with time_machine.travel(FROZEN_TIME, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1646,7 +1668,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval (last week) to have 1 event
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
 
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1659,7 +1681,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # so event shouldn't fire for the previous week
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1689,6 +1711,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for current week (2) increased more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         run_alert_check(percentage_alert["id"])
@@ -1711,6 +1734,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for current week (200.00%) increased more than upper threshold (20.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_current_interval_relative_increase_does_not_fallback_to_previous_interval(
@@ -1742,7 +1766,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # we aggregate our weekly insight numbers to display for Sun (19th May, 26th May, 2nd June)
 
         # set current interval to have 1 events
-        with freeze_time(FROZEN_TIME):
+        with time_machine.travel(FROZEN_TIME, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1754,7 +1778,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval (last week) to have 3 events
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
 
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1779,7 +1803,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # so event shouldn't fire for the previous week
         last_to_last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=2)
 
-        with freeze_time(last_to_last_tue):
+        with time_machine.travel(last_to_last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1852,7 +1876,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval (last week) to have 2 events
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
 
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1892,6 +1916,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         run_alert_check(percentage_alert["id"])
@@ -1914,6 +1939,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (inf%) increased more than upper threshold (20.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_decrease_when_previous_value_is_0(
@@ -1945,7 +1971,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous interval (last week) to have 2 events
         last_tue = FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=1)
 
-        with freeze_time(last_tue):
+        with time_machine.travel(last_tue, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -1999,6 +2025,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (inf%) decreased more than upper threshold (20.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     @patch(
@@ -2021,19 +2048,19 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         )
 
         # Create 2 events in 07:00-07:59
-        with freeze_time(dateutil.parser.parse("2024-06-04T07:30:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-04T07:30:00.000Z"), tick=False):
             _create_event(team=self.team, event="signed_up", distinct_id="1")
             _create_event(team=self.team, event="signed_up", distinct_id="2")
             flush_persons_and_events()
 
         # Create 1 event in 08:00-08:59
-        with freeze_time(dateutil.parser.parse("2024-06-04T08:30:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-04T08:30:00.000Z"), tick=False):
             _create_event(team=self.team, event="signed_up", distinct_id="user_1")
             flush_persons_and_events()
 
         # Check at 08:05 - checks increase from 06:00-06:59 (0) to 07:00-07:59 (2)
         # Increase = 2 - 0 = 2 (breaches upper threshold of 1)
-        with freeze_time(dateutil.parser.parse("2024-06-04T08:05:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-04T08:05:00.000Z"), tick=False):
             run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
@@ -2056,7 +2083,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         # Check at 09:05 - checks increase from 07:00-07:59 (2) to 08:00-08:59 (1)
         # Increase = 1 - 2 = -1 (decrease, no breach)
-        with freeze_time(dateutil.parser.parse("2024-06-04T09:05:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-04T09:05:00.000Z"), tick=False):
             run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
@@ -2094,14 +2121,14 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         )
 
         # Create 2 events in 07:00-07:59
-        with freeze_time(dateutil.parser.parse("2024-06-04T07:30:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-04T07:30:00.000Z"), tick=False):
             _create_event(team=self.team, event="signed_up", distinct_id="1")
             _create_event(team=self.team, event="signed_up", distinct_id="2")
             flush_persons_and_events()
 
         # Check at 08:05 - checks decrease from 06:00-06:59 (0) to 07:00-07:59 (2)
         # It's increase, do not trigger an alarm
-        with freeze_time(dateutil.parser.parse("2024-06-04T08:05:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-04T08:05:00.000Z"), tick=False):
             run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
@@ -2124,7 +2151,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         # Check at 09:05 - checks decrease from 07:00-07:59 (2) to 08:00-08:59 (0)
         # It's decrease by 2, trigger an alarm
-        with freeze_time(dateutil.parser.parse("2024-06-04T09:05:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-04T09:05:00.000Z"), tick=False):
             run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS

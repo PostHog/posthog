@@ -1,8 +1,11 @@
 import type { TaskService } from "@posthog/core/task-detail/taskService";
+import type { RootLogger } from "@posthog/di/logger";
 import {
   type AgentConversationEvent,
+  agentConversationEventToAcpNotification,
   mcpToolKey,
   posthogToolMeta,
+  type StoredLogEntry,
 } from "@posthog/shared";
 import type { CloudTaskUpdatePayload } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
@@ -12,6 +15,14 @@ import {
   PiSessionController,
   type PiSessionProvider,
 } from "./piSessionController";
+
+const logger: RootLogger = {
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  scope: () => logger,
+};
 
 function createCloudTaskClient(autoStart = true) {
   const subscriptions: Array<{
@@ -66,13 +77,185 @@ function context(status: "queued" | "in_progress" | "completed") {
   };
 }
 
+function turnCompleted(
+  totalTokens: number,
+  contextWindow: number | null = 200_000,
+): AgentConversationEvent {
+  return {
+    type: "turn_completed",
+    timestamp: 1,
+    stopReason: "stop",
+    totalTokens,
+    usage: {
+      inputTokens: totalTokens,
+      outputTokens: 0,
+      cachedReadTokens: 0,
+      cachedWriteTokens: 0,
+      totalTokens,
+      contextTokens: totalTokens,
+      contextWindow: contextWindow ?? undefined,
+    },
+  };
+}
+
 const snapshotEvent: AgentConversationEvent = {
   type: "assistant_message_chunk",
   timestamp: 1,
   content: { type: "text", text: "durable response" },
 };
 
+function acpEntry(event: AgentConversationEvent): StoredLogEntry {
+  return {
+    type: "notification",
+    timestamp: new Date(event.timestamp).toISOString(),
+    notification: agentConversationEventToAcpNotification(event) ?? undefined,
+  };
+}
+
+function piExtensionEntry(message: Record<string, unknown>): StoredLogEntry {
+  return {
+    type: "pi_extension_event",
+    notification: { method: "_posthog/pi_extension_event", params: message },
+  };
+}
+
+function acpExtensionEntry(message: Record<string, unknown>): StoredLogEntry {
+  return {
+    type: "notification",
+    notification: {
+      method:
+        message.type === "extension_ui_response"
+          ? "_posthog/permission_resolved"
+          : "_posthog/permission_request",
+      params: { requestId: message.id, _meta: { piExtension: message } },
+    },
+  };
+}
+
 describe("CloudPiSessionClient", () => {
+  it("relays Pi extension UI requests and responses through a cloud run", async () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("in_progress"),
+    );
+    const onEvent = vi.fn();
+    session.onExtensionEvent(onEvent, vi.fn());
+
+    expect(cloud.client.watch).toHaveBeenCalledWith({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://us.posthog.com",
+      teamId: 1,
+    });
+
+    const request = {
+      type: "extension_ui_request" as const,
+      id: "widget-1",
+      method: "setWidget" as const,
+      widgetKey: "orchestration",
+      widgetLines: ["1 subagent running"],
+      widgetPlacement: "aboveEditor" as const,
+      futureField: "preserved",
+    };
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "logs",
+      newEntries: [request],
+      totalEntryCount: 1,
+    });
+
+    expect(onEvent).toHaveBeenCalledWith(request);
+
+    const invalidRequest = {
+      type: "extension_ui_request",
+      id: "invalid-widget",
+      method: "setWidget",
+      widgetKey: 42,
+    };
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "logs",
+      newEntries: [invalidRequest],
+      totalEntryCount: 2,
+    });
+
+    expect(onEvent).toHaveBeenCalledTimes(1);
+
+    vi.mocked(cloud.client.sendCommand).mockResolvedValue({ success: true });
+    const response = {
+      type: "extension_ui_response" as const,
+      id: "dialog-1",
+      confirmed: true,
+    };
+    await session.respondToExtensionUI(response);
+
+    expect(cloud.client.sendCommand).toHaveBeenCalledWith({
+      taskId: "task-1",
+      id: "dialog-1",
+      runId: "run-1",
+      apiHost: "https://us.posthog.com",
+      teamId: 1,
+      method: "pi/rpc",
+      params: { command: response },
+    });
+  });
+
+  it.each([
+    { format: "Pi", entry: piExtensionEntry },
+    { format: "ACP", entry: acpExtensionEntry },
+  ])(
+    "restores only unresolved extension requests from a $format-format cloud snapshot",
+    ({ entry }) => {
+      const cloud = createCloudTaskClient();
+      const session = new CloudPiSessionClient(
+        cloud.client,
+        context("in_progress"),
+      );
+      const onEvent = vi.fn();
+      session.onExtensionEvent(onEvent, vi.fn());
+
+      const pendingRequest = {
+        type: "extension_ui_request",
+        id: "pending",
+        method: "confirm",
+        title: "Continue?",
+        message: "Proceed?",
+      };
+      const resolvedRequest = {
+        ...pendingRequest,
+        id: "resolved",
+      };
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "snapshot",
+        status: "in_progress",
+        newEntries: [
+          entry(pendingRequest),
+          entry(resolvedRequest),
+          entry({
+            type: "extension_ui_response",
+            id: "resolved",
+            confirmed: true,
+          }),
+        ],
+        totalEntryCount: 3,
+      });
+
+      expect(onEvent).toHaveBeenCalledTimes(2);
+      expect(onEvent).toHaveBeenCalledWith(pendingRequest);
+      expect(onEvent).toHaveBeenCalledWith({
+        type: "extension_ui_response",
+        id: "resolved",
+        confirmed: true,
+      });
+      expect(onEvent).not.toHaveBeenCalledWith(resolvedRequest);
+    },
+  );
+
   it("relays MCP permission requests and responses through the cloud task", async () => {
     const cloud = createCloudTaskClient();
     const session = new CloudPiSessionClient(
@@ -141,37 +324,49 @@ describe("CloudPiSessionClient", () => {
     );
   });
 
-  it("waits for the native Pi readiness event before startup RPC commands", async () => {
-    const cloud = createCloudTaskClient();
-    vi.mocked(cloud.client.sendCommand).mockResolvedValue({
-      success: true,
-      result: {
-        type: "response",
-        command: "get_state",
-        success: true,
-        data: { isStreaming: true },
+  it.each([
+    { format: "Pi", readiness: { type: "pi_run_started" } },
+    {
+      format: "ACP",
+      readiness: {
+        type: "notification",
+        notification: { method: "_posthog/run_started", params: {} },
       },
-    });
-    const session = new CloudPiSessionClient(
-      cloud.client,
-      context("in_progress"),
-    );
-    session.onConversationEvent(vi.fn(), vi.fn());
+    },
+  ])(
+    "waits for the $format-format readiness event before startup RPC commands",
+    async ({ readiness }) => {
+      const cloud = createCloudTaskClient();
+      vi.mocked(cloud.client.sendCommand).mockResolvedValue({
+        success: true,
+        result: {
+          type: "response",
+          command: "get_state",
+          success: true,
+          data: { isStreaming: true },
+        },
+      });
+      const session = new CloudPiSessionClient(
+        cloud.client,
+        context("in_progress"),
+      );
+      session.onConversationEvent(vi.fn(), vi.fn());
 
-    const state = session.client.getState();
-    expect(cloud.client.sendCommand).not.toHaveBeenCalled();
+      const state = session.client.getState();
+      expect(cloud.client.sendCommand).not.toHaveBeenCalled();
 
-    cloud.sendUpdate({
-      taskId: "task-1",
-      runId: "run-1",
-      kind: "logs",
-      newEntries: [{ type: "pi_run_started" }],
-      totalEntryCount: 1,
-    });
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "logs",
+        newEntries: [readiness],
+        totalEntryCount: 1,
+      });
 
-    await expect(state).resolves.toMatchObject({ isStreaming: true });
-    expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
-  });
+      await expect(state).resolves.toMatchObject({ isStreaming: true });
+      expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
+    },
+  );
 
   it("uses the readiness snapshot when opening an already-running session", async () => {
     const cloud = createCloudTaskClient();
@@ -203,6 +398,68 @@ describe("CloudPiSessionClient", () => {
     await expect(state).resolves.toMatchObject({ isStreaming: false });
     expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
   });
+
+  it.each([400, 503])(
+    "retries a sandbox command after a resumed sandbox starts (%i)",
+    async (status) => {
+      const cloud = createCloudTaskClient();
+      let liveRuntimeStarted = false;
+      vi.mocked(cloud.client.sendCommand)
+        .mockResolvedValueOnce({
+          success: false,
+          status,
+          code: "sandbox_not_ready",
+          error: "No active sandbox for this task run",
+        })
+        .mockImplementationOnce(async () => {
+          if (!liveRuntimeStarted) {
+            throw new Error("Sandbox command retried before Pi started");
+          }
+          return {
+            success: true,
+            result: {
+              type: "response",
+              command: "get_state",
+              success: true,
+              data: { isStreaming: false },
+            },
+          };
+        });
+      const session = new CloudPiSessionClient(
+        cloud.client,
+        context("in_progress"),
+      );
+      session.onConversationEvent(vi.fn(), vi.fn());
+
+      const state = session.client.getState();
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "snapshot",
+        status: "in_progress",
+        newEntries: [{ type: "pi_run_started" }],
+        totalEntryCount: 1,
+      });
+
+      await vi.waitFor(() =>
+        expect(cloud.client.sendCommand).toHaveBeenCalledOnce(),
+      );
+
+      liveRuntimeStarted = true;
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "logs",
+        newEntries: [{ type: "pi_run_started" }],
+        totalEntryCount: 2,
+      });
+
+      await expect(state).resolves.toMatchObject({ isStreaming: false });
+      expect(cloud.client.sendCommand).toHaveBeenCalledTimes(2);
+      const commandCalls = vi.mocked(cloud.client.sendCommand).mock.calls;
+      expect(commandCalls[1][0].id).toBe(commandCalls[0][0].id);
+    },
+  );
 
   it("does not fail while a sandbox takes longer than 30 seconds to boot", async () => {
     vi.useFakeTimers();
@@ -367,7 +624,11 @@ describe("CloudPiSessionClient", () => {
       context("in_progress"),
     );
     const events: AgentConversationEvent[] = [];
-    session.onConversationEvent((event) => events.push(event), vi.fn());
+    const eventContexts: Array<{ isLive: boolean } | undefined> = [];
+    session.onConversationEvent((event, context) => {
+      events.push(event);
+      eventContexts.push(context);
+    }, vi.fn());
 
     cloud.sendUpdate({
       taskId: "task-1",
@@ -401,6 +662,7 @@ describe("CloudPiSessionClient", () => {
         group: "setup:run-1",
       }),
     ]);
+    expect(eventContexts).toEqual([{ isLive: true }]);
     expect(cloud.client.sendCommand).not.toHaveBeenCalled();
   });
 
@@ -458,41 +720,90 @@ describe("CloudPiSessionClient", () => {
     });
   });
 
-  it("loads terminal history from the cloud snapshot without sandbox RPC", async () => {
+  it("normalizes an aborted turn from a persisted cloud event", () => {
     const cloud = createCloudTaskClient();
     const session = new CloudPiSessionClient(
       cloud.client,
-      context("completed"),
+      context("in_progress"),
     );
     const events: AgentConversationEvent[] = [];
     session.onConversationEvent((event) => events.push(event), vi.fn());
 
-    const conversation = session.getConversation();
     cloud.sendUpdate({
       taskId: "task-1",
       runId: "run-1",
       kind: "snapshot",
-      status: "completed",
-      newEntries: [{ type: "pi_event", event: snapshotEvent }],
+      status: "in_progress",
+      newEntries: [
+        {
+          type: "pi_event",
+          event: {
+            type: "turn_completed",
+            timestamp: 1,
+            stopReason: "aborted",
+          },
+        },
+      ],
       totalEntryCount: 1,
     });
 
-    await expect(conversation).resolves.toEqual([
-      expect.objectContaining(snapshotEvent),
-    ]);
-    expect(session.resumeRequired).toBe(true);
-    await expect(session.health()).resolves.toEqual({ state: "cold" });
-    await expect(session.client.getState()).resolves.toMatchObject({
-      isStreaming: false,
+    expect(events).toContainEqual({
+      type: "turn_completed",
+      timestamp: 1,
+      stopReason: "cancelled",
+      sourceId: "run-1:log:0",
     });
-    await expect(session.client.getAvailableModels()).resolves.toEqual([]);
-    await expect(session.client.getCommands()).resolves.toEqual([]);
-    expect(events).toEqual([
-      expect.objectContaining(snapshotEvent),
-      expect.objectContaining({ type: "turn_completed" }),
-    ]);
-    expect(cloud.client.sendCommand).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { format: "Pi", entry: { type: "pi_event", event: snapshotEvent } },
+    { format: "ACP", entry: acpEntry(snapshotEvent) },
+  ])(
+    "loads $format-format terminal history from the cloud snapshot without sandbox RPC",
+    async ({ entry }) => {
+      const cloud = createCloudTaskClient();
+      const session = new CloudPiSessionClient(
+        cloud.client,
+        context("completed"),
+      );
+      const events: AgentConversationEvent[] = [];
+      const eventContexts: Array<{ isLive: boolean } | undefined> = [];
+      session.onConversationEvent((event, context) => {
+        events.push(event);
+        eventContexts.push(context);
+      }, vi.fn());
+
+      const conversation = session.getConversation();
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "snapshot",
+        status: "completed",
+        newEntries: [entry],
+        totalEntryCount: 1,
+      });
+
+      await expect(conversation).resolves.toEqual([
+        expect.objectContaining(snapshotEvent),
+      ]);
+      expect(session.resumeRequired).toBe(true);
+      await expect(session.health()).resolves.toEqual({ state: "cold" });
+      await expect(session.client.getState()).resolves.toMatchObject({
+        isStreaming: false,
+      });
+      await expect(session.client.getAvailableModels()).resolves.toEqual([]);
+      await expect(session.client.getCommands()).resolves.toEqual([]);
+      expect(events).toEqual([
+        expect.objectContaining(snapshotEvent),
+        expect.objectContaining({
+          type: "turn_completed",
+          stopReason: "end_turn",
+        }),
+      ]);
+      expect(eventContexts).toEqual([{ isLive: false }, { isLive: false }]);
+      expect(cloud.client.sendCommand).not.toHaveBeenCalled();
+    },
+  );
 
   it("does not install streaming state after a terminal snapshot arrives during controller load", async () => {
     const cloud = createCloudTaskClient();
@@ -526,7 +837,11 @@ describe("CloudPiSessionClient", () => {
     const provider: PiSessionProvider = {
       get: vi.fn(async () => session),
     };
-    const controller = new PiSessionController(provider, {} as TaskService);
+    const controller = new PiSessionController(
+      provider,
+      {} as TaskService,
+      logger,
+    );
 
     const connection = controller.connect("task-1");
     await vi.waitFor(() => {
@@ -705,5 +1020,102 @@ describe("CloudPiSessionClient", () => {
       "Cloud task run run-1 is failed",
     );
     expect(cloud.client.sendCommand).not.toHaveBeenCalled();
+  });
+  it("derives context usage from stored turn usage on a terminal run", () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("completed"),
+    );
+    session.onConversationEvent(vi.fn(), vi.fn());
+
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "completed",
+      newEntries: [
+        { type: "pi_event", event: turnCompleted(1_000) },
+        { type: "pi_event", event: turnCompleted(50_000) },
+      ],
+      totalEntryCount: 2,
+    });
+
+    expect(session.usageStats()).toEqual({
+      contextUsage: {
+        tokens: 50_000,
+        contextWindow: 200_000,
+        percent: null,
+      },
+    });
+  });
+
+  it.each([
+    ["no earlier window", [turnCompleted(1_000, null)], undefined],
+    [
+      "an earlier window",
+      [turnCompleted(1_000), turnCompleted(50_000, null)],
+      {
+        contextUsage: { tokens: 50_000, contextWindow: 200_000, percent: null },
+      },
+    ],
+  ])(
+    "keeps the last known context window when a turn reports none, with %s",
+    (_label, events, expected) => {
+      const cloud = createCloudTaskClient();
+      const session = new CloudPiSessionClient(
+        cloud.client,
+        context("completed"),
+      );
+      session.onConversationEvent(vi.fn(), vi.fn());
+
+      cloud.sendUpdate({
+        taskId: "task-1",
+        runId: "run-1",
+        kind: "snapshot",
+        status: "completed",
+        newEntries: events.map((event) => ({ type: "pi_event", event })),
+        totalEntryCount: events.length,
+      });
+
+      expect(session.usageStats()).toEqual(expected);
+    },
+  );
+
+  it("marks the context unknown after a completed compaction", () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("completed"),
+    );
+    session.onConversationEvent(vi.fn(), vi.fn());
+
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "completed",
+      newEntries: [
+        { type: "pi_event", event: turnCompleted(50_000) },
+        {
+          type: "pi_event",
+          event: {
+            type: "runtime_status",
+            timestamp: 2,
+            status: "compacting",
+            isComplete: true,
+          },
+        },
+      ],
+      totalEntryCount: 2,
+    });
+
+    expect(session.usageStats()).toEqual({
+      contextUsage: {
+        tokens: null,
+        contextWindow: 200_000,
+        percent: null,
+      },
+    });
   });
 });

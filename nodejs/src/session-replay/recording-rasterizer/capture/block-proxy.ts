@@ -12,13 +12,24 @@ type RecordingBlock = Pick<FullRecordingBlock, 'key' | 'start_byte' | 'end_byte'
 
 export { BLOCK_REQUEST_PREFIX }
 
-export class BlockProxy {
+export interface BlockSource {
+    readonly blockCount: number
+    readonly totalCompressedBytes: number
+    fetchBlocks(input: RasterizeRecordingInput): Promise<number>
+    handleRequest(request: HTTPRequest, path: string): Promise<void>
+}
+
+export class BlockProxy implements BlockSource {
     private blocks: RecordingBlock[] = []
     private teamId = 0
     private sessionId = ''
+    private recordingApiToken = ''
 
     constructor(
-        private cfg: { recordingApiBaseUrl: string; recordingApiSecret: string },
+        private cfg: {
+            recordingApiBaseUrl: string
+            blockListingTimeoutMs: number
+        },
         private log: Logger = createLogger()
     ) {}
 
@@ -26,32 +37,68 @@ export class BlockProxy {
         return this.blocks.length
     }
 
+    // Compressed bytes the render will download, known before anything loads into the browser.
+    // S3 Range bytes=start-end is inclusive, so each block spans end - start + 1 bytes.
+    get totalCompressedBytes(): number {
+        return this.blocks.reduce((sum, block) => sum + (block.end_byte - block.start_byte + 1), 0)
+    }
+
+    // The rasterizer holds no recording-api credential of its own. It relays the team-scoped token
+    // that the Temporal activity minted for this render.
+    private authHeaders(): Record<string, string> {
+        return this.recordingApiToken ? { Authorization: `Bearer ${this.recordingApiToken}` } : {}
+    }
+
     async fetchBlocks(input: RasterizeRecordingInput): Promise<number> {
         this.teamId = input.team_id
         this.sessionId = input.session_id
+        this.recordingApiToken = input.recording_api_token ?? ''
 
-        const url = `${this.cfg.recordingApiBaseUrl}/api/projects/${input.team_id}/recordings/${input.session_id}/blocks`
-        const resp = await internalFetch(url, {
-            headers: { 'X-Internal-Api-Secret': this.cfg.recordingApiSecret },
-        })
-        if (resp.status < 200 || resp.status >= 300) {
-            const body = await resp.text()
+        // Encoded: the fetch client normalizes the URL, so a raw session id containing `../`
+        // would repoint the request at another team's recording.
+        const url = `${this.cfg.recordingApiBaseUrl}/api/projects/${input.team_id}/recordings/${encodeURIComponent(
+            input.session_id
+        )}/blocks`
+        try {
+            const resp = await internalFetch(url, {
+                headers: this.authHeaders(),
+                timeoutMs: this.cfg.blockListingTimeoutMs,
+            })
+            if (resp.status < 200 || resp.status >= 300) {
+                const body = await resp.text()
+                // 404 stays retryable because a recording still being ingested has no blocks yet, the
+                // same race the player's NO_SNAPSHOTS handling deliberately keeps retryable. 408/429
+                // are transient by definition. Remaining 4xx (auth, bad request) cannot heal on retry.
+                const retryable = resp.status >= 500 || [404, 408, 429].includes(resp.status)
+                throw new RasterizationError(
+                    `Failed to fetch block listing: ${resp.status} - ${body}`,
+                    retryable,
+                    'BLOCK_LISTING_FAILED'
+                )
+            }
+            const data = await resp.json()
+            if (!Array.isArray(data.blocks)) {
+                throw new RasterizationError(
+                    `Invalid block listing response: expected blocks array, got ${typeof data.blocks}`,
+                    false,
+                    'BLOCK_LISTING_FAILED'
+                )
+            }
+            this.blocks = data.blocks as RecordingBlock[]
+            return this.blocks.length
+        } catch (err) {
+            if (err instanceof RasterizationError) {
+                throw err
+            }
+            // The timeout covers the body read as well as the connection, so a rollout, a DNS blip and
+            // a response that stalls mid-body all land here. All are transient, not UNKNOWN.
             throw new RasterizationError(
-                `Failed to fetch block listing: ${resp.status} - ${body}`,
-                resp.status >= 500,
-                'BLOCK_LISTING_FAILED'
+                `Failed to fetch block listing: ${(err as Error)?.message ?? String(err)}`,
+                true,
+                'BLOCK_LISTING_FAILED',
+                err
             )
         }
-        const data = await resp.json()
-        if (!Array.isArray(data.blocks)) {
-            throw new RasterizationError(
-                `Invalid block listing response: expected blocks array, got ${typeof data.blocks}`,
-                false,
-                'BLOCK_LISTING_FAILED'
-            )
-        }
-        this.blocks = data.blocks as RecordingBlock[]
-        return this.blocks.length
     }
 
     async handleRequest(request: HTTPRequest, path: string): Promise<void> {
@@ -70,9 +117,9 @@ export class BlockProxy {
                 decompress: 'true',
             })
             const apiBase = `${this.cfg.recordingApiBaseUrl}/api/projects`
-            const url = `${apiBase}/${this.teamId}/recordings/${this.sessionId}/block?${params}`
+            const url = `${apiBase}/${this.teamId}/recordings/${encodeURIComponent(this.sessionId)}/block?${params}`
             const resp = await internalFetch(url, {
-                headers: { 'X-Internal-Api-Secret': this.cfg.recordingApiSecret },
+                headers: this.authHeaders(),
             })
             if (resp.status < 200 || resp.status >= 300) {
                 const text = await resp.text()

@@ -8,6 +8,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     WebAnalyticsPreComputeStrategy,
@@ -34,8 +35,11 @@ export function WebVitalsPathBreakdown(props: {
     context: QueryContext
     attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
-    const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `WebVitalsPathBreakdown.${uniqueNode++}`)
+    const { insightProps } = props.context
+    const { onData, loadPriority, dataNodeCollectionId } = insightProps ?? {}
+    const [key] = useState(() =>
+        insightProps?.dashboardItemId ? insightVizDataNodeKey(insightProps) : `WebVitalsPathBreakdown.${uniqueNode++}`
+    )
 
     const logic = dataNodeLogic({
         query: props.query,
@@ -56,7 +60,12 @@ export function WebVitalsPathBreakdown(props: {
     return (
         <div className="relative border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
             {webVitalsQueryResponse?.preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute && (
-                <PreAggregatedBadge variant="precomputed" onDisable={props.context.onDisableWebAnalyticsPrecompute} />
+                <PreAggregatedBadge
+                    variant="precomputed"
+                    onDisable={props.context.onDisableWebAnalyticsPrecompute}
+                    computedAt={webVitalsQueryResponse.preComputedAt}
+                    stale={webVitalsQueryResponse.preComputeStale}
+                />
             )}
             <div className="p-4">
                 <Header band="good" label="Good" />

@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -6,6 +7,11 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Web Analytics',
+    // Boot-time approximation of webAnalyticsSetupLogic.
+    setupProbe: {
+        productKey: ProductKey.WEB_ANALYTICS,
+        hasDataEvents: ['$pageview'],
+    },
     urls: {
         webAnalytics: (): string => `/web`,
         webAnalyticsWebVitals: (): string => `/web/web-vitals`,
@@ -14,6 +20,7 @@ export const manifest: ProductManifest = {
         webAnalyticsHealth: (): string => `/web/health`,
         webAnalyticsLive: (): string => `/web/live`,
         webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
+        webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
         heatmaps: (params?: string): string =>
             `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
         heatmapNew: (params?: string): string =>
@@ -29,6 +36,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             iconType: 'heatmap',
             description: 'Heatmaps are a way to visualize user behavior on your website.',
+            docsHref: 'https://posthog.com/docs/toolbar/heatmaps',
         },
         Heatmap: {
             name: 'Heatmap',
@@ -50,6 +58,7 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
         '/heatmaps': ['Heatmaps', 'heatmaps'],
         '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
         '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -64,6 +73,29 @@ export const manifest: ProductManifest = {
             iconType: 'web_analytics',
             iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
             href: urls.webAnalytics(),
+            searchKeywords: ['traffic', 'pageviews', 'visitors', 'bounce rate', 'referrers'],
+            searchTabs: [
+                { name: 'Web vitals', href: urls.webAnalyticsWebVitals() },
+                { name: 'Page reports', href: urls.webAnalyticsPageReports() },
+                { name: 'Live', href: urls.webAnalyticsLive() },
+                { name: 'Installation health', href: urls.webAnalyticsHealth() },
+                {
+                    name: 'AI visibility',
+                    href: urls.webAnalyticsContentAutopilot(),
+                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+                },
+                {
+                    name: 'Bots',
+                    href: urls.webAnalyticsBotAnalytics(),
+                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+                },
+                {
+                    name: 'Search & AI',
+                    href: urls.webAnalyticsPagePerformance(),
+                    flag: FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE,
+                },
+                { name: 'Agents', href: urls.webAnalyticsAgents(), flag: FEATURE_FLAGS.WEB_ANALYTICS_AGENT_ANALYTICS },
+            ],
             sceneKey: 'WebAnalytics',
             sceneKeys: ['WebAnalytics'],
         },

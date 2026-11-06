@@ -1,5 +1,9 @@
+import time
+
 from posthog.test.base import BaseTest
 from unittest import TestCase
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -344,8 +348,19 @@ class TestLikeMatches(BaseTest):
             f"but ClickHouse returned {clickhouse_result}",
         )
 
+    def test_like_matches_is_linear_for_many_wildcards(self) -> None:
+        # A pattern of N `%` followed by a non-matching char used to translate to N `.*` groups and
+        # backtrack super-linearly against a short text: ~hours of CPU for N=1000 (ReDoS, CWE-1333).
+        # The linear matcher must stay well under a second, so a regex reintroduction hangs this test.
+        pattern = "%" * 1000 + "x"
+        start = time.perf_counter()
+        result = like_matches(pattern, "null")
+        elapsed = time.perf_counter() - start
+        self.assertFalse(result)
+        self.assertLess(elapsed, 2.0, f"like_matches took {elapsed:.2f}s — wildcard matching is not linear")
 
-class TestUtils(BaseTest):
+
+class TestUtils(SimpleTestCase):
     @parameterized.expand(
         [
             ("JOIN",),

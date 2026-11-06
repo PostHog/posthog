@@ -1,8 +1,9 @@
 #!/bin/bash
 set -e
 
-# List of test files to skip the compiledjs tests
-SKIP_COMPILEDJS_FILES=("")
+# Files whose compiled-JavaScript leg is skipped: the encoded and HMAC hash functions are stubs there.
+# The hex functions it does implement are covered by cryptoHex.hog.
+SKIP_COMPILEDJS_FILES=("crypto.hog")
 
 # Files on which we only want to run Node.js tests
 ONLY_NODEJS_FILES=("sql.hog")
@@ -78,10 +79,10 @@ for file in "${test_files[@]}"; do
     filename=$(basename "$file")
 
     # Compile to .hoge
-    ./bin/hoge "$file" "$basename.hoge"
+    ./bin/hoglang compile "$file" "$basename.hoge"
 
     # Always run Node.js test
-    ./bin/hog --nodejs "$basename.hoge" > "$basename.stdout.nodejs"
+    ./bin/hoglang --nodejs "$basename.hoge" > "$basename.stdout.nodejs"
 
     # If this file is in ONLY_NODEJS_FILES, skip python + compiledjs
     if is_in_array "$filename" "${ONLY_NODEJS_FILES[@]}"; then
@@ -91,7 +92,7 @@ for file in "${test_files[@]}"; do
     fi
 
     # Otherwise, run Python
-    ./bin/hog --python "$basename.hoge" > "$basename.stdout.python"
+    ./bin/hoglang --python "$basename.hoge" > "$basename.stdout.python"
 
     # Check if compiledjs is skipped
     if is_in_array "$filename" "${SKIP_COMPILEDJS_FILES[@]}"; then
@@ -109,7 +110,7 @@ for file in "${test_files[@]}"; do
     else
         # Run compiledjs
         set +e
-        ./bin/hoge "$file" "$basename.js"
+        ./bin/hoglang compile "$file" "$basename.js"
         node "$basename.js" > "$basename.stdout.compiledjs" 2>&1
         set -e
 

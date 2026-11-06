@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE posthog_errortrackingstackframe\n            SET created_at = $3\n            WHERE raw_id = $1 AND team_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "375af07f86a416378421012dd2db070d3749e8b524017814c69d3224bfd03327"
+}

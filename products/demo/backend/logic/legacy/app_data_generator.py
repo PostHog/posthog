@@ -4,13 +4,15 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import EventDefinition, Person, PropertyDefinition
+from posthog.schema import ActionsNode, DateRange, EventPropertyFilter, FunnelsQuery, InsightVizNode, PropertyOperator
 
-from products.actions.backend.models.action import Action
+from posthog.models import Person
+
+from products.actions.backend.facade.api import create_action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
+from products.product_analytics.backend.facade.models import Insight
 
 from .data_generator import DataGenerator
 
@@ -26,43 +28,34 @@ class AppDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="app_rating", is_numerical=True)
 
     def create_actions_dashboards(self):
-        installed_app_action = Action.objects.create(
+        installed_app_action = create_action(
             team=self.team, name="Installed App", steps_json=[{"event": "installed_app"}]
         )
 
-        rated_app_action = Action.objects.create(team=self.team, name="Rated App", steps_json=[{"event": "rated_app"}])
+        rated_app_action = create_action(team=self.team, name="Rated App", steps_json=[{"event": "rated_app"}])
 
-        Action.objects.create(team=self.team, name="Watched Movie", steps_json=[{"event": "watched_movie"}])
+        create_action(team=self.team, name="Watched Movie", steps_json=[{"event": "watched_movie"}])
 
         dashboard = Dashboard.objects.create(name="App Analytics", pinned=True, team=self.team)
         insight = Insight.objects.create(
             team=self.team,
             name="Installed App -> Rated App -> Rated App 5 Stars",
-            filters={
-                "actions": [
-                    {
-                        "id": installed_app_action.id,
-                        "name": "Installed App",
-                        "order": 0,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                    {
-                        "id": rated_app_action.id,
-                        "name": "Rated App",
-                        "order": 1,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                    {
-                        "id": rated_app_action.id,
-                        "name": "Rated App",
-                        "order": 2,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                        "properties": {"app_rating": 5},
-                    },
-                ],
-                "insight": "FUNNELS",
-                "date_from": "yStart",
-            },
+            query=InsightVizNode(
+                source=FunnelsQuery(
+                    series=[
+                        ActionsNode(id=installed_app_action.id, name="Installed App"),
+                        ActionsNode(id=rated_app_action.id, name="Rated App"),
+                        ActionsNode(
+                            id=rated_app_action.id,
+                            name="Rated App",
+                            properties=[
+                                EventPropertyFilter(key="app_rating", value=5, operator=PropertyOperator.EXACT)
+                            ],
+                        ),
+                    ],
+                    dateRange=DateRange(date_from="yStart"),
+                )
+            ).model_dump(),
         )
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         dashboard.save()  # to update the insight's filter hash

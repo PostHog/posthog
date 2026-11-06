@@ -14,6 +14,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
+from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, hidden_gated_template_ids
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
 
@@ -153,6 +154,14 @@ class PublicHogFunctionTemplateViewSet(
             # from the destinations chooser separately. Only strip them from the anonymous catalog.
             if self.request.path.startswith("/api/public_hog_function_templates"):
                 queryset = queryset.exclude(status="hidden")
+                queryset = queryset.exclude(template_id__in=list(FLAG_GATED_TEMPLATE_IDS))
+            else:
+                # Flag-gated pre-release templates stay invisible to teams without the flag, so an
+                # agent listing templates can't discover a step that workflow validation would then
+                # reject as "Template not found".
+                gated_ids = hidden_gated_template_ids(self.team)
+                if gated_ids:
+                    queryset = queryset.exclude(template_id__in=gated_ids)
 
         return queryset
 

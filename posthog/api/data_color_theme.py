@@ -11,7 +11,8 @@ from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import DataColorTheme
 from posthog.permissions import TeamMemberStrictManagementPermission
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 
 class GlobalThemePermission(BasePermission):
@@ -77,6 +78,8 @@ class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = DataColorThemeSerializer
     permission_classes = [GlobalThemePermission, PaidThemePermission, TeamMemberStrictManagementPermission]
     sharing_enabled_actions = ["retrieve", "list"]
+    # The list returns every theme the team can use as one array, so it has no pages.
+    pagination_class = None
 
     # override the team scope queryset to also include global themes
     def dangerously_get_queryset(self):

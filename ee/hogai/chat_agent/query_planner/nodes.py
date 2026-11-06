@@ -108,7 +108,9 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                 "react_property_filters": self._get_react_property_filters_prompt(),
                 "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
-                "events": format_events_yaml(events_in_context, self._team, self._user),
+                "events": format_events_yaml(
+                    events_in_context, self._team, self._user, event_source=self.context_manager.event_source
+                ),
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
@@ -141,7 +143,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
         dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = self._get_dynamic_entity_tools()
 
         return MaxChatOpenAI(
-            model="o4-mini",
+            model="gpt-5.6-terra",
             use_responses_api=True,
             streaming=False,
             reasoning={
@@ -244,7 +246,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = TaxonomyAgentToolkit(self._team, self._user)
+        toolkit = TaxonomyAgentToolkit(self._team, self._user, event_source=self.context_manager.event_source)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
 

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use cohort_core::seed::RunId;
 // Hoisted to the shared seed contract so the seeder's marker watcher and this producer agree on the
 // wire bytes; re-exported here so processor call sites keep their `crate::producer` import path.
-pub use cohort_core::seed::ReconcileCompleteMarker;
+pub use cohort_core::seed::{ReconcileCompleteMarker, ReconcileMarker, ReconcileWithheldMarker};
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::CohortId;
@@ -40,7 +40,7 @@ pub use merge::{
 };
 pub use seed::{CaptureSeedTileSink, KafkaSeedTileSink, NoopSeedTileSink, SeedTileSink};
 
-/// One per-cohort membership change on `cohort_membership_changed_shadow`.
+/// One per-cohort membership change on the membership output topic.
 ///
 /// `origin`/`run_id` are additive and absent on the live path, so live emissions stay
 /// byte-identical to the pre-field contract.
@@ -55,7 +55,8 @@ pub struct CohortMembershipChange {
     /// Backfill provenance; `None` on the live path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<ChangeOrigin>,
-    /// The backfill run that emitted this change; set iff `origin` is.
+    /// The backfill run that emitted this change. A cascade keeps `origin` but not `run_id`, because
+    /// the membership writer sweeps each (run_id, cohort) and the referrer cohort is not in that run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<RunId>,
 }
@@ -160,6 +161,9 @@ fn format_last_updated(timestamp_micros: i64) -> String {
         .to_string()
 }
 
+/// `produce` must hand every change to the producer before its future first returns `Pending`, and
+/// await only the acks after that. The worker's produce window polls a live batch's produce once
+/// and then moves on, so a sink that awaits before it enqueues lets later output overtake the batch.
 #[async_trait]
 pub trait MembershipSink: Send + Sync {
     async fn produce(
@@ -182,6 +186,11 @@ impl CaptureSink {
 
     pub fn changes(&self) -> Vec<CohortMembershipChange> {
         self.0.recorded()
+    }
+
+    /// Produce calls made, failed ones included — the round trips a batched apply is amortizing.
+    pub fn produce_calls(&self) -> usize {
+        self.0.produce_calls()
     }
 }
 
@@ -321,7 +330,7 @@ mod tests {
             map_transition(&filters, &transition(lsk, TransitionKind::Entered), TS).collect();
         assert!(
             changes.is_empty(),
-            "a leaf owned only by a multi-leaf cohort produces no shadow output",
+            "a leaf owned only by a multi-leaf cohort produces no membership output",
         );
     }
 

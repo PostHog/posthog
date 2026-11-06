@@ -6,13 +6,13 @@ import { insightsApi } from 'scenes/insights/utils/api'
 
 import { initKeaTests } from '~/test/init'
 
-import { metricsAttributeValuesRetrieve, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
+import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 
 import { metricOptionKey, metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsAttributeValuesRetrieve: jest.fn(),
 }))
 jest.mock('scenes/insights/utils/api', () => ({
@@ -22,7 +22,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), warning: jest.fn(), error: jest.fn() },
 }))
 
-const mockNames = metricsValuesRetrieve as jest.MockedFunction<typeof metricsValuesRetrieve>
+const mockNames = metricsNamesRetrieve as jest.MockedFunction<typeof metricsNamesRetrieve>
 const mockValues = metricsAttributeValuesRetrieve as jest.MockedFunction<typeof metricsAttributeValuesRetrieve>
 const mockInsightCreate = insightsApi.create as jest.MockedFunction<typeof insightsApi.create>
 
@@ -71,7 +71,7 @@ describe('metricsStarterDashboardLogic', () => {
         expect(logic.values.metricOptions).toHaveLength(3)
     })
 
-    it('creates the dashboard, then one insight per metric with the recommended aggregation and service filter', async () => {
+    it('creates the dashboard, then one unaggregated insight per metric with the service filter', async () => {
         logic.actions.openModal()
         await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
         logic.actions.setDashboardName('Billing service')
@@ -90,23 +90,23 @@ describe('metricsStarterDashboardLogic', () => {
 
         expect(mockInsightCreate).toHaveBeenCalledTimes(2)
         const [countInsight, histogramInsight] = mockInsightCreate.mock.calls.map(([insight]) => insight)
-        expect(countInsight.dashboards).toEqual([42])
+        expect(mockInsightCreate.mock.calls.map(([, dashboardIds]) => dashboardIds)).toEqual([[42], [42]])
         expect(countInsight.query).toMatchObject({
             kind: 'MetricsQuery',
             clauses: [
                 {
                     name: 'a',
                     metricName: 'billing.invoices.processed',
-                    aggregation: 'increase', // recommended for counters
                     metricType: 'sum',
                     filters: [{ key: 'service.name', op: 'eq', value: 'billing-worker' }],
                 },
             ],
         })
-        // The node schema has no 'p95' — the recommended shorthand maps to quantile + 0.95.
+        expect((countInsight.query as any).clauses[0]).not.toHaveProperty('aggregation')
         expect(histogramInsight.query).toMatchObject({
-            clauses: [expect.objectContaining({ aggregation: 'quantile', quantile: 0.95, metricType: 'histogram' })],
+            clauses: [expect.objectContaining({ metricType: 'histogram' })],
         })
+        expect((histogramInsight.query as any).clauses[0]).not.toHaveProperty('aggregation')
     })
 
     it('navigates to the partially built dashboard when an insight create fails mid-loop', async () => {
@@ -151,12 +151,11 @@ describe('metricsStarterDashboardLogic', () => {
             logic.actions.createDashboard()
         }).toDispatchActions(['createDashboardSuccess'])
 
-        // Name-keyed lookup would collapse to the last-listed type (gauge/avg).
+        // Name-keyed lookup would collapse to the last-listed type (gauge).
         const [insight] = mockInsightCreate.mock.calls[0]
         expect((insight.query as any).clauses[0]).toMatchObject({
             metricName: 'billing.throughput',
             metricType: 'sum',
-            aggregation: 'increase',
         })
     })
 

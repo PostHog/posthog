@@ -1,0 +1,22 @@
+REPORT idle run_count 1 tier human stored arm gpt-5.6-sol published None
+ARTEFACTS {'commit': 1, 'pr_snapshot': 1, 'chunk_set': 1, 'perspective_selection': 1, 'perspective_result': 12, 'issue_finding': 9, 'validation_verdict': 9}
+CHUNKS [(1, 8), (2, 8), (3, 4), (4, 2)]
+RAW by (pass,chunk): {(1, 1): 1, (1, 2): 1, (1, 3): 1, (2, 1): 1, (2, 2): 2, (2, 3): 0, (3, 1): 2, (3, 2): 2, (1000, 1): 0, (1000, 2): 1, (1000, 3): 0, (1000, 4): 0} total 11
+DEDUP survivors 9
+VERDICTS 9 kept 7 dropped 2 NO VERDICT 0
+KEPT by priority Counter({'IssuePriority.SHOULD_FIX': 4, 'IssuePriority.MUST_FIX': 3}) by category Counter({'bug': 5, 'security': 2})
+UNIT issues-review-p1-c1    completed   gpt-5.6-sol/low   2.4 min  
+UNIT issues-review-p1-c3    completed   gpt-5.6-sol/low   2.6 min  
+UNIT issues-review-p2-c1    completed   gpt-5.6-sol/low   2.4 min  
+UNIT issues-review-p1-c2    completed   gpt-5.6-sol/low   4.4 min  
+UNIT issues-review-p2-c2    completed   gpt-5.6-sol/low   3.2 min  
+UNIT issues-review-p2-c3    completed   gpt-5.6-sol/low   3.2 min  
+UNIT issues-review-p3-c1    completed   gpt-5.6-sol/low   3.3 min  
+UNIT issues-review-p3-c2    completed   gpt-5.6-sol/low   3.3 min  
+UNIT blind-spots-c2         completed   gpt-5.6-sol/low   3.0 min  
+UNIT blind-spots-c4         completed   gpt-5.6-sol/low   2.9 min  
+UNIT blind-spots-c1         completed   gpt-5.6-sol/low   2.9 min  
+UNIT blind-spots-c3         completed   gpt-5.6-sol/low   2.7 min  
+UNIT validation-c1          completed   gpt-5.6-sol/low   4.6 min  
+UNIT validation-c2          completed   gpt-5.6-sol/low   5.5 min  
+UNIT validation-c3          completed   gpt-5.6-sol/low   3.1 min  

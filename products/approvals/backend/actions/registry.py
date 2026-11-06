@@ -6,6 +6,15 @@ ACTION_REGISTRY: dict[str, type[BaseAction]] = {}
 
 
 def register_actions():
+    from products.approvals.backend.actions.experiment_holdouts import (
+        DeleteExperimentHoldoutAction,
+        UpdateExperimentHoldoutAction,
+    )
+    from products.approvals.backend.actions.experiments import (
+        LaunchExperimentAction,
+        PauseExperimentAction,
+        UpdateExperimentAction,
+    )
     from products.approvals.backend.actions.feature_flags import (
         DisableFeatureFlagAction,
         EnableFeatureFlagAction,
@@ -15,6 +24,11 @@ def register_actions():
     ACTION_REGISTRY[EnableFeatureFlagAction.key] = EnableFeatureFlagAction
     ACTION_REGISTRY[DisableFeatureFlagAction.key] = DisableFeatureFlagAction
     ACTION_REGISTRY[UpdateFeatureFlagAction.key] = UpdateFeatureFlagAction
+    ACTION_REGISTRY[LaunchExperimentAction.key] = LaunchExperimentAction
+    ACTION_REGISTRY[PauseExperimentAction.key] = PauseExperimentAction
+    ACTION_REGISTRY[UpdateExperimentAction.key] = UpdateExperimentAction
+    ACTION_REGISTRY[UpdateExperimentHoldoutAction.key] = UpdateExperimentHoldoutAction
+    ACTION_REGISTRY[DeleteExperimentHoldoutAction.key] = DeleteExperimentHoldoutAction
 
 
 def get_action(action_key: str) -> Optional[type[BaseAction]]:

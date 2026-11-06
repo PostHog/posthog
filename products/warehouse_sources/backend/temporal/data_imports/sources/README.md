@@ -1,10 +1,13 @@
 # Adding a new source to data pipelines
 
 Adding a new source should be pretty simple. We've refactored the sources so that you need to only add your source logic and update a small number of other files. Simply copy the source template file and address all the TODOs in that file in order.
+New sources go in the `products/warehouse_sources/sources/` tree, one directory per vendor (see `products/warehouse_sources/sources/AGENTS.md`).
+This directory keeps the shared code (`common/`) and the vendors that other code imports.
 
 ```sh
-mkdir -p products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}
-cp products/warehouse_sources/backend/temporal/data_imports/sources/source.template products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}/source.py
+mkdir -p products/warehouse_sources/sources/{SOURCE_NAME}
+cp products/warehouse_sources/sources/source.template products/warehouse_sources/sources/{SOURCE_NAME}/source.py
+touch products/warehouse_sources/sources/{SOURCE_NAME}/__init__.py
 ```
 
 ## Source metadata: category & keywords
@@ -15,19 +18,21 @@ has one. Optionally set `keywords` (a list of lowercase search aliases, e.g. `["
 alternate spellings users might search.
 
 ```python
-from posthog.schema import DataWarehouseSourceCategory
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 return SourceConfig(
-    name=SchemaExternalDataSourceType.STRIPE,
+    name=ExternalDataSourceType.STRIPE,
     category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
     keywords=["billing", "subscriptions"],
     ...
 )
 ```
 
-The category list lives in `frontend/src/queries/schema/schema-general.ts` (`dataWarehouseSourceCategories`);
-`pnpm run schema:build` regenerates the Python enum. See the `implementing-warehouse-sources` skill for the
-full list of buckets and guidance on picking one.
+The category list is backend-owned: `DataWarehouseSourceCategory` in
+`products/warehouse_sources/backend/facade/source_config.py` is the source of truth, and `hogli build:openapi`
+regenerates the frontend type from it. See the `implementing-warehouse-sources` skill for the full list of
+buckets and guidance on picking one.
 
 ## Source fields
 
@@ -35,7 +40,7 @@ The fields shown on the frontend are all backend driven. We have a collection of
 
 The frontend logic for rendering the below fields can be found in `frontend/src/scenes/data-warehouse/external/forms/SourceForm.tsx`.
 
-All of the below are defined in `posthog/schema.py` with a union of them defined as `FieldType` in `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py`. Check out the other sources for examples of how we implement these.
+All of the below are defined in `products/warehouse_sources/backend/facade/source_config.py` with a union of them defined as `FieldType` in `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py`. Check out the other sources for examples of how we implement these.
 
 #### `SourceFieldInputConfig`
 
@@ -83,9 +88,32 @@ For a source to support incremental syncing, the `SourceResponse` must have prim
 
 #### `sort_mode`
 
-Which direction the source scrolls incremental data, either ascending (the default and preferred sort mode) or descending. Majority of APIs will support ascending sorted responses, but if they only support descending then this will need to be set.
+The order in which the rows of an incremental or append read arrive. It has three values:
 
-We store both a `db_incremental_field_last_value` and `db_incremental_field_earliest_value` value - these represent that max/min of the data we've read from the source and processed by the pipeline. When using a `descending` sort mode, we recommend that your source also scrolls for any earlier rows than `db_incremental_field_earliest_value` before trying to scroll for more recent rows. A great example of this is the Stripe source.
+- `"asc"`: the rows arrive in ascending order of the incremental field, from the first row of the run to the last.
+- `"desc"`: the rows arrive in descending order of the incremental field. Use it only when the API cannot return ascending order.
+- `None` (the default): the rows have no order, or the source does not know it.
+
+It applies to incremental and append reads only. A full refresh has no incremental field, so the value has no effect there, and a full refresh can read in any order.
+
+The watermark does not depend on the value. For `"asc"` and `None` the pipeline stages the largest incremental value it read after each batch, and the loader saves it when the run completes. A run that fails does not move the watermark. For `"desc"` the pipeline also keeps the earliest value it read, and it stages the watermark at the end of the run. We store both a `db_incremental_field_last_value` and a `db_incremental_field_earliest_value`. With `"desc"`, we recommend that your source also scrolls for rows earlier than `db_incremental_field_earliest_value` before it scrolls for more recent rows. A great example of this is the Stripe source.
+
+`"asc"` is a promise that the pipeline relies on. When a worker shuts down in the middle of an incremental run, the next attempt of an `"asc"` source does not start again from the stored watermark. It reads the source after the last value the earlier attempt queued. If a row with a lower incremental value can arrive after a row with a higher one, that row is never read, and the watermark then moves past it. A false `"asc"` loses rows silently. A source with `None` starts again from the stored watermark, which is always correct.
+
+So set `"asc"` only when the query or the API contract proves the order:
+
+- one query with `ORDER BY <incremental field> ASC`, read as one result stream (the SQL sources do this for a plain incremental read)
+- an API request that sends an explicit ascending sort on the incremental field, in one request series for the whole run
+
+These do not prove it, so leave `None`:
+
+- pages ordered by another key, for example keyset pages by primary key or a cursor sorted by an internal id
+- one request series per parent, per account or per partition, because the order starts again for each one
+- time windows whose rows are not sorted inside the window
+- an ordered query whose result is stored and then read back with no order
+- an API that seems to sort by default but does not document it
+
+Set the value per run, where the response is built, not once per source: a source with an ordered incremental read and a keyset full refresh says `"asc"` only for the ordered read. Add a test that fails when the incremental query loses its `ORDER BY`. The pipeline also drops the continuation point when it sees a batch out of order, but that check only sees the rows that arrived before the shutdown, so it does not replace the proof.
 
 #### `rows_to_sync`
 
@@ -115,6 +143,8 @@ For database sources, we recommend setting `partition_count` and `partition_size
 - `partition_count` refers to how many partitions there should exist for the `md5` mode
 - `partition_size` refers to how many rows should be bucketed together in a single partition for the `numerical` mode
 
+When a source sets no `partition_mode`, a new append-only table with a date or timestamp cursor uses `datetime` on that cursor. An append-only sync never merges rows, so a hash of the primary key helps nothing, and date partitions let a query that filters on the cursor skip the rest. A table that already has a layout keeps it.
+
 ## OAuth Configuration
 
 If your source uses OAuth (SourceFieldOauthConfig):
@@ -133,9 +163,10 @@ If your source uses OAuth (SourceFieldOauthConfig):
    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
    ```
 
-2. **Integration Kind**: Add your integration to `posthog/models/integration.py`:
+2. **Integration Kind**: Add your integration to the `posthog/models/integration/` package.
+   Its `__init__.py` only re-exports the public surface, so edit the defining modules below.
 
-   **a) Add to `IntegrationKind` enum:**
+   **a) Add to the `IntegrationKind` enum in `model.py`:**
 
    ```python
    class IntegrationKind(models.TextChoices):
@@ -143,7 +174,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
        YOUR_SOURCE = "your-source"
    ```
 
-   **b) Add to `OauthIntegration.supported_kinds` list:**
+   **b) Add to the `OauthIntegration.supported_kinds` list in `oauth.py`:**
 
    ```python
    supported_kinds = [
@@ -152,7 +183,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
    ]
    ```
 
-   **c) Add OAuth config in `oauth_config_for_kind()` method:**
+   **c) Add OAuth config in the `oauth_config_for_kind()` method, also in `oauth.py`:**
 
    ```python
    elif kind == "your-source":
@@ -169,6 +200,19 @@ If your source uses OAuth (SourceFieldOauthConfig):
            name_path="name",
        )
    ```
+
+   The settings and `oauth_config_for_kind()` entries are still required for the OAuth connect flow, which runs in the web app.
+   Source code that runs during a sync must not read `settings.YOUR_SOURCE_CLIENT_ID` directly.
+   It reads PostHog-owned credentials through the credentials service instead:
+
+   ```python
+   from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
+
+   secrets = credentials_service.get_secrets(["YOUR_SOURCE_CLIENT_ID", "YOUR_SOURCE_CLIENT_SECRET"])
+   ```
+
+   `get_secret(key)` and `get_secrets(keys)` fall back to the setting of the same name when the service does not hold the key yet.
+   They return an empty string when the key is configured nowhere. Resolve the keys inside the function that uses them, never at import time.
 
 3. **Redirect URI**: Configure in external service:
 
@@ -189,7 +233,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
 
 - "Kind not configured" → Check environment variables are set
 - Source not listed → Verify step 8 (source registration)
-- Frontend errors → Run `pnpm schema:build`
+- Frontend errors → Run `hogli build:openapi`
 
 ## Mixins
 
@@ -197,7 +241,7 @@ We have a handful of mixins available for your source classes. Add these to your
 
 #### `SSHTunnelMixin`
 
-Provides a `with_ssh_tunnel()` context that opens a tunnel to a target and provides you with a host/port to connect to with your source.
+Provides a `with_ssh_tunnel()` context that opens a tunnel to a target and provides you with a host/port to connect to with your source. It checks the SSH host and the database host on every open, not only when the source is created, so a DNS record that changes after setup cannot point a later sync at a private address. The database host is yielded as the hostname, so a client that can dial one address while presenting another name (libpq `host`/`hostaddr`, a pre-opened socket for pymysql) should also pin the addresses it validated, the way the Postgres, Redshift and MySQL clients do.
 
 We also expose a `make_ssh_tunnel_func()` that does the same as the above, but instead returns a function to be passed to open the tunnel at a later time. This is helpful if your source logic doesn't actually live in your source class directly.
 
@@ -207,7 +251,7 @@ Provides a simple `get_oauth_integration()` method to pull the `Integration` obj
 
 #### `ValidateDatabaseHostMixin`
 
-Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel).
+Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel). This runs when a source is created or updated; the connection-time check lives in `with_ssh_tunnel()` above. A source that dials the host itself, without the tunnel mixin, calls `pinned_connect_host()` on its connect path instead. A raw socket has no egress proxy in front of it, so a stored host is otherwise never re-checked. `TemporalIOSource` is the example.
 
 ## Non-Retryable Errors
 

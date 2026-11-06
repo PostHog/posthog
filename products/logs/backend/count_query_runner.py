@@ -4,13 +4,17 @@ from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
+from products.logs.backend.logs_query_runner import (
+    LogsQueryResponse,
+    LogsQueryRunnerMixin,
+    fail_fast_aggregate_settings,
+)
 
 
 class CountQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
@@ -21,13 +25,7 @@ class CountQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerM
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
-        # A count should fail fast rather than scan unbounded data. Matches the
-        # caps AlertCheckQuery uses against the same table.
-        return HogQLGlobalSettings(
-            max_execution_time=30,
-            max_bytes_to_read=10_000_000_000,
-            read_overflow_mode="throw",
-        )
+        return fail_fast_aggregate_settings()
 
     def _calculate(self) -> LogsQueryResponse:
         response = execute_hogql_query(
@@ -44,25 +42,9 @@ class CountQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerM
         return LogsQueryResponse(results={"count": count})
 
     def to_query(self) -> ast.SelectQuery:
-        # LogsFilterBuilder.where() filters by toStartOfDay(time_bucket) which is
-        # day-precision; adding explicit per-row timestamp bounds (half-open to
-        # avoid double-counting on boundaries) makes the count match the requested
-        # window. Same pattern as AlertCheckQuery.
-        where_with_timestamp = ast.And(
-            exprs=[
-                self.where(),
-                parse_expr(
-                    "timestamp >= {date_from} AND timestamp < {date_to}",
-                    placeholders={
-                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
-                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
-                    },
-                ),
-            ]
-        )
         query = parse_select(
             "SELECT count() FROM logs WHERE {where}",
-            placeholders={"where": where_with_timestamp},
+            placeholders={"where": self.where_with_timestamp_bounds()},
         )
         assert isinstance(query, ast.SelectQuery)
         return query

@@ -1,0 +1,257 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { expectLogic } from 'kea-test-utils'
+
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+
+import { mockTask } from '../../__mocks__/inboxMocks'
+import { captureInboxReportAction } from '../../inboxAnalytics'
+import { inboxTaskKickoffLogic, REPORT_AI_PANEL_ID } from '../../inboxTaskKickoffLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
+import { SignalReport, SignalReportStatus } from '../../types'
+import { ImplementButton } from './ImplementButton'
+
+jest.mock('../../inboxAnalytics', () => ({
+    ...jest.requireActual('../../inboxAnalytics'),
+    captureInboxReportAction: jest.fn(),
+}))
+
+jest.mock('lib/utils/copyToClipboard', () => ({
+    copyToClipboard: jest.fn().mockResolvedValue(true),
+}))
+
+function makeReport(): SignalReport {
+    return {
+        id: 'report-1',
+        title: 'Exceptions spiked',
+        summary: 'summary',
+        status: SignalReportStatus.READY,
+        total_weight: 0,
+        signal_count: 1,
+        artefact_count: 0,
+        is_suggested_reviewer: false,
+        created_at: '2026-06-11T10:00:00Z',
+        updated_at: '2026-06-11T10:00:00Z',
+    } satisfies SignalReport
+}
+
+describe('ImplementButton', () => {
+    let createPrFromReport: jest.Mock
+
+    beforeEach(() => {
+        initKeaTests()
+        window.localStorage.removeItem('inbox-report-implementation-prompt:combo')
+        inboxTaskKickoffLogic.mount()
+        createPrFromReport = jest.fn()
+        jest.spyOn(inboxTaskKickoffLogic.actions, 'createPrFromReport').mockImplementation(createPrFromReport)
+        jest.mocked(captureInboxReportAction).mockClear()
+        jest.mocked(copyToClipboard).mockClear()
+    })
+
+    afterEach(() => {
+        cleanup()
+        jest.restoreAllMocks()
+    })
+
+    async function openMenu(): Promise<ReturnType<typeof userEvent.setup>> {
+        const user = userEvent.setup()
+        render(<ImplementButton report={makeReport()} />)
+        await user.click(screen.getByTestId('inbox-report-create-pr-steer'))
+        await waitFor(() => expect(screen.getByText('Implement with PostHog')).toBeInTheDocument())
+        return user
+    }
+
+    it('starts a PostHog agent from the main button without opening the options', async () => {
+        const user = userEvent.setup()
+        render(<ImplementButton report={makeReport()} />)
+
+        await user.click(screen.getByTestId('inbox-report-create-pr'))
+
+        expect(screen.queryByTestId('inbox-report-create-pr-submit')).not.toBeInTheDocument()
+        expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: false,
+            opened_from_link: false,
+        })
+    })
+
+    it('opens the implementation choices when a link asks for them', async () => {
+        const user = userEvent.setup()
+        const onChoicesOpenedFromLink = jest.fn()
+        render(
+            <ImplementButton
+                report={makeReport()}
+                openChoicesFromLink
+                onChoicesOpenedFromLink={onChoicesOpenedFromLink}
+            />
+        )
+
+        await waitFor(() => expect(screen.getByText('Implement with PostHog')).toBeInTheDocument())
+        expect(onChoicesOpenedFromLink).toHaveBeenCalled()
+        expect(createPrFromReport).not.toHaveBeenCalled()
+
+        await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+
+        expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: false,
+            opened_from_link: true,
+        })
+    })
+
+    it.each([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])(
+        'opens the existing %s task instead of starting another',
+        async (status) => {
+            const user = userEvent.setup()
+            const report = makeReport()
+            const detail = inboxReportDetailLogic({ reportId: report.id, report })
+            detail.mount()
+            await expectLogic(detail).toFinishAllListeners()
+            const task = mockTask('implementation-task', status)
+            detail.actions.loadReportTasksSuccess([
+                { task, purpose: 'implementation', purposeLabel: 'Implementation', startedAt: task.created_at },
+            ])
+            render(
+                <ImplementButton
+                    report={report}
+                    reportTaskToOpen={detail.values.reportTaskToOpen}
+                    implementationDisabledReason={detail.values.implementationDisabledReason}
+                />
+            )
+
+            expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
+            await user.click(screen.getByTestId('inbox-report-open-task'))
+
+            expect(createPrFromReport).not.toHaveBeenCalled()
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+                taskId: task.id,
+                runId: task.latest_run.id,
+            })
+            detail.unmount()
+        }
+    )
+
+    it.each([200, 503])('keeps customer prompts available without GitHub access (status %i)', async (status) => {
+        let repositoryStatus = status
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/onboarding/': {
+                    draft: null,
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+                '/api/projects/:team_id/integrations/': { results: [{ id: 1, kind: 'github' }], next: null },
+                '/api/projects/:team_id/integrations/1/github_repository_access/': () => [
+                    repositoryStatus,
+                    { available: false },
+                ],
+                '/api/projects/:team_id/integrations/github/available_installations/': {
+                    installations: [],
+                    personal_github_connected: false,
+                },
+            },
+        })
+        const user = userEvent.setup()
+        const report = makeReport()
+        render(<ImplementButton report={report} />)
+        const access = reportGithubAccessLogic({ report })
+        await waitFor(() => expect(access.values[status === 503 ? 'failed' : 'repairNeeded']).toBe(true))
+        await user.click(screen.getByTestId('inbox-report-create-pr-steer'))
+        await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            expect.stringContaining('report ID: report-1'),
+            'prompt for your agent'
+        )
+        expect(createPrFromReport).not.toHaveBeenCalled()
+        if (status === 503) {
+            expect(screen.getByTestId('inbox-report-create-pr-submit')).toHaveAttribute('aria-disabled', 'true')
+            repositoryStatus = 200
+            await user.click(screen.getByText('Retry GitHub check'))
+            await waitFor(() => expect(access.values.repairNeeded).toBe(true))
+        }
+        await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+        expect(await screen.findByText('Manage on GitHub')).toBeInTheDocument()
+        expect(createPrFromReport).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [
+            'the PostHog button',
+            (user: ReturnType<typeof userEvent.setup>) =>
+                user.click(screen.getByTestId('inbox-report-create-pr-submit')),
+        ],
+        ['Enter', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Enter}')],
+    ])('passes steering instructions with %s', async (_method, submit) => {
+        const user = await openMenu()
+
+        await user.type(
+            screen.getByPlaceholderText('Add instructions for the PostHog agent (optional)'),
+            '  Keep the existing API  '
+        )
+        await submit(user)
+
+        expect(createPrFromReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'Keep the existing API'
+        )
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: true,
+            opened_from_link: false,
+        })
+    })
+
+    it('copies a prompt that claims the report and attaches the finished pull request', async () => {
+        const user = await openMenu()
+
+        await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
+
+        const prompt = jest.mocked(copyToClipboard).mock.calls[0][0]
+        expect(prompt).toContain('report ID: report-1')
+        expect(prompt).toContain('inbox-report-artefacts-list')
+        expect(prompt).toContain('claim the report with inbox-reports-claim')
+        expect(prompt).toContain('pr_url to attach it')
+        expect(prompt).toContain('release=true')
+        expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'prompt for your agent')
+        expect(captureInboxReportAction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                actionType: 'copy_implementation_prompt',
+                extra: { agent: 'clipboard' },
+            })
+        )
+    })
+
+    it('opens the implementation prompt from the agent list without changing the copy action', async () => {
+        const user = await openMenu()
+        const open = jest.spyOn(window, 'open').mockImplementation()
+
+        await user.click(screen.getByLabelText('Open prompt in an agent'))
+
+        expect(screen.queryByText('PostHog AI')).not.toBeInTheDocument()
+        await user.click(screen.getByText('Claude Code CLI'))
+
+        expect(open).toHaveBeenCalledWith(expect.stringMatching(/^claude-cli:\/\/open\?q=/), '_blank')
+        expect(captureInboxReportAction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                actionType: 'copy_implementation_prompt',
+                extra: { agent: 'claude-code' },
+            })
+        )
+
+        await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
+
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            expect.stringContaining('report ID: report-1'),
+            'prompt for your agent'
+        )
+    })
+})

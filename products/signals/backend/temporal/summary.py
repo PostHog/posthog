@@ -2,45 +2,100 @@
 
 import json
 import asyncio
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 import temporalio
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import workflow
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as TemporalTimeoutError,
+)
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import CheckAuthoringStatus, NoteArtefact
+from products.signals.backend.auto_start import (
+    RequestedImplementation,
+    maybe_autostart_from_report_artefacts,
+    start_requested_implementation,
+)
+from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
+from products.signals.backend.issue_dependencies import reports_waiting_on_issues_of
+from products.signals.backend.models import (
+    SIGNALS_AT_RUN_INCREMENT,
+    SignalReport,
+    SignalReportArtefact,
+    SignalSpend,
+    SignalTeamConfig,
+)
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
     self_driving_quota_gate,
 )
-from products.signals.backend.report_generation.research import ActionabilityChoice
+from products.signals.backend.report_generation.research import ActionabilityChoice, ReportLayer
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_metric_query_access import query_filter_shape_allows_read
+from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
+from products.signals.backend.report_tags import coerce_report_tags
+from products.signals.backend.spend import (
+    begin_report_spend,
+    finish_report_spend,
+    report_triggering_signal,
+    submit_signal_metadata_updates,
+)
+from products.signals.backend.stack_plan import (
+    create_layer_reports,
+    start_unblocked_layers,
+    start_unblocked_layers_of_plan,
+)
+from products.signals.backend.startup_failure import (
+    ResearchStartupFailure,
+    notify_research_startup_failure,
+    report_startup_failure,
+    research_startup_failure,
+    startup_failure_message,
+)
+from products.signals.backend.task_run_artefacts import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_RESEARCH,
+    append_task_run_artefact,
+)
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
     RunAgenticReportOutput,
     run_agentic_report_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
+    github_optional_pilot_activity,
     select_repository_activity,
 )
 from products.signals.backend.temporal.inbox_notification import (
@@ -54,15 +109,24 @@ from products.signals.backend.temporal.signal_queries import (
     fetch_signals_for_report_activity,
 )
 from products.signals.backend.temporal.types import (
-    RERESEARCH_MAX_SIGNALS,
+    IMPLEMENTATION_DEBOUNCE_SECONDS,
+    NEW_SELF_DRIVING_GRACE,
     SignalData,
     SignalReportSummaryWorkflowInputs,
+    next_research_bucket,
 )
+from products.tasks.backend.facade.api import get_task_run
 
 logger = structlog.get_logger(__name__)
 
+# A freshly promoted report's signals can trail its summary run into ClickHouse by a few seconds
+# (the emit -> embed -> insert path is asynchronous), so an empty first fetch is retried before it
+# is trusted. Six 10s attempts comfortably covers observed p99 ingestion lag.
+EMPTY_FETCH_RETRY_ATTEMPTS = 6
+EMPTY_FETCH_RETRY_INTERVAL = timedelta(seconds=10)
 
-def _capture_report_event(
+
+async def _capture_report_event(
     event: str,
     team: Team,
     organization: Organization,
@@ -72,7 +136,10 @@ def _capture_report_event(
     source_products: list[str],
     result: str | None = None,
     failure_reason: str | None = None,
+    error_type: str | None = None,
     pending_reason: str | None = None,
+    chart_count: int | None = None,
+    charts_enabled: bool | None = None,
 ) -> None:
     properties: dict = {
         "report_id": report_id,
@@ -80,17 +147,46 @@ def _capture_report_event(
         "run_count": run_count,
         "source_products": source_products,
     }
+    if temporalio.activity.in_activity():
+        info = temporalio.activity.info()
+        properties.update(workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id)
     if result is not None:
         properties["result"] = result
+    # Only the two outcomes that write prose carry a chart set, so the property is absent rather
+    # than zero on the others — a `failed` run charting nothing is not the same observation as a
+    # report that landed without a chart. The count is the report's stored set after the
+    # transition, which a run that authored nothing leaves standing from the run before it.
+    if chart_count is not None:
+        properties["chart_count"] = chart_count
+    # Chart rate is only readable within the population that could chart, so the rollout state this
+    # run saw rides along with the count. Absent when no research ran to ask.
+    if charts_enabled is not None:
+        properties["charts_enabled"] = charts_enabled
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if error_type is not None:
+        properties["error_type"] = error_type
     if pending_reason is not None:
         properties["pending_reason"] = pending_reason
 
     if event == "signal_report_completed" and result is not None:
-        metrics.increment_report_completed(result)
+        metrics.increment_report_completed(result, failure_reason=failure_reason, error_type=error_type)
 
     try:
+        if event == "signal_report_completed":
+            content = (
+                await SignalReportArtefact.objects.filter(
+                    team_id=team.pk, report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+                )
+                .order_by("-created_at")
+                .values_list("content", flat=True)
+                .afirst()
+            )
+            context = json.loads(content).get("research_context") if content else None
+            if context:
+                properties.update(
+                    github_optional=True, research_mode=context["mode"], repository_status=context["repository_status"]
+                )
         posthoganalytics.capture(
             event=event,
             distinct_id=str(team.uuid),
@@ -107,7 +203,18 @@ def _capture_report_event(
         )
 
 
-@dataclass
+def _activity_error_type(error: BaseException) -> str | None:
+    if not isinstance(error, ActivityError):
+        return None
+    if isinstance(error.cause, TemporalTimeoutError):
+        return "activity_timeout"
+    # Temporal puts the class name of an unhandled activity exception in the ApplicationError type.
+    if isinstance(error.cause, ApplicationError):
+        return error.cause.type
+    return None
+
+
+@frozen
 class ReportDecision:
     title: str
     summary: str
@@ -117,26 +224,90 @@ class ReportDecision:
     # a JSON set, `[]` to clear, or `None` to leave the column alone. `None` for the no-repo branch,
     # which does no research.
     charts: list[dict[str, Any]] | None = None
+    # Resolved metric payload with the same preserve/replace/clear semantics as charts.
+    metrics: list[dict[str, Any]] | None = None
+    revise_measurement_plan_metric_ids: list[str] | None = None
+    retire_measurement_plan_metric_ids: list[str] | None = None
+    previous_measurement_plan_ids: dict[str, str] | None = None
+    # Check specs the research run's verification turn authored, and the research task they are
+    # attributed to. Empty for the no-repo branch, which does no research.
+    checks: list[dict[str, Any]] | None = None
+    reconcile_checks: bool = False
+    checks_summary: str | None = None
+    checks_error: str | None = None
+    checks_snapshot: dict[str, str] | None = None
+    checks_monitoring_enabled: bool = False
+    layers: list[dict[str, Any]] = field(default_factory=list)
+    research_task_id: str | None = None
+    # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
+    # `None` for the no-repo branch, which does no research and so never asks.
+    charts_enabled: bool | None = None
+    # Suggested prompts to store with the title/summary. `[]` when the decision carries a freshly
+    # written title and summary, because the pipeline does not author prompts yet: whatever a scout
+    # suggested was written against the prose this decision replaces, so leaving it would put
+    # prompts about the old report under the new one. `None` for the no-repo branch, which keeps
+    # the prose and so keeps the prompts too.
+    suggested_prompts: list[str] | None = field(default_factory=list)
+    # The report's whole tag set to store with the title/summary, or `None` to keep the stored set.
+    # `None` for the no-repo branch, which does no research.
+    tags: list[str] | None = None
+    # Work-log note to append with the transition. The no-repo branch records its blocker here
+    # instead of in the title/summary.
+    note: str | None = None
+    # Set by the no-repo branch, which does no research. Its `title`/`summary` are placeholders that
+    # fill only blank fields (a recurrence of a safety-failed report starts blank), so a report keeps
+    # the content it is searched and deduplicated by. They stay non-null because an older activity
+    # worker in a rolling deploy rejects `None`.
+    keep_existing_content: bool = False
     # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
     # broken repo-selection integration apart from the agent legitimately asking for human input.
     # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
     pending_reason: str | None = None
 
 
+@temporalio.activity.defn
+async def check_report_task_settlement_activity(input: SignalReportSummaryWorkflowInputs) -> None:
+    @database_sync_to_async
+    def task_run_ids() -> list[str]:
+        return [
+            str(run_id)
+            for run_id in SignalSpend.objects.for_team(input.team_id)
+            .filter(signal_id=input.signal_id, task_run_id__isnull=False)
+            .values_list("task_run_id", flat=True)
+        ]
+
+    run_ids = await task_run_ids()
+    if not run_ids:
+        return
+    client = await async_connect()
+    for run_id in run_ids:
+        run = await database_sync_to_async(get_task_run)(run_id, team_id=input.team_id)
+        if run is None:
+            raise ApplicationError("Spend task run no longer exists", non_retryable=True)
+        execution = await client.get_workflow_handle(run.workflow_id).describe(rpc_timeout=timedelta(seconds=5))
+        if execution.status == WorkflowExecutionStatus.RUNNING:
+            # Retry backoff frees the shared activity slot while the task settles.
+            raise ApplicationError("Task spend is still settling", type="TaskSpendPending")
+        if execution.status != WorkflowExecutionStatus.COMPLETED:
+            raise ApplicationError("Task workflow did not complete settlement", non_retryable=True)
+
+
+RESEARCH_SANDBOX_RETRY_DELAYS = (timedelta(minutes=10), timedelta(minutes=20), timedelta(minutes=40))
+RESEARCH_SANDBOX_RETRY_BUDGET = sum(RESEARCH_SANDBOX_RETRY_DELAYS, timedelta())
+
+
+def _is_research_sandbox_unavailable(error: BaseException) -> bool:
+    cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
+    return (
+        isinstance(cause, temporalio.exceptions.ApplicationError)
+        and cause.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+    )
+
+
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
-    """
-    Workflow that runs when a signal report is promoted to candidate status.
-
-    Flow:
-    1. Fetch all signals for the report from ClickHouse
-    2. Mark report as in_progress
-    3. Run safety judge to filter unsafe reports
-    4. Select a repository for the agentic research
-    5. Run the agentic report research flow
-    6. Apply the resulting actionability decision to transition the report
-    7. If new signals arrived during the run, loop back to step 1
-    """
+    def __init__(self) -> None:
+        self._quota_admitted = False
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SignalReportSummaryWorkflowInputs:
@@ -147,13 +318,47 @@ class SignalReportSummaryWorkflow:
     def workflow_id_for(team_id: int, report_id: str) -> str:
         return f"signals-report:{team_id}:{report_id}"
 
+    async def _wait_for_task_settlement(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        if inputs.signal_id and workflow.patched("signals-wait-for-task-settlement"):
+            try:
+                await workflow.execute_activity(
+                    check_report_task_settlement_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    schedule_to_close_timeout=timedelta(minutes=20),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)
+                    ),
+                )
+            except ActivityError:
+                # Billing failure must not rerun paid research or discard its result.
+                workflow.logger.exception("signals.spend.accounting_failed", extra={"signal_id": inputs.signal_id})
+
+    async def _publish_spend(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        try:
+            await workflow.execute_activity(
+                publish_report_spend_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=20),
+                schedule_to_close_timeout=timedelta(minutes=20),
+                retry_policy=RetryPolicy(initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)),
+            )
+        except Exception:
+            workflow.logger.exception("Failed to publish completed signal spend")
+
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         with posthoganalytics.new_context(capture_exceptions=False):
             posthoganalytics.tag("team_id", inputs.team_id)
             posthoganalytics.tag("report_id", inputs.report_id)
             posthoganalytics.tag("product", "signals")
-            await self._run_impl(inputs)
+            try:
+                await self._run_impl(inputs)
+            finally:
+                if workflow.patched("signals-publish-spend-on-completion") and not workflow.patched(
+                    "signals-spend-explicit-owner"
+                ):
+                    await self._publish_spend(inputs)
 
     async def _run_impl(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
@@ -171,7 +376,24 @@ class SignalReportSummaryWorkflow:
         for _ in range(max_iterations):
             # Loop internally rather than spawning new workflows because summary workflows are
             # fire-and-forget (ParentClosePolicy.ABANDON), so there's no external caller to wait/restart them.
-            should_loop = await self._run_once(inputs, log)
+            if workflow.patched("signals-spend-explicit-owner"):
+                signal_id = inputs.signal_id or await workflow.execute_activity(
+                    report_spend_owner_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if signal_id is None:
+                    log.info("Report has no open spend owner, waiting for a new triggering signal")
+                    return
+                try:
+                    should_loop = await self._run_once(replace(inputs, signal_id=signal_id), log)
+                finally:
+                    if signal_id:
+                        await self._publish_spend(replace(inputs, signal_id=signal_id))
+                inputs = replace(inputs, signal_id=None)
+            else:
+                should_loop = await self._run_once(inputs, log)
             if not should_loop:
                 return
         log.warning(
@@ -182,10 +404,42 @@ class SignalReportSummaryWorkflow:
     async def _quota_gate_pauses(self, inputs: SignalReportSummaryWorkflowInputs, stage: str) -> bool:
         return await workflow.execute_activity(
             check_report_quota_gate_activity,
-            CheckReportQuotaGateInput(team_id=inputs.team_id, report_id=inputs.report_id, stage=stage),
+            CheckReportQuotaGateInput(
+                team_id=inputs.team_id, report_id=inputs.report_id, stage=stage, admitted=self._quota_admitted
+            ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _run_research(
+        self, log: FilteringBoundLogger, research_input: RunAgenticReportInput
+    ) -> RunAgenticReportOutput:
+        retries = 0
+        while True:
+            try:
+                return await workflow.execute_activity(
+                    run_agentic_report_activity,
+                    research_input,
+                    start_to_close_timeout=timedelta(hours=4),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except temporalio.exceptions.ActivityError as error:
+                if (
+                    not workflow.patched("signals-research-sandbox-retry")
+                    or not _is_research_sandbox_unavailable(error)
+                    or retries >= len(RESEARCH_SANDBOX_RETRY_DELAYS)
+                ):
+                    raise
+            delay = RESEARCH_SANDBOX_RETRY_DELAYS[retries]
+            retries += 1
+            log.warning(
+                "Research sandbox unavailable, retrying after delay",
+                attempt=retries,
+                delay_seconds=int(delay.total_seconds()),
+            )
+            await workflow.sleep(delay)
 
     async def _revert_report_to_candidate(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         await workflow.execute_activity(
@@ -194,6 +448,76 @@ class SignalReportSummaryWorkflow:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _fetch_signals(
+        self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger
+    ) -> FetchSignalsForReportOutput:
+        required_signal_id = inputs.signal_id if workflow.patched("signals-required-refresh-snapshot") else None
+        fetch_input = FetchSignalsForReportInput(
+            team_id=inputs.team_id, report_id=inputs.report_id, required_signal_id=required_signal_id
+        )
+        fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
+            fetch_signals_for_report_activity,
+            fetch_input,
+            start_to_close_timeout=timedelta(minutes=5),
+            schedule_to_close_timeout=timedelta(minutes=10) if required_signal_id else None,
+            retry_policy=(
+                RetryPolicy(initial_interval=timedelta(seconds=10), maximum_interval=timedelta(seconds=30))
+                if required_signal_id
+                else RetryPolicy(maximum_attempts=3)
+            ),
+        )
+        # patched(): histories recorded before the retry loop have no timers to replay.
+        if fetch_result.signals or not workflow.patched("signals-empty-fetch-retry"):
+            return fetch_result
+        for attempt in range(1, EMPTY_FETCH_RETRY_ATTEMPTS + 1):
+            log.info("No signals visible in ClickHouse yet, retrying fetch", attempt=attempt)
+            await workflow.sleep(EMPTY_FETCH_RETRY_INTERVAL)
+            fetch_result = await workflow.execute_activity(
+                fetch_signals_for_report_activity,
+                fetch_input,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if fetch_result.signals:
+                metrics.increment_report_fetch_recovered(attempt)
+                return fetch_result
+        return fetch_result
+
+    async def _replay_removed_report_canvas(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        # Executions that were in flight when the report-canvas pipeline was removed have those
+        # commands in their history and have to reissue them to replay. `patched()` is False only
+        # while replaying a history without the marker, so a live run never gets past the guard and
+        # no canvas is ever generated. Activity and workflow are named by string because the code
+        # behind them is gone; replay only matches the names. Delete once no execution predating the
+        # removal is still open.
+        if workflow.patched("signals-report-canvases-removed"):
+            return
+        if not workflow.patched("signals-report-canvases"):
+            return
+        try:
+            if workflow.patched("signals-report-canvases-parent-gate"):
+                enabled = await workflow.execute_activity(
+                    "report_canvases_enabled_activity",
+                    inputs.team_id,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if not enabled:
+                    return
+            await workflow.start_child_workflow(
+                "signal-report-canvas",
+                {"team_id": inputs.team_id, "report_id": inputs.report_id},
+                id=f"signals-report-canvas:{inputs.team_id}:{inputs.report_id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=timedelta(hours=5),
+            )
+        except temporalio.exceptions.WorkflowAlreadyStartedError:
+            pass
+        except Exception:
+            workflow.logger.exception(f"Failed to replay report canvas commands for {inputs.report_id}")
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
@@ -206,49 +530,76 @@ class SignalReportSummaryWorkflow:
         ):
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
-        # 1. Fetch signals for the report
-        fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
-            fetch_signals_for_report_activity,
-            FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        if not fetch_result.signals:
-            log.error("No signals found for report, marking as failed")
-            await workflow.execute_activity(
-                mark_report_failed_activity,
-                MarkReportFailedInput(
-                    team_id=inputs.team_id,
-                    report_id=inputs.report_id,
-                    error="No signals found",
-                    failure_reason="no_signals_found",
-                ),
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            # No loop, as no signals to process
-            return False
-        signal_count = len(fetch_result.signals)
-        source_products = sorted({s.source_product for s in fetch_result.signals})
-        # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
-        await workflow.execute_activity(
-            mark_report_in_progress_activity,
-            MarkReportInProgressInput(
-                team_id=inputs.team_id,
-                report_id=inputs.report_id,
-                signal_count=signal_count,
-                source_products=source_products,
-            ),
-            start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        # Pending signals and the implementation buffer may cause more research passes in
+        # this same pipeline. Admission covers all of them through the final implementation.
+        self._quota_admitted = True
+        claim_before_fetch = workflow.patched("signals-spend-explicit-owner")
+        signal_count = 0
+        source_products: list[str] = []
         try:
+            if claim_before_fetch:
+                # Grouping must reserve arrivals for the next pass before we take the ClickHouse snapshot.
+                await workflow.execute_activity(
+                    mark_report_in_progress_activity,
+                    MarkReportInProgressInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signal_id=inputs.signal_id,
+                        preserve_pending_refresh=workflow.patched("signals-required-refresh-snapshot"),
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            fetch_result = await self._fetch_signals(inputs, log)
+            if not fetch_result.signals:
+                # patched(): same marker as the retry loop, so pre-patch histories replay straight to failure.
+                if workflow.patched("signals-empty-fetch-retry") and await workflow.execute_activity(
+                    report_has_assigned_signals_activity,
+                    ReportHasAssignedSignalsInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                ):
+                    # Allow grouping to retry when assigned signals reach ClickHouse.
+                    log.warning("Report has assigned signals that are not yet visible in ClickHouse, deferring run")
+                    metrics.increment_report_run_deferred("signals_not_visible")
+                    if claim_before_fetch:
+                        await self._revert_report_to_candidate(inputs)
+                    return False
+                log.error("No signals found for report, marking as failed")
+                await workflow.execute_activity(
+                    mark_report_failed_activity,
+                    MarkReportFailedInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        error="No signals found",
+                        failure_reason="no_signals_found",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return False
+            signal_count = len(fetch_result.signals)
+            source_products = sorted({s.source_product for s in fetch_result.signals})
+            if not claim_before_fetch:
+                await workflow.execute_activity(
+                    mark_report_in_progress_activity,
+                    MarkReportInProgressInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signal_id=inputs.signal_id,
+                        signal_count=signal_count,
+                        source_products=source_products,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             # 3. Run safety judge first to avoid passing unsafe report into the agentic research
             safety_result = await workflow.execute_activity(
                 report_safety_judge_activity,
                 SafetyJudgeInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
+                    signal_id=inputs.signal_id,
                     signals=fetch_result.signals,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
@@ -285,12 +636,25 @@ class SignalReportSummaryWorkflow:
                 await self._revert_report_to_candidate(inputs)
                 return False
             # 4. Select repository for the agentic research
+            # Captured before the selection is resolved, so the research activity can tell whether
+            # a reviewer rewrote the report's repo selection while this run was in flight.
+            repo_selection_as_of = workflow.now()
+            github_optional = False
+            if workflow.patched("self-driving-github-optional"):
+                github_optional = await workflow.execute_activity(
+                    github_optional_pilot_activity,
+                    inputs.team_id,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             repo_result: RepoSelectionResult = await workflow.execute_activity(
                 select_repository_activity,
                 SelectRepositoryInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
+                    signal_id=inputs.signal_id,
                     signals=fetch_result.signals,
+                    github_optional=github_optional,
                 ),
                 # Budget = heavy-cache warmup (cold, ≤1000 repos, rate-limit backoffs) +
                 # follower lock wait (≤20m) + agent poll window (≤30m). 45m fits all three.
@@ -299,16 +663,21 @@ class SignalReportSummaryWorkflow:
                 # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
-            if repo_result.repository is None:
+            await self._wait_for_task_settlement(inputs)
+            if repo_result.repository is None and not github_optional:
                 log.warning(
                     "Report has no repository selected",
                     reason=repo_result.reason,
                 )
+                blocker = f"Could not automatically select a repository: {repo_result.reason}"
                 decision = ReportDecision(
                     title="Repository selection required",
-                    summary=f"Could not automatically select a repository: {repo_result.reason}",
+                    summary=blocker,
                     choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
                     explanation=repo_result.reason,
+                    suggested_prompts=None,
+                    note=blocker,
+                    keep_existing_content=True,
                     pending_reason="repo_selection_required",
                 )
             else:
@@ -319,25 +688,36 @@ class SignalReportSummaryWorkflow:
                     await self._revert_report_to_candidate(inputs)
                     return False
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
-                agentic_result: RunAgenticReportOutput = await workflow.execute_activity(
-                    run_agentic_report_activity,
+                agentic_result = await self._run_research(
+                    log,
                     RunAgenticReportInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
+                        signal_id=inputs.signal_id,
                         signals=fetch_result.signals,
                         repo_selection=repo_result,
+                        repo_selection_as_of=repo_selection_as_of,
+                        github_optional=github_optional,
                     ),
-                    start_to_close_timeout=timedelta(hours=4),
-                    heartbeat_timeout=timedelta(minutes=5),
-                    # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
-                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+                await self._wait_for_task_settlement(inputs)
                 decision = ReportDecision(
                     title=agentic_result.title,
                     summary=agentic_result.summary,
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
+                    metrics=agentic_result.metrics,
+                    checks=agentic_result.checks,
+                    reconcile_checks=agentic_result.reconcile_checks,
+                    checks_summary=agentic_result.checks_summary,
+                    checks_error=agentic_result.checks_error,
+                    checks_snapshot=agentic_result.checks_snapshot,
+                    checks_monitoring_enabled=agentic_result.checks_monitoring_enabled,
+                    layers=agentic_result.layers or [],
+                    research_task_id=agentic_result.research_task_id,
+                    charts_enabled=agentic_result.charts_enabled,
+                    tags=agentic_result.tags,
                     pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
@@ -375,11 +755,25 @@ class SignalReportSummaryWorkflow:
                         signal_count=signal_count,
                         source_products=source_products,
                         charts=decision.charts,
+                        metrics=decision.metrics,
+                        checks=decision.checks,
+                        checks_snapshot=decision.checks_snapshot,
+                        checks_monitoring_enabled=decision.checks_monitoring_enabled,
+                        reconcile_checks=decision.reconcile_checks,
+                        checks_summary=decision.checks_summary,
+                        checks_error=decision.checks_error,
+                        checks_task_id=decision.research_task_id,
+                        suggested_prompts=decision.suggested_prompts,
+                        charts_enabled=decision.charts_enabled,
+                        tags=decision.tags,
                         pending_reason=decision.pending_reason,
+                        note=decision.note,
+                        keep_existing_content=decision.keep_existing_content,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                await self._replay_removed_report_canvas(inputs)
                 # No loop, human input is required
                 return False
             # 6. Mark ready and check if new signals arrived during the run
@@ -391,8 +785,21 @@ class SignalReportSummaryWorkflow:
                     title=decision.title,
                     summary=decision.summary,
                     processed_signal_count=signal_count,
+                    processed_pending_signal_id=fetch_result.processed_pending_signal_id,
                     source_products=source_products,
                     charts=decision.charts,
+                    metrics=decision.metrics,
+                    checks=decision.checks,
+                    checks_snapshot=decision.checks_snapshot,
+                    checks_monitoring_enabled=decision.checks_monitoring_enabled,
+                    reconcile_checks=decision.reconcile_checks,
+                    checks_summary=decision.checks_summary,
+                    checks_error=decision.checks_error,
+                    checks_task_id=decision.research_task_id,
+                    layers=decision.layers,
+                    suggested_prompts=decision.suggested_prompts,
+                    charts_enabled=decision.charts_enabled,
+                    tags=decision.tags,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -401,6 +808,7 @@ class SignalReportSummaryWorkflow:
             if has_new_signals:
                 log.info("Report has new signals since run started, looping")
             else:  # Only emit the notification if we're not going to immediately re-run
+                await self._replay_removed_report_canvas(inputs)
                 # Publish is best-effort: a Kafka/notification failure shouldn't flip a
                 # successfully-generated READY report to FAILED.
                 try:
@@ -418,6 +826,53 @@ class SignalReportSummaryWorkflow:
                     workflow.logger.exception(
                         f"Failed to publish report_completed notification for {inputs.report_id}",
                     )
+                # Start implementation once the report has settled, after an optional buffer. A signal
+                # landing just after the report went READY would otherwise ship a PR for a summary the
+                # re-research is about to rewrite; waiting lets that signal fold into a re-research run.
+                # Runs before the notification below on purpose: the notification decides whether to
+                # wait for the implementation PR from the task existing on its first check, so it has
+                # to find the task already created, and a buffer that ends in a re-research must not
+                # announce the summary that re-research is about to replace.
+                # The whole block is best-effort — the report is already READY, so a failure here must
+                # not flip it to FAILED via the outer handler. patched(): in-flight histories predate it
+                # and already auto-started from the research activity, so they skip this.
+                if workflow.patched("signals-autostart-on-settle"):
+                    try:
+                        buffer_seconds = await workflow.execute_activity(
+                            implementation_buffer_seconds_activity,
+                            ImplementationBufferInput(team_id=inputs.team_id),
+                            start_to_close_timeout=timedelta(minutes=1),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                        if buffer_seconds > 0:
+                            await workflow.sleep(timedelta(seconds=buffer_seconds))
+                            # A signal arriving during the wait collapsed into this run and re-promoted
+                            # the report; loop to re-research it rather than implement a stale summary.
+                            became_candidate = await workflow.execute_activity(
+                                report_is_candidate_activity,
+                                ReportIsCandidateInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                                start_to_close_timeout=timedelta(minutes=1),
+                                retry_policy=RetryPolicy(maximum_attempts=3),
+                            )
+                            if became_candidate:
+                                log.info("New signal arrived during implementation buffer, looping to re-research")
+                                return True
+                        await workflow.execute_activity(
+                            maybe_autostart_implementation_activity,
+                            MaybeAutostartImplementationInput(
+                                team_id=inputs.team_id,
+                                report_id=inputs.report_id,
+                                requested_user_id=inputs.requested_implementation_user_id,
+                                requested_task_id=inputs.requested_implementation_task_id,
+                                requested_after_run_count=inputs.requested_after_run_count,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=5),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                    except Exception:
+                        workflow.logger.exception(
+                            f"Implementation buffer/auto-start failed for {inputs.report_id}",
+                        )
                 # Slack notification is detached (ABANDON) so it can wait out the implementation PR.
                 # patched(): summary workflows already in flight at deploy replay the prior inline path.
                 try:
@@ -452,38 +907,61 @@ class SignalReportSummaryWorkflow:
                     )
             return has_new_signals
         except Exception as e:
+            startup_failure = research_startup_failure(e)
             await workflow.execute_activity(
                 mark_report_failed_activity,
                 MarkReportFailedInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
                     error=str(e),
-                    failure_reason="agentic_activity_error",
+                    failure_reason=(
+                        "research_sandbox_unavailable"
+                        if _is_research_sandbox_unavailable(e)
+                        else "agentic_activity_error"
+                    ),
+                    error_type=_activity_error_type(e),
+                    startup_failure=startup_failure,
                     signal_count=signal_count,
                     source_products=source_products,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            if startup_failure:
+                try:
+                    await workflow.execute_activity(
+                        notify_research_startup_failure_activity,
+                        NotifyResearchStartupFailureInput(
+                            team_id=inputs.team_id, report_id=inputs.report_id, failure=startup_failure
+                        ),
+                        start_to_close_timeout=timedelta(minutes=1),
+                        schedule_to_close_timeout=timedelta(minutes=10),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(seconds=5), maximum_interval=timedelta(minutes=1)
+                        ),
+                    )
+                except ActivityError:
+                    workflow.logger.exception("Failed to deliver research startup notification")
             raise
 
 
-@dataclass
+@frozen
 class CheckReportQuotaGateInput:
     team_id: int
     report_id: str
     stage: str
+    admitted: bool = False
 
 
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
-    """Whether the summary workflow must pause at `stage`: the team's org is over its self-driving
-    credits quota and enforcement is on. Emits `signal_report_quota_paused` whenever the team is limited,
-    enforced or not, so the dark-launch would-block volume is measurable. Never raises: any
-    failure resolves to False (run proceeds), matching the quota module's fail-open policy.
-    """
+    """Check limits before accepting a report pipeline, never between its stages."""
+    # Existing histories still schedule these activities. Returning False preserves replay
+    # compatibility while letting the admitted pass finish repository selection and research.
+    if input.admitted or input.stage in {"pre_repo_selection", "pre_research"}:
+        return False
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
         gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
@@ -491,7 +969,12 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
             capture_signal_report_quota_paused(
                 team, report_id=input.report_id, stage=input.stage, enforced=gate.enforced
             )
-        return gate.enforced
+        daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
+        if daily_gate.limited:
+            capture_signal_report_daily_limit_paused(
+                team, report_id=input.report_id, stage=input.stage, gate=daily_gate
+            )
+        return gate.enforced or daily_gate.limited
     except Exception:
         record_quota_check_failed_open()
         logger.exception(
@@ -501,6 +984,23 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
             stage=input.stage,
         )
         return False
+
+
+@frozen
+class ReportHasAssignedSignalsInput:
+    team_id: int
+    report_id: str
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def report_has_assigned_signals_activity(input: ReportHasAssignedSignalsInput) -> bool:
+    """Whether grouping has assigned any signal to the report. Postgres `signal_count` is written at
+    assignment time, before the signal reaches ClickHouse, so it tells an ingestion-lag empty fetch
+    apart from a report that genuinely has nothing to research.
+    """
+    return await SignalReport.objects.filter(id=input.report_id, team_id=input.team_id, signal_count__gt=0).aexists()
 
 
 @dataclass
@@ -533,12 +1033,14 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class MarkReportInProgressInput:
     team_id: int
     report_id: str
-    signal_count: int
+    signal_count: int | None = None
     source_products: list[str] = field(default_factory=list)
+    signal_id: str | None = None
+    preserve_pending_refresh: bool = False
 
 
 @temporalio.activity.defn
@@ -558,8 +1060,18 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.IN_PROGRESS:
                 return report.run_count, True
-            updated_fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
-            report.save(update_fields=updated_fields)
+            signal_id = input.signal_id or (str(report.triggering_signal_id) if report.triggering_signal_id else None)
+            if signal_id:
+                begin_report_spend(team_id=input.team_id, report_id=input.report_id, signal_id=signal_id)
+            updated_fields = report.transition_to(
+                SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
+            )
+            if not input.preserve_pending_refresh:
+                report.pending_triggering_signal_id = None
+            if input.signal_count is None:
+                input.signal_count = report.signal_count
+            report.researching_signal_count = input.signal_count
+            report.save(update_fields=[*updated_fields, "pending_triggering_signal_id", "researching_signal_count"])
             return report.run_count, False
 
         run_count, was_already_in_progress = await database_sync_to_async(do_update, thread_sensitive=False)()
@@ -577,8 +1089,9 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
         )
         return
 
+    assert input.signal_count is not None
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_started",
         team=team,
         organization=team.organization,
@@ -594,18 +1107,160 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     )
 
 
-@dataclass
+@frozen
+class _ReportTransition:
+    """What a status-transition activity learned inside its transaction, for its telemetry to read.
+
+    `has_new_signals` only means anything on the ready transition, so it defaults to False for the
+    others. On a duplicate transition the activity returns before reading the counts.
+    """
+
+    run_count: int
+    chart_count: int
+    was_duplicate: bool
+    has_new_signals: bool = False
+
+
+@frozen
 class MarkReportReadyInput:
     team_id: int
     report_id: str
     title: str
     summary: str
     processed_signal_count: int
+    processed_pending_signal_id: str | None = None
     source_products: list[str] = field(default_factory=list)
     # Chart payload to write alongside title/summary, in the same transaction: the JSON set to store,
     # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
     # history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    # Typed impact metrics written atomically with the prose and chart set.
+    metrics: list[dict[str, Any]] | None = None
+    plans_task_id: str | None = None
+    revise_measurement_plan_metric_ids: list[str] | None = None
+    retire_measurement_plan_metric_ids: list[str] | None = None
+    previous_measurement_plan_ids: dict[str, str] | None = None
+    # Check specs the research run's verification turn authored, written as rows in the same
+    # transaction as the metrics they reference. Old workflow histories can carry an empty list
+    # that meant "write none", so only a new result marked for reconciliation can clear rows.
+    checks: list[dict[str, Any]] | None = None
+    checks_snapshot: dict[str, str] | None = None
+    checks_monitoring_enabled: bool = False
+
+    reconcile_checks: bool = False
+    checks_summary: str | None = None
+    checks_error: str | None = None
+    # Task the check rows are attributed to: the research sandbox that authored the specs.
+    checks_task_id: str | None = None
+    # The research plan of dependent pull requests, as `ReportLayer` dicts. Each becomes a child
+    # report in the same transaction. Empty or `None` creates none, which is also what an older
+    # workflow history replays as.
+    layers: list[dict[str, Any]] | None = None
+    # Suggested prompts to write alongside title/summary, same three states and same replay-safe
+    # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
+    # scout wrote were written against the summary this transition is replacing.
+    suggested_prompts: list[str] | None = None
+    # The chart rollout state the research run saw, for the completion event. Not persisted.
+    charts_enabled: bool | None = None
+    # The report's whole tag set, written alongside title/summary. `None` keeps the stored set, which
+    # is also what an older workflow history replays as.
+    tags: list[str] | None = None
+
+
+def _observation_metrics(report: SignalReport, metrics: list[dict]) -> list[dict]:
+    observations = []
+    for metric in metrics:
+        query = metric.get("query")
+        if not isinstance(query, Mapping) or not query_filter_shape_allows_read(query):
+            logger.warning(
+                "ignoring report metric with unreadable query shape",
+                report_id=str(report.id),
+                metric_id=metric.get("metric_id"),
+            )
+            continue
+        observations.append({key: value for key, value in metric.items() if key not in REPORT_METRIC_GOAL_FIELDS})
+    return observations
+
+
+def _write_check_authoring_status(
+    report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput", error: str | None
+) -> None:
+    attribution = (
+        ArtefactAttribution.from_task(input.checks_task_id) if input.checks_task_id else ArtefactAttribution.system()
+    )
+    SignalReportArtefact.append_status(
+        team_id=report.team_id,
+        report_id=str(report.id),
+        content=CheckAuthoringStatus(status="failed" if error else "succeeded", reason=error or "checks_saved"),
+        attribution=attribution,
+    )
+    if error:
+        SignalReportArtefact.add_log(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            content=NoteArtefact(
+                note="Could not configure follow-up checks. Existing checks and completed research were preserved. "
+                "Research the report again to configure verification, or verify and resolve it manually. "
+                "Automatic resolution without checks is blocked while Monitoring is enabled."
+            ),
+            attribution=attribution,
+        )
+
+
+def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput") -> None:
+    if input.checks_error is not None:
+        _write_check_authoring_status(report, input, input.checks_error)
+        return
+    if input.checks is None or (not input.reconcile_checks and not input.checks):
+        return
+    # Function-local: the authoring module reaches the alerts facade through the check executor,
+    # which has no business on this module's import path.
+    from products.signals.backend.report_check_authoring import create_checks_from_specs  # noqa: PLC0415
+    from products.signals.backend.report_checks import CheckSpec  # noqa: PLC0415
+
+    specs: list[CheckSpec] = []
+    for raw in input.checks:
+        try:
+            specs.append(CheckSpec.model_validate(raw))
+        except Exception:
+            logger.warning("signals report check spec did not validate", report_id=str(report.id))
+            _write_check_authoring_status(report, input, "invalid_check_spec")
+            return
+    result = create_checks_from_specs(
+        report=report,
+        reconcile=input.reconcile_checks,
+        specs=specs,
+        checks_snapshot=input.checks_snapshot,
+        monitoring_definitions_visible=input.checks_monitoring_enabled,
+        attribution=(
+            ArtefactAttribution.from_task(input.checks_task_id)
+            if input.checks_task_id
+            else ArtefactAttribution.system()
+        ),
+    )
+    _write_check_authoring_status(report, input, None if result.applied else "check_reconciliation_failed")
+    if input.reconcile_checks and result.applied and input.checks_summary is not None:
+        report.summary = input.checks_summary
+        report.save(update_fields=["summary"])
+
+
+def _write_stack_layers(report: SignalReport, input: MarkReportReadyInput) -> None:
+    """Create one child report per layer of the research plan, inside the ready transaction.
+
+    Unlike the checks, a layer the pipeline cannot store fails the transition: a plan with a missing
+    layer would start the layers above it on a base that does not exist.
+    """
+    if not input.layers:
+        return
+    create_layer_reports(
+        parent=report,
+        layers=[ReportLayer.model_validate(raw) for raw in input.layers],
+        attribution=(
+            ArtefactAttribution.from_task(input.checks_task_id)
+            if input.checks_task_id
+            else ArtefactAttribution.system()
+        ),
+    )
 
 
 @temporalio.activity.defn
@@ -616,29 +1271,69 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[bool, int, bool]:
+        def do_update() -> _ReportTransition:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.READY:
-                return False, report.run_count, True
+                return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
             if report.status == SignalReport.Status.CANDIDATE:
                 # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
-                return True, report.run_count, True
+                return _ReportTransition(
+                    run_count=report.run_count, chart_count=0, was_duplicate=True, has_new_signals=True
+                )
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
+            # The pass is only now known to have covered anything, so this is where the count the
+            # bucket schedule reads is written. A run that failed or paused earlier leaves the
+            # previous value standing and so leaves the report's next bucket where it was.
+            report.signals_researched = input.processed_signal_count
+            updated_fields = [*updated_fields, "signals_researched"]
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
+            if input.metrics is not None:
+                report.metrics = _observation_metrics(report, input.metrics)
+                updated_fields = [*updated_fields, "metrics"]
+            if input.suggested_prompts is not None:
+                report.suggested_prompts = input.suggested_prompts
+                updated_fields = [*updated_fields, "suggested_prompts"]
+            if input.tags is not None:
+                report.tags = coerce_report_tags(input.tags)
+                updated_fields = [*updated_fields, "tags"]
             report.save(update_fields=updated_fields)
-            # Loop to re-research only if new signals arrived and we're within the cap; past
-            # RERESEARCH_MAX_SIGNALS the report stays READY instead of re-running over a large set.
-            has_new_signals = input.processed_signal_count < report.signal_count <= RERESEARCH_MAX_SIGNALS
+            # Loop to re-research only if the signals that arrived during the run carried the report
+            # to its next bucket. Same predicate as the grouping promotion gate, so a signal landing
+            # mid-run is researched on the schedule it would have had if it had landed after. The
+            # bucket is strictly above what this run processed, so reaching it also means new
+            # signals arrived. A pending source refresh needs research even between buckets.
+            bucket = next_research_bucket(report.researched_signal_count)
+            has_pending_refresh = (
+                report.pending_triggering_signal_id is not None
+                and str(report.pending_triggering_signal_id) != input.processed_pending_signal_id
+            )
+            has_new_signals = has_pending_refresh or (bucket is not None and report.signal_count >= bucket)
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                report.save(update_fields=candidate_fields)
-            return has_new_signals, report.run_count, False
+                if report.pending_triggering_signal_id is not None:
+                    report.triggering_signal_id = report.pending_triggering_signal_id
+                report.save(update_fields=[*candidate_fields, "triggering_signal_id"])
+            else:
+                # Only a pass that settles writes its checks. A pass about to be re-researched is
+                # an intermediate one, and its checks would describe prose the next pass replaces.
+                # After the metrics write and inside the same transaction, because a
+                # `metric_threshold` check resolves the query off the metric set this transition
+                # just stored: written earlier it would name a metric the report does not have yet,
+                # and written later it could survive a rollback that took the metric with it.
+                _write_research_checks(report, input)
+                _write_stack_layers(report, input)
+            return _ReportTransition(
+                run_count=report.run_count,
+                chart_count=len(report.charts or []),
+                was_duplicate=False,
+                has_new_signals=has_new_signals,
+            )
 
-        has_new_signals, run_count, was_already_done = await database_sync_to_async(do_update, thread_sensitive=False)()
+        transition = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as ready: {e}",
@@ -646,42 +1341,167 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         )
         raise
 
-    if was_already_done:
+    if transition.was_duplicate:
         logger.info(
             f"Report {input.report_id} already past ready transition, skipping duplicate",
             report_id=input.report_id,
-            has_new_signals=has_new_signals,
+            has_new_signals=transition.has_new_signals,
         )
-        return has_new_signals
+        return transition.has_new_signals
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_completed",
         team=team,
         organization=team.organization,
         report_id=input.report_id,
         signal_count=input.processed_signal_count,
-        run_count=run_count,
+        run_count=transition.run_count,
         source_products=input.source_products,
         result="ready",
+        chart_count=transition.chart_count,
+        charts_enabled=input.charts_enabled,
     )
     logger.debug(
         f"Marked report {input.report_id} as ready",
         report_id=input.report_id,
         title=input.title,
-        has_new_signals=has_new_signals,
+        has_new_signals=transition.has_new_signals,
     )
-    return has_new_signals
+    return transition.has_new_signals
 
 
-@dataclass
+@frozen
+class ImplementationBufferInput:
+    team_id: int
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def implementation_buffer_seconds_activity(input: ImplementationBufferInput) -> int:
+    """Effective wait, in seconds, before a settled report starts its implementation task.
+
+    0 (no wait) when the buffer is disabled globally, or when the team is new to self-driving — a
+    team whose signals config was created within NEW_SELF_DRIVING_GRACE implements without the extra
+    delay while it's still evaluating the product. Otherwise IMPLEMENTATION_DEBOUNCE_SECONDS.
+    """
+    if IMPLEMENTATION_DEBOUNCE_SECONDS <= 0:
+        return 0
+    created_at = (
+        await SignalTeamConfig.objects.filter(team_id=input.team_id).values_list("created_at", flat=True).afirst()
+    )
+    if created_at is not None and (timezone.now() - created_at) < NEW_SELF_DRIVING_GRACE:
+        return 0
+    return IMPLEMENTATION_DEBOUNCE_SECONDS
+
+
+@frozen
+class ReportIsCandidateInput:
+    team_id: int
+    report_id: str
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def report_is_candidate_activity(input: ReportIsCandidateInput) -> bool:
+    """Whether the report is back in CANDIDATE.
+
+    A signal landing during the implementation buffer collapses into this workflow's id and
+    re-promotes the report, so a CANDIDATE status is the signal to re-research instead of
+    implementing the now-stale summary.
+    """
+    status = (
+        await SignalReport.objects.filter(id=input.report_id, team_id=input.team_id)
+        .values_list("status", flat=True)
+        .afirst()
+    )
+    return status == SignalReport.Status.CANDIDATE
+
+
+@frozen
+class MaybeAutostartImplementationInput:
+    team_id: int
+    report_id: str
+    requested_user_id: int | None = None
+    requested_task_id: str | None = None
+    requested_after_run_count: int | None = None
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def maybe_autostart_implementation_activity(input: MaybeAutostartImplementationInput) -> None:
+    """Evaluate self-driving auto-start from the report's current artefacts, once it has settled.
+
+    Runs at the workflow's settle point (report READY, no pending signals) rather than per research
+    run, so the implementation task is scoped to the report's final summary — not whichever research
+    pass finished first. Normal auto-start skips an existing implementation task. An explicit
+    requested rerun can start another run on that task after the new research pass.
+    """
+    if input.requested_user_id is not None:
+        if input.requested_after_run_count is None:
+            raise ValueError("A requested implementation needs the report's prior run count")
+        await database_sync_to_async(start_requested_implementation, thread_sensitive=False)(
+            RequestedImplementation(
+                team_id=input.team_id,
+                report_id=input.report_id,
+                user_id=input.requested_user_id,
+                task_id=input.requested_task_id,
+                after_run_count=input.requested_after_run_count,
+            ),
+            ch_user=ClickHouseUser.SIGNALS,
+        )
+    else:
+        try:
+            await maybe_autostart_from_report_artefacts(
+                team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+            )
+            # A plan never starts its own run, so its first layers start here, at the same settle point.
+            await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
+                team_id=input.team_id, parent_report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+            )
+            # Reports held because no report held a GitHub issue they depend on can link to this one now.
+            waiting_ids = await database_sync_to_async(reports_waiting_on_issues_of, thread_sensitive=False)(
+                team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+            )
+            await database_sync_to_async(start_unblocked_layers, thread_sensitive=False)(
+                team_id=input.team_id, report_ids=waiting_ids, ch_user=ClickHouseUser.SIGNALS
+            )
+        except RepositoryAccessTemporarilyUnavailable as error:
+            raise ApplicationError(
+                str(error),
+                next_retry_delay=timedelta(seconds=error.wait) if error.wait else None,
+            ) from error
+
+
+@dataclass(frozen=True)
 class MarkReportFailedInput:
     team_id: int
     report_id: str
     error: str
     failure_reason: str | None = None
+    error_type: str | None = None
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
+    startup_failure: ResearchStartupFailure | None = None
+
+
+@frozen
+class NotifyResearchStartupFailureInput:
+    team_id: int
+    report_id: str
+    failure: ResearchStartupFailure
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def notify_research_startup_failure_activity(input: NotifyResearchStartupFailureInput) -> None:
+    await database_sync_to_async(notify_research_startup_failure, thread_sensitive=False)(
+        input.team_id, input.report_id, input.failure
+    )
 
 
 @temporalio.activity.defn
@@ -696,8 +1516,22 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.FAILED:
                 return report.run_count, True
-            updated_fields = report.transition_to(SignalReport.Status.FAILED, error=input.error)
+            updated_fields = report.transition_to(
+                SignalReport.Status.FAILED,
+                error=startup_failure_message(input.startup_failure.failure) if input.startup_failure else input.error,
+            )
+            report.startup_failure = report_startup_failure(input.startup_failure) if input.startup_failure else None
+            updated_fields.append("startup_failure")
             report.save(update_fields=updated_fields)
+            if input.startup_failure:
+                append_task_run_artefact(
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                    product=SIGNALS_PRODUCT,
+                    type=TASK_RUN_TYPE_RESEARCH,
+                    task_id=str(input.startup_failure.task_id),
+                    run_id=str(input.startup_failure.run_id),
+                )
             return report.run_count, False
 
         run_count, was_already_failed = await database_sync_to_async(do_update, thread_sensitive=False)()
@@ -716,7 +1550,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_completed",
         team=team,
         organization=team.organization,
@@ -726,6 +1560,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         source_products=input.source_products,
         result="failed",
         failure_reason=input.failure_reason,
+        error_type=input.error_type,
     )
     logger.debug(
         f"Marked report {input.report_id} as failed",
@@ -734,20 +1569,45 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     )
 
 
-@dataclass
+@frozen
 class MarkReportPendingInput:
     team_id: int
     report_id: str
-    title: str
-    summary: str
+    # `None` keeps the report's current title/summary.
+    title: str | None
+    summary: str | None
     reason: str
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
     # See MarkReportReadyInput.charts — written in the same transaction as the draft title/summary.
     charts: list[dict[str, Any]] | None = None
+    # See MarkReportReadyInput.metrics — same transaction and replay-safe default.
+    metrics: list[dict[str, Any]] | None = None
+    plans_task_id: str | None = None
+    revise_measurement_plan_metric_ids: list[str] | None = None
+    retire_measurement_plan_metric_ids: list[str] | None = None
+    previous_measurement_plan_ids: dict[str, str] | None = None
+    # See MarkReportReadyInput.checks: same transaction, same replay-safe defaults.
+    checks: list[dict[str, Any]] | None = None
+    checks_snapshot: dict[str, str] | None = None
+    checks_monitoring_enabled: bool = False
+    reconcile_checks: bool = False
+    checks_summary: str | None = None
+    checks_error: str | None = None
+    checks_task_id: str | None = None
+    # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
+    suggested_prompts: list[str] | None = None
+    # See MarkReportReadyInput.charts_enabled — reported, never stored.
+    charts_enabled: bool | None = None
+    # See MarkReportReadyInput.tags — same transaction, same replay-safe default.
+    tags: list[str] | None = None
     # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
     # ReportDecision.pending_reason.
     pending_reason: str | None = None
+    # See ReportDecision.note. Appended to the work log in the same transaction.
+    note: str | None = None
+    # See ReportDecision.keep_existing_content.
+    keep_existing_content: bool = False
 
 
 @temporalio.activity.defn
@@ -758,23 +1618,44 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[int, bool]:
+        def do_update() -> _ReportTransition:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.PENDING_INPUT:
-                return report.run_count, True
+                return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
+            title = report.title if input.keep_existing_content and report.title else input.title
+            summary = report.summary if input.keep_existing_content and report.summary else input.summary
             updated_fields = report.transition_to(
-                SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
+                SignalReport.Status.PENDING_INPUT, title=title, summary=summary, error=input.reason
             )
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
+            if input.metrics is not None:
+                report.metrics = _observation_metrics(report, input.metrics)
+                updated_fields = [*updated_fields, "metrics"]
+            if input.suggested_prompts is not None:
+                report.suggested_prompts = input.suggested_prompts
+                updated_fields = [*updated_fields, "suggested_prompts"]
+            if input.tags is not None:
+                report.tags = coerce_report_tags(input.tags)
+                updated_fields = [*updated_fields, "tags"]
             # Read by capture_status_change_analytics's post_save receiver (same instance, same
             # transaction) — not a model field, so it never persists past this save.
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
-            return report.run_count, False
+            _write_research_checks(report, input)
+            if input.note is not None:
+                SignalReportArtefact.add_log(
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                    content=NoteArtefact(note=input.note),
+                    attribution=ArtefactAttribution.system(),
+                )
+            return _ReportTransition(
+                run_count=report.run_count, chart_count=len(report.charts or []), was_duplicate=False
+            )
 
-        run_count, was_already_pending_input = await database_sync_to_async(do_update, thread_sensitive=False)()
+        transition = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as pending_input: {e}",
@@ -782,7 +1663,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         )
         raise
 
-    if was_already_pending_input:
+    if transition.was_duplicate:
         logger.info(
             f"Report {input.report_id} already in pending_input status, skipping duplicate transition",
             report_id=input.report_id,
@@ -790,16 +1671,18 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_completed",
         team=team,
         organization=team.organization,
         report_id=input.report_id,
         signal_count=input.signal_count,
-        run_count=run_count,
+        run_count=transition.run_count,
         source_products=input.source_products,
         result="pending_input",
         pending_reason=input.pending_reason,
+        chart_count=transition.chart_count,
+        charts_enabled=input.charts_enabled,
     )
     logger.debug(
         f"Marked report {input.report_id} as pending_input",
@@ -849,7 +1732,7 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
         return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_completed",
         team=team,
         organization=team.organization,
@@ -883,7 +1766,6 @@ async def dispatch_inbox_slack_notifications_activity(input: DispatchInboxSlackN
     return await database_sync_to_async(dispatch_inbox_item_notifications, thread_sensitive=False)(
         report_id=input.report_id,
         team_id=input.team_id,
-        source_products=input.source_products,
     )
 
 
@@ -934,3 +1816,26 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
             team_id=input.team_id,
         )
         raise
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs) -> None:
+    # Older histories did not snapshot their owner. New passes always supply it explicitly.
+    signal_id = input.signal_id or await database_sync_to_async(report_triggering_signal)(
+        team_id=input.team_id, report_id=input.report_id
+    )
+    if signal_id:
+        await database_sync_to_async(finish_report_spend)(
+            team_id=input.team_id, report_id=input.report_id, signal_id=signal_id
+        )
+        await submit_signal_metadata_updates(team_id=input.team_id, signal_ids=[signal_id])
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def report_spend_owner_activity(input: SignalReportSummaryWorkflowInputs) -> str | None:
+    return input.signal_id or await database_sync_to_async(report_triggering_signal)(
+        team_id=input.team_id, report_id=input.report_id
+    )

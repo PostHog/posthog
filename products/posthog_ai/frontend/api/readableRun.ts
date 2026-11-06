@@ -1,5 +1,5 @@
 // Tier 1 — prepackaged read-only run surface. `ReadonlyRunSurface` (`<ReadonlyRunSurface .../>`) is the lazy,
-// code-split embeddable for "just show a run": it renders the run thread (and, for a live run, the meta bars)
+// code-split embeddable for "just show a run": it renders the run thread (with the context-usage footer for a live run)
 // behind a `RunLogSkeleton` fallback — no composer, no approval prompt. This is the common embed (the inbox
 // detail views). It streams fresh frames while running when `interaction='live'`, and replays the snapshot
 // once when `interaction='read-only'`.

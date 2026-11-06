@@ -6,21 +6,28 @@ on:
 
 name: Security
 
+concurrency:
+    # Push runs key by SHA. A shared group keeps one pending run, so intermediate master commits would lose their scan.
+    # PR runs key by github.ref (refs/pull/<N>/merge), not head_ref, so fork PRs on the same branch name stay apart.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
 
 env:
     SEMGREP_ENABLE_VERSION_CHECK: 'false'
-    SEMGREP_IMAGE: semgrep/semgrep:1.167.0@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6
+    SEMGREP_IMAGE: semgrep/semgrep:1.175.0@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796
 
 jobs:
     # Job to decide which path-scoped semgrep scans need to run.
     # See .github/actions/paths-filter/README.md for filter semantics
     # Pushes and PRs above GitHub's 3000-file API limit run every scan.
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (github.repository_owner == 'PostHog')
         name: Determine need to run Semgrep checks
         permissions:
             contents: read
@@ -35,21 +42,31 @@ jobs:
             devex: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex || 'true' }}
             test-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.test-rules || 'true' }}
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
+            # Pushes default to 'false' because the semgrep-ci action already scans the whole tree on a push.
+            scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
+            idor-rule: ${{ steps.filter.outputs.idor-rule || 'false' }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
               with:
                   clean: false
+                  persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - name: Force all scans for oversized pull requests
               id: oversized
               if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 3000
               run: echo "force_all=true" >> "$GITHUB_OUTPUT"
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               # forks can't read org secrets — fall back to github.token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+                  # paths-filter only calls pulls.listFiles
+                  permission-pull-requests: read
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' && steps.oversized.outputs.force_all != 'true'
@@ -66,6 +83,7 @@ jobs:
                         - '!products/desktop/**'
                         - 'services/llm-gateway/**'
                         - 'services/stripe-mock/**'
+                        - 'tools/**'
                         - '.semgrep/rules/security/**'
                         - '.github/workflows/ci-security.yaml'
                       go:
@@ -78,7 +96,9 @@ jobs:
                       js:
                         - 'frontend/**'
                         - 'nodejs/**'
+                        - 'packages/**'
                         - 'services/agent-proxy/**'
+                        - 'services/credentials-service/**'
                         - 'services/mcp/**'
                         - 'services/oauth-proxy/**'
                         - 'services/stripe-app/**'
@@ -98,6 +118,7 @@ jobs:
                         - '!frontend/**'
                         - '!livestream/**'
                         - '!nodejs/**'
+                        - '!packages/**'
                         - '!posthog/**'
                         - '!products/**'
                         - '!rust/**'
@@ -108,11 +129,15 @@ jobs:
                       devex:
                         - 'bin/**'
                         - 'common/**'
+                        - 'docs/onboarding/**'
                         - 'ee/**'
                         - 'frontend/**'
+                        - 'hog/**'
                         - 'packages/**'
                         - 'posthog/**'
                         - 'products/**'
+                        - 'services/**'
+                        - 'tools/**'
                         - '.semgrep/rules/devex/**'
                         - '.github/workflows/ci-security.yaml'
                       # Rule tests only read fixtures under .semgrep/.
@@ -125,54 +150,98 @@ jobs:
                       desktop:
                         - 'products/desktop/**'
                         - '.github/workflows/ci-security.yaml'
+                      # A change to the rules or the scan setup can change findings in
+                      # unchanged code, so the jobs that pass local rules scan the whole tree.
+                      # Every new team-scoped model edits the IDOR rule, so semgrep-python
+                      # scans the whole tree with that rule file only.
+                      scan-setup:
+                        - '.semgrep/rules/security/**'
+                        - '!.semgrep/rules/security/idor-team-scoped-models.yaml'
+                        - '.github/workflows/ci-security.yaml'
+                      idor-rule:
+                        - '.semgrep/rules/security/idor-team-scoped-models.yaml'
 
     semgrep-python:
         needs: changes
         if: needs.changes.outputs.python == 'true'
-        runs-on: ubuntu-latest
-        timeout-minutes: 30
+        runs-on: ubuntu-24.04
+        # A copy of the repository lands on a slower GitHub-hosted runner pool, so
+        # it gets a longer budget for the full scan.
+        timeout-minutes: ${{ github.repository == 'PostHog/posthog' && 45 || 75 }}
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            # The login only lifts the Docker Hub pull rate limit, and anonymous pulls still
+            # work, so every Docker Hub login in CI is best-effort.
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config "p/python" \
-                      --config "p/owasp-top-ten" \
-                      --config "p/security-audit" \
-                      --config "p/trailofbits" \
-                      --config ".semgrep/rules/security" \
-                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
-                      --exclude-rule "python.django.security.audit.csrf-exempt.no-csrf-exempt" \
-                      --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
-                      --exclude "products/desktop" \
-                      --error \
-                      --metrics=off \
-                      --verbose \
-                      --jobs 4 \
-                      --timeout 300 \
-                      bin/ common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.scan-setup }}
+                  args: >-
+                      --config p/python
+                      --config p/owasp-top-ten
+                      --config p/security-audit
+                      --config p/trailofbits
+                      --config .semgrep/rules/security
+                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+                      --exclude-rule python.django.security.audit.csrf-exempt.no-csrf-exempt
+                      --exclude-rule generic.html-templates.security.var-in-href.var-in-href
+                      --include /bin
+                      --include /common
+                      --include /ee
+                      --include /posthog
+                      --include /products
+                      --include /services/llm-gateway
+                      --include /services/stripe-mock
+                      --include /tools
+                      --exclude products/desktop
+                      --jobs 4
+
+            # The scan above checks only the changed files. A newly listed model can
+            # already have unscoped lookups in unchanged files. Keep the paths aligned
+            # with the scan above.
+            - name: Run the IDOR rule over the whole tree
+              if: needs.changes.outputs.idor-rule == 'true' && needs.changes.outputs.scan-setup != 'true'
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: 'true'
+                  args: >-
+                      --config .semgrep/rules/security/idor-team-scoped-models.yaml
+                      --include /bin
+                      --include /common
+                      --include /ee
+                      --include /posthog
+                      --include /products
+                      --include /services/llm-gateway
+                      --include /services/stripe-mock
+                      --include /tools
+                      --exclude products/desktop
+                      --jobs 4
 
     semgrep-go:
         needs: changes
         if: needs.changes.outputs.go == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -181,37 +250,37 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config "p/golang" \
-                      --config "p/owasp-top-ten" \
-                      --config "p/security-audit" \
-                      --config "p/trailofbits" \
-                      --config "r/go.lang.security" \
-                      --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter \
-                      --error \
-                      --metrics=off \
-                      --verbose \
-                      --timeout 300 \
-                      livestream/
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  args: >-
+                      --config p/golang
+                      --config p/owasp-top-ten
+                      --config p/security-audit
+                      --config p/trailofbits
+                      --config r/go.lang.security
+                      --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter
+                      --include /livestream
 
     semgrep-rust:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -220,39 +289,40 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config "p/rust" \
-                      --config "p/owasp-top-ten" \
-                      --config "p/security-audit" \
-                      --config "p/trailofbits" \
-                      --config "r/rust.lang.security" \
-                      --exclude-rule trailofbits.generic.curl-unencrypted-url.curl-unencrypted-url \
-                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
-                      --exclude-rule trailofbits.rs.panic-in-function-returning-result.panic-in-function-returning-result \
-                      --error \
-                      --metrics=off \
-                      --verbose \
-                      --timeout 300 \
-                      cli/ rust/
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  args: >-
+                      --config p/rust
+                      --config p/owasp-top-ten
+                      --config p/security-audit
+                      --config p/trailofbits
+                      --config r/rust.lang.security
+                      --exclude-rule trailofbits.generic.curl-unencrypted-url.curl-unencrypted-url
+                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+                      --exclude-rule trailofbits.rs.panic-in-function-returning-result.panic-in-function-returning-result
+                      --include /cli
+                      --include /rust
 
     semgrep-js:
         needs: changes
         if: needs.changes.outputs.js == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -261,36 +331,44 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config ".semgrep/rules/security" \
-                      --config "p/javascript" \
-                      --config "p/owasp-top-ten" \
-                      --config "p/security-audit" \
-                      --config "p/trailofbits" \
-                      --error \
-                      --metrics=off \
-                      --verbose \
-                      --timeout 300 \
-                      frontend/ nodejs/ services/agent-proxy/ services/mcp/ services/oauth-proxy/ services/stripe-app/
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.scan-setup }}
+                  args: >-
+                      --config .semgrep/rules/security
+                      --config p/javascript
+                      --config p/owasp-top-ten
+                      --config p/security-audit
+                      --config p/trailofbits
+                      --include /frontend
+                      --include /nodejs
+                      --include /packages
+                      --include /services/agent-proxy
+                      --include /services/credentials-service
+                      --include /services/mcp
+                      --include /services/oauth-proxy
+                      --include /services/stripe-app
 
     semgrep-products-frontend:
         needs: changes
         if: needs.changes.outputs.products-frontend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -299,37 +377,38 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  fetch-depth: 2
 
             # Single-rule scan — keeps the failure surface here aligned with the
             # job name. Other custom TS rules (no-direct-fuse-instantiation,
             # require-iframe-sandbox, ...) live in semgrep-js. When more
             # product-specific rules land, extend the --config list explicitly.
             - name: Run Semgrep
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config ".semgrep/rules/security/prefer-codegen-api.yaml" \
-                      --error \
-                      --metrics=off \
-                      --verbose \
-                      --timeout 300 \
-                      products/
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.scan-setup }}
+                  args: >-
+                      --config .semgrep/rules/security/prefer-codegen-api.yaml
+                      --include /products
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
         needs: changes
         if: needs.changes.outputs.general == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # The scan itself sits around 12 minutes, so 20 left too little headroom
         # for a slow runner and the job was tripping the timeout.
         timeout-minutes: 30
@@ -340,48 +419,54 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  fetch-depth: 2
 
             # exclude all directories already scanned by other jobs
+            #
+            # This job is the only one that scans .github/, so a workflow rule in
+            # .semgrep/rules/security/ gates nothing until it is named here. The jobs
+            # that load that whole directory restrict their targets to trees that hold
+            # no workflow file.
             - name: Run Semgrep
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config "p/owasp-top-ten" \
-                      --config "p/security-audit" \
-                      --config "p/trailofbits" \
-                      --config "p/github-actions" \
-                      --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile \
-                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
-                      --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces \
-                      --exclude-rule yaml.github-actions.security.audit.unsafe-add-mask-workflow-command.unsafe-add-mask-workflow-command \
-                      --error \
-                      --metrics=off \
-                      --verbose \
-                      --jobs 4 \
-                      --timeout 300 \
-                      --exclude ./cli/ \
-                      --exclude ./common/ \
-                      --exclude ./ee/ \
-                      --exclude ./frontend/ \
-                      --exclude ./livestream/ \
-                      --exclude ./nodejs/ \
-                      --exclude ./posthog/ \
-                      --exclude ./products/ \
-                      --exclude ./rust/ \
-                      --exclude ./.semgrep/ \
-                      --exclude ./docs/ \
-                      --exclude ./services/ \
-                      .
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  args: >-
+                      --config p/owasp-top-ten
+                      --config p/security-audit
+                      --config p/trailofbits
+                      --config p/github-actions
+                      --config .semgrep/rules/security/github-actions-publish-on-pull-request.yaml
+                      --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile
+                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+                      --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces
+                      --exclude-rule yaml.github-actions.security.audit.unsafe-add-mask-workflow-command.unsafe-add-mask-workflow-command
+                      --exclude /cli
+                      --exclude /common
+                      --exclude /ee
+                      --exclude /frontend
+                      --exclude /livestream
+                      --exclude /nodejs
+                      --exclude /packages
+                      --exclude /posthog
+                      --exclude /products
+                      --exclude /rust
+                      --exclude /.semgrep
+                      --exclude /docs
+                      --exclude /services
+                      --jobs 4
 
     # Devex / hygiene rules. Two passes:
     #   - WARNING-severity rules print findings without failing the job
@@ -391,7 +476,7 @@ jobs:
     semgrep-devex:
         needs: changes
         if: needs.changes.outputs.devex == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -400,14 +485,22 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  # PR merge commit plus both parents, so the new-warnings
+                  # pass can baseline against the PR base (HEAD^1)
+                  fetch-depth: 2
+                  persist-credentials: false
 
             # Pass 1: print WARNING-severity findings. No --error — this step
             # does not fail CI. Backlogs from migration-in-progress rules show
@@ -423,7 +516,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
@@ -440,12 +533,56 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
+
+            # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
+            # baseline file lists the allowed count per file. More findings than the baseline fails, and
+            # so do fewer, so each migration lowers the baseline. See .semgrep/rules/devex/README.md.
+            # Skip on unrebased branches: the rule may not exist there yet.
+            - name: Integration model ratchet (blocking)
+              run: |
+                  if [ ! -f .semgrep/rules/devex/integration-model-through-sdk.yaml ]; then
+                      echo "integration-model-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/rules/devex/integration-model-through-sdk.yaml" \
+                      --json \
+                      --output semgrep-integration-model.json \
+                      --metrics=off \
+                      --timeout 300 \
+                      common/ ee/ posthog/ products/
+                  python3 bin/semgrep_ratchet.py \
+                    --findings semgrep-integration-model.json \
+                    --baseline posthog/integrations/model_access_baseline.txt
+
+            # Pass 3 (PRs only): fail on newly-introduced WARNING findings.
+            # --baseline-commit diffs against the PR base (first parent of the
+            # merge commit), so the pass-1 backlog is grandfathered while new
+            # violations block. See .semgrep/rules/devex/README.md.
+            - name: New warnings (blocking)
+              if: github.event_name == 'pull_request'
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/rules/devex/" \
+                      --severity=WARNING \
+                      --baseline-commit "$(git rev-parse HEAD^1)" \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      --timeout 300 \
+                      bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
 
     semgrep-test-rules:
         needs: changes
         if: needs.changes.outputs.test-rules == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -454,14 +591,25 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .semgrep/
+                      .github/workflows/
+                      .gitignore
+                      .gitattributes
+                  sparse-checkout-cone-mode: false
 
             - name: Test custom Semgrep rules
               run: |
@@ -470,6 +618,18 @@ jobs:
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep --test .semgrep/
 
+            # On a pull request semgrep-general scans only the changed files. A rule-only change
+            # leaves every workflow unchanged, so that scan cannot report what the edited rule
+            # now matches. This full scan can.
+            - name: Scan workflows with the workflow rules
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep scan --error --metrics=off --timeout 300 \
+                    --config .semgrep/rules/security/github-actions-publish-on-pull-request.yaml \
+                    .github/workflows/
+
     # products/desktop is an imported standalone app that does not follow the monorepo's
     # semgrep *convention* rules (.semgrep custom rules, devex), so those jobs exclude it.
     # This job gives its TS/Python real static security coverage from the universal registry
@@ -477,7 +637,7 @@ jobs:
     semgrep-desktop:
         needs: changes
         if: needs.changes.outputs.desktop == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -486,14 +646,19 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
+              with:
+                  persist-credentials: false
 
             - name: Run Semgrep (desktop, universal security packs)
               run: |
@@ -526,14 +691,18 @@ jobs:
             - semgrep-test-rules
             - semgrep-desktop
         name: Semgrep Checks Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check matrix outcome
               run: |
-                  if [[ "${{ needs.changes.result }}" != "success" ]]; then
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "changes (path filter) job did not succeed - cannot trust skips."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.changes.result }}" == "skipped" && "${{ github.repository != 'PostHog/posthog' && (github.event_name == 'push' || github.event_name == 'schedule') }}" != "true" ]]; then
+                    echo "changes (path filter) job was skipped - cannot trust skips."
                     exit 1
                   fi
                   if [[ "${{ needs.semgrep-python.result }}" != "success" && "${{ needs.semgrep-python.result }}" != "skipped" ]]; then

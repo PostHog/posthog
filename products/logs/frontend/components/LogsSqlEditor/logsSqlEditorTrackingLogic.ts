@@ -17,18 +17,18 @@ const captureSaved = (target: SaveAsMenuItem['action']): void => {
 export interface logsSqlEditorTrackingLogicActions {
     sqlEditorRunQuery: (
         queryOverride?: string | undefined,
-        switchTab?: boolean | undefined
+        switchTab?: boolean | undefined,
+        reuseResults?: boolean | undefined
     ) => {
         queryOverride: string | undefined
+        reuseResults: boolean
         switchTab: boolean | undefined
     } // sqlEditorLogic
     sqlEditorSaveAsEndpointSubmit: (
         name: string,
         description?: string | undefined,
-        queryOverride?: string | undefined,
-        dagId?: string | undefined
+        queryOverride?: string | undefined
     ) => {
-        dagId: string | undefined
         description: string | undefined
         name: string
         queryOverride: string | undefined
@@ -44,14 +44,14 @@ export interface logsSqlEditorTrackingLogicActions {
         name: string,
         materializeAfterSave?: any,
         fromDraft?: string | undefined,
-        dagId?: string | undefined,
         folderId?: string | null | undefined,
         isTest?: any,
-        queryOverride?: string | undefined
+        queryOverride?: string | undefined,
+        incremental?: import('~/types').DataWarehouseSavedQueryIncremental | undefined
     ) => {
-        dagId: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
+        incremental: import('~/types').DataWarehouseSavedQueryIncremental | undefined
         isTest: any
         materializeAfterSave: any
         name: string

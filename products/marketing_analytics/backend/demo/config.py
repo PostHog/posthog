@@ -2,7 +2,8 @@
 
 from posthog.models import Team, User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action, find_actions_by_name
+from products.actions.backend.facade.contracts import Action
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.marketing_analytics.backend.demo.warehouse import STRIPE_INVOICES_TABLE
 from products.marketing_analytics.backend.demo.world import EVENT_DEMO_BOOKED, EVENT_PURCHASE, EVENT_SIGNUP
@@ -10,11 +11,15 @@ from products.marketing_analytics.backend.demo.world import EVENT_DEMO_BOOKED, E
 MARKETING_FEATURE_FLAGS = (
     "marketing-analytics",
     "marketing-analytics-utm-audit",
-    "marketing-analytics-drill-down",
     "marketing-analytics-extended-drill-down",
     "marketing-analytics-multi-touch-attribution",
     "marketing-analytics-ai",
     "advance-marketing-analytics-settings",
+    # Gate the Setup tab and the ROAS / cost-per-customer columns. Without these the
+    # seeded world renders as if none of this work existed, which is the opposite of
+    # what a seeder is for.
+    "marketing-analytics-setup",
+    "marketing-analytics-return-metrics",
 )
 
 _DEFAULT_SCHEMA_MAP = {
@@ -26,10 +31,10 @@ _DEFAULT_SCHEMA_MAP = {
 
 
 def _ensure_demo_action(team: Team) -> Action:
-    action = Action.objects.filter(team=team, name="Demo booked (marketing demo)", deleted=False).first()
-    if action:
-        return action
-    return Action.objects.create(
+    existing = find_actions_by_name(team_id=team.pk, name="Demo booked (marketing demo)")
+    if existing:
+        return existing[0]
+    return create_action(
         team=team,
         name="Demo booked (marketing demo)",
         steps_json=[{"event": EVENT_DEMO_BOOKED}],
@@ -62,7 +67,7 @@ def build_conversion_goals(team: Team) -> list[dict]:
         },
         {
             "kind": "ActionsNode",
-            "id": action.pk,
+            "id": action.id,
             "conversion_goal_id": "cg_demos",
             "name": "Demo booked (marketing demo)",
             "conversion_goal_name": "Demos booked",
@@ -89,6 +94,21 @@ def build_conversion_goals(team: Team) -> list[dict]:
                 "timestamp_field": "created_at",
                 "distinct_id_field": "distinct_id",
             },
+        },
+        # Sums money and is flagged as neither, so the settings checkboxes have a goal
+        # to turn on. It does not produce mark_goal_as_revenue / mark_goal_as_customer:
+        # those ask "is there any flagged goal at all", and the two below are, which is
+        # what keeps ROAS and cost per customer unlocked here. A fixture can show the
+        # metrics working or the nudge to enable them, not both.
+        {
+            "kind": "EventsNode",
+            "event": EVENT_PURCHASE,
+            "conversion_goal_id": "cg_unflagged_revenue",
+            "name": EVENT_PURCHASE,
+            "conversion_goal_name": "Checkout value (unflagged)",
+            "math": "sum",
+            "math_property": "revenue",
+            "schema_map": _DEFAULT_SCHEMA_MAP,
         },
         # Deliberately broken goals: exercise is_misconfigured in the inspector
         # and the dashboard's validation warnings.

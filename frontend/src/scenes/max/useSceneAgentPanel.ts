@@ -1,8 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { useAttachedContext, useWelcomeOverride } from 'products/posthog_ai/frontend/api/logics'
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
+
+import {
+    ComposerOverride,
+    useAttachedContext,
+    useComposerOverride,
+    useWelcomeOverride,
+} from 'products/posthog_ai/frontend/api/logics'
 
 import { sceneAgentPanelLogic } from './sceneAgentPanelLogic'
 
@@ -13,6 +19,8 @@ export interface SceneAgentPanelOptions {
     contextItems: AttachedContextItem[] | null
     /** Contextual welcome headlines for the composer's empty state; defaults apply when omitted. */
     headlines?: string[]
+    /** Contextual composer override (suggestions, repo picker) for the empty state; a module-level constant. */
+    composer?: ComposerOverride
     /** When false, nothing is attached or opened (e.g. while the entity is still loading). Defaults to true. */
     active?: boolean
     /** Set false to attach context without auto-opening the panel. Defaults to true. */
@@ -30,6 +38,7 @@ export function useSceneAgentPanel({
     sceneKey,
     contextItems,
     headlines,
+    composer,
     active = true,
     autoOpen = true,
 }: SceneAgentPanelOptions): void {
@@ -37,6 +46,7 @@ export function useSceneAgentPanel({
     const { sceneEntered, sceneLeft } = useActions(sceneAgentPanelLogic)
     useAttachedContext(contextItems, { active: active && sceneIntegrationEnabled })
     useWelcomeOverride(headlines ?? null, { active: active && sceneIntegrationEnabled })
+    useComposerOverride(composer ?? null, { active: active && sceneIntegrationEnabled })
 
     useEffect(() => {
         // Deliberately not gated on sceneIntegrationEnabled: the logic decides eligibility itself,

@@ -6,17 +6,13 @@ from typing import Optional, TypedDict, Union
 from pydantic import BaseModel
 
 from posthog.schema import (
+    AmazonAdsDefaultSources,
+    AppleSearchAdsDefaultSources,
     BingAdsDefaultSources,
-    BingAdsTableExclusions,
-    BingAdsTableKeywords,
     DefaultChannelTypes,
     GoogleAdsDefaultSources,
-    GoogleAdsTableExclusions,
-    GoogleAdsTableKeywords,
     InfinityValue,
     LinkedinAdsDefaultSources,
-    LinkedinAdsTableExclusions,
-    LinkedinAdsTableKeywords,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
@@ -30,28 +26,26 @@ from posthog.schema import (
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
+    MarketingIntegrationConfig10,
+    MarketingIntegrationConfig11,
+    MarketingIntegrationConfig12,
+    MarketingIntegrationConfig13,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources,
-    MetaAdsTableExclusions,
-    MetaAdsTableKeywords,
     NativeMarketingSource,
     NodeKind,
+    OpenAIAdsDefaultSources,
     PinterestAdsDefaultSources,
-    PinterestAdsTableExclusions,
-    PinterestAdsTableKeywords,
     RedditAdsDefaultSources,
-    RedditAdsTableExclusions,
-    RedditAdsTableKeywords,
+    RoktAdsDefaultSources,
     SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources,
-    SnapchatAdsTableExclusions,
-    SnapchatAdsTableKeywords,
     TikTokAdsDefaultSources,
-    TikTokAdsTableExclusions,
-    TikTokAdsTableKeywords,
+    TwitterAdsDefaultSources,
     WebAnalyticsItemKind,
 )
 
@@ -103,6 +97,14 @@ SESSIONS_COLUMN_ALIAS = "Sessions"
 # The label every side of the query falls back to when channel can't be derived. Sourced from the
 # enum so the sides can't drift apart and split one row in two.
 UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
+
+# Revenue from goals marked counts_as_revenue over the channel's spend. Distinct from
+# REPORTED_ROAS, the platform's own figure. Not a base column: it needs the goals CTE.
+ROAS_COLUMN = MarketingAnalyticsConstants.ROAS.value
+
+# Joined to the "Cost per" prefix so it inherits that family's currency and higher-is-worse
+# formatting. Counts each customer goal's conversions as customers — see the aggregator.
+CAC_COLUMN_SUFFIX = MarketingAnalyticsConstants.CUSTOMER.value
 
 # What `$entry_referring_domain` holds when a session arrived with no referrer at all. Stored as a
 # sentinel rather than an empty string, so anything asking "does this session name a referrer?" has
@@ -329,6 +331,22 @@ BASE_COLUMN_MAPPING = {
     ),
 }
 
+# Metrics that only the cost side can report. A row with no cost match has no value for them,
+# which the table shows as "-" rather than as a spend of zero.
+COST_SIDE_METRIC_COLUMNS: frozenset[MarketingAnalyticsBaseColumns] = frozenset(
+    {
+        MarketingAnalyticsBaseColumns.COST,
+        MarketingAnalyticsBaseColumns.CLICKS,
+        MarketingAnalyticsBaseColumns.IMPRESSIONS,
+        MarketingAnalyticsBaseColumns.CPC,
+        MarketingAnalyticsBaseColumns.CTR,
+        MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS,
+        MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE,
+        MarketingAnalyticsBaseColumns.REPORTED_ROAS,
+        MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
+    }
+)
+
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
 
 # Hierarchy columns are emitted by the campaign_costs CTE only at AD_GROUP / AD levels
@@ -484,8 +502,11 @@ MARKETING_ANALYTICS_SCHEMA = {
 # Valid native marketing sources - derived from generated enum
 VALID_NATIVE_MARKETING_SOURCES = [source.value for source in NativeMarketingSource]
 
-# Valid non-native marketing sources (managed external sources like BigQuery)
-VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
+# Managed sources that import spend data from files: a storage bucket or an uploaded file.
+VALID_FILE_MARKETING_SOURCES = ["AmazonS3", "GoogleCloudStorage", "AzureBlob", "CloudflareR2", "FileUpload"]
+
+# Valid non-native marketing sources (managed external sources that need a column mapping)
+VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery", *VALID_FILE_MARKETING_SOURCES]
 
 # Valid self-managed marketing sources (mirrors frontend types)
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]
@@ -493,6 +514,10 @@ VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", 
 # Map generated config models to NativeMarketingSource using sourceType field
 _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig1,
+    MarketingIntegrationConfig10,
+    MarketingIntegrationConfig11,
+    MarketingIntegrationConfig12,
+    MarketingIntegrationConfig13,
     MarketingIntegrationConfig2,
     MarketingIntegrationConfig3,
     MarketingIntegrationConfig4,
@@ -500,6 +525,7 @@ _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
 ]
 
 
@@ -529,6 +555,11 @@ def _get_enum_values(enum_class) -> list[str]:
 
 # Mapping from NativeMarketingSource to generated enum types
 _DEFAULT_SOURCES_ENUMS = {
+    NativeMarketingSource.AMAZON_ADS: AmazonAdsDefaultSources,
+    NativeMarketingSource.APPLE_SEARCH_ADS: AppleSearchAdsDefaultSources,
+    NativeMarketingSource.OPEN_AI_ADS: OpenAIAdsDefaultSources,
+    NativeMarketingSource.ROKT_ADS: RoktAdsDefaultSources,
+    NativeMarketingSource.TWITTER_ADS: TwitterAdsDefaultSources,
     NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,
     NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsDefaultSources,
     NativeMarketingSource.META_ADS: MetaAdsDefaultSources,
@@ -539,42 +570,23 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.PINTEREST_ADS: PinterestAdsDefaultSources,
 }
 
-_TABLE_KEYWORDS_ENUMS = {
-    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableKeywords,
-    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableKeywords,
-    NativeMarketingSource.META_ADS: MetaAdsTableKeywords,
-    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableKeywords,
-    NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
-    NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
-    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableKeywords,
-    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableKeywords,
-}
-
-_TABLE_EXCLUSIONS_ENUMS = {
-    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableExclusions,
-    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableExclusions,
-    NativeMarketingSource.META_ADS: MetaAdsTableExclusions,
-    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableExclusions,
-    NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
-    NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
-    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableExclusions,
-    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableExclusions,
-}
-
 # Derived constants from generated types
 NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
-    source: [
-        _get_field_default(config, "campaignTableName"),
-        _get_field_default(config, "statsTableName"),
-    ]
+    source: list(
+        dict.fromkeys(
+            [
+                _get_field_default(config, "campaignTableName"),
+                _get_field_default(config, "statsTableName"),
+            ]
+        )
+    )
     for source, config in _CONFIG_MODELS.items()
 }
 
 TABLE_PATTERNS = {
     source: {
-        "campaign_table_keywords": _get_enum_values(_TABLE_KEYWORDS_ENUMS[source]),
-        "campaign_table_exclusions": _get_enum_values(_TABLE_EXCLUSIONS_ENUMS[source]),
-        "stats_table_keywords": [_get_field_default(config, "statsTableName")],
+        "stats_table_keywords": [_get_field_default(config, "statsTableName").lower()],
+        "campaign_table_name": _get_field_default(config, "campaignTableName").lower(),
     }
     for source, config in _CONFIG_MODELS.items()
 }
@@ -791,3 +803,10 @@ def to_marketing_analytics_data(
         changeFromPreviousPct=change_from_previous_pct,
         hasComparison=has_comparison,
     )
+
+
+# Spill the GROUP BY to disk past this much memory. Deliberately far below the shared
+# MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY (22 GiB): these queries peak around 1.5 GiB, so a threshold above
+# their peak never fires, and one above the per-query memory limit could never fire at all.
+# `test_spill_threshold_is_reachable` locks that relationship.
+MARKETING_SPILL_AFTER_BYTES = 512 * 1024 * 1024

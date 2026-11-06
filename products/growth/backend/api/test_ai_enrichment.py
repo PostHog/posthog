@@ -23,6 +23,7 @@ from products.growth.backend.enrichment.labels import (
     MAX_OUTPUT_FIELD_DESCRIPTION_CHARS,
     MAX_OUTPUT_FIELDS,
     MAX_PROMPT_TEXT_CHARS,
+    TransientToolError,
 )
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -39,7 +40,7 @@ def _mock_llm_client(
     verdict: bool = True, confidence: float = 0.9, reasoning: str = "builds ai software", verdict_key: str = "is_ai"
 ) -> MagicMock:
     client = MagicMock()
-    # The run action chains .with_options(max_retries=0) onto get_llm_client(...); without this,
+    # The run action chains .with_options(max_retries=0) onto build_openai_client(...); without this,
     # that call returns a fresh, unconfigured child mock and every assertion below silently
     # checks the wrong object (see enrichment_label_batch.py for the same pattern).
     client.with_options.return_value = client
@@ -47,6 +48,7 @@ def _mock_llm_client(
     response.choices[0].message.content = json.dumps(
         {verdict_key: verdict, "confidence": confidence, "reasoning": reasoning}
     )
+    response.choices[0].message.tool_calls = None
     client.chat.completions.create.return_value = response
     return client
 
@@ -186,7 +188,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
         fake_client = MagicMock()
         fake_client.models.list.return_value = [MagicMock(id="gpt-5.2"), MagicMock(id="claude-fable-5")]
 
-        with patch("products.growth.backend.enrichment.lab.get_llm_client", return_value=fake_client):
+        with patch("products.growth.backend.enrichment.lab.build_openai_client", return_value=fake_client):
             response = self.client.get("/api/growth_ai_enrichment/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -194,7 +196,9 @@ class TestAIEnrichmentAPI(APIBaseTest):
         self.assertEqual(ids, {"gpt-5.2", "claude-fable-5"})
 
     def test_models_returns_empty_rather_than_a_stale_list_when_the_gateway_is_down(self):
-        with patch("products.growth.backend.enrichment.lab.get_llm_client", side_effect=RuntimeError("gateway down")):
+        with patch(
+            "products.growth.backend.enrichment.lab.build_openai_client", side_effect=RuntimeError("gateway down")
+        ):
             response = self.client.get("/api/growth_ai_enrichment/models/")
 
         # No curated mirror: a hand-maintained fallback goes stale silently.
@@ -381,6 +385,20 @@ class TestAIEnrichmentAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(EnrichmentPromptConfig.objects.filter(name="too_many_fields_label").count(), 0)
 
+    def test_save_ignores_a_stray_sources_field_and_does_not_require_it(self):
+        payload = {
+            "label": "no_sources_label",
+            "prompt_text": "x",
+            "model": "gpt-5-mini",
+            "sources": [{"key": "pricing", "kind": "fetch", "url": "https://{domain}/pricing"}],
+            "output_fields": _OUTPUT_FIELDS,
+        }
+
+        response = self.client.post("/api/growth_ai_enrichment/save/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotIn("sources", response.json())
+
     def test_save_has_no_mutation_endpoint_for_an_existing_version(self):
         # Versions are immutable: the freeze is enforced by this viewset simply never defining
         # update/partial_update/destroy, not by any runtime check, so there is no detail route
@@ -406,7 +424,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
         client = _mock_llm_client()
 
         with (
-            patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client),
+            patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=client),
             patch("products.growth.backend.enrichment.lab.ai_processing_approved", return_value=False),
         ):
             response = self.client.post(
@@ -497,7 +515,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
         )
         client = _mock_llm_client()
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client) as get_client:
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=client) as get_client:
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -512,7 +530,11 @@ class TestAIEnrichmentAPI(APIBaseTest):
             )
             _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
 
-        get_client.assert_called_once_with(product="growth")
+        get_client.assert_called_once_with(
+            product="growth",
+            ai_product="growth",
+            properties={"ai_feature": "ai_enrichment", "surface": "staff_run"},
+        )
         client.with_options.assert_called_once_with(max_retries=0)
 
     def test_run_is_throttled_for_session_auth(self):
@@ -531,7 +553,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
             "sample": 1,
         }
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=_mock_llm_client()):
             statuses = []
             for _ in range(11):
                 response = self.client.post("/api/growth_ai_enrichment/run/", payload, format="json")
@@ -575,7 +597,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
             payload={"name": "Acme", "contactEmail": "person@example.com"},
         )
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=_mock_llm_client()):
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -617,7 +639,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
             payload={"companyFound": False, "name": "Acme"},
         )
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=_mock_llm_client()):
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -642,7 +664,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
             organization=self.organization, provider="harmonic", payload={"companyFound": False}
         )
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=_mock_llm_client()):
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -676,7 +698,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         )
         client = _mock_llm_client()
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=client):
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -713,7 +735,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         # classify_fetch_for_run runs in a thread-pool worker that only executes (and only then
         # calls capture_exception) once something actually iterates streaming_content.
         with (
-            patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=failing_client),
+            patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=failing_client),
             patch("products.growth.backend.enrichment.lab.capture_exception") as mock_capture,
             patch("tenacity.nap.time.sleep"),
         ):
@@ -741,6 +763,34 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         self.assertEqual(verdict_rows[0]["inputs"], {"name": "Acme"})
         self.assertEqual(summary_row["summary"], {"classified": 0, "unknown": 0, "errors": 1})
         mock_capture.assert_called_once()
+
+    def test_run_reports_a_clear_message_for_a_transient_tool_error(self):
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        client = _mock_llm_client()
+
+        with (
+            patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=client),
+            patch("products.growth.backend.enrichment.lab.classify_payload", side_effect=TransientToolError("boom")),
+        ):
+            response = self.client.post(
+                "/api/growth_ai_enrichment/run/",
+                {
+                    "label": "transient_label",
+                    "prompt_text": "x",
+                    "model": "gpt-5-mini",
+                    "input_fields": ["name"],
+                    "output_fields": _OUTPUT_FIELDS,
+                    "sample": 1,
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            rows = _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
+
+        verdict_rows = [row for row in rows if "summary" not in row]
+        self.assertEqual(verdict_rows[0]["error"], "web search unavailable, retry later")
 
 
 class TestRunError(SimpleTestCase):
@@ -827,3 +877,12 @@ class TestSaveAndRunSerializerCaps(SimpleTestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("description", serializer.errors["output_fields"][0])
+
+
+class TestPromptTextHelpMentionsTools(SimpleTestCase):
+    @parameterized.expand([("save", SaveRequestSerializer), ("run", RunRequestSerializer)])
+    def test_mentions_web_search_and_fetch_page(self, _name, serializer_class):
+        help_text = serializer_class().fields["prompt_text"].help_text
+
+        self.assertIn("web_search", help_text)
+        self.assertIn("fetch_page", help_text)

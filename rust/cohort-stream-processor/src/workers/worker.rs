@@ -1,21 +1,35 @@
 //! Per-partition Stage 1 worker.
 //!
-//! [`Stage1Worker::spawn`] drains one partition's channel on a dedicated tokio task. Per sub-batch
-//! it produces membership changes and straggler re-keys, awaits all acks, then marks the offset
-//! processed. A produce failure holds the offset; a store error is logged and the event is skipped.
+//! [`Stage1Worker::spawn`] drains one partition's two lanes on a dedicated tokio task. Per live
+//! sub-batch it hands its membership changes to a bounded `ProduceWindow`, produces straggler
+//! re-keys and awaits their acks, then marks the offset processed. Live output is at most once, so
+//! the mark does not wait for the window's acks. A failed re-key skips the mark; a store error is
+//! logged and the event is skipped. Between live sub-batches it applies at most one seed run: a
+//! quantum of seeds leaves the lane only once the previous quantum has fully applied, and its runs
+//! go one per round, so live latency is at most one run and an admitted seed backlog never queues
+//! in front of live traffic.
+//!
+//! A `Sweep` message records an eviction request rather than running one. The pass then advances one
+//! bounded batch per round, alternating with live batches and running ahead of seeds
+//! ([`crate::workers::sweep_path`]), so a wave of deadlines coming due together costs live traffic
+//! one batch at a time instead of the whole wave at once.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use metrics::{counter, histogram};
+use cohort_core::seed::CoverageStartMs;
+use futures::FutureExt;
+use metrics::{counter, gauge, histogram, Histogram};
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::cascade::{first_cascade, CascadeMessage};
 use crate::consumers::events::CohortStreamEvent;
+use crate::consumers::readiness::RebuildGuard;
+use crate::consumers::seeds::{ConsumedSeed, SeedWork};
 use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
@@ -24,12 +38,12 @@ use crate::observability::metrics::{
     CASCADE_PRODUCE_ERRORS_TOTAL, COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH,
     EVICTION_QUEUE_REBUILT_KEYS_TOTAL, MERGE_REDIRECT_HOP_CAPPED_TOTAL,
     MERGE_REKEY_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
+    OUTPUT_WINDOW_WAITS_TOTAL, SLICES_BEGUN_TOTAL, SLICE_COVERED_SINCE_SECONDS,
     STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION,
-    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL,
-    SWEEP_KEYS_EVICTED_TOTAL,
+    STAGE1_REDIRECT_LOOKUP_DURATION, STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
 };
-use crate::partitions::intake::MeteredReceiver;
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
+use crate::partitions::router::WorkerInbox;
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::{
     map_transition, CohortMembershipChange, LastUpdatedClock, MembershipSink, MembershipStatus,
@@ -38,41 +52,43 @@ use crate::producer::{
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::stage2::{single_leaf_transition_register_writes, stage_register_writes};
-use crate::store::{Behavioral, BehavioralKey, ReadLane, StagedBatch, StoreHandle};
+use crate::store::{BehavioralKey, ReadLane, SliceCoverage, SliceTenure, StoreHandle};
 use crate::sweep::EvictionQueue;
-use crate::workers::cascade_path::handle_cascade;
+use crate::workers::cascade_path::handle_cascades;
 use crate::workers::event_path::{
     process_event_offloaded, schedule_deadline, EventNameGating, SkipReason,
 };
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::reconcile::{handle_reconcile_drain, ReconcileQueue};
-use crate::workers::seed_path::handle_seed;
+use crate::workers::seed_apply::{apply_seed_group, ApplyDeps, BatchMarks};
+use crate::workers::seed_run::{group_seeds, row_weight, Admitted, SeedGroup};
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
-use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
-
-/// Max eviction keys a single sweep pass drains. Daily-bucket deadlines cluster on tz-midnight, so a
-/// large team's whole wave can come due on one tick; capping the pop loop bounds the per-pass RocksDB
-/// read + produce + write batch + Stage 2 pass so events do not queue behind one giant sweep. Leftover
-/// due keys stay scheduled and drain on the next sweep tick.
-const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
+use crate::workers::sweep_path::{run_sweep_turn, SweepSchedule};
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
-
-/// Chunk size for a team's sweep-state prefetch, so each `multi_get_behavioral` spans a bounded number of
-/// keys and no single read op holds long before the sweep makes progress.
-const SWEEP_MULTI_GET_CHUNK: usize = 1024;
 
 /// Cooperative-yield cadence inside the worker fold. `handle_event` is synchronous, so a backlog of
 /// CPU-bound events would hold the runtime thread, starving the commit task and consume loop. A
 /// wall-clock interval adapts to per-event cost across catalogs of different sizes.
 const WORKER_YIELD_INTERVAL: Duration = Duration::from_millis(5);
 
+/// Unacked live output batches a worker allows before it waits. Sized for a few broker round trips
+/// of a partition's peak live output; `output_window_waits_total` says whether it binds.
+const PRODUCE_WINDOW: usize = 4;
+
 pub struct Stage1Worker {
     partition_id: u16,
     handle: JoinHandle<()>,
+}
+
+/// Whether a spawning worker rebuilds its `EvictionQueue` from `cf_behavioral`, so a dormant
+/// person's `Left` still fires after a restart. A rebuild needs a [`RebuildGuard`], so the readiness
+/// gate counts every rebuild that runs.
+pub enum EvictionRestore {
+    Skip,
+    Rebuild(RebuildGuard),
 }
 
 impl Stage1Worker {
@@ -80,51 +96,52 @@ impl Stage1Worker {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
-        receiver: MeteredReceiver,
+        inbox: WorkerInbox,
         store: StoreHandle,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
         tracker: Arc<OffsetTracker>,
         merge: Arc<MergeWorkerDeps>,
-        durable_restore: bool,
+        restore: EvictionRestore,
     ) -> Self {
         Self::spawn_with_gating(
             partition_id,
-            receiver,
+            inbox,
             store,
             catalog,
             sink,
             tracker,
             merge,
-            durable_restore,
+            restore,
             EventNameGating::Disabled,
+            CoverageStartMs::now(),
         )
     }
 
-    /// When `durable_restore` is on, re-seeds the `EvictionQueue` from `cf_behavioral` on spawn so a
-    /// dormant person's `Left` still fires after a crash-restart.
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_with_gating(
         partition_id: u16,
-        receiver: MeteredReceiver,
+        inbox: WorkerInbox,
         store: StoreHandle,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
         tracker: Arc<OffsetTracker>,
         merge: Arc<MergeWorkerDeps>,
-        durable_restore: bool,
+        restore: EvictionRestore,
         event_name_gating: EventNameGating,
+        assigned_at: CoverageStartMs,
     ) -> Self {
         let handle = tokio::spawn(run_worker(
             partition_id,
-            receiver,
+            inbox,
             store,
             catalog,
             sink,
             tracker,
             merge,
-            durable_restore,
+            restore,
             event_name_gating,
+            assigned_at,
         ));
         Self {
             partition_id,
@@ -141,29 +158,171 @@ impl Stage1Worker {
     }
 }
 
+/// What one [`run_worker`] select round yielded, so the loop body is a plain `match`.
+enum Turn {
+    /// A live sub-batch, or `None` for a closed live lane.
+    Live(Option<Vec<ShuffleMessage>>),
+    /// One bounded eviction batch of the pending sweep work.
+    Sweep,
+    /// The pending quantum has a run to apply.
+    Run,
+    /// Seeds taken from the lane this round; `0` means the lane closed.
+    Seeds(usize),
+}
+
+/// One quantum's runs, applied one per round so live batches interleave with them. The marks are
+/// published only after the last run (see [`BatchMarks`]); a hold publishes as it happens.
+#[derive(Default)]
+struct PendingRuns {
+    groups: VecDeque<SeedGroup>,
+    marks: BatchMarks,
+}
+
+/// Live output batches handed to the producer whose acks the worker has not collected yet.
+///
+/// Live output is at most once and its state is already committed, so the offset mark does not
+/// wait for the ack. The bound is for a broker stall: with [`PRODUCE_WINDOW`] batches unacked the
+/// worker waits, so the stall shows as lag on this partition instead of as output held in memory
+/// until the message timeout drops it.
+///
+/// [`submit`](Self::submit) enqueues a batch's records before it returns, and only the acks are
+/// collected on a spawned task. So batches are enqueued in submit order, ahead of anything the
+/// worker produces next. A producer retry can still reorder batches that are in flight together.
+/// With version writes on, the membership consumer's version check puts them back in order. With
+/// them off, an older change can win until the next change for that cohort and person.
+struct ProduceWindow {
+    partition_id: u16,
+    sink: Arc<dyn MembershipSink>,
+    merge: Arc<MergeWorkerDeps>,
+    in_flight: VecDeque<JoinHandle<()>>,
+}
+
+impl ProduceWindow {
+    fn new(partition_id: u16, sink: Arc<dyn MembershipSink>, merge: Arc<MergeWorkerDeps>) -> Self {
+        Self {
+            partition_id,
+            sink,
+            merge,
+            in_flight: VecDeque::new(),
+        }
+    }
+
+    /// Hand the buffered changes, if any, to the producer. Waits only while the window is full.
+    ///
+    /// The worker submits before each merge, transfer, cascade, sweep or reconcile message and at
+    /// the end of each live sub-batch, so batches enter the window in state-commit order.
+    async fn submit(&mut self, buffer: &mut OutputBuffer, max_offset: Option<i64>) {
+        let Some(changes) = buffer.take() else {
+            return;
+        };
+        while self.in_flight.front().is_some_and(JoinHandle::is_finished) {
+            self.settle_oldest().await;
+        }
+        if self.in_flight.len() >= PRODUCE_WINDOW {
+            counter!(OUTPUT_WINDOW_WAITS_TOTAL).increment(1);
+            self.settle_oldest().await;
+        }
+        let mut produce = Box::pin(produce_live(
+            self.partition_id,
+            Arc::clone(&self.sink),
+            Arc::clone(&self.merge),
+            changes,
+            max_offset.unwrap_or(0),
+        ));
+        // The first poll enqueues every record, because the producer's enqueue is synchronous and
+        // only the acks are awaited. A spawned task first runs when the worker yields, which can be
+        // after the worker's next inline produce. Enqueueing here keeps Kafka order equal to
+        // state-commit order except across a producer retry, and Kafka order is what the membership
+        // consumer applies when its version writes are off.
+        if produce.as_mut().now_or_never().is_none() {
+            self.in_flight.push_back(tokio::spawn(produce));
+        }
+    }
+
+    /// Collect every outstanding produce, so a stopped worker leaves no output of its tenure in
+    /// flight.
+    async fn drain(mut self) {
+        while !self.in_flight.is_empty() {
+            self.settle_oldest().await;
+        }
+    }
+
+    async fn settle_oldest(&mut self) {
+        let Some(produce) = self.in_flight.pop_front() else {
+            return;
+        };
+        if let Err(error) = produce.await {
+            error!(
+                partition_id = self.partition_id,
+                error = %error,
+                "live produce task failed; its output is lost",
+            );
+        }
+    }
+}
+
+/// Produce one live batch's membership changes and their first-hop cascades. A failed leg is
+/// counted and logged but never retried, because the batch's state is already committed and a
+/// replay finds nothing left to emit.
+async fn produce_live(
+    partition_id: u16,
+    sink: Arc<dyn MembershipSink>,
+    merge: Arc<MergeWorkerDeps>,
+    changes: Vec<CohortMembershipChange>,
+    source_offset: i64,
+) {
+    let produced = changes.len();
+    // Built from a borrow before `changes` moves: the cascade payload embeds the change.
+    let cascades = first_cascades(&merge, &changes, source_offset);
+    let (membership_errors, cascade_errors) = tokio::join!(
+        produce_membership(&sink, changes),
+        produce_cascades(&merge, cascades),
+    );
+    if membership_errors + cascade_errors > 0 {
+        warn!(
+            partition_id,
+            changes = produced,
+            membership_errors,
+            cascade_errors,
+            "live produce failed; the changes are lost, and only a reconcile re-emits them",
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_worker(
     partition_id: u16,
-    mut receiver: MeteredReceiver,
+    inbox: WorkerInbox,
     handle: StoreHandle,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
     merge: Arc<MergeWorkerDeps>,
-    durable_restore: bool,
+    restore: EvictionRestore,
     event_name_gating: EventNameGating,
+    assigned_at: CoverageStartMs,
 ) {
     info!(partition_id, "stage 1 worker started");
 
     let mut queue = EvictionQueue::<BehavioralKey>::new();
+    let mut sweep = SweepSchedule::new(partition_id);
+    // Before any message, so the slice holds every event from the assignment on.
+    let coverage = resolve_slice_coverage(partition_id, assigned_at, &handle).await;
     let mut reconcile_queue = ReconcileQueue::new(
         partition_id,
         merge.reconcile.backlog.clone(),
         handle.clone(),
+        catalog.clone(),
+        coverage,
     );
-    // No-op for a cold partition (bloom-filtered scan finds nothing to schedule).
-    if durable_restore {
-        rebuild_eviction_queue(partition_id, &handle, &mut queue).await;
+    // No-op for a cold partition (bloom-filtered scan finds nothing to schedule). A failed scan logs
+    // and stops early, so the guard drops and the readiness gate cannot stick on a store error.
+    match restore {
+        EvictionRestore::Skip => {}
+        EvictionRestore::Rebuild(rebuilding) => {
+            rebuild_eviction_queue(partition_id, &handle, &mut queue).await;
+            drop(rebuilding);
+        }
     }
     // In-memory resume cursors; loss on rebalance is benign (GC re-scans from the start).
     let mut gc_cursor = MergeGcCursor::default();
@@ -172,17 +331,130 @@ async fn run_worker(
     // Persists across batches so a stream of buffered batches still yields on the wall-clock interval.
     let mut last_yield = Instant::now();
     let mut last_updated_clock = LastUpdatedClock::default();
-    while let Some(batch) = receiver.recv().await {
+    let mut window = ProduceWindow::new(partition_id, Arc::clone(&sink), Arc::clone(&merge));
+    let event_partition = EventPartition::new(partition_id);
+    // Two locals, not `inbox.live`/`inbox.seeds`: both branch futures live at once inside the
+    // macro, so they must borrow disjoint places.
+    let WorkerInbox {
+        mut live,
+        mut seeds,
+    } = inbox;
+    // The seed quantum, from the run ceiling: one turn takes at most one run's worth of seeds.
+    // The row budget, a kind change or a control seed can still cut a quantum into several runs,
+    // which then apply one per round. `NonZeroUsize` on purpose: `recv_many` with a limit of 0
+    // returns 0 at once, which reads here as a closed lane.
+    let quantum = merge.seed_budget.seeds.get();
+    // Grown by `recv_many` as seeds arrive, not sized up front: the run ceiling is a config knob,
+    // and an oversized one must not reserve that many seeds per worker at spawn.
+    let mut seed_buf: Vec<ConsumedSeed> = Vec::new();
+    let mut pending = PendingRuns::default();
+    let (mut live_open, mut seed_open) = (true, true);
+    loop {
+        // Live before seeds: a seed run is bounded work, a live backlog is not. A seed branch is
+        // reached only while the live lane is empty, so live latency is at most one seed run. The
+        // eviction sweep sits between the two: it is maintenance the queue already owes, not
+        // admitted backlog, so it runs ahead of seeds, and it alternates with live rather than
+        // queueing behind it.
+        //
+        // A partition whose live lane is never empty makes no seed progress, by design: live
+        // arrivals there already outpace the worker, a seed run would only deepen that backlog,
+        // and the seed consumer's live-lag gate stops admitting to it. Its lane then fills and
+        // `try_route_seeds` refuses, which is the alarm: `cohort_seed_paused_partitions` under
+        // cause `channel_full` and `cohort_seed_oldest_held_age_ms` rise while
+        // `cohort_seed_apply_run_size` goes flat.
+        //
+        // A draining sweep pass reads the same way for as long as it lasts, since it too sits ahead
+        // of both seed branches. Check `sweep_queue_lag_seconds` before concluding the live lane is
+        // the cause: a pass is bounded and clears, a live backlog does not.
+        let turn = tokio::select! {
+            biased;
+            // Ahead of live, but only for the one turn a live batch just earned it: eviction and live
+            // then alternate, so a lane that is never empty cannot hold a due wave indefinitely.
+            () = std::future::ready(()), if sweep.owes_turn() => Turn::Sweep,
+            batch = live.recv(), if live_open => Turn::Live(batch),
+            // Live is idle, so the pass keeps going rather than waiting for the next tick.
+            () = std::future::ready(()), if sweep.has_work() => Turn::Sweep,
+            // Ready at once: the quantum's remaining runs go one per round, behind any live batch.
+            () = std::future::ready(()), if !pending.groups.is_empty() => Turn::Run,
+            // The lane is polled again only once the previous quantum has fully applied.
+            taken = seeds.recv_many(&mut seed_buf, quantum),
+                if seed_open && pending.groups.is_empty() => Turn::Seeds(taken),
+            // Both lanes are closed and drained and no run is pending, so nothing more can arrive.
+            else => break,
+        };
+        let batch = match turn {
+            Turn::Live(Some(batch)) => batch,
+            Turn::Live(None) => {
+                live_open = false;
+                continue;
+            }
+            Turn::Seeds(0) => {
+                seed_open = false;
+                continue;
+            }
+            // `recv_many` appends, so drain it: otherwise turn n re-groups turns 1..n-1.
+            Turn::Seeds(_) => {
+                debug_assert!(
+                    pending.groups.is_empty(),
+                    "a quantum is taken only once the last one applied"
+                );
+                pending = group_seed_turn(
+                    partition_id,
+                    &catalog,
+                    &merge,
+                    seed_buf.drain(..).map(Admitted::from).collect(),
+                );
+                continue;
+            }
+            Turn::Sweep => {
+                run_sweep_turn(
+                    partition_id,
+                    &handle,
+                    &catalog,
+                    &sink,
+                    &merge,
+                    &mut queue,
+                    &mut last_updated_clock,
+                    &mut sweep,
+                )
+                .await;
+                continue;
+            }
+            Turn::Run => {
+                apply_next_run(
+                    partition_id,
+                    &handle,
+                    &catalog,
+                    &sink,
+                    &merge,
+                    &mut queue,
+                    &mut reconcile_queue,
+                    &mut last_updated_clock,
+                    &mut pending,
+                )
+                .await;
+                if pending.groups.is_empty() {
+                    // The whole quantum applied: its marks can publish, and the lane's meter stops
+                    // counting the seeds it took.
+                    std::mem::take(&mut pending.marks).publish(&merge.seed_tracker, partition_id);
+                    seeds.finish_turn();
+                }
+                continue;
+            }
+        };
+        // Claimed before the batch runs, not after: every exit path below (re-key failure, clean
+        // mark) must still yield the next turn, or a partition that keeps failing to re-key would
+        // starve eviction.
+        sweep.live_batch_done();
         let mut buffer = OutputBuffer::new();
         let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
         let mut max_offset: Option<i64> = None;
         // Observed into the live watermarks only post-mark, so a held batch never advances the
         // seed fence.
         let mut max_broker_ts: Option<i64> = None;
-        // Set when a pre-arm flush fails: holds the whole batch's offset so Kafka replays it.
-        let mut held = false;
 
-        for message in batch {
+        let mut messages = batch.into_iter().peekable();
+        while let Some(message) = messages.next() {
             let last_updated = last_updated_clock.next();
             match message {
                 ShuffleMessage::Event {
@@ -194,7 +466,7 @@ async fn run_worker(
                         Some(max_offset.map_or(cse_offset, |current| current.max(cse_offset)));
                     max_broker_ts = max_broker_ts.max(broker_ts_ms);
                     let effects = handle_event(
-                        partition_id,
+                        &event_partition,
                         &handle,
                         &catalog,
                         &event,
@@ -210,39 +482,13 @@ async fn run_worker(
                     re_keys.extend(effects.re_keys);
                 }
                 ShuffleMessage::Sweep { due_before_ms } => {
-                    if flush_event_changes_before_inline(
-                        &sink,
-                        &mut buffer,
-                        partition_id,
-                        &mut held,
-                    )
-                    .await
-                    {
-                        break;
-                    }
-                    handle_sweep(
-                        partition_id,
-                        &handle,
-                        &catalog,
-                        &sink,
-                        &merge,
-                        &mut queue,
-                        &last_updated,
-                        due_before_ms,
-                    )
-                    .await;
+                    // The eviction runs on a later turn, but the buffer is still submitted here,
+                    // ahead of the request that may retract this batch's own `Entered` output.
+                    window.submit(&mut buffer, max_offset).await;
+                    sweep.request(due_before_ms, &queue);
                 }
                 ShuffleMessage::Merge { event, offset } => {
-                    if flush_event_changes_before_inline(
-                        &sink,
-                        &mut buffer,
-                        partition_id,
-                        &mut held,
-                    )
-                    .await
-                    {
-                        break;
-                    }
+                    window.submit(&mut buffer, max_offset).await;
                     handle_merge(
                         partition_id,
                         &handle,
@@ -257,16 +503,7 @@ async fn run_worker(
                     .await;
                 }
                 ShuffleMessage::Transfer { transfer, offset } => {
-                    if flush_event_changes_before_inline(
-                        &sink,
-                        &mut buffer,
-                        partition_id,
-                        &mut held,
-                    )
-                    .await
-                    {
-                        break;
-                    }
+                    window.submit(&mut buffer, max_offset).await;
                     handle_apply(
                         partition_id,
                         &handle,
@@ -281,61 +518,22 @@ async fn run_worker(
                     .await;
                 }
                 ShuffleMessage::Cascade { message, offset } => {
-                    if flush_event_changes_before_inline(
-                        &sink,
-                        &mut buffer,
-                        partition_id,
-                        &mut held,
-                    )
-                    .await
+                    // A sub-batch carries one topic, so the run is normally the whole sub-batch.
+                    let mut run = vec![(message, offset)];
+                    while let Some(ShuffleMessage::Cascade { message, offset }) =
+                        messages.next_if(|next| matches!(next, ShuffleMessage::Cascade { .. }))
                     {
-                        break;
+                        run.push((message, offset));
                     }
-                    handle_cascade(
+                    window.submit(&mut buffer, max_offset).await;
+                    handle_cascades(
                         partition_id,
                         &handle,
                         &catalog,
                         &sink,
                         &merge,
-                        &last_updated,
-                        &message,
-                        offset,
-                    )
-                    .await;
-                }
-                ShuffleMessage::Seed {
-                    work,
-                    offset,
-                    broker_ts_ms: _,
-                } => {
-                    // Worker receipt is the first point that both proves this exact seed landed and
-                    // orders its ceiling before even a zero-work handler can mark it processed.
-                    // The dispatcher also records the delivered batch maximum, but that post-send
-                    // accounting can race a fast worker on a multithreaded runtime.
-                    merge
-                        .seed_tracker
-                        .mark_dispatched(partition_id as i32, offset + 1);
-                    if flush_event_changes_before_inline(
-                        &sink,
-                        &mut buffer,
-                        partition_id,
-                        &mut held,
-                    )
-                    .await
-                    {
-                        break;
-                    }
-                    handle_seed(
-                        partition_id,
-                        &handle,
-                        &catalog,
-                        &sink,
-                        &merge,
-                        &mut queue,
-                        &mut reconcile_queue,
-                        &last_updated,
-                        &work,
-                        offset,
+                        &mut last_updated_clock,
+                        run,
                     )
                     .await;
                 }
@@ -384,20 +582,10 @@ async fn run_worker(
                     }
                 }
                 ShuffleMessage::ReconcileDrain => {
-                    if flush_event_changes_before_inline(
-                        &sink,
-                        &mut buffer,
-                        partition_id,
-                        &mut held,
-                    )
-                    .await
-                    {
-                        break;
-                    }
+                    window.submit(&mut buffer, max_offset).await;
                     handle_reconcile_drain(
                         partition_id,
                         &handle,
-                        &catalog,
                         &sink,
                         &merge,
                         &mut reconcile_queue,
@@ -413,33 +601,7 @@ async fn run_worker(
             }
         }
 
-        if held {
-            continue;
-        }
-
-        if !buffer.is_empty() {
-            let changes = buffer.take();
-            // Build cascades from a borrow before `changes` is moved into produce; gate-off allocates nothing.
-            let cascades = first_cascades(&merge, &changes, max_offset.unwrap_or(0));
-            let errors = produce_membership(&sink, changes).await;
-            if errors > 0 {
-                warn!(
-                    partition_id,
-                    errors,
-                    "produce to cohort_membership_changed_shadow failed; holding offset for replay",
-                );
-                continue;
-            }
-            let cascade_errors = produce_cascades(&merge, cascades).await;
-            if cascade_errors > 0 {
-                warn!(
-                    partition_id,
-                    errors = cascade_errors,
-                    "produce to cohort_cascade_events failed; holding offset for replay",
-                );
-                continue;
-            }
-        }
+        window.submit(&mut buffer, max_offset).await;
 
         if !re_keys.is_empty() {
             let produced = re_keys.len() as u64;
@@ -448,10 +610,10 @@ async fn run_worker(
             if errors > 0 {
                 counter!(MERGE_REKEY_PRODUCE_FAILURE_TOTAL).increment(errors as u64);
                 warn!(
-                    partition_id,
-                    errors,
-                    "straggler re-key produce to cohort_stream_events failed; holding offset for replay",
-                );
+                        partition_id,
+                        errors,
+                        "straggler re-key produce to cohort_stream_events failed; holding offset for replay",
+                    );
                 continue;
             }
             tombstone_redirect::record_re_keyed(produced);
@@ -463,10 +625,10 @@ async fn run_worker(
             {
                 counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
                 warn!(
-                    partition_id,
-                    next_offset = max_offset + 1,
-                    "offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
-                );
+                        partition_id,
+                        next_offset = max_offset + 1,
+                        "offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
+                    );
             }
         }
         // Strictly post-mark: a consume-time watermark would reopen the double-count branch the
@@ -478,41 +640,71 @@ async fn run_worker(
         }
     }
 
+    window.drain().await;
     info!(partition_id, "stage 1 worker stopped");
 }
 
-/// Flush buffered event-path changes so they land before an inline (sweep/merge/transfer) produce,
-/// preserving produce order == state-commit order. No-op when the buffer is empty.
-/// Returns the failed-ack count (`0` = fully acked / empty).
-async fn flush_membership_buffer(
-    sink: &Arc<dyn MembershipSink>,
-    buffer: &mut OutputBuffer,
-) -> usize {
-    if buffer.is_empty() {
-        return 0;
+/// Split one quantum into the runs it will apply, one per worker round.
+///
+/// No live-buffer submit is needed first: the live `OutputBuffer` is submitted at the end of every
+/// live sub-batch, so it is always empty when a seed run starts.
+fn group_seed_turn(
+    partition_id: u16,
+    catalog: &CatalogHandle,
+    merge: &MergeWorkerDeps,
+    seeds: Vec<Admitted<SeedWork>>,
+) -> PendingRuns {
+    // Worker receipt is the first point that both proves these exact seeds landed and orders their
+    // ceiling before even a zero-work run can mark them processed. The dispatcher also records the
+    // delivered batch maximum, but that post-send accounting can race a fast worker on a
+    // multithreaded runtime.
+    if let Some(max) = seeds.iter().map(|seed| seed.offset.0).max() {
+        merge
+            .seed_tracker
+            .mark_dispatched(partition_id as i32, max + 1);
     }
-    produce_membership(sink, buffer.take()).await
+    let snapshot = catalog.load();
+    let groups = group_seeds(seeds, merge.seed_budget, |work| row_weight(&snapshot, work));
+    PendingRuns {
+        groups: groups.into(),
+        marks: BatchMarks::default(),
+    }
 }
 
-/// Flush buffered event-path changes ahead of an inline arm. Returns `true` when the flush failed:
-/// sets `held` so the caller `break`s and `mark_processed` is skipped, causing Kafka to replay.
-/// Returns `false` (empty or all acked) to run the arm normally.
-async fn flush_event_changes_before_inline(
-    sink: &Arc<dyn MembershipSink>,
-    buffer: &mut OutputBuffer,
+/// Apply the pending quantum's next run. Each run folds under its own catalog snapshot, so a
+/// catalog refresh between two runs of one quantum is the same edit race a live batch runs under.
+#[allow(clippy::too_many_arguments)]
+async fn apply_next_run(
     partition_id: u16,
-    held: &mut bool,
-) -> bool {
-    let errors = flush_membership_buffer(sink, buffer).await;
-    if errors > 0 {
-        *held = true;
-        warn!(
-            partition_id,
-            errors, "produce to cohort_membership_changed_shadow failed; holding offset for replay",
-        );
-        return true;
-    }
-    false
+    handle: &StoreHandle,
+    catalog: &CatalogHandle,
+    sink: &Arc<dyn MembershipSink>,
+    merge: &MergeWorkerDeps,
+    queue: &mut EvictionQueue<BehavioralKey>,
+    reconcile_queue: &mut ReconcileQueue,
+    clock: &mut LastUpdatedClock,
+    pending: &mut PendingRuns,
+) {
+    let Some(group) = pending.groups.pop_front() else {
+        return;
+    };
+    let snapshot = catalog.load();
+    let deps = ApplyDeps {
+        partition_id,
+        handle,
+        catalog: &snapshot,
+        sink,
+        merge,
+    };
+    apply_seed_group(
+        deps,
+        queue,
+        reconcile_queue,
+        clock,
+        &mut pending.marks,
+        group,
+    )
+    .await;
 }
 
 pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
@@ -527,6 +719,7 @@ pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) 
 /// Produce membership `changes`, await one ack per change, and record metrics. Returns the failed
 /// or missing/extra-ack count (`0` = fully acked). The caller owns the per-site warn and recovery
 /// action.
+#[hotpath::measure]
 pub(crate) async fn produce_membership(
     sink: &Arc<dyn MembershipSink>,
     changes: Vec<CohortMembershipChange>,
@@ -570,8 +763,9 @@ pub(crate) fn first_cascades(
 
 /// Produce cascade messages and await one ack per message. Returns the failed or
 /// missing/extra-ack count (`0` when empty or fully acked). The caller owns the recovery posture:
-/// the event path holds the offset; the sweep/merge paths drop (at-most-once). Shared by the
-/// first-hop leg and onward-hop consumer legs.
+/// the live, sweep and merge paths drop (at-most-once); the cascade consumer and seed apply hold
+/// the offset. Shared by the first-hop leg and onward-hop consumer legs.
+#[hotpath::measure]
 pub(crate) async fn produce_cascades(
     merge: &MergeWorkerDeps,
     cascades: Vec<CascadeMessage>,
@@ -596,9 +790,28 @@ struct EventEffects {
     re_keys: Vec<CohortStreamEvent>,
 }
 
+/// The partition a worker folds events on, with the meters labelled by it. The worker builds it
+/// once, so each event records into an already-registered handle instead of a per-event registry
+/// lookup, and [`Self::new`] derives the `partition` label from the same id the events fold under.
+struct EventPartition {
+    id: u16,
+    redirect_lookup: Histogram,
+}
+
+impl EventPartition {
+    fn new(id: u16) -> Self {
+        let label: Arc<str> = Arc::from(id.to_string());
+        Self {
+            id,
+            redirect_lookup: histogram!(STAGE1_REDIRECT_LOOKUP_DURATION, "partition" => label),
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
+#[hotpath::measure]
 async fn handle_event(
-    partition_id: u16,
+    partition: &EventPartition,
     handle: &StoreHandle,
     catalog: &CatalogHandle,
     event: &CohortStreamEvent,
@@ -606,6 +819,7 @@ async fn handle_event(
     partition_count: u32,
     event_name_gating: EventNameGating,
 ) -> EventEffects {
+    let partition_id = partition.id;
     let snapshot = catalog.load();
     let Some(team_filters) = snapshot.team(TeamId(event.team_id)) else {
         counter!(STAGE1_EVENTS_SKIPPED, "reason" => SkipReason::NoTeamFilters.as_str())
@@ -614,16 +828,20 @@ async fn handle_event(
     };
     let filters: &TeamFilters = team_filters;
 
-    let resolved: Cow<'_, CohortStreamEvent> =
-        match redirect_for_tombstone(partition_id, handle, event, partition_count).await {
-            Redirected::Process(event) => event,
-            Redirected::ReKey(re_keyed) => {
-                return EventEffects {
-                    re_keys: vec![re_keyed],
-                    ..EventEffects::default()
-                }
+    let lookup_started = Instant::now();
+    let redirected = redirect_for_tombstone(partition_id, handle, event, partition_count).await;
+    partition
+        .redirect_lookup
+        .record(lookup_started.elapsed().as_secs_f64());
+    let resolved: Cow<'_, CohortStreamEvent> = match redirected {
+        Redirected::Process(event) => event,
+        Redirected::ReKey(re_keyed) => {
+            return EventEffects {
+                re_keys: vec![re_keyed],
+                ..EventEffects::default()
             }
-        };
+        }
+    };
 
     let started = Instant::now();
     let result =
@@ -758,199 +976,43 @@ fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> Co
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn handle_sweep(
+/// The worker's slice coverage, beginning the slice at its assignment when it has no record.
+async fn resolve_slice_coverage(
     partition_id: u16,
+    assigned_at: CoverageStartMs,
     handle: &StoreHandle,
-    catalog: &CatalogHandle,
-    sink: &Arc<dyn MembershipSink>,
-    merge: &MergeWorkerDeps,
-    queue: &mut EvictionQueue<BehavioralKey>,
-    last_updated: &str,
-    due_before_ms: i64,
-) {
-    let mut popped: Vec<(BehavioralKey, i64)> = Vec::new();
-    while popped.len() < MAX_SWEEP_KEYS_PER_PASS {
-        let Some(entry) = queue.pop_due(due_before_ms) else {
-            break;
-        };
-        popped.push(entry);
-    }
-    if popped.is_empty() {
-        return;
-    }
-
-    let mut by_team: BTreeMap<u64, Vec<BehavioralKey>> = BTreeMap::new();
-    for &(key, _) in &popped {
-        by_team.entry(key.team_id()).or_default().push(key);
-    }
-
-    let snapshot = catalog.load();
-    let mut changes = Vec::new();
-    let mut results = Vec::new();
-    let mut drops: Vec<SweepDropReason> = Vec::new();
-    for (team_id, keys) in &by_team {
-        let Some(filters) = snapshot.team(TeamId(*team_id as i32)) else {
-            drops.extend(std::iter::repeat_n(SweepDropReason::TeamDrift, keys.len()));
-            continue;
-        };
-        let filters: &TeamFilters = filters;
-        // Per-team retry: a read failure anywhere in the team reschedules all its keys and applies
-        // none of it, so gather every chunk before evicting.
-        let mut values: Vec<Option<Vec<u8>>> = Vec::with_capacity(keys.len());
-        let mut read_failed = false;
-        for chunk in keys.chunks(SWEEP_MULTI_GET_CHUNK) {
-            // The maintenance permit rotates between chunks, keeping each op fair against event reads.
-            match handle
-                .multi_get_behavioral(chunk.to_vec(), ReadLane::Maintenance)
-                .await
-            {
-                Ok(chunk_values) => values.extend(chunk_values),
-                Err(error) => {
-                    warn!(
-                        partition_id,
-                        team_id,
-                        error = %error,
-                        "sweep state read failed; rescheduling the team's keys for retry",
-                    );
-                    reschedule_team(queue, &popped, *team_id);
-                    read_failed = true;
-                    break;
-                }
-            }
-        }
-        if read_failed {
-            continue;
-        }
-
-        let evictions = sweep_evict(filters, keys, values, due_before_ms);
-        for result in &evictions.results {
-            if let Some(transition) = &result.transition {
-                if let Some(kind) = transition_metric_label(filters, transition) {
-                    counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
-                }
-                changes.extend(map_transition(filters, transition, last_updated));
-            }
-        }
-        results.extend(evictions.results);
-        drops.extend(evictions.drops);
-    }
-
-    if !changes.is_empty() {
-        let errors = produce_membership(sink, changes).await;
-        if errors > 0 {
-            warn!(
-                partition_id,
-                errors,
-                "sweep produce to cohort_membership_changed_shadow failed; rescheduling for replay",
-            );
-            reschedule_all(queue, &popped);
-            return;
-        }
-    }
-
-    if !results.is_empty() {
-        let mut staged = StagedBatch::default();
-        for result in &results {
-            match &result.action {
-                EvictionAction::Write(bytes) => staged.put::<Behavioral>(&result.key, bytes),
-                EvictionAction::Delete => staged.delete::<Behavioral>(&result.key),
-            }
-            if let Some(transition) = &result.transition {
-                if let Some(filters) = snapshot.team(transition.team_id) {
-                    stage_register_writes(
-                        &mut staged,
-                        single_leaf_transition_register_writes(
-                            filters,
-                            partition_id,
-                            transition,
-                            due_before_ms,
-                        ),
-                    );
-                }
-            }
-        }
-        let written = handle.commit(staged).await;
-        if let Err(error) = written {
-            warn!(
-                partition_id,
-                error = %error,
-                "sweep state write failed; rescheduling popped keys to retry the eviction",
-            );
-            reschedule_all(queue, &popped);
-            return;
-        }
-
-        for result in &results {
-            if let Some(deadline) = result.reschedule {
-                queue.schedule(result.key, deadline);
-            }
-            counter!(SWEEP_KEYS_EVICTED_TOTAL, "variant" => result.variant.as_str()).increment(1);
-        }
-    }
-
-    for reason in &drops {
-        counter!(SWEEP_KEYS_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
-    }
-
-    let mut by_team_transitions: BTreeMap<u64, Vec<LeafTransition>> = BTreeMap::new();
-    for result in &results {
-        if let Some(transition) = &result.transition {
-            by_team_transitions
-                .entry(result.key.team_id())
-                .or_default()
-                .push(transition.clone());
-        }
-    }
-    let mut stage2_changes = Vec::new();
-    for (team_id, transitions) in &by_team_transitions {
-        let Some(filters) = snapshot.team(TeamId(*team_id as i32)) else {
-            continue;
-        };
-        let filters: &TeamFilters = filters;
-        match compose_stage2(
-            partition_id,
-            handle,
-            filters,
-            &affected_leaves(transitions),
-            due_before_ms,
-            last_updated,
-            ReadLane::Event,
-        )
+) -> SliceCoverage {
+    let coverage = match handle
+        .resume_or_begin_slice(partition_id, assigned_at)
         .await
-        {
-            Ok(changes) => stage2_changes.extend(changes),
-            Err(error) => warn!(
+    {
+        Ok(SliceTenure::Resumed(coverage)) => coverage,
+        Ok(SliceTenure::Begun(since)) => {
+            counter!(SLICES_BEGUN_TOTAL).increment(1);
+            info!(
                 partition_id,
-                team_id,
-                error = %error,
-                "sweep stage 2 composition failed; skipping (self-heals on the person's next event)",
-            ),
+                covered_since_ms = since.0,
+                "slice begins without earlier history; runs with an earlier boundary will be withheld",
+            );
+            SliceCoverage::Since(since)
         }
-    }
-    if stage2_changes.is_empty() {
-        return;
-    }
-
-    // Only Stage 2 membership changes cascade; single-leaf evictions self-heal on the referrer's next event.
-    let cascades = first_cascades(merge, &stage2_changes, 0);
-    let errors = produce_membership(sink, stage2_changes).await;
-    if errors > 0 {
-        warn!(
-            partition_id,
-            errors,
-            "sweep stage 2 produce to cohort_membership_changed_shadow failed; dropping (cf_stage2 already committed, at-most-once)",
-        );
-        return;
-    }
-    let cascade_errors = produce_cascades(merge, cascades).await;
-    if cascade_errors > 0 {
-        warn!(
-            partition_id,
-            errors = cascade_errors,
-            "sweep cascade produce failed; dropping (at-most-once). Recovery depends on each referrer being re-evaluated on its next event; the sweep does not re-evaluate cohort-ref shapes with no behavioral leaf",
-        );
-    }
+        Err(err) => {
+            // Fails closed: this worker certifies less, never more.
+            warn!(
+                partition_id,
+                error = %err,
+                "slice coverage unreadable; withholding runs with an earlier boundary",
+            );
+            SliceCoverage::Since(CoverageStartMs::now())
+        }
+    };
+    let covered_since_seconds = match coverage {
+        SliceCoverage::Complete => 0.0,
+        SliceCoverage::Since(since) => since.0 as f64 / 1000.0,
+    };
+    let partition: Arc<str> = Arc::from(partition_id.to_string());
+    gauge!(SLICE_COVERED_SINCE_SECONDS, "partition" => partition).set(covered_since_seconds);
+    coverage
 }
 
 /// Re-seed the per-worker [`EvictionQueue`] from `cf_behavioral`, scheduling every behavioral key on
@@ -1011,24 +1073,6 @@ async fn rebuild_eviction_queue(
     }
 }
 
-fn reschedule_all(queue: &mut EvictionQueue<BehavioralKey>, popped: &[(BehavioralKey, i64)]) {
-    for &(key, deadline) in popped {
-        queue.schedule(key, deadline);
-    }
-}
-
-fn reschedule_team(
-    queue: &mut EvictionQueue<BehavioralKey>,
-    popped: &[(BehavioralKey, i64)],
-    team_id: u64,
-) {
-    for &(key, deadline) in popped {
-        if key.team_id() == team_id {
-            queue.schedule(key, deadline);
-        }
-    }
-}
-
 /// The `(leaf, person)` pairs [`compose_stage2`] recomputes for.
 pub fn affected_leaves(transitions: &[LeafTransition]) -> Vec<(LeafStateKey, Uuid)> {
     transitions
@@ -1072,7 +1116,9 @@ mod tombstone_redirect_tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
+    use cohort_core::seed::{
+        BehavioralShapeHash, ReconcileScope, ReconcileTile, RunBoundaryMs, RunId,
+    };
 
     use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
@@ -1080,7 +1126,7 @@ mod tombstone_redirect_tests {
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
         CaptureCascadeSink, CaptureReconcileMarkerSink, CaptureSink, CaptureStreamEventSink,
-        CaptureTransferSink,
+        CaptureTransferSink, ReconcileMarker,
     };
     use crate::stage1::person_record::PersonRecord;
     use crate::stage1::state::AppliedOffsets;
@@ -1215,7 +1261,17 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         })
+    }
+
+    fn consumed_reconcile(tile: ReconcileTile, offset: i64) -> ConsumedSeed {
+        ConsumedSeed {
+            work: SeedWork::Reconcile(tile),
+            partition: 0,
+            offset,
+            broker_ts_ms: None,
+        }
     }
 
     fn reconcile_deps() -> (Arc<MergeWorkerDeps>, CaptureReconcileMarkerSink) {
@@ -1248,6 +1304,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         })
     }
 
@@ -1275,6 +1332,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         })
     }
 
@@ -1300,6 +1358,7 @@ mod tombstone_redirect_tests {
                 cse_offset: 0,
                 broker_ts_ms: None,
             }],
+            vec![],
         )
         .await;
         (partition_id, tracker)
@@ -1317,6 +1376,7 @@ mod tombstone_redirect_tests {
             CohortId(1),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(1)),
+            RunBoundaryMs(0),
         );
 
         // Bypass EventDispatcher's post-send seed ceiling accounting. The worker must establish the
@@ -1329,11 +1389,8 @@ mod tombstone_redirect_tests {
             &events_tracker,
             merge,
             0,
-            vec![ShuffleMessage::Seed {
-                work: Box::new(SeedWork::Reconcile(tile)),
-                offset: 5,
-                broker_ts_ms: None,
-            }],
+            vec![],
+            vec![consumed_reconcile(tile, 5)],
         )
         .await;
 
@@ -1355,30 +1412,51 @@ mod tombstone_redirect_tests {
             CohortId(1),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             RunId(Uuid::from_u128(7)),
+            // After the slice begins, so the run certifies.
+            RunBoundaryMs(chrono::Utc::now().timestamp_millis() + 86_400_000),
         );
 
-        run_batch(
+        // The drain tick must arrive after the tile is admitted, so the two lanes are driven by
+        // hand: a tick that beats the tile finds an empty queue and drains nothing. In production
+        // that is only latency — the next 2 s tick drains it.
+        let (live_tx, live_rx) = mpsc::channel(4);
+        let (seed_tx, seed_rx) = mpsc::channel(4);
+        let worker = Stage1Worker::spawn(
             0,
-            &store,
+            WorkerInbox::unmetered(live_rx, seed_rx),
+            test_handle(&store),
             reconcile_catalog(FILTERS_HASH),
-            &membership,
-            &events_tracker,
+            Arc::new(membership.clone()),
+            events_tracker.clone(),
             merge,
-            0,
-            vec![
-                ShuffleMessage::Seed {
-                    work: Box::new(SeedWork::Reconcile(tile)),
-                    offset: 5,
-                    broker_ts_ms: None,
-                },
-                ShuffleMessage::ReconcileDrain,
-            ],
-        )
-        .await;
+            EvictionRestore::Skip,
+        );
+        seed_tx.send(consumed_reconcile(tile, 5)).await.unwrap();
+        drop(seed_tx);
+        // Bounded by the clock, not by a poll count: the admission's store section runs on the
+        // blocking pool, so a busy CI box needs wall time, not yields.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while backlog.is_empty() {
+            assert!(
+                Instant::now() < deadline,
+                "the reconcile tile was never admitted"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        live_tx
+            .send(vec![ShuffleMessage::ReconcileDrain])
+            .await
+            .unwrap();
+        drop(live_tx);
+        worker.join().await.unwrap();
 
         assert!(membership.changes().is_empty());
         let markers = marker_sink.markers();
         assert_eq!(markers.len(), 1);
+        assert!(
+            matches!(markers[0], ReconcileMarker::Complete(_)),
+            "{markers:?}"
+        );
         assert_eq!(markers[0].partition(), 0);
         assert_eq!(markers[0].run_id(), RunId(Uuid::from_u128(7)));
         assert_eq!(seed_tracker.committable_offsets().get(&0), Some(&6));
@@ -1415,6 +1493,7 @@ mod tombstone_redirect_tests {
                     broker_ts_ms: None,
                 },
             ],
+            vec![],
         )
         .await;
 
@@ -1481,7 +1560,7 @@ mod tombstone_redirect_tests {
     }
 
     #[tokio::test]
-    async fn cascade_produce_failure_holds_the_events_batch() {
+    async fn cascade_produce_failure_does_not_hold_the_events_batch() {
         let (_dir, store) = temp_store();
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::failing_always();
@@ -1496,16 +1575,215 @@ mod tombstone_redirect_tests {
         assert_eq!(
             membership.changes().len(),
             1,
-            "membership is the first leg and acked before the cascade leg",
+            "the membership leg acks on its own"
         );
         assert!(cascade.messages().is_empty(), "the cascade produce failed");
         assert_eq!(
             tracker.committable_offsets().get(&(partition_id as i32)),
-            None,
-            "a failed cascade produce holds the events offset for replay",
+            Some(&1),
+            "live output is at most once, so a failed leg does not hold the events offset",
         );
     }
 
+    /// A membership sink that records changes when it is called, as a broker enqueue does, and
+    /// holds each ack until a [`GatedSink::release`], oldest first.
+    #[derive(Clone)]
+    struct GatedSink {
+        enqueued: CaptureSink,
+        acked: Arc<std::sync::atomic::AtomicUsize>,
+        gate: Arc<tokio::sync::Semaphore>,
+    }
+
+    impl GatedSink {
+        fn new() -> Self {
+            Self {
+                enqueued: CaptureSink::new(),
+                acked: Arc::default(),
+                gate: Arc::new(tokio::sync::Semaphore::new(0)),
+            }
+        }
+
+        fn release(&self, produces: usize) {
+            self.gate.add_permits(produces);
+        }
+
+        fn enqueued_cohorts(&self) -> Vec<i32> {
+            self.enqueued
+                .changes()
+                .iter()
+                .map(|change| change.cohort_id)
+                .collect()
+        }
+
+        fn acked(&self) -> usize {
+            self.acked.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MembershipSink for GatedSink {
+        async fn produce(
+            &self,
+            changes: Vec<CohortMembershipChange>,
+        ) -> Vec<Result<(), common_kafka::kafka_producer::KafkaProduceError>> {
+            let acks = self.enqueued.produce(changes).await;
+            self.gate
+                .acquire()
+                .await
+                .expect("the gate is never closed")
+                .forget();
+            self.acked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            acks
+        }
+    }
+
+    fn entered(cohort_id: i32) -> CohortMembershipChange {
+        CohortMembershipChange {
+            team_id: TEAM,
+            cohort_id,
+            person_id: Uuid::from_u128(1).to_string(),
+            last_updated: "2026-05-26 12:34:56.789000".to_string(),
+            status: MembershipStatus::Entered,
+            origin: None,
+            run_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn produce_window_enqueues_in_submit_order_and_waits_at_capacity() {
+        let sink = GatedSink::new();
+        let mut window = ProduceWindow::new(
+            0,
+            Arc::new(sink.clone()),
+            merge_deps_with(CaptureStreamEventSink::new()),
+        );
+        let mut buffer = OutputBuffer::new();
+        for cohort_id in 0..PRODUCE_WINDOW as i32 {
+            buffer.push(entered(cohort_id));
+            assert!(
+                window.submit(&mut buffer, None).now_or_never().is_some(),
+                "a window with room hands batch {cohort_id} over without waiting",
+            );
+        }
+        assert_eq!(
+            sink.enqueued_cohorts(),
+            (0..PRODUCE_WINDOW as i32).collect::<Vec<_>>(),
+            "each submit enqueues its batch before it returns",
+        );
+
+        buffer.push(entered(PRODUCE_WINDOW as i32));
+        {
+            let mut full = std::pin::pin!(window.submit(&mut buffer, None));
+            assert!(
+                futures::poll!(&mut full).is_pending(),
+                "a full window waits for its oldest ack",
+            );
+            assert_eq!(
+                sink.enqueued_cohorts().len(),
+                PRODUCE_WINDOW,
+                "the waiting submit enqueues its batch only after the oldest acks",
+            );
+            sink.release(1);
+            full.await;
+        }
+
+        sink.release(PRODUCE_WINDOW);
+        window.drain().await;
+        assert_eq!(
+            sink.enqueued_cohorts(),
+            (0..=PRODUCE_WINDOW as i32).collect::<Vec<_>>()
+        );
+        assert_eq!(sink.acked(), PRODUCE_WINDOW + 1, "drain collects every ack");
+    }
+
+    #[tokio::test]
+    async fn the_offset_marks_while_the_membership_produce_is_unacked() {
+        let (_dir, store) = temp_store();
+        let membership = GatedSink::new();
+        let tracker = Arc::new(OffsetTracker::new());
+        let person = Uuid::from_u128(0x0AC4);
+        let partition_id = partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16;
+        let (live_tx, live_rx) = mpsc::channel(4);
+        let (seed_tx, seed_rx) = mpsc::channel(4);
+        drop(seed_tx);
+        let worker = Stage1Worker::spawn(
+            partition_id,
+            WorkerInbox::unmetered(live_rx, seed_rx),
+            test_handle(&store),
+            person_catalog(),
+            Arc::new(membership.clone()),
+            tracker.clone(),
+            merge_deps_with(CaptureStreamEventSink::new()),
+            EvictionRestore::Skip,
+        );
+        tracker.mark_dispatched(partition_id as i32, 1);
+        live_tx
+            .send(vec![ShuffleMessage::Event {
+                event: Box::new(person_event(person, "u@p.com", 5, 0)),
+                cse_offset: 0,
+                broker_ts_ms: None,
+            }])
+            .await
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while tracker.committable_offsets().get(&(partition_id as i32)) != Some(&1) {
+            assert!(
+                Instant::now() < deadline,
+                "the offset never marked while the produce waited for its ack",
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(
+            membership.enqueued.changes().len(),
+            1,
+            "the flip was enqueued"
+        );
+        assert_eq!(membership.acked(), 0, "and is still unacked");
+
+        membership.release(1);
+        drop(live_tx);
+        worker.join().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_run_of_cascade_messages_marks_every_offset() {
+        let (_dir, store) = temp_store();
+        let merge = merge_deps_cascade(CaptureCascadeSink::new(), true);
+        merge.cascade_tracker.mark_dispatched(0, 3);
+        let cascade = |person: u128, offset: i64| ShuffleMessage::Cascade {
+            message: Box::new(first_cascade(
+                CohortMembershipChange {
+                    person_id: Uuid::from_u128(person).to_string(),
+                    ..entered(1)
+                },
+                0,
+            )),
+            offset,
+        };
+
+        run_batch(
+            0,
+            &store,
+            person_catalog(),
+            &CaptureSink::new(),
+            &Arc::new(OffsetTracker::new()),
+            merge.clone(),
+            0,
+            vec![cascade(1, 0), cascade(2, 1), cascade(3, 2)],
+            vec![],
+        )
+        .await;
+
+        assert_eq!(
+            merge.cascade_tracker.committable_offsets().get(&0),
+            Some(&3),
+            "every message the arm gathers into the run is settled",
+        );
+    }
+
+    /// Drive one worker over both lanes: `live` is sent as a single sub-batch, `seeds` one per
+    /// lane slot, then both senders drop so the worker drains and exits.
     #[allow(clippy::too_many_arguments)]
     async fn run_batch(
         partition_id: u16,
@@ -1515,23 +1793,30 @@ mod tombstone_redirect_tests {
         tracker: &Arc<OffsetTracker>,
         merge: Arc<MergeWorkerDeps>,
         dispatched: i64,
-        batch: Vec<ShuffleMessage>,
+        live: Vec<ShuffleMessage>,
+        seeds: Vec<ConsumedSeed>,
     ) {
-        let (tx, rx) = mpsc::channel(4);
-        let rx = MeteredReceiver::unmetered(rx);
+        let (live_tx, live_rx) = mpsc::channel(4);
+        let (seed_tx, seed_rx) = mpsc::channel(16);
         let worker = Stage1Worker::spawn(
             partition_id,
-            rx,
+            WorkerInbox::unmetered(live_rx, seed_rx),
             test_handle(store),
             catalog,
             Arc::new(membership.clone()),
             tracker.clone(),
             merge,
-            false,
+            EvictionRestore::Skip,
         );
         tracker.mark_dispatched(partition_id as i32, dispatched);
-        tx.send(batch).await.unwrap();
-        drop(tx);
+        for seed in seeds {
+            seed_tx.send(seed).await.unwrap();
+        }
+        drop(seed_tx);
+        if !live.is_empty() {
+            live_tx.send(live).await.unwrap();
+        }
+        drop(live_tx);
         worker.join().await.unwrap();
     }
 
@@ -1555,11 +1840,14 @@ mod tombstone_redirect_tests {
             vec![ShuffleMessage::Event {
                 event: Box::new(event),
                 cse_offset: 0,
-                broker_ts_ms: None,
+                broker_ts_ms: Some(STRAGGLER_BROKER_TS_MS),
             }],
+            vec![],
         )
         .await;
     }
+
+    const STRAGGLER_BROKER_TS_MS: i64 = 1_750_000_000_000;
 
     fn record_key(partition_id: u16, person: Uuid) -> PersonRecordKey {
         PersonRecordKey::new(partition_id, TEAM as u64, person)
@@ -1619,7 +1907,7 @@ mod tombstone_redirect_tests {
 
         let straggler = person_event(p_old, "u@p.com", 5, 101);
         let effects = handle_event(
-            partition_id,
+            &EventPartition::new(partition_id),
             &test_handle(&store),
             &catalog,
             &straggler,
@@ -1720,13 +2008,14 @@ mod tombstone_redirect_tests {
         let tracker = Arc::new(OffsetTracker::new());
 
         let failing = CaptureStreamEventSink::failing_always();
+        let failing_deps = merge_deps_with(failing.clone());
         run_one_straggler(
             partition_id,
             &store,
             catalog.clone(),
             &membership,
             &tracker,
-            merge_deps_with(failing.clone()),
+            failing_deps.clone(),
             person_event(p_old, "u@p.com", 5, 9),
         )
         .await;
@@ -1739,18 +2028,29 @@ mod tombstone_redirect_tests {
             None,
             "the failed produce holds the events offset",
         );
+        assert_eq!(
+            failing_deps.live_watermarks.get(partition_id as i32),
+            None,
+            "an unmarked batch never advances the seed fence",
+        );
 
         let succeeding = CaptureStreamEventSink::new();
+        let succeeding_deps = merge_deps_with(succeeding.clone());
         run_one_straggler(
             partition_id,
             &store,
             catalog,
             &membership,
             &tracker,
-            merge_deps_with(succeeding.clone()),
+            succeeding_deps.clone(),
             person_event(p_old, "u@p.com", 5, 9),
         )
         .await;
+        assert_eq!(
+            succeeding_deps.live_watermarks.get(partition_id as i32),
+            Some(crate::partitions::WatermarkMs(STRAGGLER_BROKER_TS_MS)),
+            "the marked redelivery advances it",
+        );
         let produced = succeeding.events();
         assert_eq!(
             produced.len(),
@@ -1771,7 +2071,8 @@ mod tombstone_redirect_tests {
     }
 
     #[tokio::test]
-    async fn membership_produce_failure_in_a_mixed_batch_withholds_the_re_key_and_the_mark() {
+    async fn membership_produce_failure_in_a_mixed_batch_drops_the_change_and_still_re_keys_and_marks(
+    ) {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
         let (p_old, partition_id, p_new) = cross_partition_pair();
@@ -1780,7 +2081,19 @@ mod tombstone_redirect_tests {
             .map(Uuid::from_u128)
             .find(|p| partition_of(TeamId(TEAM), p, COHORT_PARTITION_COUNT) as u16 == partition_id)
             .expect("some uuid hashes onto p_old's partition");
-        let batch = || {
+
+        let membership = CaptureSink::failing_first(1);
+        let stream_sink = CaptureStreamEventSink::new();
+        let tracker = Arc::new(OffsetTracker::new());
+
+        run_batch(
+            partition_id,
+            &store,
+            catalog,
+            &membership,
+            &tracker,
+            merge_deps_with(stream_sink.clone()),
+            2,
             vec![
                 ShuffleMessage::Event {
                     event: Box::new(person_event(alice, "u@p.com", 5, 0)),
@@ -1792,55 +2105,16 @@ mod tombstone_redirect_tests {
                     cse_offset: 1,
                     broker_ts_ms: None,
                 },
-            ]
-        };
-
-        let membership = CaptureSink::failing_first(1);
-        let stream_sink = CaptureStreamEventSink::new();
-        let tracker = Arc::new(OffsetTracker::new());
-
-        run_batch(
-            partition_id,
-            &store,
-            catalog.clone(),
-            &membership,
-            &tracker,
-            merge_deps_with(stream_sink.clone()),
-            2,
-            batch(),
+            ],
+            vec![],
         )
         .await;
         assert!(
             membership.changes().is_empty(),
-            "the failed flush recorded nothing"
-        );
-        assert!(
-            stream_sink.events().is_empty(),
-            "the membership failure withholds the straggler's re-key produce",
-        );
-        assert_eq!(
-            tracker.committable_offsets().get(&(partition_id as i32)),
-            None,
-            "the membership failure holds the whole sub-batch's offset",
-        );
-
-        run_batch(
-            partition_id,
-            &store,
-            catalog,
-            &membership,
-            &tracker,
-            merge_deps_with(stream_sink.clone()),
-            2,
-            batch(),
-        )
-        .await;
-        assert!(
-            membership.changes().is_empty(),
-            "the replay emits no duplicate membership change (the failed flip stays dropped, at-most-once)",
+            "the failed produce dropped alice's flip (at-most-once)",
         );
         let produced = stream_sink.events();
-        assert_eq!(produced.len(), 1, "the replay produces the re-key once");
+        assert_eq!(produced.len(), 1, "the straggler's re-key still produces");
         assert_eq!(produced[0].person_id, p_new.to_string());
         assert_eq!(
             (produced[0].source_partition, produced[0].source_offset),
@@ -1850,7 +2124,7 @@ mod tombstone_redirect_tests {
         assert_eq!(
             tracker.committable_offsets().get(&(partition_id as i32)),
             Some(&2),
-            "the acked replay releases the offset past both events",
+            "the mark passes both events",
         );
     }
 
@@ -1863,10 +2137,13 @@ mod tombstone_redirect_tests {
         assert_ne!(source_partition, target_partition);
         write_tombstone(&store, source_partition, p_old, p_new);
         let handle = test_handle(&store);
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let prometheus = recorder.handle();
+        let _local = metrics::set_default_local_recorder(&recorder);
 
         let straggler = person_event(p_old, "u@p.com", 5, 9);
         let mut effects = handle_event(
-            source_partition,
+            &EventPartition::new(source_partition),
             &handle,
             &catalog,
             &straggler,
@@ -1881,7 +2158,7 @@ mod tombstone_redirect_tests {
         let re_keyed = effects.re_keys.pop().unwrap();
 
         let effects = handle_event(
-            target_partition,
+            &EventPartition::new(target_partition),
             &handle,
             &catalog,
             &re_keyed,
@@ -1911,7 +2188,7 @@ mod tombstone_redirect_tests {
         );
 
         let dup = handle_event(
-            target_partition,
+            &EventPartition::new(target_partition),
             &handle,
             &catalog,
             &re_keyed,
@@ -1922,6 +2199,17 @@ mod tombstone_redirect_tests {
         .await;
         assert!(dup.changes.is_empty(), "the duplicate folds zero times");
         assert!(dup.re_keys.is_empty());
+
+        let rendered = prometheus.render();
+        for (partition, lookups) in [(source_partition, 1), (target_partition, 2)] {
+            let series = format!(
+                "{STAGE1_REDIRECT_LOOKUP_DURATION}_count{{partition=\"{partition}\"}} {lookups}"
+            );
+            assert!(
+                rendered.lines().any(|line| line == series),
+                "the re-keyed lookup counts too, under its own partition: {series} not in\n{rendered}",
+            );
+        }
     }
 
     #[tokio::test]
@@ -1936,7 +2224,7 @@ mod tombstone_redirect_tests {
             ..person_event(p_old, "u@p.com", 5, 9)
         };
         let effects = handle_event(
-            partition_id,
+            &EventPartition::new(partition_id),
             &test_handle(&store),
             &catalog,
             &straggler,
@@ -1971,7 +2259,7 @@ mod tombstone_redirect_tests {
 
         let event = person_event(alice, "u@p.com", 5, 0);
         let effects = handle_event(
-            partition_id,
+            &EventPartition::new(partition_id),
             &test_handle(&store),
             &catalog,
             &event,
@@ -2029,6 +2317,7 @@ mod tombstone_redirect_tests {
                     marker_cutoff_ms: 0,
                     tombstone_cutoff_ms: 0,
                 }],
+                vec![],
             )
             .await;
 

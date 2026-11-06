@@ -1,6 +1,11 @@
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ErrorTrackingQuery, ProductKey } from '~/queries/schema/schema-general'
 
-import { FilterLogicalOperator } from '../../../frontend/src/types'
+import {
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+} from '../../../frontend/src/types'
 import { errorTrackingIssueBreakdownQuery, errorTrackingIssueEventsQuery, errorTrackingQuery } from './queries'
 
 describe('queries', () => {
@@ -26,6 +31,39 @@ describe('queries', () => {
                     personId: undefined,
                 })
                 expect(actual).toMatchSnapshot()
+            })
+        })
+
+        it('sends severity as its own field and leaves the filter group unchanged', () => {
+            const browserFilter: EventPropertyFilter = {
+                type: PropertyFilterType.Event,
+                key: '$browser',
+                operator: PropertyOperator.Exact,
+                value: ['Chrome'],
+            }
+            const osFilter: EventPropertyFilter = {
+                type: PropertyFilterType.Event,
+                key: '$os',
+                operator: PropertyOperator.Exact,
+                value: ['Mac OS X'],
+            }
+            const actual = errorTrackingQuery({
+                orderBy: 'last_seen',
+                dateRange: { date_from: '-7d', date_to: null },
+                filterTestAccounts: true,
+                filterGroup: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.Or, values: [browserFilter, osFilter] }],
+                },
+                severity: 'high',
+                columns: ['error'],
+            })
+
+            const source = actual.source as ErrorTrackingQuery
+            expect(source.severity).toEqual('high')
+            expect(source.filterGroup).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.Or, values: [browserFilter, osFilter] }],
             })
         })
     })
@@ -94,6 +132,18 @@ describe('queries', () => {
             })
 
             expect(actual.source.tags).toEqual({ productKey: ProductKey.ERROR_TRACKING })
+            expect(actual.source).toMatchObject({
+                series: [
+                    {
+                        properties: [
+                            {
+                                key: "issue_id = 'issue-id'",
+                                type: 'hogql',
+                            },
+                        ],
+                    },
+                ],
+            })
         })
     })
 })

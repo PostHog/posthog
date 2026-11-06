@@ -1,4 +1,8 @@
+import uuid
+
 from posthog.test.base import APIBaseTest
+
+from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
@@ -159,26 +163,34 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
         assert draft_obj.saved_query is not None
         self.assertEqual(draft_obj.saved_query.id, saved_query.id)
 
-    def test_cannot_create_draft_pointing_at_other_teams_saved_query(self):
-        """Regression: POST must not accept a saved_query_id from a different team."""
-        other_org = Organization.objects.create(name="Other Org (IDOR test)")
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
+    @parameterized.expand(
+        [
+            ("create", "other_team"),
+            ("create", "nonexistent"),
+            ("update", "other_team"),
+            ("update", "nonexistent"),
+        ]
+    )
+    def test_rejects_saved_query_id_outside_team(self, method: str, id_kind: str):
+        other_org = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_org, name="Other team")
         foreign_saved_query = DataWarehouseSavedQuery.objects.create(
             name="confidential_query",
             team=other_team,
             query={"kind": "HogQLQuery", "query": "select 1"},
         )
+        saved_query_id = str(foreign_saved_query.id) if id_kind == "other_team" else str(uuid.uuid4())
+        body = {"query": {"kind": "HogQLQuery", "query": "select 2"}, "saved_query_id": saved_query_id}
 
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/warehouse_saved_query_drafts/",
-            {
-                "query": {"kind": "HogQLQuery", "query": "select 2"},
-                "saved_query_id": str(foreign_saved_query.id),
-            },
-        )
+        if method == "create":
+            response = self.client.post(f"/api/environments/{self.team.pk}/warehouse_saved_query_drafts/", body)
+        else:
+            draft = DataWarehouseSavedQueryDraft.objects.create(team=self.team, created_by=self.user, query={})
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/warehouse_saved_query_drafts/{draft.id}/", body
+            )
 
-        # The serializer scopes the saved_query lookup by team_id, so the foreign
-        # id is unknown — DRF returns 400.
         self.assertEqual(response.status_code, 400, response.content)
-        # And no draft should have been created bound to the foreign saved_query.
-        assert not DataWarehouseSavedQueryDraft.objects.filter(saved_query_id=foreign_saved_query.id).exists()
+        self.assertEqual(response.json()["attr"], "saved_query_id")
+        self.assertNotIn("confidential_query", response.content.decode())
+        self.assertFalse(DataWarehouseSavedQueryDraft.objects.filter(saved_query_id=saved_query_id).exists())

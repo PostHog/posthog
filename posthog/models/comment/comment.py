@@ -73,6 +73,20 @@ class Comment(UUIDTModel, RootTeamMixin):
 # surfaces gated on weaker scopes (e.g. activity logs).
 TICKET_COMMENT_SCOPES = frozenset({"Ticket", "conversations_ticket"})
 
+# Product-owned content in these scopes is available only through the owning product's API.
+COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API = frozenset({"EmailThread"})
+
+# Notes on a Replay Vision observation discuss recording-derived output, so reading, writing and
+# being mentioned in them all require access to the observation itself.
+OBSERVATION_COMMENT_SCOPES = frozenset({"ReplayObservation"})
+
+CANVAS_COMMENT_SCOPES = frozenset({"canvas", "desktop_canvas"})
+STORED_CANVAS_COMMENT_SCOPE = "canvas"
+
+
+def canonical_comment_scope(scope: str) -> str:
+    return STORED_CANVAS_COMMENT_SCOPE if scope in CANVAS_COMMENT_SCOPES else scope
+
 
 def activity_log_scope_for(comment: Comment) -> str:
     # Map legacy "recording" → "Replay"; replies are logged under the parent thread.
@@ -82,7 +96,11 @@ def activity_log_scope_for(comment: Comment) -> str:
 
 @mutable_receiver(models.signals.post_save, sender=Comment)
 def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
-    if created:
+    if (
+        created
+        and instance.scope not in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API
+        and instance.scope not in CANVAS_COMMENT_SCOPES
+    ):
         # TRICKY: - Comments relate to a "thing" like a flag or insight. When we log the activity we need to know what the "thing" is
 
         # Rendering in the frontend we need

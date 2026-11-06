@@ -1,25 +1,55 @@
 /* eslint-disable react/forbid-dom-props -- swatch color and the per-count row cap are dynamic values */
 import React from 'react'
 
+import { LegendTable } from './LegendTable'
+
+/** A per-series summary a legend table can show as a column, computed over the series' finite
+ *  values. `delta` is the last value minus the first. */
+export type LegendValue = 'mean' | 'min' | 'max' | 'last' | 'sum' | 'delta'
+
+export interface LegendTableConfig {
+    values: LegendValue[]
+    /** Read on mount only. Omit to keep the series order. A header click changes the sort. */
+    defaultSort?: {
+        by: 'label' | LegendValue
+        /** Defaults to true for a value column and false for `'label'`, the order a header click starts with. */
+        descending?: boolean
+    }
+    /** Formats a value cell. The time-series charts default to the series' axis tick format; the
+     *  others to a locale number with significant decimals. */
+    valueFormatter?: (value: number, item: LegendItem) => string
+}
+
 export interface LegendItem {
     key: string
     label: string
     color: string
     /** Optional trailing text shown muted after the label — e.g. a slope chart's per-series change. */
     secondaryLabel?: string
+    /** Per-series summaries for a value-column legend, `null` when the series has no finite value. */
+    values?: Partial<Record<LegendValue, number | null>>
+}
+
+/** Which gesture a legend row click was: a plain click means "isolate this series", a modified one
+ *  means "add/remove this series from the visible set". The legend only reports the intent — what
+ *  each one does is the click handler's business. */
+export interface LegendItemClickModifiers {
+    /** The user held ⌘/Ctrl (or Shift) while clicking. */
+    additive: boolean
 }
 
 export interface LegendProps {
     items: LegendItem[]
     orientation?: 'horizontal' | 'vertical'
     align?: 'start' | 'center' | 'end'
-    onItemClick?: (key: string) => void
+    onItemClick?: (key: string, modifiers: LegendItemClickModifiers) => void
     hiddenKeys?: string[]
     className?: string
     dataAttr?: string
     /** Wrap each row — receives the default row node and its item, returns the node to render.
      *  Use to augment rows (e.g. a right-click context menu) while keeping the default rendering. */
     renderItem?: (defaultNode: React.ReactNode, item: LegendItem) => React.ReactNode
+    table?: LegendTableConfig
 }
 
 // Align a horizontal legend with `justify-content` so wrapped rows stay centered (or start/end) within the
@@ -40,9 +70,23 @@ export function Legend({
     className,
     dataAttr,
     renderItem,
+    table,
 }: LegendProps): React.ReactElement | null {
     if (items.length === 0) {
         return null
+    }
+    if (table?.values.length) {
+        return (
+            <LegendTable
+                items={items}
+                table={table}
+                onItemClick={onItemClick}
+                hiddenKeys={hiddenKeys}
+                className={className}
+                dataAttr={dataAttr}
+                renderItem={renderItem}
+            />
+        )
     }
     const hidden = hiddenKeys?.length ? new Set(hiddenKeys) : null
     const isVertical = orientation === 'vertical'
@@ -64,6 +108,7 @@ export function Legend({
             className={`flex ${layout} ${className ?? ''}`}
             style={isVertical ? undefined : ({ '--legend-row-max': horizontalRowMax } as React.CSSProperties)}
             data-attr={dataAttr}
+            data-hog-charts-legend=""
         >
             {items.map((item) => {
                 const dimmed = hidden?.has(item.key) ? ' opacity-40' : ''
@@ -77,11 +122,14 @@ export function Legend({
                             className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
                             style={{ backgroundColor: item.color }}
                         />
-                        <span className="truncate min-w-0" title={item.label}>
+                        <span className="truncate min-w-0" title={item.label} data-attr="hog-chart-legend-label">
                             {item.label}
                         </span>
                         {item.secondaryLabel != null && item.secondaryLabel !== '' && (
-                            <span className="shrink-0 text-muted" data-attr="hog-chart-legend-secondary">
+                            <span
+                                className="shrink-0 text-(--color-graph-axis-label)"
+                                data-attr="hog-chart-legend-secondary"
+                            >
                                 {item.secondaryLabel}
                             </span>
                         )}
@@ -90,8 +138,13 @@ export function Legend({
                 const node = onItemClick ? (
                     <button
                         type="button"
-                        className={`${rowClass} cursor-pointer bg-transparent border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
-                        onClick={() => onItemClick(item.key)}
+                        // select-none: clicking rows in quick succession would otherwise select their labels.
+                        className={`${rowClass} cursor-pointer select-none bg-transparent border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
+                        onClick={(event) =>
+                            onItemClick(item.key, {
+                                additive: event.metaKey || event.ctrlKey || event.shiftKey,
+                            })
+                        }
                     >
                         {inner}
                     </button>

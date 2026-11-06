@@ -1,11 +1,21 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { formatMsAsSeconds } from './dashboard/formatters'
-import { type DailyToolStat, buildDailyChartData, mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
+import {
+    type ChartViewChange,
+    DEFAULT_CHART_VIEWS,
+    type DailyToolStat,
+    buildDailyChartData,
+    maskIncompleteLatencyBox,
+    mcpAnalyticsToolQualityLogic,
+} from './mcpAnalyticsToolQualityLogic'
 
 jest.mock('lib/api')
 jest.mock('~/queries/query', () => ({
@@ -13,6 +23,8 @@ jest.mock('~/queries/query', () => ({
 }))
 
 const mockApi = api as jest.Mocked<typeof api>
+
+const emptyToolRowsResponse = { results: [], totalCount: 0 }
 
 function dailyStat(overrides: Partial<DailyToolStat> & { day: string }): DailyToolStat {
     return { calls: 0, errors: 0, p50: 0, p95: 0, p99: 0, ...overrides }
@@ -35,6 +47,56 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(data.successRate[0]).toBeCloseTo(90)
             expect(data.successRate[1]).toBeNaN()
             expect(data.p99).toEqual([2100, NaN, 1500])
+            expect(data.errorRate[0]).toBeCloseTo(10)
+            expect(data.errorRate[1]).toBeNaN()
+            expect(data.errorRate[2]).toEqual(0)
+        })
+
+        it.each([
+            ['no errors', 10, 0, 0],
+            ['half the calls errored', 10, 5, 50],
+            ['the row has no calls', 0, 0, NaN],
+        ])('gives the error rate as a percentage of calls when %s', (_label, calls, errors, expected) => {
+            const data = buildDailyChartData([dailyStat({ day: '2026-06-05', calls, errors })], ['2026-06-05 00:00:00'])
+            expect(data.errorRate).toEqual([expected])
+        })
+
+        it('builds a latency box per bucket with whiskers clipped at p99', () => {
+            const data = buildDailyChartData(
+                [
+                    dailyStat({
+                        day: '2026-06-05',
+                        calls: 3,
+                        min: 10,
+                        p25: 50,
+                        p50: 100,
+                        mean: 120,
+                        p75: 200,
+                        p95: 900,
+                        p99: 2100,
+                        max: 60000,
+                    }),
+                    dailyStat({ day: '2026-06-06', calls: 1, p50: 100, p95: 100, p99: 100 }),
+                    dailyStat({ day: '2026-06-07', calls: 2, min: null, p25: null, mean: null, p75: null, max: null }),
+                ],
+                ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00']
+            )
+            expect(data.latencyBoxes).toEqual([
+                {
+                    day: '2026-06-05 00:00:00',
+                    min: 10,
+                    p25: 50,
+                    median: 100,
+                    mean: 120,
+                    p75: 200,
+                    max: 60000,
+                    whiskerMax: 2100,
+                },
+                // A row cached before the spread fields existed has no box to draw.
+                null,
+                // Neither does a bucket whose calls all lack a duration.
+                null,
+            ])
         })
 
         it('returns empty series for empty bucket keys', () => {
@@ -71,11 +133,64 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         })
     })
 
+    describe('maskIncompleteLatencyBox', () => {
+        const box = (day: string): ReturnType<typeof maskIncompleteLatencyBox>[number] => ({
+            day,
+            min: 10,
+            p25: 20,
+            median: 30,
+            mean: 35,
+            p75: 40,
+            max: 50,
+            whiskerMax: 45,
+        })
+
+        it.each([
+            { name: 'drops the last bucket when it is still in progress', incompleteTail: true, last: true },
+            { name: 'leaves every bucket alone when the tail is complete', incompleteTail: false, last: false },
+        ])('$name', ({ incompleteTail, last }) => {
+            const boxes = [box('2026-06-05'), box('2026-06-06')]
+            expect(maskIncompleteLatencyBox(boxes, incompleteTail)).toEqual([
+                box('2026-06-05'),
+                last ? null : box('2026-06-06'),
+            ])
+        })
+    })
+
+    describe('chart views', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            localStorage.clear()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
+        })
+
+        it.each<ChartViewChange>([
+            { chart: 'calls', view: 'percentage' },
+            { chart: 'successRate', view: 'zoom' },
+            { chart: 'latency', view: 'boxPlot' },
+        ])('switches the $chart chart to $view and reports it', async (change) => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setChartView(change)
+            }).toMatchValues({
+                chartViews: { ...DEFAULT_CHART_VIEWS, [change.chart]: change.view },
+            })
+            expect(posthog.capture).toHaveBeenCalledWith('mcp analytics tool quality chart view changed', change)
+        })
+    })
+
     describe('incompleteTail', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
         })
 
         // An open-ended relative window always ends in the bucket that is still collecting, and a
@@ -98,7 +213,9 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
         })
 
         function queryCallsSince(callIndex: number): Record<string, any>[] {
@@ -157,8 +274,12 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             last_seen: '',
         })
 
-        it('clears the selected tool when a reload no longer includes it', async () => {
-            mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_a')] })
+        it('clears the selected tool when the category scope changes', async () => {
+            mockApi.query.mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 1 }
+                    : { results: [] }
+            )
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -167,7 +288,6 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.selectedTool).toBe('tool_a')
 
-            mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_b')] })
             await expectLogic(logic, () => {
                 logic.actions.setSelectedCategories(['some-category'])
             }).toFinishAllListeners()
@@ -175,18 +295,228 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(logic.values.selectedTool).toBeNull()
         })
 
-        it('keeps the selected tool when a reload still includes it', async () => {
-            mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_a'), toolRowResult('tool_b')] })
+        it('keeps the selected tool while searching, sorting, or changing pages', async () => {
+            mockApi.query.mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_b')], totalCount: 100 }
+                    : { results: [] }
+            )
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
             logic.actions.setSelectedTool('tool_a')
             await expectLogic(logic, () => {
-                logic.actions.setSelectedCategories(['some-category'])
+                logic.actions.setToolQualityPageIndex(1)
+                logic.actions.setSearchTerm('tool_b')
+                logic.actions.setToolQualitySort('error_rate_pct', 'DESC')
             }).toFinishAllListeners()
 
             expect(logic.values.selectedTool).toBe('tool_a')
+        })
+
+        it('keeps the current rows visible while another page loads', async () => {
+            mockApi.query.mockImplementation(async (query: any) => {
+                if (query.kind !== NodeKind.MCPToolQualityRowsQuery) {
+                    return { results: [] }
+                }
+                const tool = query.offset === 0 ? 'page-one-tool' : 'page-two-tool'
+                return { ...emptyToolRowsResponse, results: [toolRowResult(tool)], totalCount: 100 }
+            })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-one-tool'])
+
+            logic.actions.setToolQualityPageIndex(1)
+
+            expect(logic.values.toolRowsPageLoading).toBe(true)
+            expect(logic.values.loadedToolQualityPageIndex).toBe(0)
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-one-tool'])
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadedToolQualityPageIndex).toBe(1)
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-two-tool'])
+        })
+
+        it('sends search, global sort, and page offsets to the rows query', async () => {
+            mockApi.query.mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 151 }
+                    : { results: [] }
+            )
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            let callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setToolQualityPageIndex(2)
+            }).toFinishAllListeners()
+            let rowsQuery = queryCallsSince(callsBefore).find(
+                (query) => query.kind === NodeKind.MCPToolQualityRowsQuery
+            )
+            expect(rowsQuery).toMatchObject({ limit: 50, offset: 100 })
+
+            callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('needle')
+            }).toFinishAllListeners()
+            rowsQuery = queryCallsSince(callsBefore).find((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(logic.values.toolQualityPageIndex).toBe(0)
+            expect(rowsQuery).toMatchObject({ search: 'needle', limit: 50, offset: 0 })
+
+            callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setToolQualitySort('error_rate_pct', 'ASC')
+            }).toFinishAllListeners()
+            rowsQuery = queryCallsSince(callsBefore).find((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(rowsQuery).toMatchObject({ sortColumn: 'error_rate_pct', sortDirection: 'ASC', offset: 0 })
+        })
+
+        it('refetches the charts at the picked grouping, leaving the table alone', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPinnedInterval('hour')
+            }).toFinishAllListeners()
+
+            const newCalls = queryCallsSince(callsBefore)
+            expect(newCalls.length).toBe(1) // daily stats only — the table is a single-window aggregate
+            expect(newCalls[0].interval).toBe('hour')
+        })
+
+        // The two filters are independent: changing the window must not silently undo the grouping.
+        it('keeps the picked grouping when the date range changes', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setPinnedInterval('hour')
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-14d', null)
+            }).toFinishAllListeners()
+
+            // Two weeks would auto-group by day.
+            expect(logic.values.interval).toBe('hour')
+        })
+    })
+
+    describe('shared filter wiring', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
+        })
+
+        function queryCallsSince(callIndex: number): Record<string, any>[] {
+            return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
+        }
+
+        const EVENT_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['query_run'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        it('spreads the shared property filters into every query and reloads on change', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([EVENT_FILTER])
+            }).toFinishAllListeners()
+
+            const reloads = queryCallsSince(callsBefore)
+            expect(reloads.length).toBe(4)
+            expect(reloads.every((call) => JSON.stringify(call.properties) === JSON.stringify([EVENT_FILTER]))).toBe(
+                true
+            )
+        })
+
+        it('spreads filterTestAccounts into every query and reloads on change', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+            }).toFinishAllListeners()
+
+            const reloads = queryCallsSince(callsBefore)
+            expect(reloads.length).toBe(4)
+            expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
+        })
+
+        it('reloads once when both shared filters hydrate from the URL', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.hydrateFilters(true, [EVENT_FILTER])
+            }).toFinishAllListeners()
+
+            const reloads = queryCallsSince(callsBefore)
+            expect(reloads).toHaveLength(4)
+            expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
+            expect(reloads.every((call) => JSON.stringify(call.properties) === JSON.stringify([EVENT_FILTER]))).toBe(
+                true
+            )
+        })
+
+        it('refreshes every tool quality data source', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+
+            expect(queryCallsSince(callsBefore).map((call) => call.kind)).toEqual(
+                expect.arrayContaining([
+                    NodeKind.MCPToolQualityRowsQuery,
+                    NodeKind.MCPToolQualityDailyStatsQuery,
+                    NodeKind.MCPToolCategoryCountsQuery,
+                    NodeKind.MCPToolCategoriesQuery,
+                ])
+            )
+        })
+
+        it('discards a superseded available-categories response so a slow earlier request cannot overwrite it', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            let resolveSlow: (value: unknown) => void = () => {}
+            const slow = new Promise((resolve) => {
+                resolveSlow = resolve
+            })
+            jest.spyOn(mockApi, 'query')
+                .mockImplementationOnce(() => slow as any)
+                .mockImplementationOnce(() => Promise.resolve({ results: [{ category: 'fresh' }] }))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAvailableCategories()
+                logic.actions.loadAvailableCategories()
+            }).toDispatchActions(['loadAvailableCategoriesSuccess'])
+
+            expect(logic.values.availableCategories).toEqual(['fresh'])
+
+            resolveSlow({ results: [{ category: 'stale' }] })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.availableCategories).toEqual(['fresh'])
         })
     })
 })

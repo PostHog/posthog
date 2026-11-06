@@ -61,13 +61,19 @@ export function PlaylistPopoverButton({
                                     </LemonField>
                                     <div className="flex items-center gap-2 justify-end">
                                         <LemonButton
+                                            data-attr="player-collection-new-cancel"
                                             type="secondary"
                                             status="danger"
                                             onClick={() => setNewFormShowing(false)}
                                         >
                                             Cancel
                                         </LemonButton>
-                                        <LemonButton type="primary" htmlType="submit" icon={<IconPlus />}>
+                                        <LemonButton
+                                            data-attr="player-collection-new-create"
+                                            type="primary"
+                                            htmlType="submit"
+                                            icon={<IconPlus />}
+                                        >
                                             Create and add to list
                                         </LemonButton>
                                     </div>
@@ -81,7 +87,12 @@ export function PlaylistPopoverButton({
                                         onChange={setSearchQuery}
                                         fullWidth
                                     />
-                                    <LemonButton fullWidth icon={<IconPlus />} onClick={() => setNewFormShowing(true)}>
+                                    <LemonButton
+                                        data-attr="player-collection-new-open"
+                                        fullWidth
+                                        icon={<IconPlus />}
+                                        onClick={() => setNewFormShowing(true)}
+                                    >
                                         New collection
                                     </LemonButton>
                                 </>
@@ -95,6 +106,7 @@ export function PlaylistPopoverButton({
                                 {allPlaylists?.map(({ selected, playlist }) => (
                                     <div key={playlist.short_id} className="flex items-center gap-1">
                                         <LemonButton
+                                            data-attr="player-collection-toggle-item"
                                             className="flex-1"
                                             icon={
                                                 currentPlaylistsLoading &&
@@ -119,6 +131,7 @@ export function PlaylistPopoverButton({
                                         </LemonButton>
 
                                         <LemonButton
+                                            data-attr="player-collection-open"
                                             icon={<IconOpenInNew />}
                                             to={urls.replayPlaylist(playlist.short_id)}
                                             targetBlank
@@ -135,6 +148,7 @@ export function PlaylistPopoverButton({
                 }
             >
                 <LemonButton
+                    data-attr="player-collection-popover-toggle"
                     icon={<IconPin />}
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}

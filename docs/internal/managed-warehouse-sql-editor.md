@@ -1,7 +1,83 @@
 # Managed warehouse connections in the SQL editor
 
-Provisioning a managed warehouse creates a system-owned direct connection for each participating project. The connection uses a distinct Duckgres project-reader login and appears in the SQL editor's database chooser.
+The `data-warehouse-scene` and `managed-warehouse-trino-query` organization flags gate managed warehouse provisioning. Once a provision, onboarding, or generation-fenced recovery lifecycle action runs, a genuinely missing managed source is created unconditionally as a secretless `duckgres_service` source and presented as `PostHog (Managed warehouse)`.
 
-The project reader can query the project's event and person tables and every current or future table in its team, data-import, and modeled-data schemas. The exposed namespaces mirror the Duckgres org-team row (which credential setup never rewrites), so hand-set layouts such as legacy `posthog.events` tables stay in sync. Duckgres enforces the read-only project boundary for both PostgreSQL and Flight SQL queries.
+The secretless built-in connection uses Trino when `managed-warehouse-trino-query` is enabled for the organization; otherwise it uses Duckgres. This applies to existing provisioned connections as well as new ones. The persisted source ID and its Postgres source type stay stable, while the connection option reports the selected engine. Ordinary external connections and existing stored project-reader or organization-login sources retain their configured engine and grants.
 
-PostHog reconciles the connection's table catalog when the warehouse status is read (coalesced to once a minute) and in a twice-hourly periodic sweep. The sweep makes newly created tables visible without requiring a visit to Data ops; each reconcile opens a real warehouse session, which is why it is not more frequent. If a physical table is dropped and recreated with the same name, reconciliation revives its existing catalog entry.
+Trino raw SQL and connection-scoped HogQL both use short-lived hosted service credentials, bounded execution, and asynchronous cancellation. Schema discovery also uses Trino with a separate project-scoped system principal and updates existing table projections in place. Its catalog queries share a 60-second deadline. Flag evaluation runs outside source and lifecycle locking transactions. A Trino failure produces an error without falling back to Duckgres. Query caches are partitioned by the selected engine. Turning the flag off restores Duckgres routing immediately; schema reconciliation refreshes the table projections on its existing schedule, so compiled queries can require a catalog refresh after either switch.
+
+A `duckgres_service` row persists no host, username, password, or credential ID. It persists only the non-secret lifecycle generation that created it. In the DuckDB variant, dynamic raw queries use the native Duckgres pgwire adapter. At physical connection acquisition, PostHog mints a short-lived organization-root-shaped service credential for a principal containing the project ID and stable PostHog user ID. Email addresses are never used. Schema discovery uses a distinct project-scoped system principal, so background work never impersonates an interactive user. The connection must include `sslmode=require`, and there is no stored-root fallback.
+
+Existing live sources keep their stored authentication mode unless an actual warehouse lifecycle action requires replacement. A live dynamic source remains dynamic, a configured `project_reader` retains its stored project credential for Duckgres, and a static organization-login source retains its stored root credential and external-source access controls. The database chooser prefers a dynamic source, then a ready `project_reader`; when neither exists, it exposes the canonical valid legacy source as an ordinary external connection. Merely changing a product feature flag does not create, convert, or hide a source.
+
+PostHog application-encrypts credentials in shared Redis. The cache key is a hash of the organization, principal, and lifecycle generation, and the entry expires one minute before the credential. A per-key Redis lock lets query-django and Celery workers share one mint without making unrelated principals wait. Refresh always mints an independent credential and never rotates a cached credential ID. A rapid deprovision and reprovision therefore cannot reuse a credential from the old generation.
+
+Redis is the only credential cache. When Redis cannot be read, locked, or written, the request mints directly and does not retain a process-local copy. A lock wait is bounded to four seconds. After that, the request checks Redis once more and mints directly if the owner did not publish a credential. A valid cached credential can bridge a temporary control-plane outage until its refresh margin. After that, mint failure fails closed. The connection must include `sslmode=require`, and there is no stored-root fallback.
+
+The credential cache uses a dedicated Redis client with no command retries. `MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS` and `MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_READ_TIMEOUT_SECONDS` both default to 0.5 seconds. Timeout and retry query parameters in `REDIS_URL` are ignored for this client, while authentication, database, TLS, and other Redis options remain intact. These settings do not change the shared Redis client's longer timeout for blocking operations.
+
+An organization-scoped generation fence orders source work around remote provision and deprovision calls. A stale provision completion cannot revive a source after a later deprovision, and an old cleanup retry cannot delete a genuinely reprovisioned source. If cleanup failed before a genuine reprovision, static and `project_reader` sources from the deleted warehouse generation are tombstoned with their tables before setup creates dynamic authentication. An existing dynamic source instead advances its lifecycle generation. Credentials therefore cannot cross warehouse generations.
+
+Reconciliation treats dynamic, project-reader, and static sources as independent catalogs and introspects each with its own credential mode. A failure in one source does not block the others. Dynamic discovery requires TLS and uses its system principal. Reconciliation runs when warehouse status is read, coalesced to once a minute, and in a twice-hourly periodic sweep. For an active generation with a missing source, reconciliation creates dynamic authentication without reading `DuckgresServer`.
+
+The Duckgres native adapter sends one PostgreSQL-compatible statement unchanged, supports asynchronous cancellation, applies the existing connection deadline and statement timeout, and rejects results above 50,000 rows. Non-raw project-reader and static-source queries continue through their existing PostgreSQL/HogQL path; the PostgreSQL adapter is unchanged.
+
+Deprovision captures the active generation before the control-plane request and deactivates only that generation. A direct 404 is authoritative absence. If the request times out or returns 409, PostHog reads warehouse status. It converges local cleanup only when the warehouse is `deleting`, `deleted`, or absent. A ready warehouse remains active.
+
+## Deployment and rollback
+
+1. Keep `MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=true` in the current web, admin, and Celery deployments throughout the rolling code deployment. Old workers use that setting, while new workers create dynamic sources unconditionally, so both versions agree.
+2. Deploy this code to every web, admin, and Celery process. New producers always emit generation-aware v2 cleanup and source-recovery tasks.
+3. Drain queued, reserved, scheduled, and retry source-recovery work after no old process remains.
+4. Remove `MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED` from the charts in a separate deployment. New code no longer reads it.
+
+Rolling back to old code requires restoring or retaining `MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=true` first. Removing the charts setting before the old fleet and its queues are drained would make old workers drop recovery tasks.
+
+The legacy cleanup task keeps its one-argument wire signature so new workers can consume messages queued before this deployment. Its handler takes the organization lock, cleans the current inactive generation, does nothing for an active lifecycle, and uses unconditional legacy behavior only when no lifecycle row exists. New producers emit only versioned generation-aware cleanup tasks. Cleanup is independent of credential mode and generation-fenced.
+
+Source setup, query authentication, schema discovery, and generation-fenced deprovision cleanup do not read `DuckgresServer`. The model remains for persistence of the one-time provision response, legacy consumers, and rotating root passwords on grandfathered static sources.
+
+The historical query-status label prefix `managed-warehouse-sql-editor:` remains only as an in-flight wire identifier. It is not a feature flag. Renaming or removing it requires a later dual-read rollout and a drain of query statuses produced by old workers.
+
+## Failure recovery
+
+If source setup fails after successful provision or onboarding, the versioned retry task uses the original team, organization, and generation. It is safe to retry and creates dynamic authentication when the source is still missing. If the warehouse was deprovisioned or reprovisioned, the generation check turns a stale task into a no-op.
+
+If deprovision reports that the control plane accepted deletion but local SQL connection state could not be updated, retry deprovision. PostHog checks authoritative status before changing local state. If source cleanup fails after local deactivation, the versioned cleanup task retries with the exact inactive generation.
+
+If Redis is unavailable, SQL editor queries and managed warehouse schema discovery continue by minting one credential per request. Restore Redis to resume cross-worker reuse. There is no process-local or Postgres credential cache to clear during recovery. Use `posthog_managed_warehouse_service_credential_cache_events_total` to compare cache hits, misses, invalid payloads, Redis errors, lock timeouts, store failures, and direct fallbacks. Its `outcome` label has no tenant or credential identifiers.
+
+## Hosted Trino opt-in
+
+Selecting **PostHog (Trino)** loads the warehouse catalog into a schema/table tree, including columns on expansion. The catalog is discovered with the same user credential and access checks as native Trino queries. It does not include the default PostHog catalog or saved-query folders. Switching back to **PostHog (ClickHouse)** restores the default catalog. Discovery failures show a retry action instead of falling back to PostHog tables.
+
+The same `managed-warehouse-trino-query` organization feature flag adds **PostHog (Trino)** directly below **PostHog (ClickHouse)** in the SQL editor connection selector. The default PostHog target remains unchanged. The backend checks the same flag before execution and cache reads; selecting the target in a URL does not grant access.
+
+While this flag is enabled, the selector hides **PostHog (Managed warehouse)** from the menu so the built-in choices are ClickHouse and Trino. Existing queries that select the managed connection retain their connection ID, label and execution behavior. The managed option returns when the flag is disabled. Ordinary external connections remain visible.
+
+Hosted Trino runs the current HogQL query through the Django-backed Trino compiler, preserving project scoping and the requesting user's table permissions. It resolves logical table names to the project's managed warehouse tables without requiring a stored model translation. Data must already exist in the Trino target; unsupported expressions and missing tables produce query errors. The target cannot be combined with an external connection. Selecting **PostHog (Trino)** enables **Send raw query** by default for all users with project access using a browser session. This passes a single read-only Trino SELECT statement directly to the warehouse. Users can turn the setting off to use HogQL. Existing saved queries and URLs retain their selected mode. Raw SQL uses the organization's warehouse grant and does not enforce HogQL table permissions. Token-authenticated requests must use HogQL, which enforces table permissions. Asynchronous raw results recheck the browser session and current project access before returning data. Raw mode uses physical catalog, schema, and table names and skips HogQL compilation, logical table mapping, filters, variables, and automatic pagination. The editor uses SQL syntax for raw queries. The existing row cap, deadline, and cancellation still apply. The raw mode selection persists in saved queries and editor URLs.
+
+Each connection uses a short-lived hosted Trino service credential with a project/user principal. It does not read external-source passwords. Interactive queries retain a deadline and bounded result size, and asynchronous cancellation uses the existing direct-query cancellation token. HogQL queries without an explicit limit use the existing SQL editor pagination and report whether more rows exist. SQL alerts in HogQL mode use the same completeness probe as the default target. HTTP polling and prepared statements share the query deadline, and cursor cleanup makes one bounded cancellation attempt. Choosing another target preserves the query text, filters, and variables; the selection is saved with the query and editor URL.
+
+## Internal warehouse testing
+
+Staff can select **Internal testing** at `/admin/managed_warehouse/duckgresserver/provision/` to provision and load a warehouse without enabling either customer feature flag.
+The organization lifecycle records this mode before the provisioning call, so customer provisioning, status, hosted Trino queries, and managed SQL-editor source creation stay blocked throughout setup.
+Keep `managed-warehouse-trino-query` off while staging the warehouse.
+Enabling that organization flag promotes the existing warehouse on the next Data ops, hosted Trino query, or SQL-editor connection check.
+Promotion preserves the warehouse, credentials, loaded data, and lifecycle generation; it does not call the provision API.
+The ready warehouse status read schedules the normal SQL-editor connection and catalog discovery for onboarded teams.
+Background loading remains enabled independently of customer access, including work queued before promotion.
+The legacy `data-warehouse-scene` flag does not promote an internal warehouse.
+Existing customer warehouses must be deprovisioned before switching modes.
+
+The provisioning team and any teams added through **Enable backfill for a team** use the existing events and persons backfill sensors.
+A generation-fenced Celery task waits for Trino readiness and the team's backfill membership, then starts the existing Temporal workflows for imported tables and materialized views.
+It registers the current prepared Parquet snapshots, copies Delta imports that have no prepared snapshot, and copies existing materialized view outputs.
+It does not rerun customer imports or change their materialization schedules.
+Future completed imports continue to register while the internal warehouse is active.
+Loading dispatch retries transient failures and readiness waits with backoff; failed child workflows remain visible in Temporal.
+Deprovisioning or replacing the warehouse makes old queued dispatch tasks no-ops.
+
+Infrastructure readiness and loading completion are separate: inspect the Dagster events/persons backfills and Temporal copy/registration workflows before treating the warehouse as fully loaded.
+Promotion is a transition to the normal customer lifecycle. Turning the Trino flag off afterward restores the existing customer flag behavior; it does not restore internal testing mode.

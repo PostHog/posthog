@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PiRunner } from "../pi-runtime/piRunner";
 import type { TaskCreationEffects } from "./taskCreationEffects";
 import type { ITaskCreationHost } from "./taskCreationHost";
+import { TaskCreationSaga } from "./taskCreationSaga";
 import { buildWorktreeAdoptionInput } from "./taskInput";
 import { TaskService } from "./taskService";
 
@@ -18,7 +19,9 @@ const rootLogger = {
   scope: () => scopedLog,
 } as unknown as RootLogger;
 
-function makeService(): TaskService {
+const fileReadClient = { readAbsoluteFile: vi.fn(async () => null) };
+
+function makeService(overrides: Partial<SessionService> = {}): TaskService {
   const host = {
     // The API client's createTask rejects so tests can observe that an input
     // made it past validation (failedStep lands on task_creation, not
@@ -41,6 +44,7 @@ function makeService(): TaskService {
     markTaskCreationInFlight: vi.fn(),
     connectToTask: vi.fn(),
     disconnectFromTask: vi.fn(),
+    ...overrides,
   } as unknown as SessionService;
   const effects = {
     onWorkspaceCreated: vi.fn(),
@@ -51,19 +55,29 @@ function makeService(): TaskService {
     resume: vi.fn(),
     stop: vi.fn(),
   } as unknown as PiRunner;
-  return new TaskService(host, sessionService, effects, piRunner, rootLogger);
+  return new TaskService(
+    host,
+    sessionService,
+    effects,
+    piRunner,
+    fileReadClient,
+    rootLogger,
+  );
 }
 
 describe("TaskService.openTask", () => {
-  it("passes the main repository path when resuming Pi in a worktree", async () => {
+  it.each([
+    [
+      "a worktree",
+      { folderPath: "/repo", worktreePath: "/worktrees/task-1" },
+      "/worktrees/task-1",
+    ],
+    ["a scratch dir", null, "/scratch/task-1"],
+  ])("resumes Pi in %s with the task's run", async (_label, workspace, cwd) => {
     const task = {
       id: "task-1",
       runtime: "pi",
       latest_run: { id: "run-1", environment: "local", status: "running" },
-    };
-    const workspace = {
-      folderPath: "/repo",
-      worktreePath: "/worktrees/task-1",
     };
     const piRunner = {
       create: vi.fn(),
@@ -76,10 +90,12 @@ describe("TaskService.openTask", () => {
           getTask: vi.fn(async () => task),
         })),
         getWorkspace: vi.fn(async () => workspace),
+        ensureScratchDir: vi.fn(async () => "/scratch/task-1"),
       } as unknown as ITaskCreationHost,
       {} as SessionService,
       {} as TaskCreationEffects,
       piRunner,
+      fileReadClient,
       rootLogger,
     );
 
@@ -87,9 +103,7 @@ describe("TaskService.openTask", () => {
       success: true,
     });
     expect(piRunner.resume).toHaveBeenCalledWith({
-      taskId: "task-1",
-      cwd: "/worktrees/task-1",
-      projectTrustPath: "/repo",
+      taskContext: { taskId: "task-1", taskRunId: "run-1", cwd },
     });
   });
 
@@ -123,6 +137,7 @@ describe("TaskService.openTask", () => {
       {} as SessionService,
       {} as TaskCreationEffects,
       piRunner,
+      fileReadClient,
       rootLogger,
     );
 
@@ -159,6 +174,7 @@ describe("TaskService.resumeCloudPiRun", () => {
       {} as SessionService,
       effects,
       {} as PiRunner,
+      fileReadClient,
       rootLogger,
     );
 
@@ -170,6 +186,82 @@ describe("TaskService.resumeCloudPiRun", () => {
 });
 
 describe("TaskService.createTask validation", () => {
+  it.each([
+    { runtime: "acp" as const, adapter: "claude" as const, blocked: false },
+    { runtime: "acp" as const, adapter: "codex" as const, blocked: false },
+    { runtime: "pi" as const, adapter: "claude" as const, blocked: false },
+    { runtime: "acp" as const, adapter: "claude" as const, blocked: true },
+    { runtime: "acp" as const, adapter: "codex" as const, blocked: true },
+  ])(
+    "checks subscription billing before cloud creation for %s",
+    async ({ runtime, adapter, blocked }) => {
+      const resolveCloudModelAccess = vi
+        .fn()
+        .mockImplementation(async (selectedAdapter) => {
+          if (blocked)
+            throw new Error(
+              selectedAdapter === "claude"
+                ? "Save a Claude token first."
+                : "Connect your ChatGPT account first.",
+            );
+          return { kind: "own-subscription", adapter: selectedAdapter };
+        });
+      const run = vi
+        .spyOn(TaskCreationSaga.prototype, "run")
+        .mockResolvedValue({
+          success: false,
+          failedStep: "task_creation",
+          error: "test result",
+        });
+      try {
+        const result = await makeService({
+          resolveCloudModelAccess,
+        }).createTask(
+          {
+            content: "Check the build",
+            workspaceMode: "cloud",
+            runtime,
+            adapter,
+          },
+          undefined,
+          { skipCloudUsagePreflight: true },
+        );
+        if (blocked) {
+          expect(run).not.toHaveBeenCalled();
+          expect(result).toMatchObject({
+            success: false,
+            error:
+              adapter === "claude"
+                ? "Save a Claude token first."
+                : "Connect your ChatGPT account first.",
+          });
+        } else if (runtime === "pi") {
+          expect(resolveCloudModelAccess).not.toHaveBeenCalled();
+          expect(run.mock.calls[0][0].claudeCloudModelAccess).toBeUndefined();
+          expect(run.mock.calls[0][0].codexCloudModelAccess).toBeUndefined();
+        } else if (adapter === "claude") {
+          expect(resolveCloudModelAccess).toHaveBeenCalledWith(
+            "claude",
+            undefined,
+          );
+          expect(run.mock.calls[0][0].claudeCloudModelAccess).toBe(
+            "own-subscription",
+          );
+        } else {
+          expect(resolveCloudModelAccess).toHaveBeenCalledWith(
+            "codex",
+            undefined,
+          );
+          expect(run.mock.calls[0][0].codexCloudModelAccess).toBe(
+            "own-subscription",
+          );
+        }
+      } finally {
+        run.mockRestore();
+      }
+    },
+  );
+
   it("rejects an input with neither content nor a taskDescription", async () => {
     const result = await makeService().createTask({
       content: "   ",

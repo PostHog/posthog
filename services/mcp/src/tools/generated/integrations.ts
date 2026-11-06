@@ -2,28 +2,19 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    IntegrationsChannelsRetrieveParams,
-    IntegrationsChannelsRetrieveQueryParams,
-    IntegrationsDestroyParams,
-    IntegrationsGithubReposRetrieveParams,
-    IntegrationsGithubReposRetrieveQueryParams,
-    IntegrationsJiraProjectsRetrieveParams,
-    IntegrationsLinearTeamsRetrieveParams,
-    IntegrationsListQueryParams,
-    IntegrationsRetrieveParams,
-    PosthogConnectionsForwardCreateBody,
-    PosthogConnectionsForwardCreateParams,
-} from '@/generated/integrations/api'
+import * as orvalSchemas from '@/generated/integrations/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const IntegrationDeleteSchema = IntegrationsDestroyParams.omit({ project_id: true })
+const IntegrationDeleteSchema = () => {
+    const IntegrationsDestroyParams = orvalSchemas.IntegrationsDestroyParams()
+    return IntegrationsDestroyParams.omit({ project_id: true })
+}
 
-const integrationDelete = (): ToolBase<typeof IntegrationDeleteSchema, unknown> => ({
+const integrationDelete = (): ToolBase<ReturnType<typeof IntegrationDeleteSchema>, unknown> => ({
     name: 'integration-delete',
-    schema: IntegrationDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof IntegrationDeleteSchema>) => {
+    schema: IntegrationDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -33,12 +24,15 @@ const integrationDelete = (): ToolBase<typeof IntegrationDeleteSchema, unknown> 
     },
 })
 
-const IntegrationGetSchema = IntegrationsRetrieveParams.omit({ project_id: true })
+const IntegrationGetSchema = () => {
+    const IntegrationsRetrieveParams = orvalSchemas.IntegrationsRetrieveParams()
+    return IntegrationsRetrieveParams.omit({ project_id: true })
+}
 
-const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.IntegrationConfig> => ({
+const integrationGet = (): ToolBase<ReturnType<typeof IntegrationGetSchema>, Schemas.IntegrationConfig> => ({
     name: 'integration-get',
-    schema: IntegrationGetSchema,
-    handler: async (context: Context, params: z.infer<typeof IntegrationGetSchema>) => {
+    schema: IntegrationGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.IntegrationConfig>({
             method: 'GET',
@@ -56,22 +50,28 @@ const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.Integra
     },
 })
 
-const IntegrationsChannelsRetrieveSchema = IntegrationsChannelsRetrieveParams.omit({ project_id: true }).extend(
-    IntegrationsChannelsRetrieveQueryParams.shape
-)
+const IntegrationsChannelsRetrieveSchema = () => {
+    const IntegrationsChannelsRetrieveParams = orvalSchemas.IntegrationsChannelsRetrieveParams()
+    const IntegrationsChannelsRetrieveQueryParams = orvalSchemas.IntegrationsChannelsRetrieveQueryParams()
+    return IntegrationsChannelsRetrieveParams.omit({ project_id: true }).extend(
+        IntegrationsChannelsRetrieveQueryParams.shape
+    )
+}
 
 const integrationsChannelsRetrieve = (): ToolBase<
-    typeof IntegrationsChannelsRetrieveSchema,
+    ReturnType<typeof IntegrationsChannelsRetrieveSchema>,
     Schemas.SlackChannelsResponse
 > => ({
     name: 'integrations-channels-retrieve',
-    schema: IntegrationsChannelsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof IntegrationsChannelsRetrieveSchema>) => {
+    schema: IntegrationsChannelsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsChannelsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SlackChannelsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/channels/`,
             query: {
+                channel_id: params.channel_id,
+                force_refresh: params.force_refresh,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -81,22 +81,75 @@ const integrationsChannelsRetrieve = (): ToolBase<
     },
 })
 
-const IntegrationsGithubReposRetrieveSchema = IntegrationsGithubReposRetrieveParams.omit({ project_id: true }).extend(
-    IntegrationsGithubReposRetrieveQueryParams.shape
-)
+const IntegrationsEmailStatusRetrieveSchema = () => {
+    const IntegrationsEmailStatusRetrieveParams = orvalSchemas.IntegrationsEmailStatusRetrieveParams()
+    const IntegrationsEmailStatusRetrieveQueryParams = orvalSchemas.IntegrationsEmailStatusRetrieveQueryParams()
+    return IntegrationsEmailStatusRetrieveParams.omit({ project_id: true }).extend(
+        IntegrationsEmailStatusRetrieveQueryParams.shape
+    )
+}
+
+const integrationsEmailStatusRetrieve = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailStatusRetrieveSchema>,
+    Schemas.EmailDomainStatus
+> => ({
+    name: 'integrations-email-status-retrieve',
+    schema: IntegrationsEmailStatusRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailStatusRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EmailDomainStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/email/status/`,
+            query: {
+                refresh: params.refresh,
+            },
+        })
+        return result
+    },
+})
+
+const IntegrationsEmailVerifyCreateSchema = () => {
+    const IntegrationsEmailVerifyCreateParams = orvalSchemas.IntegrationsEmailVerifyCreateParams()
+    return IntegrationsEmailVerifyCreateParams.omit({ project_id: true })
+}
+
+const integrationsEmailVerifyCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailVerifyCreateSchema>,
+    Schemas.EmailDomainVerification
+> => ({
+    name: 'integrations-email-verify-create',
+    schema: IntegrationsEmailVerifyCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailVerifyCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EmailDomainVerification>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/email/verify/`,
+        })
+        return result
+    },
+})
+
+const IntegrationsGithubReposRetrieveSchema = () => {
+    const IntegrationsGithubReposRetrieveParams = orvalSchemas.IntegrationsGithubReposRetrieveParams()
+    const IntegrationsGithubReposRetrieveQueryParams = orvalSchemas.IntegrationsGithubReposRetrieveQueryParams()
+    return IntegrationsGithubReposRetrieveParams.omit({ project_id: true })
+        .extend(IntegrationsGithubReposRetrieveQueryParams.shape)
+        .extend({ compact: IntegrationsGithubReposRetrieveQueryParams.shape['compact'].default(true).optional() })
+}
 
 const integrationsGithubReposRetrieve = (): ToolBase<
-    typeof IntegrationsGithubReposRetrieveSchema,
+    ReturnType<typeof IntegrationsGithubReposRetrieveSchema>,
     Schemas.GitHubReposResponse
 > => ({
     name: 'integrations-github-repos-retrieve',
-    schema: IntegrationsGithubReposRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof IntegrationsGithubReposRetrieveSchema>) => {
+    schema: IntegrationsGithubReposRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsGithubReposRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GitHubReposResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/github_repos/`,
             query: {
+                compact: params.compact,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -106,15 +159,18 @@ const integrationsGithubReposRetrieve = (): ToolBase<
     },
 })
 
-const IntegrationsJiraProjectsRetrieveSchema = IntegrationsJiraProjectsRetrieveParams.omit({ project_id: true })
+const IntegrationsJiraProjectsRetrieveSchema = () => {
+    const IntegrationsJiraProjectsRetrieveParams = orvalSchemas.IntegrationsJiraProjectsRetrieveParams()
+    return IntegrationsJiraProjectsRetrieveParams.omit({ project_id: true })
+}
 
 const integrationsJiraProjectsRetrieve = (): ToolBase<
-    typeof IntegrationsJiraProjectsRetrieveSchema,
+    ReturnType<typeof IntegrationsJiraProjectsRetrieveSchema>,
     Schemas.JiraProjectsResponse
 > => ({
     name: 'integrations-jira-projects-retrieve',
-    schema: IntegrationsJiraProjectsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof IntegrationsJiraProjectsRetrieveSchema>) => {
+    schema: IntegrationsJiraProjectsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsJiraProjectsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.JiraProjectsResponse>({
             method: 'GET',
@@ -124,15 +180,18 @@ const integrationsJiraProjectsRetrieve = (): ToolBase<
     },
 })
 
-const IntegrationsLinearTeamsRetrieveSchema = IntegrationsLinearTeamsRetrieveParams.omit({ project_id: true })
+const IntegrationsLinearTeamsRetrieveSchema = () => {
+    const IntegrationsLinearTeamsRetrieveParams = orvalSchemas.IntegrationsLinearTeamsRetrieveParams()
+    return IntegrationsLinearTeamsRetrieveParams.omit({ project_id: true })
+}
 
 const integrationsLinearTeamsRetrieve = (): ToolBase<
-    typeof IntegrationsLinearTeamsRetrieveSchema,
+    ReturnType<typeof IntegrationsLinearTeamsRetrieveSchema>,
     Schemas.LinearTeamsResponse
 > => ({
     name: 'integrations-linear-teams-retrieve',
-    schema: IntegrationsLinearTeamsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof IntegrationsLinearTeamsRetrieveSchema>) => {
+    schema: IntegrationsLinearTeamsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsLinearTeamsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.LinearTeamsResponse>({
             method: 'GET',
@@ -142,15 +201,18 @@ const integrationsLinearTeamsRetrieve = (): ToolBase<
     },
 })
 
-const IntegrationsListSchema = IntegrationsListQueryParams
+const IntegrationsListSchema = () => {
+    const IntegrationsListQueryParams = orvalSchemas.IntegrationsListQueryParams()
+    return IntegrationsListQueryParams
+}
 
 const integrationsList = (): ToolBase<
-    typeof IntegrationsListSchema,
+    ReturnType<typeof IntegrationsListSchema>,
     WithPostHogUrl<Schemas.PaginatedIntegrationConfigList>
 > => ({
     name: 'integrations-list',
-    schema: IntegrationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof IntegrationsListSchema>) => {
+    schema: IntegrationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedIntegrationConfigList>({
             method: 'GET',
@@ -164,24 +226,101 @@ const integrationsList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'kind', 'display_name', 'errors', 'created_at', 'created_by'])
+                pickResponseFields(item, [
+                    'id',
+                    'kind',
+                    'display_name',
+                    'errors',
+                    'created_at',
+                    'created_by',
+                    'config.verified',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/settings/environment-integrations')
     },
 })
 
-const PosthogConnectionForwardSchema = PosthogConnectionsForwardCreateParams.omit({ project_id: true }).extend(
-    PosthogConnectionsForwardCreateBody.shape
-)
+const IntegrationsPushTokensCreateSchema = () => {
+    const IntegrationsPushTokensCreateBody = orvalSchemas.IntegrationsPushTokensCreateBody()
+    const IntegrationsPushTokensCreateParams = orvalSchemas.IntegrationsPushTokensCreateParams()
+    return IntegrationsPushTokensCreateParams.omit({ project_id: true }).extend(IntegrationsPushTokensCreateBody.shape)
+}
+
+const integrationsPushTokensCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsPushTokensCreateSchema>,
+    Schemas.PushTokenImportResponse
+> => ({
+    name: 'integrations-push-tokens-create',
+    schema: IntegrationsPushTokensCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsPushTokensCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.subscriptions !== undefined) {
+            body['subscriptions'] = params.subscriptions
+        }
+        if (params.dry_run !== undefined) {
+            body['dry_run'] = params.dry_run
+        }
+        if (params.import_id !== undefined) {
+            body['import_id'] = params.import_id
+        }
+        if (params.create_missing_persons !== undefined) {
+            body['create_missing_persons'] = params.create_missing_persons
+        }
+        const result = await context.api.request<Schemas.PushTokenImportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/push_tokens/`,
+            body,
+        })
+        return result
+    },
+})
+
+const IntegrationsUsersRetrieveSchema = () => {
+    const IntegrationsUsersRetrieveParams = orvalSchemas.IntegrationsUsersRetrieveParams()
+    const IntegrationsUsersRetrieveQueryParams = orvalSchemas.IntegrationsUsersRetrieveQueryParams()
+    return IntegrationsUsersRetrieveParams.omit({ project_id: true }).extend(IntegrationsUsersRetrieveQueryParams.shape)
+}
+
+const integrationsUsersRetrieve = (): ToolBase<
+    ReturnType<typeof IntegrationsUsersRetrieveSchema>,
+    Schemas.SlackUsersResponse
+> => ({
+    name: 'integrations-users-retrieve',
+    schema: IntegrationsUsersRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsUsersRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SlackUsersResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/users/`,
+            query: {
+                force_refresh: params.force_refresh,
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+                user_id: params.user_id,
+            },
+        })
+        return result
+    },
+})
+
+const PosthogConnectionForwardSchema = () => {
+    const PosthogConnectionsForwardCreateBody = orvalSchemas.PosthogConnectionsForwardCreateBody()
+    const PosthogConnectionsForwardCreateParams = orvalSchemas.PosthogConnectionsForwardCreateParams()
+    return PosthogConnectionsForwardCreateParams.omit({ project_id: true }).extend(
+        PosthogConnectionsForwardCreateBody.shape
+    )
+}
 
 const posthogConnectionForward = (): ToolBase<
-    typeof PosthogConnectionForwardSchema,
+    ReturnType<typeof PosthogConnectionForwardSchema>,
     Schemas.PostHogConnectionForwardResponse
 > => ({
     name: 'posthog-connection-forward',
-    schema: PosthogConnectionForwardSchema,
-    handler: async (context: Context, params: z.infer<typeof PosthogConnectionForwardSchema>) => {
+    schema: PosthogConnectionForwardSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PosthogConnectionForwardSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.method !== undefined) {
@@ -209,9 +348,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-email-status-retrieve': integrationsEmailStatusRetrieve,
+    'integrations-email-verify-create': integrationsEmailVerifyCreate,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
     'integrations-list': integrationsList,
+    'integrations-push-tokens-create': integrationsPushTokensCreate,
+    'integrations-users-retrieve': integrationsUsersRetrieve,
     'posthog-connection-forward': posthogConnectionForward,
 }

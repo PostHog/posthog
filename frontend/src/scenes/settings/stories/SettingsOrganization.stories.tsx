@@ -1,9 +1,9 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -35,6 +35,72 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 },
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
+                '/api/organizations/:id/domains': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'verified-domain',
+                            domain: 'example.com',
+                            is_verified: true,
+                            verified_at: '2023-05-01T00:00:00Z',
+                            verification_challenge: 'challenge',
+                            jit_provisioning_enabled: true,
+                            sso_enforcement: 'saml',
+                            scim_base_url: 'https://app.posthog.com/scim/v2/idp-config',
+                        },
+                    ],
+                },
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'idp-config',
+                            config_scope: null,
+                            domain_scope: 'selected',
+                            organization_domain_ids: ['verified-domain'],
+                            has_saml: true,
+                            has_scim: true,
+                            has_id_jag: true,
+                        },
+                    ],
+                },
+                // One member with a rule already saved and one without, so the member
+                // notifications section renders both states of the control.
+                '/api/organizations/:id/notification_locks/': [
+                    {
+                        user_id: 1,
+                        uuid: '0198aaaa-0000-4000-8000-000000000001',
+                        first_name: 'Ada',
+                        last_name: 'Kowalski',
+                        email: 'ada@example.com',
+                        organization_membership_level: 1,
+                        editable: true,
+                        locks: [
+                            {
+                                setting: 'pipeline_notifications_disabled',
+                                scope_id: String(MOCK_DEFAULT_TEAM.id),
+                                locked_value: false,
+                            },
+                        ],
+                    },
+                    {
+                        user_id: 2,
+                        uuid: '0198aaaa-0000-4000-8000-000000000002',
+                        first_name: 'Grace',
+                        last_name: 'Osei',
+                        email: 'grace@example.com',
+                        organization_membership_level: 15,
+                        editable: false,
+                        locks: [],
+                    },
+                ],
+                '/api/organizations/:organization_id/desktop_beta_terms/': {
+                    is_desktop_beta_terms_accepted: false,
+                },
                 '/api/environments/:team_id/conversations/': { results: [] },
                 '/api/user_home_settings/@me/': {},
                 '/api/organizations/:organization_id/proxy_records': {
@@ -84,6 +150,11 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     return [200, newTeamSettings]
                 },
             },
+            post: {
+                '/api/organizations/:organization_id/desktop_beta_terms/': {
+                    is_desktop_beta_terms_accepted: true,
+                },
+            },
         }),
     ],
     render: ({ sectionId }: StoryProps) => {
@@ -100,6 +171,29 @@ export default meta
 // -- Organization --
 
 export const SettingsOrganizationDetails: Story = { args: { sectionId: 'organization-details' } }
+
+// A saved notice shows both the banner every member sees and the filled-in form with its preview.
+// The scene menu bar replaces the notice area, so it is off here to render the banner.
+export const SettingsOrganizationDetailsWithMemberNotice: Story = {
+    args: { sectionId: 'organization-details' },
+    parameters: {
+        featureFlags: STORYBOOK_FEATURE_FLAGS.filter((flag) => flag !== FEATURE_FLAGS.SCENE_MENU_BAR),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/@current/': {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    member_notice: {
+                        message:
+                            'We collect <b>usage data</b> from this workspace to meet our compliance obligations. <a href="https://intranet.example.com/data-policy">Read our data policy</a> to learn how we use it.',
+                        action: { label: 'Open privacy portal', url: 'https://privacy.example.com' },
+                    },
+                },
+            },
+        }),
+    ],
+}
 
 export const SettingsOrganizationMembers: Story = { args: { sectionId: 'organization-members' } }
 

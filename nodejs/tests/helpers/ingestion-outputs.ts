@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
+    KAFKA_CLICKHOUSE_FLAG_EVALUATIONS,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_EVENTS_JSON,
@@ -13,6 +14,7 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
+    KAFKA_REALTIME_ONLY_EVENTS_JSON,
 } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import {
@@ -28,9 +30,11 @@ import {
     AI_EVENTS_OUTPUT,
     ASYNC_OUTPUT,
     EVENTS_OUTPUT,
+    FLAG_EVALUATIONS_OUTPUT,
     PERSONS_OUTPUT,
     PERSON_DISTINCT_IDS_OUTPUT,
     PERSON_MERGE_EVENTS_OUTPUT,
+    REALTIME_ONLY_EVENTS_OUTPUT,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
@@ -51,6 +55,16 @@ export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) 
     return new IngestionOutputs({
         [EVENTS_OUTPUT]: testOutput(EVENTS_OUTPUT, KAFKA_EVENTS_JSON, kafkaProducer),
         [AI_EVENTS_OUTPUT]: testOutput(AI_EVENTS_OUTPUT, KAFKA_CLICKHOUSE_AI_EVENTS_JSON, kafkaProducer),
+        [FLAG_EVALUATIONS_OUTPUT]: testOutput(
+            FLAG_EVALUATIONS_OUTPUT,
+            KAFKA_CLICKHOUSE_FLAG_EVALUATIONS,
+            kafkaProducer
+        ),
+        [REALTIME_ONLY_EVENTS_OUTPUT]: testOutput(
+            REALTIME_ONLY_EVENTS_OUTPUT,
+            KAFKA_REALTIME_ONLY_EVENTS_JSON,
+            kafkaProducer
+        ),
         [HEATMAPS_OUTPUT]: testOutput(HEATMAPS_OUTPUT, KAFKA_CLICKHOUSE_HEATMAP_EVENTS, kafkaProducer),
         [INGESTION_WARNINGS_OUTPUT]: testOutput(INGESTION_WARNINGS_OUTPUT, KAFKA_INGESTION_WARNINGS, kafkaProducer),
         [DLQ_OUTPUT]: testOutput(DLQ_OUTPUT, KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, kafkaProducer),

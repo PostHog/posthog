@@ -10,13 +10,14 @@ import { AddCustomServerForm } from "@posthog/ui/features/mcp-server-manager/Add
 import { MarketplaceView } from "@posthog/ui/features/mcp-servers/components/parts/MarketplaceView";
 import { McpInstalledRail } from "@posthog/ui/features/mcp-servers/components/parts/McpInstalledRail";
 import { useMcpServers } from "@posthog/ui/features/mcp-servers/hooks/useMcpServers";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   AlertDialog,
   Box,
   Button,
   Flex,
   ScrollArea,
-  Spinner,
   Text,
 } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -205,16 +206,14 @@ function McpMarketplaceView() {
       const template = selectedTemplate;
 
       if (!install && !template) {
-        return (
-          <Flex align="center" justify="center" py="6">
-            {installationsLoading || serversLoading ? (
-              <Spinner size="2" />
-            ) : (
-              <Text color="gray" className="text-sm">
-                Server not found.
-              </Text>
-            )}
-          </Flex>
+        return installationsLoading || serversLoading ? (
+          <LoadingState className="py-6" />
+        ) : (
+          <div className="flex items-center justify-center py-6">
+            <Text color="gray" className="text-sm">
+              Server not found.
+            </Text>
+          </div>
         );
       }
 
@@ -337,7 +336,7 @@ function UninstallConfirmDialog({
               onClick={onConfirm}
               disabled={isPending}
             >
-              {isPending ? <Spinner size="1" /> : null}
+              {isPending ? <Spinner size="sm" /> : null}
               Remove
             </Button>
           </AlertDialog.Action>

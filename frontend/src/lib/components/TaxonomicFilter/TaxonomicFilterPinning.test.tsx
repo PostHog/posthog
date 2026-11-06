@@ -62,7 +62,12 @@ describe('TaxonomicFilter pinning', () => {
         )
     }
 
-    it('shows a Pinned tab when there are pinned items', async () => {
+    async function selectCategory(groupType: TaxonomicFilterGroupType): Promise<void> {
+        await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+        await userEvent.click(await screen.findByTestId(`taxonomic-category-dropdown-item-${groupType}`))
+    }
+
+    it('keeps pins in Suggested without a Pinned category', async () => {
         const logic = taxonomicFilterPinnedPropertiesLogic.build()
         logic.mount()
         logic.actions.togglePin(TaxonomicFilterGroupType.PersonProperties, 'Person properties', 'location', {
@@ -71,14 +76,12 @@ describe('TaxonomicFilter pinning', () => {
 
         renderFilter()
 
-        await waitFor(() => {
-            expect(screen.getByTestId('taxonomic-tab-pinned_filters')).toBeInTheDocument()
-        })
+        await selectCategory(TaxonomicFilterGroupType.SuggestedFilters)
 
         logic.unmount()
     })
 
-    it('renders pinned items in the Pinned tab', async () => {
+    it('renders pinned items in Suggested', async () => {
         const logic = taxonomicFilterPinnedPropertiesLogic.build()
         logic.mount()
         logic.actions.togglePin(TaxonomicFilterGroupType.PersonProperties, 'Person properties', 'location', {
@@ -87,29 +90,22 @@ describe('TaxonomicFilter pinning', () => {
 
         renderFilter()
 
-        await waitFor(() => {
-            expect(screen.getByTestId('taxonomic-tab-pinned_filters')).toBeInTheDocument()
-        })
-
-        await userEvent.click(screen.getByTestId('taxonomic-tab-pinned_filters'))
+        await selectCategory(TaxonomicFilterGroupType.SuggestedFilters)
 
         await waitFor(() => {
-            expect(screen.getByTestId('prop-filter-pinned_filters-0')).toBeInTheDocument()
+            expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
         })
 
         logic.unmount()
     })
 
-    it('shows Pinned tab with zero count when no items are pinned', async () => {
+    it('does not show a Pinned category when no items are pinned', async () => {
         renderFilter()
 
-        await waitFor(() => {
-            expect(screen.getByTestId('taxonomic-tab-event_properties')).toBeInTheDocument()
-        })
+        await selectCategory(TaxonomicFilterGroupType.SuggestedFilters)
 
-        const pinnedTab = screen.getByTestId('taxonomic-tab-pinned_filters')
-        expect(pinnedTab).toBeInTheDocument()
-        expect(pinnedTab.textContent).toContain('0')
+        expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveTextContent('All')
+        expect(screen.queryByTestId('taxonomic-category-dropdown-item-pinned_filters')).not.toBeInTheDocument()
     })
 
     it('shows pin button in definition popover on hover', async () => {
@@ -157,17 +153,13 @@ describe('TaxonomicFilter pinning', () => {
         ])
 
         renderFilter({
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons],
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.EventProperties],
             popoverEnabled: true,
         })
 
-        await waitFor(() => {
-            expect(screen.getByTestId('taxonomic-tab-pinned_filters')).toBeInTheDocument()
-        })
+        await selectCategory(TaxonomicFilterGroupType.SuggestedFilters)
 
-        await userEvent.click(screen.getByTestId('taxonomic-tab-pinned_filters'))
-
-        const pinnedRow = await screen.findByTestId('prop-filter-pinned_filters-0')
+        const pinnedRow = await screen.findByTestId('prop-filter-suggested_filters-0')
 
         // Hovering the row triggers ControlledDefinitionPopover, which calls the
         // source group's getValue on the stored item. Before the fix, the old

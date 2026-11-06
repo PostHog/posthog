@@ -71,10 +71,21 @@ const resolveBedrockInferenceProfileProvider = (
     return regionalProviders.length === 1 ? regionalProviders[0] : provider
 }
 
-export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
-    const providerProperty: unknown = properties['$ai_provider']
+const getAiProvider = (properties: Properties): string | undefined => {
+    const provider: unknown = properties['$ai_provider']
 
-    const provider: string | undefined = providerProperty ? String(providerProperty).toLowerCase() : undefined
+    return provider ? String(provider).toLowerCase() : undefined
+}
+
+// $ai_service_tier is the explicit served-tier signal: its writers (the ai-gateway, SDK
+// versions that adopted it) assert the tier the provider reported serving, on success and
+// error events alike. $ai_model_parameters.service_tier never prices: released SDKs wrote
+// the requested tier there, and a request can be refused.
+const getServedServiceTier = (properties: Properties): unknown => properties['$ai_service_tier']
+
+export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
+    const provider = getAiProvider(properties)
+    const serviceTier = getServedServiceTier(properties)
 
     const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
@@ -82,7 +93,8 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
         ? resolveModelCostForProvider(
               manualMatch.cost,
               resolveBedrockInferenceProfileProvider(model, manualMatch.cost, provider),
-              manualMatch.model
+              manualMatch.model,
+              serviceTier
           )
         : undefined
 
@@ -96,7 +108,8 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
         ? resolveModelCostForProvider(
               openRouterMatch.cost,
               resolveBedrockInferenceProfileProvider(model, openRouterMatch.cost, provider),
-              openRouterMatch.model
+              openRouterMatch.model,
+              serviceTier
           )
         : undefined
 
@@ -189,12 +202,16 @@ const searchModelInCosts = (model: string, costsDict: Record<string, ModelCostRo
 export const requireSpecialCost = (aiModel: string): boolean => {
     const lowerAiModel = aiModel.toLowerCase()
 
-    return SPECIAL_COST_MODELS.some((model) => lowerAiModel.includes(model.toLowerCase()))
+    // TTS is a separate audio-only model, not a context-size variant of Pro.
+    return (
+        !lowerAiModel.endsWith('-tts') &&
+        SPECIAL_COST_MODELS.some((model) => lowerAiModel.includes(model.toLowerCase()))
+    )
 }
 
 export function getNewModelName(model: string, inputTokens: unknown): string {
     // Gemini 2.5 Pro Preview has a limit of 200k input tokens before the price changes, we store the other price in the :large suffix
-    if (model.toLowerCase().includes('gemini-2.5-pro-preview')) {
+    if (requireSpecialCost(model)) {
         const tokenCountExceeded = inputTokens ? Number(inputTokens) > 200000 : false
 
         return tokenCountExceeded ? 'gemini-2.5-pro-preview:large' : 'gemini-2.5-pro-preview'

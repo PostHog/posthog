@@ -9,6 +9,48 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Manage logs product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
+ */
+export const organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysItemMax = 200
+
+export const organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysMax = 10
+
+export const organizationsProjectsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysItemMax = 200
+
+export const organizationsProjectsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysMax = 10
+
+export const organizationsProjectsLogsConfigPartialUpdateBodyLogsPatternMessageKeysItemMax = 200
+
+export const organizationsProjectsLogsConfigPartialUpdateBodyLogsPatternMessageKeysMax = 10
+
+export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+    logs_distinct_id_attribute_keys: zod
+        .array(zod.string().max(organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysItemMax))
+        .max(organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysMax)
+        .optional()
+        .describe(
+            "Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https:\/\/posthog.com\/docs\/logs\/link-session-replay and the key the posthog-js \/ posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes."
+        ),
+    logs_session_id_attribute_keys: zod
+        .array(zod.string().max(organizationsProjectsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysItemMax))
+        .max(organizationsProjectsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysMax)
+        .optional()
+        .describe(
+            "Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https:\/\/posthog.com\/docs\/logs\/link-session-replay and the key the posthog-js \/ posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes."
+        ),
+    logs_pattern_message_keys: zod
+        .array(zod.string().max(organizationsProjectsLogsConfigPartialUpdateBodyLogsPatternMessageKeysItemMax))
+        .max(organizationsProjectsLogsConfigPartialUpdateBodyLogsPatternMessageKeysMax)
+        .optional()
+        .describe(
+            "Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting."
+        ),
+})
+
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
@@ -25,6 +67,11 @@ export const logsAlertsCreateBodyDatapointsToAlarmMax = 10
 
 export const logsAlertsCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsCreateBodyCooldownMinutesMin = 0
+
+export const logsAlertsCreateBodyGroupingOneMaxInstancesDefault = 100
+export const logsAlertsCreateBodyGroupingOneMaxInstancesMax = 100
+
+export const logsAlertsCreateBodyGroupingOneOnOverflowDefault = `degrade_visible`
 
 export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -96,11 +143,76 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsCreateBodyCooldownMinutesMin)
         .default(logsAlertsCreateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.'
+        ),
     snooze_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+    grouping: zod
+        .object({
+            mode: zod
+                .enum(['single', 'by_result_labels'])
+                .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                .describe(
+                    'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                ),
+            keys: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                ),
+            max_instances: zod
+                .number()
+                .min(1)
+                .max(logsAlertsCreateBodyGroupingOneMaxInstancesMax)
+                .default(logsAlertsCreateBodyGroupingOneMaxInstancesDefault)
+                .describe(
+                    'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                ),
+            on_overflow: zod
+                .enum(['degrade_visible'])
+                .describe('\* `degrade_visible` - Degrade visible')
+                .default(logsAlertsCreateBodyGroupingOneOnOverflowDefault)
+                .describe(
+                    'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                ),
+        })
+        .describe('How a logs alert splits its results into instances.')
+        .optional()
+        .describe(
+            'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
 })
 
 export const logsAlertsUpdateBodyNameMax = 255
@@ -119,6 +231,11 @@ export const logsAlertsUpdateBodyDatapointsToAlarmMax = 10
 
 export const logsAlertsUpdateBodyCooldownMinutesDefault = 0
 export const logsAlertsUpdateBodyCooldownMinutesMin = 0
+
+export const logsAlertsUpdateBodyGroupingOneMaxInstancesDefault = 100
+export const logsAlertsUpdateBodyGroupingOneMaxInstancesMax = 100
+
+export const logsAlertsUpdateBodyGroupingOneOnOverflowDefault = `degrade_visible`
 
 export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -190,11 +307,76 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsUpdateBodyCooldownMinutesMin)
         .default(logsAlertsUpdateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.'
+        ),
     snooze_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+    grouping: zod
+        .object({
+            mode: zod
+                .enum(['single', 'by_result_labels'])
+                .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                .describe(
+                    'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                ),
+            keys: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                ),
+            max_instances: zod
+                .number()
+                .min(1)
+                .max(logsAlertsUpdateBodyGroupingOneMaxInstancesMax)
+                .default(logsAlertsUpdateBodyGroupingOneMaxInstancesDefault)
+                .describe(
+                    'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                ),
+            on_overflow: zod
+                .enum(['degrade_visible'])
+                .describe('\* `degrade_visible` - Degrade visible')
+                .default(logsAlertsUpdateBodyGroupingOneOnOverflowDefault)
+                .describe(
+                    'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                ),
+        })
+        .describe('How a logs alert splits its results into instances.')
+        .optional()
+        .describe(
+            'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
 })
 
 export const logsAlertsPartialUpdateBodyNameMax = 255
@@ -213,6 +395,11 @@ export const logsAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
 
 export const logsAlertsPartialUpdateBodyCooldownMinutesDefault = 0
 export const logsAlertsPartialUpdateBodyCooldownMinutesMin = 0
+
+export const logsAlertsPartialUpdateBodyGroupingOneMaxInstancesDefault = 100
+export const logsAlertsPartialUpdateBodyGroupingOneMaxInstancesMax = 100
+
+export const logsAlertsPartialUpdateBodyGroupingOneOnOverflowDefault = `degrade_visible`
 
 export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -284,21 +471,91 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsPartialUpdateBodyCooldownMinutesMin)
         .default(logsAlertsPartialUpdateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.'
+        ),
     snooze_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+    grouping: zod
+        .object({
+            mode: zod
+                .enum(['single', 'by_result_labels'])
+                .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                .describe(
+                    'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                ),
+            keys: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                ),
+            max_instances: zod
+                .number()
+                .min(1)
+                .max(logsAlertsPartialUpdateBodyGroupingOneMaxInstancesMax)
+                .default(logsAlertsPartialUpdateBodyGroupingOneMaxInstancesDefault)
+                .describe(
+                    'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                ),
+            on_overflow: zod
+                .enum(['degrade_visible'])
+                .describe('\* `degrade_visible` - Degrade visible')
+                .default(logsAlertsPartialUpdateBodyGroupingOneOnOverflowDefault)
+                .describe(
+                    'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                ),
+        })
+        .describe('How a logs alert splits its results into instances.')
+        .optional()
+        .describe(
+            'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
 })
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.
  */
+export const logsAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
+export const logsAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
+
 export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['slack', 'webhook', 'teams'])
-        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
-        .describe('Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'),
+        .enum(['slack', 'webhook', 'teams', 'pagerduty'])
+        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty')
+        .describe(
+            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty'
+        ),
     slack_workspace_id: zod
         .number()
         .optional()
@@ -306,18 +563,32 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
     webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
+    pagerduty_routing_key: zod
+        .string()
+        .optional()
+        .describe('Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.'),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .default(logsAlertsDestinationsCreateBodyPagerdutySeverityDefault)
+        .describe(
+            'Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .default(logsAlertsDestinationsCreateBodyPagerdutyRegionDefault)
+        .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
 })
 
 /**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
-export const logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
 
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.uuid())
         .min(1)
-        .max(logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
 
@@ -395,7 +666,9 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsSimulateCreateBodyCooldownMinutesMin)
         .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
-        .describe('Minutes to wait after firing before sending another notification.'),
+        .describe(
+            'Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.'
+        ),
     date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
 })
 
@@ -421,6 +694,42 @@ export const LogsAnomaliesScanCreateBody = /* @__PURE__ */ zod.object({
                 .describe('End of the evaluation window (ISO 8601), clamped to now.'),
         })
         .describe('Evaluation window to scan for anomalies. May span at most 7 days.'),
+})
+
+/**
+ * Returns log volume over the requested window for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. The window defaults to the last 7 days and may span at most 7 days. Synchronous and read only.
+ * @summary Per-series log volume with expected bands
+ */
+export const LogsAnomaliesSeriesBandsCreateBody = /* @__PURE__ */ zod.object({
+    serviceName: zod.string().describe("Service whose per-series volume to chart (the log record's service_name)."),
+    dateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the window. Same format as date_from. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe(
+            'Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches.'
+        ),
+    intervalMinutes: zod
+        .union([
+            zod
+                .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
+                .describe('\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.\n\n\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60"
+        ),
 })
 
 export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
@@ -459,7 +768,7 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -564,7 +873,7 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -642,7 +951,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    "Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this facet's own filter.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name"
                 ),
             facetResourceAttribute: zod
                 .string()
@@ -698,7 +1007,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -750,6 +1059,12 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
                 ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
         })
         .describe('The facet values query to execute.'),
 })
@@ -798,7 +1113,7 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -848,7 +1163,7 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .optional()
                 .describe(
-                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\". Ignored when groupBys is provided.'
+                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\". Ignored when groupBys is provided.'
                 ),
             groupBySource: zod
                 .enum(['log', 'resource', 'column'])
@@ -863,7 +1178,7 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\".'
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template).'
                             ),
                         source: zod
                             .enum(['log', 'resource', 'column'])
@@ -893,8 +1208,106 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                 .max(logsGroupByCreateBodyQueryOneLimitMax)
                 .default(logsGroupByCreateBodyQueryOneLimitDefault)
                 .describe('Maximum number of groups to return (top-N by orderGroupsBy). Defaults to 100.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope grouping to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope grouping to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
         })
         .describe('The group-by query to execute.'),
+})
+
+export const LogsImpactCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range for the count. Defaults to last hour.'),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Filter by log severity levels.'),
+            serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
+            searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                            ),
+                        type: zod
+                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                            .describe(
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            )
+                            .describe(
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Property filters for the query.'),
+        })
+        .describe('The impact query to execute. Takes the same filters as the count query.'),
 })
 
 export const logsMetricRulesCreateBodyNameMax = 255
@@ -905,6 +1318,8 @@ export const logsMetricRulesCreateBodyEnabledDefault = false
 export const logsMetricRulesCreateBodyValueAttributeMax = 512
 
 export const logsMetricRulesCreateBodyGroupByItemMax = 512
+
+export const logsMetricRulesCreateBodySourceDefault = `logs`
 
 export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsMetricRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
@@ -931,13 +1346,20 @@ export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
         .max(logsMetricRulesCreateBodyValueAttributeMax)
         .nullish()
         .describe(
-            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+            'Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` \/ `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.'
         ),
     group_by: zod
         .array(zod.string().max(logsMetricRulesCreateBodyGroupByItemMax))
         .optional()
         .describe(
-            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.'
+        ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsMetricRulesCreateBodySourceDefault)
+        .describe(
+            'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),
 })
 
@@ -949,6 +1371,8 @@ export const logsMetricRulesUpdateBodyEnabledDefault = false
 export const logsMetricRulesUpdateBodyValueAttributeMax = 512
 
 export const logsMetricRulesUpdateBodyGroupByItemMax = 512
+
+export const logsMetricRulesUpdateBodySourceDefault = `logs`
 
 export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsMetricRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
@@ -975,13 +1399,20 @@ export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
         .max(logsMetricRulesUpdateBodyValueAttributeMax)
         .nullish()
         .describe(
-            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+            'Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` \/ `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.'
         ),
     group_by: zod
         .array(zod.string().max(logsMetricRulesUpdateBodyGroupByItemMax))
         .optional()
         .describe(
-            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.'
+        ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsMetricRulesUpdateBodySourceDefault)
+        .describe(
+            'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),
 })
 
@@ -993,6 +1424,8 @@ export const logsMetricRulesPartialUpdateBodyEnabledDefault = false
 export const logsMetricRulesPartialUpdateBodyValueAttributeMax = 512
 
 export const logsMetricRulesPartialUpdateBodyGroupByItemMax = 512
+
+export const logsMetricRulesPartialUpdateBodySourceDefault = `logs`
 
 export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -1024,13 +1457,49 @@ export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(logsMetricRulesPartialUpdateBodyValueAttributeMax)
         .nullish()
         .describe(
-            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+            'Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` \/ `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.'
         ),
     group_by: zod
         .array(zod.string().max(logsMetricRulesPartialUpdateBodyGroupByItemMax))
         .optional()
         .describe(
-            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.'
+        ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsMetricRulesPartialUpdateBodySourceDefault)
+        .describe(
+            'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
+        ),
+})
+
+/**
+ * Turn a plain-language request into ranked log viewer filter candidates. Nothing is persisted. Only the request text, service names and attribute keys are sent to the models.
+ */
+export const logsNaturalLanguageQueryCreateBodyQueryMax = 500
+
+export const LogsNaturalLanguageQueryCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(logsNaturalLanguageQueryCreateBodyQueryMax)
+        .describe("The plain-language request, for example 'error logs from checkout in the last 2 hours'."),
+    dateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats such as -1h or -7d.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the date range. Same format as date_from. Null means \"now\".'),
+        })
+        .optional()
+        .describe(
+            "The viewer's current date range. Used when the request names no time, and to scope the service and attribute lists the model may choose from."
         ),
 })
 
@@ -1070,7 +1539,7 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -1116,9 +1585,23 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters applied before mining. Same shape as the query-logs endpoint.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
         })
         .describe('The patterns query to execute.'),
 })
+
+export const logsPatternsDiffCreateBodyQueryOneLimitMax = 500
 
 export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -1156,7 +1639,7 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -1202,6 +1685,24 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters applied before mining. Same shape as the query-logs endpoint.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsPatternsDiffCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe('Return at most this many entries, most interesting first. Omit for all. Sets `truncated`.'),
         })
         .describe(
             'The patterns query for the current (foreground) window: date range plus any severity\/service\/search\/property filters. The same filters are applied to the baseline window.'
@@ -1227,8 +1728,8 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
 
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
-export const logsQueryCreateBodyQueryOneFilterGroupDefault = []
 export const logsQueryCreateBodyQueryOneLimitDefault = 100
+
 export const logsQueryCreateBodyQueryOneExcludeAttributesDefault = false
 export const logsQueryCreateBodyQueryOneCustomColumnsDefault = []
 
@@ -1271,58 +1772,133 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Order results by timestamp.\n\n\* `latest` - latest\n\* `earliest` - earliest'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
             filterGroup: zod
-                .array(
+                .union([
+                    zod.array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                ),
+                            type: zod
+                                .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                .describe(
+                                    '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                )
+                                .describe(
+                                    '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                ),
+                            operator: zod
+                                .enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'lt',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'is_set',
+                                    'is_not_set',
+                                ])
+                                .describe(
+                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                )
+                                .describe(
+                                    'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                ),
+                            value: zod
+                                .unknown()
+                                .optional()
+                                .describe(
+                                    'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                ),
+                        })
+                    ),
                     zod.object({
-                        key: zod
-                            .string()
-                            .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
-                            ),
                         type: zod
-                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
-                            .describe(
-                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            .enum(['AND', 'OR'])
+                            .describe('How to combine the groups in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'),
+                        values: zod
+                            .array(
+                                zod.object({
+                                    type: zod
+                                        .enum(['AND', 'OR'])
+                                        .describe(
+                                            'How to combine the filters in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'
+                                        ),
+                                    values: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                                    ),
+                                                type: zod
+                                                    .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                                    .describe(
+                                                        '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    )
+                                                    .describe(
+                                                        '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    ),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'lt',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                    ])
+                                                    .describe(
+                                                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    )
+                                                    .describe(
+                                                        'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    ),
+                                                value: zod
+                                                    .unknown()
+                                                    .optional()
+                                                    .describe(
+                                                        'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                                    ),
+                                            })
+                                        )
+                                        .describe('Property filters in this group.'),
+                                })
                             )
-                            .describe(
-                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
-                            ),
-                        operator: zod
-                            .enum([
-                                'exact',
-                                'is_not',
-                                'icontains',
-                                'not_icontains',
-                                'starts_with',
-                                'not_starts_with',
-                                'ends_with',
-                                'not_ends_with',
-                                'regex',
-                                'not_regex',
-                                'gt',
-                                'lt',
-                                'is_date_exact',
-                                'is_date_before',
-                                'is_date_after',
-                                'is_set',
-                                'is_not_set',
-                            ])
-                            .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            )
-                            .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            ),
-                        value: zod
-                            .unknown()
-                            .optional()
-                            .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
-                            ),
-                    })
-                )
-                .default(logsQueryCreateBodyQueryOneFilterGroupDefault)
-                .describe('Property filters for the query.'),
-            limit: zod.number().default(logsQueryCreateBodyQueryOneLimitDefault).describe('Max results (1-1000).'),
+                            .describe('Groups of property filters.'),
+                    }),
+                ])
+                .optional()
+                .describe(
+                    'Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND\/OR groups.'
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .default(logsQueryCreateBodyQueryOneLimitDefault)
+                .describe('Max results. Values above 2000 are capped at 2000.'),
             after: zod.string().optional().describe('Pagination cursor from previous response.'),
             excludeAttributes: zod
                 .boolean()
@@ -1342,10 +1918,23 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
                 ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
         })
         .describe('The logs query to execute.'),
 })
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesCreateBodyNameMax = 255
 
 export const logsRetentionRulesCreateBodyEnabledDefault = false
@@ -1371,6 +1960,13 @@ export const LogsRetentionRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesUpdateBodyNameMax = 255
 
 export const logsRetentionRulesUpdateBodyEnabledDefault = false
@@ -1396,6 +1992,13 @@ export const LogsRetentionRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesPartialUpdateBodyNameMax = 255
 
 export const logsRetentionRulesPartialUpdateBodyEnabledDefault = false
@@ -1621,6 +2224,12 @@ export const LogsSamplingRulesReorderCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const logsServicesCreateBodyQueryOneServiceNameSearchMax = 200
+
+export const logsServicesCreateBodyQueryOneEnvironmentMax = 200
+
+export const logsServicesCreateBodyQueryOneCompareDefault = `none`
+
 export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -1654,13 +2263,20 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Restrict the aggregation to these service names.'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            serviceNameSearch: zod
+                .string()
+                .max(logsServicesCreateBodyQueryOneServiceNameSearchMax)
+                .optional()
+                .describe(
+                    'Case-insensitive substring match on service name, applied before aggregation. Use to reach services beyond the response cap.'
+                ),
             filterGroup: zod
                 .array(
                     zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -1706,13 +2322,43 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters for the query.'),
+            environment: zod
+                .string()
+                .max(logsServicesCreateBodyQueryOneEnvironmentMax)
+                .optional()
+                .describe(
+                    'Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. \"(none)\" matches logs without one.'
+                ),
+            compare: zod
+                .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
+                .describe(
+                    '\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
+                )
+                .default(logsServicesCreateBodyQueryOneCompareDefault)
+                .describe(
+                    'Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
+                ),
         })
         .describe('The services aggregation query to execute.'),
+    baselineDateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe('Explicit baseline window. Takes precedence over `query.compare`.'),
 })
 
 export const logsSparklineCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsSparklineCreateBodyQueryOneServiceNamesDefault = []
-export const logsSparklineCreateBodyQueryOneFilterGroupDefault = []
 
 export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -1748,57 +2394,128 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Filter by service names.'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
             filterGroup: zod
-                .array(
+                .union([
+                    zod.array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                ),
+                            type: zod
+                                .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                .describe(
+                                    '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                )
+                                .describe(
+                                    '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                ),
+                            operator: zod
+                                .enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'lt',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'is_set',
+                                    'is_not_set',
+                                ])
+                                .describe(
+                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                )
+                                .describe(
+                                    'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                ),
+                            value: zod
+                                .unknown()
+                                .optional()
+                                .describe(
+                                    'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                ),
+                        })
+                    ),
                     zod.object({
-                        key: zod
-                            .string()
-                            .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
-                            ),
                         type: zod
-                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
-                            .describe(
-                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            .enum(['AND', 'OR'])
+                            .describe('How to combine the groups in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'),
+                        values: zod
+                            .array(
+                                zod.object({
+                                    type: zod
+                                        .enum(['AND', 'OR'])
+                                        .describe(
+                                            'How to combine the filters in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'
+                                        ),
+                                    values: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                                    ),
+                                                type: zod
+                                                    .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                                    .describe(
+                                                        '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    )
+                                                    .describe(
+                                                        '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    ),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'lt',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                    ])
+                                                    .describe(
+                                                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    )
+                                                    .describe(
+                                                        'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    ),
+                                                value: zod
+                                                    .unknown()
+                                                    .optional()
+                                                    .describe(
+                                                        'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                                    ),
+                                            })
+                                        )
+                                        .describe('Property filters in this group.'),
+                                })
                             )
-                            .describe(
-                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
-                            ),
-                        operator: zod
-                            .enum([
-                                'exact',
-                                'is_not',
-                                'icontains',
-                                'not_icontains',
-                                'starts_with',
-                                'not_starts_with',
-                                'ends_with',
-                                'not_ends_with',
-                                'regex',
-                                'not_regex',
-                                'gt',
-                                'lt',
-                                'is_date_exact',
-                                'is_date_before',
-                                'is_date_after',
-                                'is_set',
-                                'is_not_set',
-                            ])
-                            .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            )
-                            .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            ),
-                        value: zod
-                            .unknown()
-                            .optional()
-                            .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
-                            ),
-                    })
-                )
-                .default(logsSparklineCreateBodyQueryOneFilterGroupDefault)
-                .describe('Property filters for the query.'),
+                            .describe('Groups of property filters.'),
+                    }),
+                ])
+                .optional()
+                .describe(
+                    'Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND\/OR groups.'
+                ),
             sparklineBreakdownBy: zod
                 .enum(['severity', 'service'])
                 .describe('\* `severity` - severity\n\* `service` - service')
@@ -1818,6 +2535,12 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
                 ),
         })
         .describe('The sparkline query to execute.'),
@@ -1844,12 +2567,23 @@ export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
                         'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
                     ),
                 type: zod
-                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .enum([
+                        'timestamp',
+                        'level',
+                        'source',
+                        'trace_id',
+                        'span_id',
+                        'person',
+                        'session',
+                        'pattern',
+                        'message',
+                        'custom',
+                    ])
                     .describe(
-                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `person` - person\n\* `session` - session\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     )
                     .describe(
-                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        'Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `person` - person\n\* `session` - session\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     ),
                 name: zod
                     .string()
@@ -1901,12 +2635,23 @@ export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
                         'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
                     ),
                 type: zod
-                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .enum([
+                        'timestamp',
+                        'level',
+                        'source',
+                        'trace_id',
+                        'span_id',
+                        'person',
+                        'session',
+                        'pattern',
+                        'message',
+                        'custom',
+                    ])
                     .describe(
-                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `person` - person\n\* `session` - session\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     )
                     .describe(
-                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        'Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `person` - person\n\* `session` - session\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     ),
                 name: zod
                     .string()
@@ -1958,12 +2703,23 @@ export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
                     ),
                 type: zod
-                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .enum([
+                        'timestamp',
+                        'level',
+                        'source',
+                        'trace_id',
+                        'span_id',
+                        'person',
+                        'session',
+                        'pattern',
+                        'message',
+                        'custom',
+                    ])
                     .describe(
-                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `person` - person\n\* `session` - session\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     )
                     .describe(
-                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        'Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `person` - person\n\* `session` - session\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     ),
                 name: zod
                     .string()

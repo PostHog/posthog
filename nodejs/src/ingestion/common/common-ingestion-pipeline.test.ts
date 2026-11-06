@@ -14,6 +14,7 @@ import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
+import { getMetricValues, resetMetrics } from '~/tests/helpers/metrics'
 import { createTestTeam } from '~/tests/helpers/team'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
@@ -92,13 +93,13 @@ describe('CommonIngestionPipelineBuilder', () => {
     // so no batch result may ever surface any to the driver.
     const runPipeline = async (
         pipeline: {
-            feed: (batch: any[]) => Promise<{ ok: boolean }>
+            feed: (batch: any[], batchContext: Record<never, never>) => Promise<{ ok: boolean }>
             next: () => Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] } | null>
         },
         messages: Message[]
     ): Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] }[]> => {
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        const feedResult = await pipeline.feed(batch)
+        const feedResult = await pipeline.feed(batch, {})
         expect(feedResult.ok).toBe(true)
 
         const batches = []
@@ -773,6 +774,25 @@ describe('CommonIngestionPipelineBuilder', () => {
         const elements = batches.flatMap((batch) => batch.elements)
         expect(isOkResult(elements[0].result)).toBe(true)
         expect(isDropResult(elements[1].result)).toBe(true)
+    })
+
+    it('records teams resolved through a team id sent as the token', async () => {
+        resetMetrics()
+        mockTeamManager.getTeamByToken.mockImplementation((token: string) =>
+            Promise.resolve(token === team.api_token || token === String(team.id) ? team : null)
+        )
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .build()
+
+        await runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1', 'test_event', String(team.id))])
+
+        expect((topHogRecords.get('token_resolved_as_team_id') ?? []).map((r) => r.key)).toEqual([
+            { team_id: String(team.id) },
+        ])
+        expect(await getMetricValues('ingestion_token_resolved_as_team_id_total')).toEqual([{ labels: {}, value: 1 }])
     })
 
     it('records parse timing and message sizes for every parsed message', async () => {

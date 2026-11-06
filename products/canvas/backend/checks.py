@@ -2,34 +2,51 @@
 
 A half-configured artifact origin used to fail silently: every build would
 succeed and then serve ``artifact_url: null``. These system checks make a
-misconfiguration fail the deploy instead. An entirely unset configuration is
-legal — it means artifact delivery is off (DEBUG/TEST fall back to SITE_URL).
+misconfiguration fail the deploy instead. An entirely unset origin is legal —
+it means artifact delivery is off (DEBUG/TEST fall back to SITE_URL).
+
+Check IDs follow the scheme documented at the top of posthog/checks.py.
 """
 
 from typing import Any
 
 from django.conf import settings
-from django.core.checks import Error, register
+from django.core.checks import CheckMessage, Error
+
+from posthog.checks import register_check
+
+CANVAS_ARTIFACT_DELIVERY_INCOMPLETE = "posthog.canvas.E001"
+CANVAS_ARTIFACT_ORIGIN_INVALID = "posthog.canvas.E002"
+CANVAS_ARTIFACT_SIGNING_KEY_TOO_SHORT = "posthog.canvas.E003"
 
 
-@register("canvas")
-def check_artifact_delivery_settings(app_configs: Any, **kwargs: Any) -> list[Error]:
+@register_check(
+    CANVAS_ARTIFACT_DELIVERY_INCOMPLETE,
+    CANVAS_ARTIFACT_ORIGIN_INVALID,
+    CANVAS_ARTIFACT_SIGNING_KEY_TOO_SHORT,
+    tags=["canvas"],
+)
+def check_artifact_delivery_settings(app_configs: Any, **kwargs: Any) -> list[CheckMessage]:
     if settings.DEBUG or settings.TEST:
         return []
     origin = settings.CANVAS_ARTIFACT_ORIGIN
-    keys = settings.CANVAS_ARTIFACT_SIGNING_KEYS
-    if not origin and not keys:
+    dedicated_keys = settings.CANVAS_ARTIFACT_SIGNING_KEYS
+    if not origin and not dedicated_keys:
         return []
 
-    from products.canvas.backend.artifacts import _configured_artifact_host  # noqa: PLC0415
+    from products.canvas.backend.artifacts import (  # noqa: PLC0415 — Django app registry must be ready
+        _artifact_signing_keys,
+        _configured_artifact_host,
+    )
 
-    errors: list[Error] = []
+    errors: list[CheckMessage] = []
+    keys = _artifact_signing_keys()
     if not origin or not keys:
         errors.append(
             Error(
-                "CANVAS_ARTIFACT_ORIGIN and CANVAS_ARTIFACT_SIGNING_KEYS must be set together — "
-                "half-configured artifact delivery serves no artifacts.",
-                id="canvas.E001",
+                "Canvas artifact delivery needs CANVAS_ARTIFACT_ORIGIN and a signing key from "
+                "CANVAS_ARTIFACT_SIGNING_KEYS or SECRET_KEY.",
+                id=CANVAS_ARTIFACT_DELIVERY_INCOMPLETE,
             )
         )
     if origin and _configured_artifact_host() is None:
@@ -37,16 +54,16 @@ def check_artifact_delivery_settings(app_configs: Any, **kwargs: Any) -> list[Er
             Error(
                 f"CANVAS_ARTIFACT_ORIGIN ({origin!r}) must be a bare https origin with no path, "
                 "query, fragment, or credentials.",
-                id="canvas.E002",
+                id=CANVAS_ARTIFACT_ORIGIN_INVALID,
             )
         )
     invalid_key_positions = [str(index + 1) for index, key in enumerate(keys) if len(key) < 32]
     if invalid_key_positions:
         errors.append(
             Error(
-                "Every CANVAS_ARTIFACT_SIGNING_KEY must be at least 32 characters; invalid position(s): "
+                "Every Canvas artifact signing key must be at least 32 characters; invalid position(s): "
                 + ", ".join(invalid_key_positions),
-                id="canvas.E003",
+                id=CANVAS_ARTIFACT_SIGNING_KEY_TOO_SHORT,
             )
         )
     return errors

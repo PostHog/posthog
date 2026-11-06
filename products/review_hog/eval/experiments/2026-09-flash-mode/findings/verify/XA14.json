@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA14",
+    "cluster": 9,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:85-105 suppresses state/status-only saves, failed/cancelled runs, and nonqualifying tasks before queueing at 126-138. The current tasks PATCH implementation saves only submitted fields (tasks/backend/facade/api.py:2038-2058,2074-2075), so ordinary long-running state changes do not keep firing output reviews. The webhook output writer returns before saving already-recorded PR fields (tasks/backend/webhooks.py:283-292). For actual repeated output writes, stamphog/backend/tasks/tasks.py:1154-1159 intentionally fetches the current GitHub head and 1202-1221 prevents a second handled-head review/sandbox. tests/test_tasks.py:974-1001 explicitly covers reusing a completed head and recovering a changed head whose webhook was missed.",
+            "refutation": "I first searched the real writers for the implied repeated-output hot path. Current state/status PATCHes do not include output in update_fields, and duplicate webhooks are idempotent. Explicit repeated output submissions do cause additional Celery jobs and one head fetch, but no realistic high-frequency producer, quota failure, or duplicate expensive review is demonstrated. The unchanged task_run_id/pr_url does not imply an unchanged head, which is precisely why the recovery path fetches before deduplication. Coalescing is a possible optimization with its own recovery tradeoff; bounded repeated head checks alone are not a proven defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:85-95 excludes created, status/state-only, failed/cancelled and targetless saves; ordinary task lifecycle status saves use explicit status fields (tasks/backend/models.py:1533,1564,1807). The remaining output-save refires intentionally fetch the current PR head: Stamphog tasks/tasks.py:1124-1128 explains that the same URL can contain unreviewed commits after a missed synchronize. :1202-1221 prevents another ReviewRun for an already-handled head and idempotently restarts a stranded queued workflow. tests/test_tasks.py:974-1020 verifies existing/completed/failed and changed-head cases.",
+            "refutation": "First checked for an unbounded production stream of output saves and missing run deduplication. The cited hot-model premise is narrowed by explicit update_fields/status guards, tested at review_hog/backend/tests/test_inbox_trigger.py:179-203. A repeated accepted output save does incur a fetch, but the claim supplies no actual producer frequency, exhaustion threshold or observed failure; it only assumes a long-running task writes output many times. The proposed task_run_id+pr_url dedupe would suppress the tested missed-webhook/new-head recovery because the URL does not change on a push. Without a demonstrated harmful workload this is a speculative coalescing optimization, not a proved defect."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "Repeat eligible output writes do publish another task, but the source explicitly uses them for current-head freshness and lost-delivery/stranded-QUEUED recovery (products/stamphog/backend/tasks/tasks.py:1124-1128,1155-1159,1198-1221). A same-head live or delivered run returns without another review. The hot status path saves only status/error/completion fields at products/tasks/backend/temporal/process_task/activities/update_task_run_status.py:69, which the receiver drops before any DB access at review_hog/backend/receivers.py:85-89. The GitHub output recorder is itself idempotent at tasks/backend/webhooks.py:276-292. No production high-frequency output writer or resulting overload is established by this claim.",
+            "refutation": "I traced ordinary long-running task updates to test the premise that they produce many duplicate review jobs. Status/state persistence does not satisfy the receiver's output guard, and repeated PR webhook recording does not save once the field exists. Explicit caller output writes can trigger another inexpensive current-head check, but that check is intentional recovery behavior and the expensive review is deduplicated. A durable task_run_id+pr_url key would suppress recovery after a missed push because those values remain unchanged. Without a concrete rate/load failure, the finding is speculative coalescing rather than a proved shipping defect."
+        }
+    ]
+}

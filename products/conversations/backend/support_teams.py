@@ -1,8 +1,8 @@
 """
-Token management and request validation for the SupportHog Microsoft Teams bot.
+Token management for the SupportHog Microsoft Teams bot.
 
 Handles:
-- Bot Framework JWT validation (inbound activities from Azure Bot Service)
+- The three values ingress verifies inbound Bot Framework activities with (signing keys, audience, issuers)
 - Graph API token refresh (per-tenant, for listing teams/channels/users)
 - Bot Framework token acquisition (global, for sending replies)
 - Save/clear config with activity logging
@@ -14,9 +14,7 @@ from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.db import transaction
-from django.http import HttpRequest
 
-import jwt
 import redis
 import requests
 import structlog
@@ -26,6 +24,7 @@ from posthog.models.instance_setting import get_instance_settings
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.security.url_validation import is_url_allowed
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
 
@@ -62,8 +61,6 @@ BOT_TOKEN_CACHE_TTL_SECONDS = 50 * 60  # 50 min (tokens live ~1h)
 GRAPH_REFRESH_LOCK_KEY_PREFIX = "supporthog:teams:graph_refresh_lock"
 GRAPH_REFRESH_LOCK_TIMEOUT_SECONDS = 30
 GRAPH_REFRESH_LOCK_BLOCKING_TIMEOUT_SECONDS = 10
-
-JWT_CLOCK_TOLERANCE_SECONDS = 5 * 60
 
 # Must match products.conversations.backend.api.teams_oauth.TEAMS_OAUTH_SCOPES.
 # Refresh requests should request the same scopes as the original authorization
@@ -129,7 +126,7 @@ def get_teams_instance_settings() -> dict:
     )
 
 
-def _get_botframework_valid_issuers() -> tuple[str, ...]:
+def get_botframework_issuers() -> frozenset[str]:
     """
     Microsoft Teams / Bot Framework signs inbound activities with a service
     token issued by Bot Framework. We validate that issuer only.
@@ -145,7 +142,58 @@ def _get_botframework_valid_issuers() -> tuple[str, ...]:
 
     See: https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-connector-authentication
     """
-    return ("https://api.botframework.com",)
+    return frozenset({"https://api.botframework.com"})
+
+
+def get_teams_app_id() -> str | None:
+    """The bot's app id, which is the audience every inbound activity token must carry."""
+    app_id = str(get_teams_instance_settings().get("SUPPORT_TEAMS_APP_ID") or "")
+    return app_id or None
+
+
+def _allowed_jwks_uri(jwks_uri: str) -> str | None:
+    """The URI, once it passes the SSRF allowlist, or None when it does not.
+
+    The value comes out of a document Microsoft serves rather than out of PostHog's own
+    configuration, so it is checked before anything fetches it, the same way
+    ``posthog/api/id_jag.py`` checks the JWKS URI it discovers.
+    """
+    allowed, reason = is_url_allowed(jwks_uri)
+    if not allowed:
+        logger.warning("teams_jwks_uri_not_allowed", reason=reason)
+        return None
+    return jwks_uri
+
+
+def get_botframework_jwks_uri() -> str | None:
+    """The signing-key URI from the Bot Framework OpenID metadata document.
+
+    Ingress calls this on every inbound activity, so the discovery result is cached for an hour
+    rather than fetched each time.
+    """
+    cached_uri = cache.get(JWKS_CACHE_KEY)
+    if cached_uri:
+        # Only the discovery below writes this key, and it writes an allowed URI. Re-checking
+        # here would put a DNS lookup on every inbound activity, and a lookup that failed would
+        # read as an unconfigured instance.
+        return str(cached_uri)
+
+    try:
+        response = requests.get(BOTFRAMEWORK_OPENID_METADATA_URL, timeout=10)
+        response.raise_for_status()
+        jwks_uri = response.json().get("jwks_uri")
+    except Exception:
+        logger.exception("teams_jwks_metadata_fetch_failed")
+        return None
+
+    if not jwks_uri:
+        logger.warning("teams_jwks_metadata_without_uri")
+        return None
+
+    allowed_uri = _allowed_jwks_uri(str(jwks_uri))
+    if allowed_uri:
+        cache.set(JWKS_CACHE_KEY, allowed_uri, JWKS_CACHE_TTL_SECONDS)
+    return allowed_uri
 
 
 def is_trusted_teams_service_url(service_url: str) -> bool:
@@ -194,118 +242,10 @@ def get_bot_from_id() -> str:
     does infer bot identity from the bearer token, but including `from.id` explicitly
     avoids undocumented fallback behavior and matches the Activity schema.
     """
-    app_id = str(get_teams_instance_settings().get("SUPPORT_TEAMS_APP_ID") or "")
+    app_id = get_teams_app_id()
     if not app_id:
         raise ValueError("SUPPORT_TEAMS_APP_ID not configured")
     return f"28:{app_id}"
-
-
-def _get_jwks_client() -> jwt.PyJWKClient:
-    """Fetch the JWKS URI from Bot Framework OpenID metadata, cached for 1 hour."""
-    cached_uri = cache.get(JWKS_CACHE_KEY)
-    if cached_uri:
-        return jwt.PyJWKClient(cached_uri)
-
-    try:
-        resp = requests.get(BOTFRAMEWORK_OPENID_METADATA_URL, timeout=10)
-        resp.raise_for_status()
-        jwks_uri = resp.json().get("jwks_uri")
-        if jwks_uri:
-            cache.set(JWKS_CACHE_KEY, jwks_uri, JWKS_CACHE_TTL_SECONDS)
-            return jwt.PyJWKClient(jwks_uri)
-    except Exception:
-        logger.exception("teams_jwks_metadata_fetch_failed")
-
-    raise ValueError("Failed to fetch Bot Framework JWKS metadata")
-
-
-def validate_teams_request(request: HttpRequest) -> dict:
-    """
-    Validate an incoming Bot Framework activity by checking the JWT bearer token.
-
-    Returns the decoded JWT claims on success.
-    Raises ValueError on any validation failure.
-    """
-    settings = get_teams_instance_settings()
-    app_id = str(settings.get("SUPPORT_TEAMS_APP_ID") or "")
-    if not app_id:
-        raise ValueError("SUPPORT_TEAMS_APP_ID not configured")
-
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise ValueError("Missing or invalid Authorization header")
-
-    token = auth_header[7:]
-
-    # Peek at unverified claims/header for diagnostics — helps us see why a token
-    # is being rejected (wrong issuer, wrong aud, wrong kid, etc.) without having
-    # to reproduce the issue. These claims are ONLY used for logging on the error
-    # path below; the actual authentication decision is made by the verified
-    # jwt.decode() call further down, which enforces signature + aud + exp.
-    unverified_claims: dict = {}
-    unverified_header: dict = {}
-    try:
-        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode (diagnostics only, not used for auth)
-        unverified_claims = jwt.decode(token, options={"verify_signature": False})
-        unverified_header = jwt.get_unverified_header(token)
-    except Exception:
-        pass
-
-    try:
-        jwks_client = _get_jwks_client()
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
-
-        # The allowlist is currently a singleton (`api.botframework.com`), but
-        # we keep the manual check so adding a second issuer later doesn't silently
-        # fall into the `verify_iss=False` branch.
-        claims = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256", "RS384", "RS512"],
-            audience=app_id,
-            options={
-                "verify_exp": True,
-                "verify_iss": False,
-                "verify_aud": True,
-            },
-            leeway=timedelta(seconds=JWT_CLOCK_TOLERANCE_SECONDS),
-        )
-        issuer = claims.get("iss", "")
-        if issuer not in _get_botframework_valid_issuers():
-            raise ValueError(f"JWT issuer not allowed: {issuer}")
-        return claims
-    except jwt.ExpiredSignatureError:
-        logger.warning(
-            "teams_jwt_rejected",
-            reason="expired",
-            iss=unverified_claims.get("iss"),
-            aud=unverified_claims.get("aud"),
-            exp=unverified_claims.get("exp"),
-            kid=unverified_header.get("kid"),
-        )
-        raise ValueError("JWT token expired")
-    except jwt.InvalidTokenError as e:
-        logger.warning(
-            "teams_jwt_rejected",
-            reason="invalid_token",
-            error=str(e),
-            iss=unverified_claims.get("iss"),
-            aud=unverified_claims.get("aud"),
-            serviceurl=unverified_claims.get("serviceurl"),
-            kid=unverified_header.get("kid"),
-            alg=unverified_header.get("alg"),
-        )
-        raise ValueError(f"JWT validation failed: {e}")
-    except jwt.PyJWKClientError as e:
-        logger.warning(
-            "teams_jwt_rejected",
-            reason="jwks_lookup_failed",
-            error=str(e),
-            iss=unverified_claims.get("iss"),
-            aud=unverified_claims.get("aud"),
-            kid=unverified_header.get("kid"),
-        )
-        raise ValueError(f"JWKS lookup failed: {e}")
 
 
 def invalidate_bot_framework_token() -> None:

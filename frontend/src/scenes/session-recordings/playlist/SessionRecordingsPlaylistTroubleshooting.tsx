@@ -1,33 +1,48 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { useListTroubleshooting } from './useListTroubleshooting'
 
 export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
-    const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { hiddenRecordingsCount } = useValues(sessionRecordingsPlaylistLogic)
-    const { setShowSettings, setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const {
+        heading,
+        recordingsAreHidden,
+        hiddenRecordingsCount,
+        canClearFilters,
+        showHiddenRecordings,
+        clearFilters,
+        searchLast30Days,
+    } = useListTroubleshooting()
 
     return (
         <>
-            <h3 className="title text-secondary mb-0">No matching recordings</h3>
+            <h3 className="title text-secondary mb-0">{heading}</h3>
             <div className="flex flex-col deprecated-space-y-2">
                 <ul className="deprecated-space-y-1">
-                    {hiddenRecordingsCount > 0 && (
+                    {recordingsAreHidden && (
                         <li>
                             <LemonButton
                                 type="secondary"
                                 fullWidth={true}
                                 size="xsmall"
                                 data-attr="replay-empty-state-troubleshooting-show-hidden-recordings"
-                                onClick={() => {
-                                    setShowSettings(true)
-                                    setHideViewedRecordings(false)
-                                }}
+                                onClick={showHiddenRecordings}
                             >
-                                Show {hiddenRecordingsCount} hidden recordings
+                                {hiddenRecordingsCount > 0
+                                    ? `Show ${hiddenRecordingsCount} hidden recordings`
+                                    : 'Show hidden recordings'}
+                            </LemonButton>
+                        </li>
+                    )}
+                    {canClearFilters && (
+                        <li>
+                            <LemonButton
+                                type="secondary"
+                                fullWidth={true}
+                                size="xsmall"
+                                data-attr="replay-empty-state-troubleshooting-clear-filters"
+                                onClick={clearFilters}
+                            >
+                                Clear filters
                             </LemonButton>
                         </li>
                     )}
@@ -37,7 +52,7 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                             fullWidth={true}
                             size="xsmall"
                             data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                            onClick={() => setFilters({ date_from: '-30d' })}
+                            onClick={searchLast30Days}
                         >
                             Search over the last 30 days
                         </LemonButton>

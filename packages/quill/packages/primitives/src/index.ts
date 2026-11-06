@@ -101,7 +101,7 @@ export {
     ThreadItemRepliesMeta,
 } from './chat/thread-item'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
-export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } from './card'
+export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
@@ -176,7 +176,11 @@ export {
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuEmpty,
+    DropdownMenuFilterProvider,
     DropdownMenuGroup,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuLabel,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,
@@ -205,6 +209,7 @@ export {
     FieldTitle,
 } from './field'
 export { Heading, headingVariants } from './heading'
+export { IconStack, IconStackItem } from './icon-stack'
 export { Input } from './input'
 export {
     NumberFieldRoot,
@@ -239,6 +244,7 @@ export {
     ItemHeader,
     ItemFooter,
 } from './item'
+export { Highlight, highlightVariants, type HighlightColor, type HighlightProps } from './highlight'
 export { Kbd, KbdGroup, KbdText } from './kbd'
 export { Label } from './label'
 export {
@@ -270,7 +276,7 @@ export {
     getPaginationRange,
     type PaginationRangeItem,
 } from './pagination'
-export { Popover, PopoverContent, PopoverTrigger } from './popover'
+export { Popover, PopoverArrow, PopoverContent, PopoverTrigger } from './popover'
 export {
     Progress,
     ProgressIndicator,
@@ -279,8 +285,30 @@ export {
     ProgressValue,
     progressIndicatorVariants,
 } from './progress'
+export {
+    Questionnaire,
+    QuestionnaireActions,
+    QuestionnaireChoice,
+    QuestionnaireChoiceDescription,
+    QuestionnaireChoices,
+    QuestionnaireDescription,
+    QuestionnaireError,
+    QuestionnaireInput,
+    QuestionnaireItem,
+    QuestionnaireNext,
+    QuestionnairePrevious,
+    QuestionnaireProgress,
+    QuestionnaireSkip,
+    QuestionnaireSubmit,
+    QuestionnaireTitle,
+    type QuestionnaireChoiceDefinition,
+    type QuestionnaireInputType,
+    type QuestionnaireItemDefinition,
+    type QuestionnaireItemStatus,
+    type QuestionnaireShortcutMode,
+} from './chat/questionnaire'
 export { RadioGroup, RadioGroupItem, RadioIndicator } from './radio-group'
-export { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
+export { ResizableHandle, ResizablePanel, ResizablePanelGroup, ResizeGrip } from './resizable'
 export { ScrollArea, ScrollBar, scrollShadowsCss, SCROLL_SHADOWS_STYLE_ID } from './scroll-area'
 export {
     Select,
@@ -322,11 +350,12 @@ export {
     TableEmpty,
     TableCaption,
 } from './table'
+export { MIN_TABLE_COLUMN_WIDTH, TableColumnResizer } from './table-column-resizer'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
 export { Text, textVariants } from './text'
 export { Textarea } from './textarea'
 export { Toggle, toggleVariants } from './toggle'
 export { ToggleGroup, ToggleGroupItem } from './toggle-group'
-export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
+export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, createTooltipHandle } from './tooltip'
 export { ThemeProvider, useTheme, type Theme } from './theme-provider'
 export { cn } from './lib/utils'

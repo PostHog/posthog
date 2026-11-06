@@ -1,10 +1,13 @@
+import { router } from 'kea-router'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
-import { certificationsLogic } from './certificationsLogic'
-import type { CertificationsFilters } from './certificationsLogic'
+import { CERTIFICATIONS_TABLE_ID, DEFAULT_CERTIFICATIONS_FILTERS, certificationsLogic } from './certificationsLogic'
+import type { CertificationsFilters, NewCertificationForm } from './certificationsLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
     dataCatalogCertificationsCreate,
@@ -120,20 +123,74 @@ describe('certificationsLogic', () => {
         expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
     })
 
-    it('sends the proposal intent when creating', async () => {
+    it.each<[string, Partial<NewCertificationForm>, Record<string, string>]>([
+        [
+            'a table id',
+            { targetId: 'table-id', targetName: 'stale_revenue', targetType: 'table' },
+            { table_id: 'table-id' },
+        ],
+        [
+            'a view id',
+            { targetId: 'view-id', targetName: 'stale_revenue', targetType: 'view' },
+            { saved_query_id: 'view-id' },
+        ],
+        [
+            'a target name without an id',
+            { targetName: 'stale_revenue', targetType: 'table' },
+            { table_name: 'stale_revenue' },
+        ],
+    ])('sends the proposal intent with %s when creating', async (_description, form, target) => {
         ;(dataCatalogCertificationsCreate as jest.Mock).mockResolvedValue(
             buildCertification({ id: 'cert-3', status: 'proposed' })
         )
 
-        logic.actions.setNewCertificationForm({ targetName: 'stale_revenue', proposedStatus: 'deprecated' })
+        logic.actions.setNewCertificationForm({ ...form, proposedStatus: 'deprecated' })
         logic.actions.createCertification()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(dataCatalogCertificationsCreate).toHaveBeenCalledWith('1', {
-            table_name: 'stale_revenue',
+            ...target,
             notes: undefined,
             proposed_status: 'deprecated',
         })
+    })
+
+    it('shows an error and resets the submitting state when creation fails', async () => {
+        ;(dataCatalogCertificationsCreate as jest.Mock).mockRejectedValue(new Error('Request failed'))
+
+        logic.actions.setNewCertificationForm({ targetId: 'table-id', targetName: 'stale_revenue' })
+        logic.actions.createCertification()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.error).toHaveBeenCalledWith('Could not create the proposal. Try again.')
+        expect(logic.values.isCreatingCertification).toBe(false)
+    })
+
+    it('refreshes the shared schema after a suggestion is accepted so trust badges update', () => {
+        mockLoadDatabase.mockClear()
+
+        logic.actions.suggestionAccepted()
+
+        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
+    })
+
+    it('opens the page that holds a highlighted certification once it loads, with the filters and sort cleared', () => {
+        logic.actions.setFilters({ status: 'proposed', search: 'stripe' })
+        router.actions.replace(router.values.location.pathname, {
+            [`${CERTIFICATIONS_TABLE_ID}_order`]: '-target_name',
+            table: 'stripe',
+        })
+
+        logic.actions.highlightCertification('cert-25')
+        logic.actions.loadCertificationsSuccess(
+            Array.from({ length: 30 }, (_, index) => buildCertification({ id: `cert-${index + 1}` }))
+        )
+
+        expect(logic.values.filters).toEqual(DEFAULT_CERTIFICATIONS_FILTERS)
+        expect(logic.values.highlightedCertificationId).toEqual('cert-25')
+        expect(router.values.searchParams[`${CERTIFICATIONS_TABLE_ID}_page`]).toEqual(2)
+        expect(router.values.searchParams[`${CERTIFICATIONS_TABLE_ID}_order`]).toBeUndefined()
+        expect(router.values.searchParams.table).toBeUndefined()
     })
 
     it('removes the row when revoking', async () => {

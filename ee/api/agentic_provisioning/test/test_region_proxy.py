@@ -1,9 +1,8 @@
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.http import JsonResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.parsers import JSONParser
@@ -28,7 +27,7 @@ def _make_drf_request(data=None):
     return Request(raw, parsers=[JSONParser()])
 
 
-class TestShouldProxyBodyRegion(BaseTest):
+class TestShouldProxyBodyRegion(SimpleTestCase):
     def test_proxies_on_region_mismatch(self):
         request = _make_drf_request({"configuration": {"region": "EU"}})
         assert _should_proxy_body_region(request, "US") is True
@@ -55,7 +54,7 @@ class TestShouldProxyBodyRegion(BaseTest):
         assert _should_proxy_body_region(request2, "US") is False
 
 
-class TestShouldProxyTokenLookup(BaseTest):
+class TestShouldProxyTokenLookup(SimpleTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
@@ -89,7 +88,7 @@ class TestShouldProxyTokenLookup(BaseTest):
         assert _should_proxy_token_lookup(request, "US") is False
 
 
-class TestShouldProxyBearerLookup(BaseTest):
+class TestShouldProxyBearerLookup(SimpleTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
@@ -155,9 +154,9 @@ class TestShouldProxyBearerLookup(BaseTest):
             assert _should_proxy_bearer_lookup(req_unknown, "US") is True
 
 
-class TestProxyHeaderAllowlist(BaseTest):
+class TestProxyHeaderAllowlist(SimpleTestCase):
     @patch("ee.api.agentic_provisioning.region_proxy.requests")
-    def test_strips_cookies_and_forwarded_headers(self, mock_requests):
+    def test_strips_cookies_and_carries_the_caller_address(self, mock_requests):
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.content = b'{"status": "ok"}'
@@ -169,7 +168,7 @@ class TestProxyHeaderAllowlist(BaseTest):
             data={},
             format="json",
             HTTP_COOKIE="sessionid=secret123",
-            HTTP_X_FORWARDED_FOR="10.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.7, 10.0.0.1",
             HTTP_STRIPE_SIGNATURE="t=123,v1=abc",
             HTTP_AUTHORIZATION="Bearer pha_test",
         )
@@ -182,8 +181,10 @@ class TestProxyHeaderAllowlist(BaseTest):
         header_keys_lower = {k.lower() for k in forwarded_headers}
 
         assert "cookie" not in header_keys_lower
-        assert "x-forwarded-for" not in header_keys_lower
         assert "stripe-signature" not in header_keys_lower
+        # Carried through, so the other region's per-IP limits key on the caller
+        # rather than on this region's egress address.
+        assert forwarded_headers["X-Forwarded-For"] == "203.0.113.7, 10.0.0.1"
         assert "authorization" in header_keys_lower
         assert "host" in header_keys_lower
         assert forwarded_headers["Host"] == "eu.posthog.com"
@@ -222,7 +223,7 @@ class TestDecoratorIntegration(ProvisioningTestBase):
             "configuration": {"region": "EU"},
             "scopes": ["query:read"],
         }
-        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
+        res = self._post_as_partner("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
@@ -233,7 +234,7 @@ class TestDecoratorIntegration(ProvisioningTestBase):
             "configuration": {"region": "US"},
             "scopes": ["query:read"],
         }
-        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
+        res = self._post_as_partner("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
@@ -331,7 +332,7 @@ class TestRegionProxyThrottle(ProvisioningTestBase):
         assert body["error"]["code"] == "rate_limited"
 
 
-class TestRegionProxyCoverageContract(BaseTest):
+class TestRegionProxyCoverageContract(SimpleTestCase):
     """Catches forgotten ``region_proxy_strategy`` on bearer-auth endpoints.
 
     If you add a new endpoint that accepts a bearer access token, either declare
@@ -344,9 +345,8 @@ class TestRegionProxyCoverageContract(BaseTest):
         "ResourceDetailView": "bearer_lookup",
         "RotateCredentialsView": "bearer_lookup",
         "ResourceRemoveView": "bearer_lookup",
-        "GitHubIntegrationView": "bearer_lookup",
-        "WizardRunsView": "bearer_lookup",
         "DeepLinksView": "bearer_lookup",
+        "LimitsView": "bearer_lookup",
         "AccountRequestsView": "body_region",
         "OAuthTokenView": "token_lookup",
     }
@@ -429,7 +429,7 @@ class TestCrossRegionLoopback(ProvisioningTestBase):
             "scopes": ["query:read"],
         }
 
-        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
+        res = self._post_as_partner("/api/agentic/provisioning/account_requests", data=payload)
 
         assert mock_request.called, "US instance should have proxied to EU"
         assert captured["host"] == "eu.posthog.com"
@@ -511,7 +511,7 @@ class TestCrossRegionLoopback(ProvisioningTestBase):
             "configuration": {"region": "EU"},
             "scopes": ["query:read"],
         }
-        self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
+        self._post_as_partner("/api/agentic/provisioning/account_requests", data=payload)
 
         assert call_count["n"] == 1, (
             f"proxy should fire exactly once (US→EU); got {call_count['n']} — loop header not respected"

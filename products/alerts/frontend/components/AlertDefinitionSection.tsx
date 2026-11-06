@@ -61,8 +61,10 @@ export interface AlertDefinitionSectionProps {
     funnel: FunnelDefinitionProps
     hogql: HogQLDefinitionProps
     supportsAnomalyDetection: boolean
+    showAnomalyGuidance?: boolean
+    /** Show the AI detector in the detector picker. Off until the alerts-llm-detector flag is on. */
+    llmDetectorEnabled?: boolean
     twoColumnLayout?: boolean
-    investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
     simulationDateFrom: string | null
@@ -85,8 +87,9 @@ export function AlertDefinitionSection({
     funnel,
     hogql,
     supportsAnomalyDetection,
+    showAnomalyGuidance = false,
+    llmDetectorEnabled = false,
     twoColumnLayout = false,
-    investigationAgentEnabled,
     simulationResult,
     simulationResultLoading,
     simulationDateFrom,
@@ -176,8 +179,9 @@ export function AlertDefinitionSection({
                                 {
                                     value: 'detector',
                                     label: 'Anomaly detection',
-                                    description:
-                                        'Automatically flag unusual changes using statistical models. No fixed value needed.',
+                                    description: showAnomalyGuidance
+                                        ? 'Choose this when you want an alert for unusual changes and do not know what threshold to set.'
+                                        : 'Automatically flag unusual changes. No fixed value needed.',
                                     'data-attr': 'alertForm-mode-detector',
                                 },
                             ]}
@@ -213,10 +217,12 @@ export function AlertDefinitionSection({
                                 onClearSimulationOverlay()
                             }}
                             calculationInterval={alertForm.calculation_interval}
+                            llmDetectorEnabled={llmDetectorEnabled}
+                            hasBreakdown={trends.isBreakdownValid}
                         />
                     )}
 
-                    {alertMode === 'detector' && alertForm.detector_config && investigationAgentEnabled && (
+                    {alertMode === 'detector' && alertForm.detector_config && (
                         <InvestigationAgentSettings alertForm={alertForm} onSetAlertFormValue={onSetAlertFormValue} />
                     )}
 

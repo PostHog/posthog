@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { Context } from '@/tools/types'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
@@ -206,6 +208,31 @@ describe('createQueryWrapper _posthogUrl', () => {
         expect(result._posthogUrl).toBe('http://localhost:8010/project/1/error_tracking')
         expect(result._posthogUrl).not.toContain('InsightVizNode')
     })
+
+    const traceSchema = z.object({ traceId: z.string().optional() })
+
+    it.each([
+        ['fills a placeholder from the query body', { traceId: 'abc-123' }, '/ai-observability/traces/abc-123'],
+        ['encodes a placeholder value', { traceId: 'a/b c' }, '/ai-observability/traces/a%252Fb%2520c'],
+        [
+            'encodes an opaque placeholder value',
+            { traceId: 'trace](id /?#' },
+            '/ai-observability/traces/trace%255D%2528id%2520%252F%253F%2523',
+        ],
+        ['drops the segment when the placeholder is unset', {}, '/ai-observability/traces'],
+    ])('%s', async (_name, params, expectedPath) => {
+        const context = createMockContext()
+        const tool = createQueryWrapper({
+            name: 'test',
+            schema: traceSchema,
+            kind: 'TraceQuery',
+            urlPrefix: '/ai-observability/traces/{traceId}',
+        })()
+
+        const result = (await tool.handler(context, params)) as any
+
+        expect(result._posthogUrl).toBe(`http://localhost:8010/project/1${expectedPath}`)
+    })
 })
 
 describe('createQueryWrapper output_format handling', () => {
@@ -389,13 +416,13 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     })
 })
 
-describe('createQueryWrapper trace compaction', () => {
+describe('createQueryWrapper trace redaction and compaction', () => {
     const schema = z.object({ kind: z.string() })
 
-    function contextWithResults(results: unknown): Context {
+    function contextWithResults(results: unknown, warnings?: string[]): Context {
         return {
             api: {
-                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results }) }),
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results, warnings }) }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
@@ -406,6 +433,8 @@ describe('createQueryWrapper trace compaction', () => {
         id: 'trace-1',
         events: [{ properties: { $ai_input: 'x'.repeat(20_000) } }],
     }
+
+    const fullDetailParams = { kind: 'TraceQuery', detail: 'full' } as { kind: string }
 
     it('compacts oversized string values for TraceQuery results', async () => {
         const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
@@ -421,6 +450,124 @@ describe('createQueryWrapper trace compaction', () => {
         const result = (await tool.handler(contextWithResults([oversizedTrace]), { kind: 'HogQLQuery' })) as any
 
         expect(result.results[0].events[0].properties.$ai_input).toBe('x'.repeat(20_000))
+    })
+
+    it.each(['optimized', 'json'] as const)(
+        'bounds the entire %s response without changing the executed query',
+        async (outputFormat) => {
+            const tool = createQueryWrapper({
+                name: 'query-llm-trace',
+                schema: schema.extend({ properties: z.array(z.record(z.string(), z.unknown())) }),
+                kind: 'TraceQuery',
+                urlPrefix: '/ai-observability/traces',
+                outputFormat,
+            })()
+            const params = {
+                kind: 'TraceQuery',
+                properties: [
+                    { key: '$ai_input', type: 'event', operator: 'not_icontains', value: 'filter'.repeat(15_000) },
+                ],
+            }
+            const context = contextWithResults([oversizedTrace], ['warning'.repeat(15_000)])
+
+            const result = await tool.handler(context, params)
+            const payload = buildToolResultPayload({
+                handlerResult: result,
+                toolMeta: tool._meta,
+                toolName: tool.name,
+                params,
+            })
+
+            expect(JSON.stringify(payload.content).length).toBeLessThanOrEqual(MCP_TOOL_OUTPUT_CHAR_BUDGET)
+            expect(result).toMatchObject({ _posthogUrl: 'http://localhost:8010/project/1/ai-observability/traces' })
+            expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({ query: params })
+        }
+    )
+
+    it.each(['TraceQuery', 'TracesQuery'])('%s preserves the AI payload unless summary is requested', async (kind) => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind })()
+        const trace = {
+            id: 'trace-1',
+            inputState: 'input'.repeat(1_000),
+            events: [{ properties: { $ai_input: 'x'.repeat(5_000), $ai_model: 'gpt-4' } }],
+        }
+
+        const byDefault = (await tool.handler(contextWithResults([trace]), tool.schema.parse({ kind }))) as any
+        const full = (await tool.handler(
+            contextWithResults([trace]),
+            tool.schema.parse({ kind, detail: 'full' })
+        )) as any
+        const summary = (await tool.handler(
+            contextWithResults([trace]),
+            tool.schema.parse({ kind, detail: 'summary' })
+        )) as any
+
+        expect(byDefault.results).toEqual([trace])
+        expect(full.results).toEqual(byDefault.results)
+        expect(summary.results[0]._detail.mode).toBe('summary')
+        expect(summary.results[0].inputState).toBeUndefined()
+        expect(summary.results[0].events[0].properties.$ai_model).toBe('gpt-4')
+        expect(summary.results[0].events[0].properties.$ai_input).toBeUndefined()
+    })
+
+    it.each([
+        ['TraceQuery', 'full'],
+        ['TraceQuery', 'summary'],
+        ['TracesQuery', 'full'],
+        ['TracesQuery', 'summary'],
+    ] as const)('%s at %s detail returns no property outside the allowlist', async (kind, detail) => {
+        const secret = 'sk-test-INVENTEDCREDENTIAL0000'
+        const trace = {
+            id: 'trace-1',
+            person: { uuid: 'p1', distinct_id: 'd1', properties: { email: 'invented@example.com' } },
+            events: [{ properties: { $ai_model: 'gpt-4', authorization_header: secret } }],
+        }
+        const context = contextWithResults([trace])
+        const tool = createQueryWrapper({ name: 'test', schema, kind, outputFormat: 'optimized' })()
+
+        const result = (await tool.handler(context, tool.schema.parse({ kind, detail }))) as any
+
+        const serialized = JSON.stringify(result)
+        expect(serialized).not.toContain(secret)
+        expect(serialized).not.toContain('invented@example.com')
+        expect(result.results[0].events[0]._redactedKeys).toEqual(['authorization_header'])
+    })
+
+    it('never surfaces the formatted string, which the backend renders before redaction', async () => {
+        const secret = 'sk-test-INVENTEDCREDENTIAL0000'
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({
+                    runQuery: vi.fn().mockResolvedValue({
+                        results: [{ id: 'trace-1', events: [] }],
+                        formatted_results: `api_key: ${secret}`,
+                    }),
+                }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery', outputFormat: 'optimized' })()
+
+        const result = (await tool.handler(context, fullDetailParams)) as any
+
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
+    })
+
+    it('strips detail from the trace query body, which the backend rejects unknown fields on', async () => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
+        await tool.handler(context, fullDetailParams)
+
+        expect(runQuery).toHaveBeenCalledWith({ query: { kind: 'TraceQuery' } })
     })
 })
 
@@ -490,5 +637,100 @@ describe('createQueryWrapper warnings', () => {
         const result = (await tool.handler(contextWithRunQuery({ results: [] }), { kind: 'HogQLQuery' })) as any
 
         expect(result).not.toHaveProperty('warnings')
+        expect(result).not.toHaveProperty('disclaimer')
+    })
+
+    it('forwards the disclaimer the backend attaches to the results', async () => {
+        const disclaimer = 'These are suggestions. Review each one before you act on it.'
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'MarketingAnalyticsRecommendationsQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ results: [], disclaimer }), {
+            kind: 'MarketingAnalyticsRecommendationsQuery',
+        })) as any
+
+        expect(result.disclaimer).toBe(disclaimer)
+    })
+})
+
+describe('createQueryWrapper cursor pagination', () => {
+    const schema = z.object({ kind: z.string(), after: z.string().optional() })
+
+    it('forwards has_next and next_cursor, and sends after on the next request', async () => {
+        const runQuery = vi
+            .fn()
+            .mockResolvedValueOnce({ results: [{ id: 'a' }], has_next: true, next_cursor: 'cursor-1' })
+            .mockResolvedValueOnce({ results: [{ id: 'b' }], has_next: false, next_cursor: null })
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'RecordingsQuery' })()
+
+        const first = (await tool.handler(context, { kind: 'RecordingsQuery' })) as any
+        expect(first).toMatchObject({ has_next: true, next_cursor: 'cursor-1' })
+
+        const second = (await tool.handler(context, { kind: 'RecordingsQuery', after: first.next_cursor })) as any
+        expect(runQuery.mock.calls[1]?.[0].query.after).toBe('cursor-1')
+        expect(second).toMatchObject({ results: [{ id: 'b' }], has_next: false, next_cursor: null })
+    })
+
+    it('omits the keys for queries that do not paginate by cursor', async () => {
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results: [] }) }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
+
+        const result = (await tool.handler(context, { kind: 'HogQLQuery' })) as any
+
+        expect(result).not.toHaveProperty('has_next')
+        expect(result).not.toHaveProperty('next_cursor')
+    })
+})
+
+describe('createQueryWrapper columns', () => {
+    const schema = z.object({ breakdownBy: z.string() })
+
+    function contextWithRunQuery(data: Record<string, unknown>): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue(data) }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    it('forwards the column names that label each positional web stats row', async () => {
+        const columns = [
+            'context.columns.breakdown_value',
+            'context.columns.visitors',
+            'context.columns.views',
+            'context.columns.avg_time_on_page',
+            'context.columns.bounce_rate',
+            'context.columns.ui_fill_fraction',
+            'context.columns.cross_sell',
+        ]
+        const results = [['/pricing', [120, null], [300, null], [42.5, null], [0.35, null], 0.6, '']]
+        const tool = createQueryWrapper({ name: 'query-web-stats', schema, kind: 'WebStatsTableQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ columns, results }), { breakdownBy: 'Page' })) as any
+
+        expect(result.columns).toEqual(columns)
+        expect(result.results).toEqual(results)
+    })
+
+    it('omits the key when the backend returns no columns', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TrendsQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ results: [] }), { breakdownBy: 'Page' })) as any
+
+        expect(result).not.toHaveProperty('columns')
     })
 })

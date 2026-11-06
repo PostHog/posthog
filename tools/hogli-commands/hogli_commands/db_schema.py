@@ -15,8 +15,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypeVar, cast
 
+import yaml
 import click
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from hogli_commands.github_auth import github_headers, github_token
 
@@ -27,10 +30,16 @@ SCHEMA_ARTIFACT_NAME = "migrated-schema"
 SCHEMA_DUMP_NAME = "schema.sql.gz"
 LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
 MIN_SCHEMA_ARTIFACT_BYTES = 10_000
+MAX_ARTIFACT_PAGES = 10
 DEFAULT_BASE_BRANCH = "master"
 DIAGNOSTIC_CANDIDATE_LIMIT = 3
 DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
 DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+PRODUCT_DB_ROUTING_PATH = Path("products/db_routing.yaml")
+APP_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+GITHUB_RETRY_TOTAL = 4
+GITHUB_RETRY_BACKOFF_FACTOR = 2
+GITHUB_RETRY_STATUSES = (500, 502, 503, 504)
 
 T = TypeVar("T")
 
@@ -167,11 +176,58 @@ def _recreate_database(target_db: str) -> None:
     _psql_admin(f"CREATE DATABASE {target_db};")
 
 
-def _ensure_migration_defaults(target_db: str) -> None:
+def _psql_write(target_db: str, sql: str) -> None:
+    """Run a one-shot statement against target_db."""
     _run(
-        ["python", "manage.py", "ensure_migration_defaults"],
-        env={"DATABASE_URL": f"postgres://posthog:posthog@localhost:5432/{target_db}"},
+        [
+            *DOCKER_COMPOSE,
+            "exec",
+            "-T",
+            "db",
+            "psql",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-U",
+            "posthog",
+            target_db,
+            "-c",
+            sql,
+        ]
     )
+
+
+def _product_routed_app_labels() -> list[str]:
+    """App labels whose tables live in their own database, per products/db_routing.yaml."""
+    config_path = _resolve_repo_path(PRODUCT_DB_ROUTING_PATH)
+    if not config_path.is_file():
+        return []
+    config = yaml.safe_load(config_path.read_text()) or {}
+    labels = {str(route.get("app_label", "")).strip() for route in config.get("routes") or []}
+    return sorted(label for label in labels if APP_LABEL_RE.fullmatch(label))
+
+
+def _forget_product_app_migrations(target_db: str) -> None:
+    """Drop the dump's claim that product-routed apps are migrated in this database.
+
+    The dump is taken from a CI database that routes those apps elsewhere, so `migrate` skipped
+    every operation in their migrations there while Django recorded them as applied anyway (it
+    records whatever the router decides). Restored verbatim, that leaves a database asserting
+    stamphog and visual_review are migrated without a single one of their tables — and an
+    environment that configures no product database then applies their NEXT migration for real
+    and dies on the missing table. Clearing the rows lets each consumer replay them under its own
+    routing: a no-op where the app is routed away, real tables where it isn't.
+
+    Only these rows go. Every other row stays, so the caller's `migrate` never re-applies schema
+    the dump already holds. That holds as long as no migration outside a routed app depends on
+    one inside it; `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py`
+    keeps it that way.
+    """
+    app_labels = _product_routed_app_labels()
+    if not app_labels:
+        return
+    in_list = ", ".join(f"'{label}'" for label in app_labels)
+    _psql_write(target_db, f"DELETE FROM django_migrations WHERE app IN ({in_list});")
 
 
 def restore_schema_dump(
@@ -179,8 +235,12 @@ def restore_schema_dump(
     target_db: str,
     recreate: bool,
     schema_path: Path = LOCAL_SCHEMA_PATH,
-    ensure_defaults: bool = True,
 ) -> None:
+    """Load a schema dump. The caller must run `migrate` next, which seeds the rows the dump lacks.
+
+    Do not seed here: the seed writes through the checkout's models, so a dump that predates a
+    model column fails the restore with `UndefinedColumn` and forces a full migrate.
+    """
     target_db = _validate_db_identifier(target_db)
     resolved_schema_path = _resolve_repo_path(schema_path)
     if not resolved_schema_path.is_file():
@@ -193,9 +253,7 @@ def restore_schema_dump(
 
     try:
         _run_psql_with_gzip_input(resolved_schema_path, target_db)
-
-        if ensure_defaults:
-            _ensure_migration_defaults(target_db)
+        _forget_product_app_migrations(target_db)
     except Exception as exc:
         if recreate:
             try:
@@ -214,6 +272,13 @@ def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
     if not isinstance(workflow_run, Mapping):
         return None
     try:
+        # A pull request run from a fork uploads its artifacts to this repository, and the
+        # fork's branch can also be named master. Only a run on this repository's own
+        # branch can supply the schema that is loaded into the database.
+        if _require_type(workflow_run.get("head_repository_id"), int) != _require_type(
+            workflow_run.get("repository_id"), int
+        ):
+            return None
         return SchemaArtifact(
             id=_require_type(raw.get("id"), int),
             name=_require_type(raw.get("name"), str),
@@ -262,12 +327,35 @@ def select_newest_compatible_artifact(
     return candidates[0] if candidates else None
 
 
-def fetch_schema_artifacts(*, token: str | None, session: requests.Session | None = None) -> list[SchemaArtifact]:
-    http = session or requests.Session()
-    artifacts: list[SchemaArtifact] = []
-    page = 1
+def _github_session() -> requests.Session:
+    # The GitHub artifacts API sometimes returns a 5xx for one request. Without a
+    # retry, that single response fails the CI step that restores the schema.
+    retry = Retry(
+        total=GITHUB_RETRY_TOTAL,
+        backoff_factor=GITHUB_RETRY_BACKOFF_FACTOR,
+        status_forcelist=GITHUB_RETRY_STATUSES,
+        allowed_methods=frozenset({"GET"}),
+        raise_on_status=False,
+    )
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    return session
 
-    while True:
+
+def find_newest_compatible_artifact(
+    *,
+    token: str | None,
+    session: requests.Session | None = None,
+    base_branch: str = DEFAULT_BASE_BRANCH,
+    max_pages: int = MAX_ARTIFACT_PAGES,
+) -> SchemaArtifact | None:
+    # The listing is newest-first, so the first page holding a candidate holds the
+    # newest one and the walk stops there. max_pages caps the miss case at a fixed
+    # number of requests instead of paging through the whole retention window.
+    http = session or _github_session()
+    fetched: list[SchemaArtifact] = []
+
+    for page in range(1, max_pages + 1):
         response = http.get(
             f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/artifacts",
             params={"name": SCHEMA_ARTIFACT_NAME, "per_page": 100, "page": page},
@@ -287,13 +375,17 @@ def fetch_schema_artifacts(*, token: str | None, session: requests.Session | Non
             if isinstance(raw_artifact, Mapping):
                 artifact = _artifact_from_api(raw_artifact)
                 if artifact is not None:
-                    artifacts.append(artifact)
+                    fetched.append(artifact)
+
+        selected = select_newest_compatible_artifact(fetched, base_branch=base_branch)
+        if selected is not None:
+            return selected
 
         if "next" not in response.links:
             break
-        page += 1
 
-    return artifacts
+    _emit_selection_diagnostics(fetched, base_branch=base_branch)
+    return None
 
 
 def download_schema_artifact(
@@ -306,7 +398,7 @@ def download_schema_artifact(
     if token is None:
         raise SchemaRestoreUnavailable("no GitHub token found; run `gh auth login` or set GH_TOKEN")
 
-    http = session or requests.Session()
+    http = session or _github_session()
     response = http.get(
         artifact.archive_download_url,
         headers=github_headers(token),
@@ -371,10 +463,9 @@ def download_latest_compatible_schema(
     session: requests.Session | None = None,
 ) -> SchemaArtifact:
     token = github_token()
-    artifacts = fetch_schema_artifacts(token=token, session=session)
-    artifact = select_newest_compatible_artifact(artifacts, base_branch=base_branch)
+    session = session or _github_session()
+    artifact = find_newest_compatible_artifact(token=token, session=session, base_branch=base_branch)
     if artifact is None:
-        _emit_selection_diagnostics(artifacts, base_branch=base_branch)
         raise SchemaRestoreUnavailable(
             f"no compatible {SCHEMA_ARTIFACT_NAME} artifact found for base_branch={base_branch}"
         )
@@ -430,7 +521,7 @@ def restore_schema_if_fresh(*, target_db: str, mode: ArtifactMode) -> bool:
         click.echo(f"Database {target_db} is no longer empty; running migrations normally")
         return False
 
-    restore_schema_dump(target_db=target_db, recreate=True, ensure_defaults=True)
+    restore_schema_dump(target_db=target_db, recreate=True)
     return True
 
 
@@ -531,7 +622,7 @@ def db_download_schema(base_branch: str | None) -> None:
 
 def _recreate_test_db() -> None:
     try:
-        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True, ensure_defaults=True)
+        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -580,8 +671,7 @@ def db_restore_schema(yes: bool) -> None:
     try:
         download_latest_compatible_schema(base_branch=_effective_base_branch(None))
         _create_postgres_backup()
-        restore_schema_dump(target_db="posthog", recreate=False, ensure_defaults=False)
+        restore_schema_dump(target_db="posthog", recreate=False)
         _run([str(REPO_ROOT / "bin" / "migrate")])
-        _ensure_migration_defaults("posthog")
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc

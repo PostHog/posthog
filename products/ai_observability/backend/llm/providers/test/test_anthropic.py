@@ -5,9 +5,21 @@ import httpx
 import anthropic
 from parameterized import parameterized
 
-from products.ai_observability.backend.llm.errors import ContextWindowExceededError
-from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter, AnthropicConfig
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
+from products.ai_observability.backend.llm.attachments import AttachmentPart
+from products.ai_observability.backend.llm.errors import (
+    ContextWindowExceededError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    OutputTokenLimitError,
+    ProviderConfigurationError,
+    RetryableRateLimitError,
+)
+from products.ai_observability.backend.llm.providers.anthropic import (
+    AnthropicAdapter,
+    AnthropicConfig,
+    error_field_for_validation_message,
+)
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
 class TestAnthropicListModels:
@@ -137,10 +149,97 @@ class TestAnthropicTemperature:
         assert self._stream_with_model(model, temperature=0.5)["temperature"] == 0.5
 
 
+class TestAnthropicStreamOutputSchema:
+    def _stream_kwargs(self, output_schema: OutputSchema | None) -> dict:
+        request = CompletionRequest(
+            model="claude-haiku-4-5",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="anthropic",
+            output_schema=output_schema,
+        )
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.return_value = iter([])
+            list(AnthropicAdapter().stream(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False)))
+            return mock_client.messages.create.call_args.kwargs
+
+    def test_output_schema_is_sent_as_json_schema_output_config(self):
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+
+        kwargs = self._stream_kwargs(OutputSchema(schema=schema))
+
+        assert kwargs["output_config"] == {"format": {"type": "json_schema", "schema": schema}}
+        assert "output_config" not in self._stream_kwargs(None)
+
+
+class TestAnthropicAttachmentParts:
+    @parameterized.expand(
+        [
+            (
+                "link",
+                AttachmentPart(mime_type="image/png", url="https://example.com/a.png"),
+                {"type": "url", "url": "https://example.com/a.png"},
+            ),
+            (
+                "inline",
+                AttachmentPart(mime_type="image/png", data=b"hi"),
+                {"type": "base64", "media_type": "image/png", "data": "aGk="},
+            ),
+            (
+                "pdf_link",
+                AttachmentPart(mime_type="application/pdf", url="https://example.com/a.pdf"),
+                {"type": "url", "url": "https://example.com/a.pdf"},
+                "document",
+            ),
+        ]
+    )
+    def test_attachment_parts_are_sent_as_blocks(
+        self, _name: str, image: AttachmentPart, expected_source: dict, expected_type: str = "image"
+    ):
+        request = CompletionRequest(
+            model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": [image, {"type": "text", "text": "hi"}]}],
+            provider="anthropic",
+        )
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.return_value.content = []
+            mock_client.messages.create.return_value.usage = MagicMock(input_tokens=1, output_tokens=1)
+            AnthropicAdapter().complete(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
+
+        assert mock_client.messages.create.call_args.kwargs["messages"][0]["content"] == [
+            {"type": expected_type, "source": expected_source},
+            {"type": "text", "text": "hi"},
+        ]
+
+
 def _make_bad_request_error(message: str) -> anthropic.BadRequestError:
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(status_code=400, request=request, json={"error": {"message": message}})
     return anthropic.BadRequestError(message, response=response, body={"error": {"message": message}})
+
+
+def _make_not_found_error(model: str) -> anthropic.NotFoundError:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    message = f"model: {model}"
+    response = httpx.Response(status_code=404, request=request, json={"error": {"message": message}})
+    return anthropic.NotFoundError(message, response=response, body={"error": {"message": message}})
+
+
+def _make_permission_denied_error(model: str) -> anthropic.PermissionDeniedError:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    message = f"Your API key does not have access to {model}"
+    response = httpx.Response(status_code=403, request=request, json={"error": {"message": message}})
+    return anthropic.PermissionDeniedError(message, response=response, body={"error": {"message": message}})
+
+
+def _raising_stream(error: Exception):
+    """A stream that fails partway through iteration, the way an overload does."""
+    yield MagicMock(type="message_start", message=MagicMock(usage=MagicMock(input_tokens=1, output_tokens=0)))
+    raise error
 
 
 class TestAnthropicErrorMapping:
@@ -167,3 +266,299 @@ class TestAnthropicErrorMapping:
                     api_key="sk-ant-test",
                     analytics=AnalyticsContext(capture=False),
                 )
+
+    @parameterized.expand(
+        [
+            (
+                "truncated_reply",
+                "Could not finish the message because max_tokens or model output limit was reached.",
+                OutputTokenLimitError,
+                "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again.",
+            ),
+            (
+                "invalid_token_limit",
+                "max_tokens: 8192 > 4096, which is the maximum allowed number of output tokens for this model",
+                anthropic.BadRequestError,
+                "The model provider rejected this request: max_tokens: 8192 > 4096, "
+                "which is the maximum allowed number of output tokens for this model",
+            ),
+        ]
+    )
+    def test_token_limit_400_preserves_the_failure_reason(
+        self, _name: str, message: str, expected_error: type[Exception], expected_stream_error: str
+    ) -> None:
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = _make_bad_request_error(message)
+            request = CompletionRequest(
+                model="claude-haiku-4-5",
+                messages=[{"role": "user", "content": "hi"}],
+                provider="anthropic",
+                system="s",
+            )
+
+            with pytest.raises(expected_error):
+                AnthropicAdapter().complete(
+                    request,
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+
+            chunks = list(
+                AnthropicAdapter().stream(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
+            )
+
+        assert [chunk.data["error"] for chunk in chunks if chunk.type == "error"] == [expected_stream_error]
+
+    def test_model_404_maps_to_model_not_found(self):
+        # A retired or misspelled model comes back as a 404. Unmapped, an evaluation burned its
+        # Temporal retries instead of disabling itself with a reason.
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = _make_not_found_error("claude-3-sonnet-20240229")
+
+            with pytest.raises(ModelNotFoundError):
+                AnthropicAdapter().complete(
+                    CompletionRequest(
+                        model="claude-3-sonnet-20240229",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+
+    def test_model_403_maps_to_model_permission_error(self):
+        # A 403 resolves to the `permission_error` spec, which disables the evaluation and marks
+        # the key errored — so this mapping decides more than the wording of a message.
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = _make_permission_denied_error("claude-opus-4-5")
+
+            with pytest.raises(ModelPermissionError):
+                AnthropicAdapter().complete(
+                    CompletionRequest(
+                        model="claude-opus-4-5",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+
+    def test_rate_limit_429_is_retryable_after_the_providers_delay(self):
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = anthropic.RateLimitError(
+                "Rate limited",
+                response=httpx.Response(status_code=429, request=request, headers={"retry-after": "20"}),
+                body={"type": "error", "error": {"type": "rate_limit_error", "message": "Rate limited"}},
+            )
+
+            with pytest.raises(RetryableRateLimitError) as error:
+                AnthropicAdapter().complete(
+                    CompletionRequest(
+                        model="claude-haiku-4-5",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+
+        assert error.value.retry_after == 20
+
+
+class TestAnthropicStreamErrorSurfacing:
+    def test_model_404_yields_actionable_message_instead_of_discarding_the_reason(self):
+        # Streaming has no exception channel, so this chunk is the entire explanation the user
+        # gets in the playground.
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = _make_not_found_error("claude-3-sonnet-20240229")
+
+            chunks = list(
+                AnthropicAdapter().stream(
+                    CompletionRequest(
+                        model="claude-3-sonnet-20240229",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+            )
+
+        errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
+        assert errors == ["Model 'claude-3-sonnet-20240229' is not available. Pick a different model and try again."]
+
+    def test_error_raised_partway_through_the_stream_still_reaches_the_user(self):
+        # An overload arrives during iteration, not when the request is made. That path used to
+        # sit outside the try, so the generator raised and the playground showed nothing at all.
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        overloaded = anthropic.RateLimitError(
+            "Overloaded",
+            response=httpx.Response(status_code=429, request=request, json={"error": {"message": "Overloaded"}}),
+            body={"error": {"message": "Overloaded"}},
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.return_value = _raising_stream(overloaded)
+
+            chunks = list(
+                AnthropicAdapter().stream(
+                    CompletionRequest(
+                        model="claude-haiku-4-5",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+            )
+
+        errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
+        assert errors == ["The provider is rate limiting this key. Wait a moment, then try again."]
+
+
+def _make_status_error(
+    error_class: type[anthropic.APIStatusError], status_code: int, body: dict | None = None
+) -> anthropic.APIStatusError:
+    body = body or {"error": {"message": "error"}}
+    request = httpx.Request("POST", "https://my-resource.services.ai.azure.com/anthropic/v1/messages/count_tokens")
+    response = httpx.Response(status_code=status_code, request=request, json=body)
+    return error_class("error", response=response, body=body)
+
+
+class TestAnthropicFoundry:
+    @parameterized.expand(
+        [
+            ("resource_endpoint", "https://my-resource.services.ai.azure.com/"),
+            ("anthropic_base_url", "https://my-resource.services.ai.azure.com/anthropic/"),
+            ("messages_url", "https://my-resource.services.ai.azure.com/anthropic/v1/messages"),
+        ]
+    )
+    def test_completion_goes_to_the_foundry_anthropic_api(self, _name: str, endpoint: str):
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text="yes")]
+        mock_response.usage.input_tokens = 1
+        mock_response.usage.output_tokens = 1
+
+        with (
+            patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry") as foundry,
+            patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as direct,
+        ):
+            foundry.return_value.messages.create.return_value = mock_response
+            AnthropicAdapter(foundry_endpoint=endpoint).complete(
+                CompletionRequest(
+                    model="my-claude-deployment",
+                    messages=[{"role": "user", "content": "hi"}],
+                    provider="anthropic",
+                ),
+                api_key="foundry-key",
+                analytics=AnalyticsContext(capture=False),
+            )
+
+        direct.assert_not_called()
+        assert foundry.call_args.kwargs["api_key"] == "foundry-key"
+        assert foundry.call_args.kwargs["base_url"] == "https://my-resource.services.ai.azure.com/anthropic/"
+        assert foundry.return_value.messages.create.call_args.kwargs["model"] == "my-claude-deployment"
+
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry")
+    def test_completion_refuses_a_non_azure_endpoint(self, foundry):
+        with pytest.raises(ProviderConfigurationError):
+            AnthropicAdapter(foundry_endpoint="https://attacker.example.com/").complete(
+                CompletionRequest(model="claude-haiku-4-5", messages=[], provider="anthropic"),
+                api_key="foundry-key",
+                analytics=AnalyticsContext(capture=False),
+            )
+        foundry.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("accepted", None, "ok", None),
+            (
+                "default_deployment_missing",
+                _make_status_error(
+                    anthropic.NotFoundError,
+                    404,
+                    {"type": "error", "error": {"type": "not_found_error", "message": "model: claude-haiku-4-5"}},
+                ),
+                "ok",
+                None,
+            ),
+            (
+                "azure_deployment_not_found",
+                _make_status_error(
+                    anthropic.NotFoundError,
+                    404,
+                    {"error": {"code": "DeploymentNotFound", "message": "The API deployment does not exist."}},
+                ),
+                "ok",
+                None,
+            ),
+            (
+                "invalid_model_parameter",
+                _make_status_error(anthropic.BadRequestError, 400, {"error": {"message": "Invalid model parameter"}}),
+                "ok",
+                None,
+            ),
+            (
+                "unknown_route",
+                _make_status_error(
+                    anthropic.NotFoundError, 404, {"error": {"code": "404", "message": "Resource not found"}}
+                ),
+                "invalid",
+                "azure_endpoint",
+            ),
+            ("rejected_key", _make_status_error(anthropic.AuthenticationError, 401), "invalid", "api_key"),
+            ("forbidden_key", _make_status_error(anthropic.PermissionDeniedError, 403), "invalid", "api_key"),
+            (
+                "unreachable",
+                anthropic.APIConnectionError(request=httpx.Request("POST", "https://example.com")),
+                "error",
+                "azure_endpoint",
+            ),
+        ]
+    )
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry")
+    def test_validate_key(self, _name, error, expected_state, expected_field, foundry):
+        foundry.return_value.messages.count_tokens.side_effect = error
+
+        state, message = AnthropicAdapter.validate_key(
+            "no-sk-ant-prefix", azure_endpoint="https://my-resource.services.ai.azure.com/"
+        )
+
+        assert state == expected_state
+        assert error_field_for_validation_message(message) == expected_field
+        assert foundry.call_args.kwargs["base_url"] == "https://my-resource.services.ai.azure.com/anthropic/"
+
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry")
+    def test_validate_key_never_sends_the_key_to_a_non_azure_endpoint(self, foundry):
+        state, message = AnthropicAdapter.validate_key("foundry-key", azure_endpoint="https://attacker.example.com/")
+
+        foundry.assert_not_called()
+        assert state == "invalid"
+        assert error_field_for_validation_message(message) == "azure_endpoint"
+
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
+    def test_list_models_does_not_call_the_anthropic_api(self, direct):
+        models = AnthropicAdapter.list_models(
+            "foundry-key", azure_endpoint="https://my-resource.services.ai.azure.com/"
+        )
+
+        direct.assert_not_called()
+        assert models == AnthropicConfig.SUPPORTED_MODELS

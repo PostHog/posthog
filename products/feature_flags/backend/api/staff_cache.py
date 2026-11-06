@@ -7,6 +7,7 @@ from typing import Any, Optional
 from django.conf import settings
 from django.core.cache import caches
 from django.core.cache.backends.base import BaseCache
+from django.db import models
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -37,10 +38,17 @@ logger = structlog.get_logger(__name__)
 # much work a single staff request can trigger; adjust if it proves too tight.
 MAX_TEAMS_PER_MUTATION = 50
 
-EVALUATION = "evaluation"
-DEFINITIONS = "definitions"
 
-CACHE_CHOICES = [EVALUATION, DEFINITIONS]
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class StaffCacheKind(models.TextChoices):
+    EVALUATION = "evaluation", "evaluation"
+    DEFINITIONS = "definitions", "definitions"
+
+
+EVALUATION = StaffCacheKind.EVALUATION.value
+DEFINITIONS = StaffCacheKind.DEFINITIONS.value
+
+CACHE_CHOICES = StaffCacheKind.values
 
 # The readable caches, enumerated once here rather than hardcoded in list/entry.
 _READABLE_HYPERCACHES = {
@@ -56,8 +64,22 @@ WARM_RUN_CANCEL_CACHE_KEY = "feature_flags/warm_run/cancel"
 WARM_RUN_HEARTBEAT_STALE_SECONDS = 120
 WARM_RUN_CANCEL_TTL_SECONDS = 3600
 
-WARM_RUN_STATES = ["running", "completed", "cancelled"]
-WARM_RUN_SCOPES = ["all_teams", "teams_with_flags"]
+
+class FlagsWarmRunState(models.TextChoices):
+    RUNNING = "running", "running"
+    COMPLETED = "completed", "completed"
+    CANCELLED = "cancelled", "cancelled"
+
+
+WARM_RUN_STATES = list(FlagsWarmRunState.values)
+
+
+class FlagsWarmRunScope(models.TextChoices):
+    ALL_TEAMS = "all_teams", "all_teams"
+    TEAMS_WITH_FLAGS = "teams_with_flags", "teams_with_flags"
+
+
+WARM_RUN_SCOPES = list(FlagsWarmRunScope.values)
 
 # Reading and mutating currently share the same choice set.
 READABLE_CACHE_CHOICES = CACHE_CHOICES
@@ -76,9 +98,14 @@ class StaffCacheStatusQuerySerializer(serializers.Serializer):
     )
 
 
+class StaffCacheSource(models.TextChoices):
+    REDIS = "redis", "redis"
+    MISS = "miss", "miss"
+
+
 def _cache_source_field() -> serializers.ChoiceField:
     return serializers.ChoiceField(
-        choices=["redis", "miss"],
+        choices=StaffCacheSource.choices,
         help_text="'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.",
     )
 
@@ -105,7 +132,7 @@ class StaffCacheStatusResponseSerializer(serializers.Serializer):
 class StaffCacheMutationSerializer(serializers.Serializer):
     team_ids = _team_ids_field(f"Team ids to act on (max {MAX_TEAMS_PER_MUTATION} per request).")
     caches = serializers.ListField(
-        child=serializers.ChoiceField(choices=CACHE_CHOICES),
+        child=serializers.ChoiceField(choices=StaffCacheKind.choices),
         required=False,
         default=CACHE_CHOICES,
         help_text=(
@@ -129,7 +156,7 @@ class StaffCacheMutationResponseSerializer(serializers.Serializer):
 class StaffCacheEntryQuerySerializer(serializers.Serializer):
     team_id = serializers.IntegerField(help_text="Team id to fetch the cache entry for.")
     cache = serializers.ChoiceField(
-        choices=READABLE_CACHE_CHOICES,
+        choices=StaffCacheKind.choices,
         help_text=(
             "Which cache to fetch: 'evaluation' (the /flags cache) or 'definitions' "
             "(the /flags/definitions local-eval cache)."
@@ -144,7 +171,7 @@ class StaffCacheEntryDataField(serializers.JSONField):
 
 class StaffCacheEntryResponseSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(help_text="Team id.")
-    cache = serializers.ChoiceField(choices=READABLE_CACHE_CHOICES, help_text="Which cache this entry is for.")
+    cache = serializers.ChoiceField(choices=StaffCacheKind.choices, help_text="Which cache this entry is for.")
     source = _cache_source_field()  # type: ignore[assignment]
     data = StaffCacheEntryDataField(  # type: ignore[assignment]
         allow_null=True,
@@ -285,17 +312,20 @@ def _dispatch_mutation(
     evaluation_fn: Callable[[int], None],
     definitions_fn: Callable[[int], None],
     log_event: str,
+    queue_missing_teams: bool = False,
 ) -> response.Response:
     """Shared shape of `rebuild` and `clear`: split team_ids into found/not-found, dispatch the
-    per-cache action for each found team, log, and return the 202 response both actions share."""
+    per-cache action for each found team (or every team with `queue_missing_teams`), log, and
+    return the 202 response both actions share."""
     # Dedupe (preserving order) so a caller passing the same id twice doesn't enqueue duplicate
     # rebuild/clear work for that team.
     deduped_ids = list(dict.fromkeys(team_ids))
     found_set = set(Team.objects.filter(id__in=deduped_ids).values_list("id", flat=True))
     found_ids = [team_id for team_id in deduped_ids if team_id in found_set]
     not_found_ids = [team_id for team_id in deduped_ids if team_id not in found_set]
+    queued_ids = deduped_ids if queue_missing_teams else found_ids
 
-    for team_id in found_ids:
+    for team_id in queued_ids:
         if EVALUATION in caches:
             evaluation_fn(team_id)
         if DEFINITIONS in caches:
@@ -305,13 +335,13 @@ def _dispatch_mutation(
         log_event,
         staff_user_id=request.user.id,
         was_impersonated=is_impersonated(request),
-        team_ids=found_ids,
+        team_ids=queued_ids,
         not_found_team_ids=not_found_ids,
         caches=caches,
     )
 
     return response.Response(
-        {"queued_team_ids": found_ids, "not_found_team_ids": not_found_ids},
+        {"queued_team_ids": queued_ids, "not_found_team_ids": not_found_ids},
         status=status.HTTP_202_ACCEPTED,
     )
 
@@ -479,4 +509,6 @@ class FeatureFlagsStaffCacheViewSet(viewsets.ViewSet):
             evaluation_fn=clear_team_evaluation_cache.delay,
             definitions_fn=clear_team_definitions_cache.delay,
             log_event="flags_staff_cache_clear",
+            # Clearing needs no Team row, so this also purges entries a deleted team left behind.
+            queue_missing_teams=True,
         )

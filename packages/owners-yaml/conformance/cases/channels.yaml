@@ -1,0 +1,577 @@
+cases:
+    - name: the slack purpose reads only the slack field of the registry
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              teams:
+                team-split:
+                  slack: '#split-people'
+                  notifications: '#split-bots'
+                team-people:
+                  slack: '#people-only'
+                team-bots-only:
+                  notifications: '#bots-only'
+                team-quiet-bots:
+                  slack: '#quiet-people'
+                  notifications: false
+                team-silent:
+                  slack: false
+                team-empty: {}
+                team-mapped:
+                  slack: '#mapped-people'
+                  notifications:
+                    review-bot: '#mapped-reviews'
+                    deploy-bot: false
+                team-mapped-no-slack:
+                  notifications:
+                    review-bot: '#mapped-no-slack-reviews'
+          team-split/owners.yaml: |
+              version: 1
+              owners: team-split
+          team-people/owners.yaml: |
+              version: 1
+              owners: team-people
+          team-bots-only/owners.yaml: |
+              version: 1
+              owners: team-bots-only
+          team-quiet-bots/owners.yaml: |
+              version: 1
+              owners: team-quiet-bots
+          team-silent/owners.yaml: |
+              version: 1
+              owners: team-silent
+          team-empty/owners.yaml: |
+              version: 1
+              owners: team-empty
+          team-mapped/owners.yaml: |
+              version: 1
+              owners: team-mapped
+          team-unregistered/owners.yaml: |
+              version: 1
+              owners: team-unregistered
+      expect:
+          team-split/x.py:
+              owners: [team-split]
+              unowned_by_design: false
+              status: active
+              source: team-split/owners.yaml
+              slack: '#split-people'
+          team-people/x.py:
+              owners: [team-people]
+              unowned_by_design: false
+              status: active
+              source: team-people/owners.yaml
+              slack: '#people-only'
+          team-bots-only/x.py:
+              owners: [team-bots-only]
+              unowned_by_design: false
+              status: active
+              source: team-bots-only/owners.yaml
+              slack: '#team-bots-only'
+          team-quiet-bots/x.py:
+              owners: [team-quiet-bots]
+              unowned_by_design: false
+              status: active
+              source: team-quiet-bots/owners.yaml
+              slack: '#quiet-people'
+          team-silent/x.py:
+              owners: [team-silent]
+              unowned_by_design: false
+              status: active
+              source: team-silent/owners.yaml
+              slack: null
+          team-empty/x.py:
+              owners: [team-empty]
+              unowned_by_design: false
+              status: active
+              source: team-empty/owners.yaml
+              slack: '#team-empty'
+          team-mapped/x.py:
+              owners: [team-mapped]
+              unowned_by_design: false
+              status: active
+              source: team-mapped/owners.yaml
+              slack: '#mapped-people'
+          team-unregistered/x.py:
+              owners: [team-unregistered]
+              unowned_by_design: false
+              status: active
+              source: team-unregistered/owners.yaml
+              slack: '#team-unregistered'
+
+    - name: the notifications purpose checks notifications first and then slack
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              teams:
+                team-split:
+                  slack: '#split-people'
+                  notifications: '#split-bots'
+                team-people:
+                  slack: '#people-only'
+                team-bots-only:
+                  notifications: '#bots-only'
+                team-quiet-bots:
+                  slack: '#quiet-people'
+                  notifications: false
+                team-silent:
+                  slack: false
+                team-empty: {}
+                team-mapped:
+                  slack: '#mapped-people'
+                  notifications:
+                    review-bot: '#mapped-reviews'
+                    deploy-bot: false
+                team-mapped-no-slack:
+                  notifications:
+                    review-bot: '#mapped-no-slack-reviews'
+          team-split/owners.yaml: |
+              version: 1
+              owners: team-split
+          team-people/owners.yaml: |
+              version: 1
+              owners: team-people
+          team-bots-only/owners.yaml: |
+              version: 1
+              owners: team-bots-only
+          team-quiet-bots/owners.yaml: |
+              version: 1
+              owners: team-quiet-bots
+          team-silent/owners.yaml: |
+              version: 1
+              owners: team-silent
+          team-empty/owners.yaml: |
+              version: 1
+              owners: team-empty
+          team-unregistered/owners.yaml: |
+              version: 1
+              owners: team-unregistered
+      purpose: notifications
+      expect:
+          team-split/x.py:
+              owners: [team-split]
+              unowned_by_design: false
+              status: active
+              source: team-split/owners.yaml
+              slack: '#split-bots'
+          team-people/x.py:
+              owners: [team-people]
+              unowned_by_design: false
+              status: active
+              source: team-people/owners.yaml
+              slack: '#people-only'
+          team-bots-only/x.py:
+              owners: [team-bots-only]
+              unowned_by_design: false
+              status: active
+              source: team-bots-only/owners.yaml
+              slack: '#bots-only'
+          team-quiet-bots/x.py:
+              owners: [team-quiet-bots]
+              unowned_by_design: false
+              status: active
+              source: team-quiet-bots/owners.yaml
+              slack: null
+          team-silent/x.py:
+              owners: [team-silent]
+              unowned_by_design: false
+              status: active
+              source: team-silent/owners.yaml
+              slack: null
+          team-empty/x.py:
+              owners: [team-empty]
+              unowned_by_design: false
+              status: active
+              source: team-empty/owners.yaml
+              slack: '#team-empty'
+          team-unregistered/x.py:
+              owners: [team-unregistered]
+              unowned_by_design: false
+              status: active
+              source: team-unregistered/owners.yaml
+              slack: '#team-unregistered'
+
+    - name: a notifications mapping without a producer moves on to slack
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              teams:
+                team-split:
+                  slack: '#split-people'
+                  notifications: '#split-bots'
+                team-people:
+                  slack: '#people-only'
+                team-bots-only:
+                  notifications: '#bots-only'
+                team-quiet-bots:
+                  slack: '#quiet-people'
+                  notifications: false
+                team-silent:
+                  slack: false
+                team-empty: {}
+                team-mapped:
+                  slack: '#mapped-people'
+                  notifications:
+                    review-bot: '#mapped-reviews'
+                    deploy-bot: false
+                team-mapped-no-slack:
+                  notifications:
+                    review-bot: '#mapped-no-slack-reviews'
+          team-mapped/owners.yaml: |
+              version: 1
+              owners: team-mapped
+          team-mapped-no-slack/owners.yaml: |
+              version: 1
+              owners: team-mapped-no-slack
+      purpose: notifications
+      expect:
+          team-mapped/x.py:
+              owners: [team-mapped]
+              unowned_by_design: false
+              status: active
+              source: team-mapped/owners.yaml
+              slack: '#mapped-people'
+          team-mapped-no-slack/x.py:
+              owners: [team-mapped-no-slack]
+              unowned_by_design: false
+              status: active
+              source: team-mapped-no-slack/owners.yaml
+              slack: '#team-mapped-no-slack'
+
+    - name: a notifications mapping that names the producer gives its channel
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              teams:
+                team-split:
+                  slack: '#split-people'
+                  notifications: '#split-bots'
+                team-people:
+                  slack: '#people-only'
+                team-bots-only:
+                  notifications: '#bots-only'
+                team-quiet-bots:
+                  slack: '#quiet-people'
+                  notifications: false
+                team-silent:
+                  slack: false
+                team-empty: {}
+                team-mapped:
+                  slack: '#mapped-people'
+                  notifications:
+                    review-bot: '#mapped-reviews'
+                    deploy-bot: false
+                team-mapped-no-slack:
+                  notifications:
+                    review-bot: '#mapped-no-slack-reviews'
+          team-mapped/owners.yaml: |
+              version: 1
+              owners: team-mapped
+          team-mapped-no-slack/owners.yaml: |
+              version: 1
+              owners: team-mapped-no-slack
+          team-split/owners.yaml: |
+              version: 1
+              owners: team-split
+          team-people/owners.yaml: |
+              version: 1
+              owners: team-people
+          team-quiet-bots/owners.yaml: |
+              version: 1
+              owners: team-quiet-bots
+          team-unregistered/owners.yaml: |
+              version: 1
+              owners: team-unregistered
+      purpose: notifications
+      producer: review-bot
+      expect:
+          team-mapped/x.py:
+              owners: [team-mapped]
+              unowned_by_design: false
+              status: active
+              source: team-mapped/owners.yaml
+              slack: '#mapped-reviews'
+          team-mapped-no-slack/x.py:
+              owners: [team-mapped-no-slack]
+              unowned_by_design: false
+              status: active
+              source: team-mapped-no-slack/owners.yaml
+              slack: '#mapped-no-slack-reviews'
+          team-split/x.py:
+              owners: [team-split]
+              unowned_by_design: false
+              status: active
+              source: team-split/owners.yaml
+              slack: '#split-bots'
+          team-people/x.py:
+              owners: [team-people]
+              unowned_by_design: false
+              status: active
+              source: team-people/owners.yaml
+              slack: '#people-only'
+          team-quiet-bots/x.py:
+              owners: [team-quiet-bots]
+              unowned_by_design: false
+              status: active
+              source: team-quiet-bots/owners.yaml
+              slack: null
+          team-unregistered/x.py:
+              owners: [team-unregistered]
+              unowned_by_design: false
+              status: active
+              source: team-unregistered/owners.yaml
+              slack: '#team-unregistered'
+
+    - name: a notifications mapping that maps the producer to false gives no channel
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              teams:
+                team-split:
+                  slack: '#split-people'
+                  notifications: '#split-bots'
+                team-people:
+                  slack: '#people-only'
+                team-bots-only:
+                  notifications: '#bots-only'
+                team-quiet-bots:
+                  slack: '#quiet-people'
+                  notifications: false
+                team-silent:
+                  slack: false
+                team-empty: {}
+                team-mapped:
+                  slack: '#mapped-people'
+                  notifications:
+                    review-bot: '#mapped-reviews'
+                    deploy-bot: false
+                team-mapped-no-slack:
+                  notifications:
+                    review-bot: '#mapped-no-slack-reviews'
+          team-mapped/owners.yaml: |
+              version: 1
+              owners: team-mapped
+          team-mapped-no-slack/owners.yaml: |
+              version: 1
+              owners: team-mapped-no-slack
+      purpose: notifications
+      producer: deploy-bot
+      expect:
+          team-mapped/x.py:
+              owners: [team-mapped]
+              unowned_by_design: false
+              status: active
+              source: team-mapped/owners.yaml
+              slack: null
+          team-mapped-no-slack/x.py:
+              owners: [team-mapped-no-slack]
+              unowned_by_design: false
+              status: active
+              source: team-mapped-no-slack/owners.yaml
+              slack: '#team-mapped-no-slack'
+
+    - name: a notifications mapping that does not name the producer moves on to slack
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              teams:
+                team-split:
+                  slack: '#split-people'
+                  notifications: '#split-bots'
+                team-people:
+                  slack: '#people-only'
+                team-bots-only:
+                  notifications: '#bots-only'
+                team-quiet-bots:
+                  slack: '#quiet-people'
+                  notifications: false
+                team-silent:
+                  slack: false
+                team-empty: {}
+                team-mapped:
+                  slack: '#mapped-people'
+                  notifications:
+                    review-bot: '#mapped-reviews'
+                    deploy-bot: false
+                team-mapped-no-slack:
+                  notifications:
+                    review-bot: '#mapped-no-slack-reviews'
+          team-mapped/owners.yaml: |
+              version: 1
+              owners: team-mapped
+          team-mapped-no-slack/owners.yaml: |
+              version: 1
+              owners: team-mapped-no-slack
+      purpose: notifications
+      producer: other-bot
+      expect:
+          team-mapped/x.py:
+              owners: [team-mapped]
+              unowned_by_design: false
+              status: active
+              source: team-mapped/owners.yaml
+              slack: '#mapped-people'
+          team-mapped-no-slack/x.py:
+              owners: [team-mapped-no-slack]
+              unowned_by_design: false
+              status: active
+              source: team-mapped-no-slack/owners.yaml
+              slack: '#team-mapped-no-slack'
+
+    - name: the slack purpose ignores the producer
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              teams:
+                team-split:
+                  slack: '#split-people'
+                  notifications: '#split-bots'
+                team-people:
+                  slack: '#people-only'
+                team-bots-only:
+                  notifications: '#bots-only'
+                team-quiet-bots:
+                  slack: '#quiet-people'
+                  notifications: false
+                team-silent:
+                  slack: false
+                team-empty: {}
+                team-mapped:
+                  slack: '#mapped-people'
+                  notifications:
+                    review-bot: '#mapped-reviews'
+                    deploy-bot: false
+                team-mapped-no-slack:
+                  notifications:
+                    review-bot: '#mapped-no-slack-reviews'
+          team-mapped/owners.yaml: |
+              version: 1
+              owners: team-mapped
+          team-mapped-no-slack/owners.yaml: |
+              version: 1
+              owners: team-mapped-no-slack
+      purpose: slack
+      producer: review-bot
+      expect:
+          team-mapped/x.py:
+              owners: [team-mapped]
+              unowned_by_design: false
+              status: active
+              source: team-mapped/owners.yaml
+              slack: '#mapped-people'
+          team-mapped-no-slack/x.py:
+              owners: [team-mapped-no-slack]
+              unowned_by_design: false
+              status: active
+              source: team-mapped-no-slack/owners.yaml
+              slack: '#team-mapped-no-slack'
+
+    - name: a path without a team channel registry gets a derived channel
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+      expect:
+          x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a person handle as primary owner gives no channel
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              teams:
+                team-a:
+                  slack: '#a-people'
+          indiv/owners.yaml: |
+              version: 1
+              owners: ['@alice', team-a]
+          team-first/owners.yaml: |
+              version: 1
+              owners: [team-a, '@alice']
+      expect:
+          indiv/x.py:
+              owners: ['@alice', team-a]
+              unowned_by_design: false
+              status: active
+              source: indiv/owners.yaml
+              slack: null
+          team-first/x.py:
+              owners: [team-a, '@alice']
+              unowned_by_design: false
+              status: active
+              source: team-first/owners.yaml
+              slack: '#a-people'
+
+    - name: a teams registry outside the root file has no effect
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+          sub/owners.yaml: |
+              version: 1
+              owners: team-a
+              teams:
+                team-a:
+                  slack: '#a-people'
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: sub/owners.yaml
+              slack: '#team-a'
+
+    - name: a notifications mapping that names an undeclared producer silences notifications
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              producers: [review-bot]
+              teams:
+                team-a:
+                  slack: '#a-people'
+                  notifications:
+                    review-bott: '#a-reviews'
+      purpose: notifications
+      producer: review-bot
+      expect:
+          x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: null
+
+    - name: a notifications mapping with one undeclared producer silences the declared ones too
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              producers: [review-bot]
+              teams:
+                team-a:
+                  slack: '#a-people'
+                  notifications:
+                    review-bot: '#a-reviews'
+                    review-bott: '#a-typo'
+      purpose: notifications
+      producer: review-bot
+      expect:
+          x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: null

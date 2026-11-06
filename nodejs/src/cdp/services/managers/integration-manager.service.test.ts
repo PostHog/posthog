@@ -1,7 +1,8 @@
 import { IntegrationType } from '~/cdp/types'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
-import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { insertIntegration } from '../../_tests/fixtures'
@@ -16,18 +17,15 @@ describe('IntegrationManager', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         manager = new IntegrationManagerService(hub.pubSub, hub.postgres, hub.encryptedFields)
 
-        const team = await getTeam(hub.postgres, 2)
-
-        teamId1 = await createTeam(hub.postgres, team!.organization_id)
+        teamId1 = (await createTestTeamFixture(hub.postgres)).team.id
 
         integrations = []
 
         integrations.push(
             await insertIntegration(hub.postgres, teamId1, {
-                id: 1,
+                id: teamId1,
                 kind: 'slack',
                 config: { team: 'foobar' },
                 sensitive_config: {
@@ -46,11 +44,11 @@ describe('IntegrationManager', () => {
         const items = await manager.getMany([integrations[0].id])
 
         expect(items).toEqual({
-            '1': {
+            [teamId1]: {
                 config: {
                     team: 'foobar',
                 },
-                id: 1,
+                id: teamId1,
                 kind: 'slack',
                 sensitive_config: {
                     access_token: 'token',
@@ -59,6 +57,17 @@ describe('IntegrationManager', () => {
                 team_id: teamId1,
             },
         })
+    })
+
+    it('retries the lookup when the read replica cancels it', async () => {
+        const cancelled = new Error('Canceling statement due to conflict with recovery.')
+        jest.spyOn(hub.postgres, 'query').mockRejectedValueOnce(
+            new DependencyUnavailableError(cancelled.message, 'Postgres', cancelled)
+        )
+
+        const item = await manager.get(integrations[0].id)
+
+        expect(item?.config).toEqual({ team: 'foobar' })
     })
 
     it('updates cached integration data when integration changes', async () => {

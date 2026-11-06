@@ -8,7 +8,7 @@ import dataclasses
 from typing import cast
 
 import pytest
-import freezegun
+import time_machine
 
 from django.conf import settings
 from django.test import override_settings
@@ -31,7 +31,7 @@ from posthog.clickhouse.log_entries import (
 )
 from posthog.kafka_client.client import _AsyncKafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, Logger, configure_logger, resolve_log_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -266,17 +266,11 @@ async def test_logger_renders_tracebacks(log_capture):
     for entry in log_capture.write_entries:
         entry_dict = json.loads(entry)
 
-        assert "exception" in entry_dict
-        assert isinstance(entry_dict["exception"], list)
-
-        exceptions = entry_dict["exception"]
-
-        assert len(exceptions) == 1
-
-        exception = exceptions[0]
-
-        assert exception["exc_type"] == "ValueError"
-        assert exception["exc_value"] == "Oh no!"
+        assert "exc_info" not in entry_dict
+        assert entry_dict["exception.type"] == "ValueError"
+        assert entry_dict["exception.message"] == "Oh no!"
+        assert entry_dict["exception.stacktrace"].startswith("Traceback (most recent call last):\n")
+        assert 'raise ValueError("Oh no!")' in entry_dict["exception.stacktrace"]
 
 
 async def test_logger_formats_positional_args(log_capture):
@@ -410,7 +404,7 @@ async def test_logger_binds_activity_context(
             assert info_dict["workflow_run_id"] == activity_environment.info.workflow_run_id
 
 
-@freezegun.freeze_time("2023-11-02 10:00:00.123123")
+@time_machine.travel("2023-11-02 10:00:00.123123", tick=False)
 @pytest.mark.parametrize(
     "activity_environment",
     ACTIVITY_INFOS,
@@ -475,7 +469,11 @@ async def test_logger_produces_to_log_queue_from_activity(activity_environment, 
 @pytest.fixture
 def log_entries_table():
     """Manage log_entries table for testing."""
-    sync_execute(KAFKA_LOG_ENTRIES_TABLE_SQL())
+    # Each test gets its own consumer group because ClickHouse leaves a dropped table's
+    # consumer registered with the broker until its session.timeout.ms elapses. Sharing
+    # one group would make every test after the first wait out that stale member's
+    # rebalance before its own messages are assigned to it.
+    sync_execute(KAFKA_LOG_ENTRIES_TABLE_SQL(group=f"test_log_entries_{uuid.uuid4().hex}"))
     sync_execute(LOG_ENTRIES_TABLE_MV_SQL)
     sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
@@ -549,7 +547,7 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
     )
 
     for activity in activities:
-        with freezegun.freeze_time("2024-01-01 00:00:00", real_asyncio=True):
+        with time_machine.travel("2024-01-01 00:00:00", tick=False):
             if fut := activity_environment.run(activity):
                 await fut
 
@@ -632,7 +630,7 @@ class TestWorkflow:
         )
 
 
-@freezegun.freeze_time("2023-11-02 10:00:00.123123")
+@time_machine.travel("2023-11-02 10:00:00.123123", tick=False)
 @pytest.mark.parametrize("log_capture", [False], indirect=True)
 async def test_logger_produces_to_log_queue_from_workflow(queue):
     """Test whether our logger produces into a queue for async processing."""
@@ -704,7 +702,7 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
             activities=[],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with freezegun.freeze_time("2024-01-01 00:00:00", real_asyncio=True):
+            with time_machine.travel("2024-01-01 00:00:00", tick=False):
                 await workflow_environment.client.execute_workflow(
                     TestWorkflow.run,
                     id=workflow_id,
@@ -743,24 +741,29 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
         assert log_dict["team_id"] == FIRST_WORKFLOW_TEAM_ID + i
         assert log_dict["timestamp"] == "2024-01-01 00:00:00.000000"
 
-    results = sync_execute(
-        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
+    # The fixture's consumer group is new, so it replays the topic from the start and
+    # ingests rows produced by earlier tests. Scope the query to this workflow's own
+    # rows instead of counting everything in the table.
+    instance_id = log_dict["instance_id"]
+    query = (
+        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp "
+        f"FROM {log_entries_table} WHERE instance_id = '{instance_id}' ORDER BY team_id ASC"
     )
+
+    results = sync_execute(query)
 
     iterations = 0
     while not len(results) == entries_captured:
         # It may take a bit for CH to ingest.
         await asyncio.sleep(1)
-        results = sync_execute(
-            f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
-        )
+        results = sync_execute(query)
 
         iterations += 1
         if iterations > 10:
             raise TimeoutError("Timedout waiting for logs")
 
     for index, row in enumerate(results):
-        assert row[0] == log_dict["instance_id"]
+        assert row[0] == instance_id
         assert row[1] == "info"
         assert row[2] == log_source
         assert row[3] == log_source_id
@@ -950,3 +953,10 @@ def test_resolve_log_source_cdc_extraction():
 
     assert source == "external_data_jobs"
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
+
+
+def test_logger_skips_produce_when_its_loop_is_closed():
+    loop = asyncio.new_event_loop()
+    loop.close()
+
+    Logger("test", queue=asyncio.Queue(), loop=loop).produce(b"late message")

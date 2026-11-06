@@ -1,19 +1,10 @@
-"""
-Model-path / resolver wiring for data_modeling.
-
-Re-exports the saved-query DAG resolver surface from ``models.modeling`` — the
-``DataWarehouseModelPath`` model, the bounded resolver, and its ``NodeType`` (note: a
-distinct enum from ``models.node.NodeType``, which ``facade.models`` exposes). Light at
-module level (modeling's heavy deps are deferred inside its methods).
-"""
-
 from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
+    RESOLUTION_SOURCE_LINEAGE,
+    RESOLUTION_SOURCE_MATERIALIZATION,
     BoundedResolver,
-    DataWarehouseModelPath,
     LabelTreeField,
-    NodeType,
     ResolutionCycleError,
     ResolutionDepthExceededError,
     ResolutionTimeoutError,
@@ -24,10 +15,10 @@ from products.data_modeling.backend.models.modeling import (
 __all__ = [
     "DEFAULT_RESOLUTION_DEADLINE_SECONDS",
     "DEFAULT_RESOLUTION_MAX_VIEW_DEPTH",
+    "RESOLUTION_SOURCE_LINEAGE",
+    "RESOLUTION_SOURCE_MATERIALIZATION",
     "BoundedResolver",
-    "DataWarehouseModelPath",
     "LabelTreeField",
-    "NodeType",
     "ResolutionCycleError",
     "ResolutionDepthExceededError",
     "ResolutionTimeoutError",

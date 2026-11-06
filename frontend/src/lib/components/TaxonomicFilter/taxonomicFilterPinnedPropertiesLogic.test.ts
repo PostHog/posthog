@@ -1,7 +1,6 @@
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { applyFullStageAppContext } from 'scenes/fullStageAppContext'
 
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
@@ -294,7 +293,7 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
         const mountWith = (
             hasPageview: boolean,
             hasPersonEmail: boolean,
-            { flagEnabled = true, freshStorage = true }: { flagEnabled?: boolean; freshStorage?: boolean } = {}
+            { freshStorage = true }: { freshStorage?: boolean } = {}
         ): void => {
             logic.unmount()
             if (freshStorage) {
@@ -305,11 +304,6 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
                 has_person_email: hasPersonEmail,
             } as unknown as AppContext
             initKeaTests()
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags(
-                [],
-                flagEnabled ? { [FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]: true } : {}
-            )
             logic = taxonomicFilterPinnedPropertiesLogic.build()
             logic.mount()
         }
@@ -357,13 +351,6 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             )
         })
 
-        it('seeds nothing when the feature flag is disabled', () => {
-            mountWith(true, true, { flagEnabled: false })
-
-            expect(logic.values.pinnedFilters).toEqual([])
-            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBeNull()
-        })
-
         it('tops up a default that becomes available on a later mount', () => {
             const captureSpy = jest.spyOn(posthog, 'capture')
             mountWith(true, false)
@@ -374,6 +361,16 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', 'email'])
             expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(seededState(['$current_url', 'email']))
             expect(captureSpy).toHaveBeenCalledWith('taxonomic filter default pins seeded', { values: ['email'] })
+        })
+
+        it('tops up email when the full stage app context arrives after the mount', () => {
+            mountWith(true, false)
+            delete window.POSTHOG_APP_CONTEXT?.has_person_email
+            window.POSTHOG_APP_CONTEXT!.current_team = { id: 1 } as AppContext['current_team']
+
+            applyFullStageAppContext({ current_user: {}, current_team: { id: 1 }, has_person_email: true })
+
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', 'email'])
         })
 
         it('any pin interaction opts the user out of all future seeding', () => {
@@ -408,8 +405,6 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             window.POSTHOG_APP_CONTEXT = { has_pageview: true, has_person_email: true } as unknown as AppContext
 
             initKeaTests()
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]: true })
             logic = taxonomicFilterPinnedPropertiesLogic.build()
             logic.mount()
 
@@ -457,7 +452,13 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
         it.each([
             {
                 description: 'strips denylisted fields and keeps everything else',
-                input: { name: 'Alice', distinct_ids: ['d1'], email: 'a@example.com', properties: { big: 'blob' } },
+                input: {
+                    name: 'Alice',
+                    distinct_ids: ['d1'],
+                    email: 'a@example.com',
+                    properties: { big: 'blob' },
+                    matched_fields: ['email'],
+                },
                 fallback: 'fallback',
                 expected: { name: 'Alice', distinct_ids: ['d1'] },
             },

@@ -1,31 +1,30 @@
 import { FilterLogicalOperator, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import {
-    LogsAlertConfigurationApi,
-    LogsAlertThresholdOperatorEnumApi,
-} from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertFormType } from '../logsAlertFormLogic'
-import { buildLogsAlertFilterConfig, groupLogsAlertDestinations, runPreEnableChecks } from '../logsAlertUtils'
-
-const baseAlert = (overrides: Partial<LogsAlertConfigurationApi> = {}): LogsAlertConfigurationApi =>
-    ({
-        id: 'a',
-        destination_types: ['slack'],
-        ...overrides,
-    }) as LogsAlertConfigurationApi
+import {
+    buildLogsAlertFilterConfig,
+    getHogFunctionEventKind,
+    groupLogsAlertDestinations,
+    logsAlertEventKindsFor,
+    runPreEnableChecks,
+} from '../logsAlertUtils'
 
 const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType => ({
     name: 'A',
     severityLevels: ['error'],
     serviceNames: [],
     filterGroup: { type: FilterLogicalOperator.And, values: [] },
-    thresholdOperator: LogsAlertThresholdOperatorEnumApi.Above,
+    thresholdOperator: LogsAlertConfigurationThresholdOperatorEnumApi.Above,
     thresholdCount: 1,
     windowMinutes: 5,
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     cooldownMinutes: 0,
+    scheduleRestriction: null,
+    groupBy: 'none',
+    maxInstances: 20,
     ...overrides,
 })
 
@@ -78,6 +77,16 @@ describe('logsAlertUtils', () => {
                 filters: {},
             }) as unknown as HogFunctionType
 
+        const pagerDutyHf = (id: string, name: string, eventId: string, enabled = true): HogFunctionType =>
+            ({
+                id,
+                name,
+                enabled,
+                template: { id: 'template-pagerduty' },
+                inputs: { routing_key: { secret: true }, severity: { value: 'critical' } },
+                filters: { events: [{ id: eventId, type: 'events' }] },
+            }) as unknown as HogFunctionType
+
         const resolveSlack = (channelValue: string): string | null => `channel-for-${channelValue}`
 
         it('collapses multiple HogFunctions for the same slack channel into one group', () => {
@@ -125,6 +134,40 @@ describe('logsAlertUtils', () => {
                 label: `Microsoft Teams ${teamsUrl}`,
             })
             expect(groups[0].hogFunctions).toHaveLength(2)
+        })
+
+        it('groups pagerduty HogFunctions by the key tail in their name, since the key itself is secret', () => {
+            const groups = groupLogsAlertDestinations(
+                [
+                    pagerDutyHf(
+                        'hf-1',
+                        'Logs alert — Errors (incident opened) → PagerDuty ••••cdef',
+                        '$logs_alert_incident_opened'
+                    ),
+                    pagerDutyHf(
+                        'hf-2',
+                        'Logs alert — Errors (incident closed) → PagerDuty ••••cdef',
+                        '$logs_alert_incident_closed'
+                    ),
+                    pagerDutyHf(
+                        'hf-3',
+                        'Logs alert — Errors (incident opened) → PagerDuty ••••0000',
+                        '$logs_alert_incident_opened'
+                    ),
+                ],
+                resolveSlack
+            )
+
+            expect(groups.map((g) => [g.key, g.label, g.type, g.hogFunctions.length])).toEqual([
+                ['pagerduty:PagerDuty ••••cdef', 'PagerDuty ••••cdef', 'pagerduty', 2],
+                ['pagerduty:PagerDuty ••••0000', 'PagerDuty ••••0000', 'pagerduty', 1],
+            ])
+            // The detail scene shows one row per kind; a kind it cannot match renders as missing.
+            expect(
+                logsAlertEventKindsFor(groups[0].type).map(
+                    (kind) => groups[0].hogFunctions.find((hf) => getHogFunctionEventKind(hf) === kind)?.id
+                )
+            ).toEqual(['hf-1', 'hf-2'])
         })
 
         it('keeps distinct slack channels and webhook urls as separate groups', () => {
@@ -182,13 +225,12 @@ describe('logsAlertUtils', () => {
     })
 
     describe('runPreEnableChecks', () => {
-        it('returns ok when filters and destinations are present', () => {
-            expect(runPreEnableChecks(baseAlert(), baseForm())).toEqual({ ok: true })
+        it('returns ok when filters are present', () => {
+            expect(runPreEnableChecks(baseForm())).toEqual({ ok: true })
         })
 
         it('blocks when no filters', () => {
             const result = runPreEnableChecks(
-                baseAlert(),
                 baseForm({
                     severityLevels: [],
                     serviceNames: [],
@@ -198,21 +240,8 @@ describe('logsAlertUtils', () => {
             expect(result).toEqual({ blocked: true, reason: 'Add at least one filter to enable' })
         })
 
-        it('warns when no destinations', () => {
-            const result = runPreEnableChecks(baseAlert({ destination_types: [] }), baseForm())
-            expect(result).toMatchObject({ warning: { title: 'No notifications configured' } })
-        })
-
-        it('blocks before warning when both apply', () => {
-            const result = runPreEnableChecks(
-                baseAlert({ destination_types: [] }),
-                baseForm({
-                    severityLevels: [],
-                    serviceNames: [],
-                    filterGroup: { type: FilterLogicalOperator.And, values: [] },
-                })
-            )
-            expect(result).toEqual({ blocked: true, reason: 'Add at least one filter to enable' })
+        it('allows an alert without notification destinations', () => {
+            expect(runPreEnableChecks(baseForm())).toEqual({ ok: true })
         })
     })
 })

@@ -268,9 +268,6 @@ export const CommandPalette: Story = {
                                     </AutocompleteGroup>
                                 )}
                             </AutocompleteList>
-                            <AutocompleteEmpty>
-                                No commands match <strong>"{query}"</strong>
-                            </AutocompleteEmpty>
                         </Autocomplete>
                     </DialogContent>
                 </Dialog>
@@ -358,9 +355,6 @@ export const CommandPaletteCustomEmpty: Story = {
                                     </AutocompleteGroup>
                                 )}
                             </AutocompleteList>
-                            <AutocompleteEmpty>
-                                No commands match <strong>"{query}"</strong>
-                            </AutocompleteEmpty>
                         </Autocomplete>
                     </DialogContent>
                 </Dialog>

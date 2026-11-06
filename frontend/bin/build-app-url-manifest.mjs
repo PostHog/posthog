@@ -29,7 +29,7 @@ const PRODUCTS_DIR = path.join(REPO, 'products')
 const OUT_FILE = path.join(REPO, 'services/mcp/src/tools/links/app-url-manifest.json')
 
 // First path segments that never get a `/project/:id` prefix. Mirrors `pathsWithoutProjectId` in
-// frontend/src/lib/utils/router-utils.ts — keep in sync there.
+// frontend/src/lib/utils/kea-router.ts — keep in sync there.
 const PATHS_WITHOUT_PROJECT_ID = new Set([
     'api',
     'me',
@@ -45,12 +45,29 @@ const PATHS_WITHOUT_PROJECT_ID = new Set([
     'embedded',
     'interview',
     'cli',
+    'device',
     'render_query',
 ])
-const isProjectScoped = (template) => !PATHS_WITHOUT_PROJECT_ID.has(template.split('/')[1] ?? '')
+// Instance-level pages living under a product's own prefix, so a first-segment check misses them.
+// Mirrors `exactPathsWithoutProjectId` in the same file, including its nested-path rule — that is
+// what keeps the cohorts staff tools at /feature-flags/staff/cohorts out of the project prefix.
+const EXACT_PATHS_WITHOUT_PROJECT_ID = ['/feature-flags/staff', '/experiments/staff']
+const isProjectScoped = (template) =>
+    !EXACT_PATHS_WITHOUT_PROJECT_ID.some((exact) => template === exact || template.startsWith(`${exact}/`)) &&
+    !PATHS_WITHOUT_PROJECT_ID.has(template.split('/')[1] ?? '')
 
 // `urls` helpers that build prefixes/origins rather than linkable destinations.
 const EXCLUDED_HELPERS = new Set(['absolute', 'default', 'project', 'currentProject', 'newTab'])
+// Builders whose destination lives in the query string, which the probe drops. Most base-only
+// entries are still fine (`/surveys` without its `tab` is a real page), but these resolve to a page
+// that does not show what the builder names, so an entry would be a confident wrong link:
+// `tracingOperation` and `warehouseDestinationConnect` render their missing-parameter error, and
+// `dashboardTemplates` opens the dashboard list without its templates modal.
+const EXCLUDED_BUILDERS = new Set(['tracingOperation', 'dashboardTemplates', 'warehouseDestinationConnect'])
+// Dropping these builders' fixed query strings opens a different destination.
+const BUILDERS_WITH_REQUIRED_QUERY = new Set(['aiObservabilityDatasets'])
+// Flag-gated surfaces for PostHog staff only: a link an agent hands a customer would land on a scene that refuses them.
+const INTERNAL_BUILDERS = new Set(['decisionPlayground', 'library', 'todayReport'])
 
 const sentinel = (name) => `:${name}`
 
@@ -231,7 +248,7 @@ function readSignature(fn) {
 
 // Invoke with the fewest sentinel args that yield a clean path — drops optional trailing params and
 // hits guarded default branches (`replay()` -> `/replay/home`) instead of erroring on a sentinel.
-function probeBuilder(fn, signature) {
+function probeBuilder(fn, signature, preserveQuery = false) {
     const maxArgs = signature.kind === 'object' ? 0 : signature.names.length
     for (let count = 0; count <= maxArgs; count++) {
         const args = signature.kind === 'object' ? [{}] : signature.names.slice(0, count).map(sentinel)
@@ -244,7 +261,8 @@ function probeBuilder(fn, signature) {
         if (typeof raw !== 'string') {
             continue
         }
-        const pathOnly = raw.split('?')[0].split('#')[0]
+        const withoutHash = raw.split('#')[0]
+        const pathOnly = withoutHash.split('?')[0]
         if (
             !pathOnly.startsWith('/') ||
             pathOnly === '/' ||
@@ -253,7 +271,7 @@ function probeBuilder(fn, signature) {
         ) {
             continue
         }
-        return pathOnly
+        return preserveQuery ? withoutHash : pathOnly
     }
     return null
 }
@@ -262,10 +280,16 @@ function replaceSentinels(pathOnly, paramNames) {
     let template = pathOnly
     const found = new Set()
     for (const name of [...paramNames].sort((a, b) => b.length - a.length)) {
-        const encoded = encodeURIComponent(sentinel(name))
         const plain = sentinel(name)
+        const encoded = encodeURIComponent(plain)
+        // Some builders encode a path segment twice on purpose (the trace scene does, so that
+        // kea-router's pathname decode still leaves one layer for the scene). Match that form
+        // first, or the sentinel survives into the template as a literal `%253Aid`.
+        const doubleEncoded = encodeURIComponent(encoded)
         const before = template
-        template = template.split(encoded).join(`{${name}}`).split(plain).join(`{${name}}`)
+        for (const form of [doubleEncoded, encoded, plain]) {
+            template = template.split(form).join(`{${name}}`)
+        }
         if (template !== before) {
             found.add(name)
         }
@@ -282,6 +306,14 @@ function buildManifest(urls) {
             excluded.push({ name, reason: 'structural helper' })
             continue
         }
+        if (EXCLUDED_BUILDERS.has(name)) {
+            excluded.push({ name, reason: 'query-only parameters' })
+            continue
+        }
+        if (INTERNAL_BUILDERS.has(name)) {
+            excluded.push({ name, reason: 'internal-only surface' })
+            continue
+        }
         const fn = urls[name]
         if (typeof fn !== 'function') {
             excluded.push({ name, reason: 'not a function' })
@@ -292,7 +324,7 @@ function buildManifest(urls) {
             excluded.push({ name, reason: 'could not parse signature' })
             continue
         }
-        const probePath = probeBuilder(fn, signature)
+        const probePath = probeBuilder(fn, signature, BUILDERS_WITH_REQUIRED_QUERY.has(name))
         if (!probePath) {
             excluded.push({ name, reason: 'no clean path' })
             continue

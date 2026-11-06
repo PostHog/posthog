@@ -102,8 +102,12 @@ RUST_NATIVE_STL: frozenset[str] = frozenset(
         "toDate",
         "multiSearchAnyCaseInsensitive",
         "randomFloat",
+        # Ordered numeric property filters compile to a toFloat(...) LHS cast; stl.rs registers it.
+        "toFloat",
     }
 )
+# inCohort/notInCohort exist in stl.rs but take 2 args (cohort_id, cohort_ids); stored realtime cohort
+# bytecode calls them with 1 arg, which the Rust VM can't run — so they stay flagged as gaps here.
 RUST_HOG_STL: frozenset[str] = frozenset(
     {"arrayCount", "arrayExists", "arrayFilter", "arrayMap", "arrayReduce", "sortableSemver"}
 )

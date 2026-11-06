@@ -6,55 +6,99 @@ import {
   type ScopedLogger,
 } from "@posthog/di/logger";
 import { serializeError } from "@posthog/shared";
-import { inject, injectable } from "inversify";
+import { inject, injectable, optional } from "inversify";
 import {
   type StreamProgress,
   streamBodyToResponse,
 } from "../proxy-stream/proxy-stream";
-import { AUTH_PROXY_AUTH } from "./identifiers";
-import type { AuthProxyAuth } from "./ports";
+import {
+  type FetchLike,
+  GatewaySessionHandler,
+  type SessionTarget,
+} from "./gateway-session";
+import {
+  AUTH_PROXY_AUTH,
+  AUTH_PROXY_FETCH,
+  GATEWAY_CREDENTIAL_SOURCE,
+} from "./identifiers";
+import type { AuthProxyAuth, GatewayCredentialSource } from "./ports";
+import {
+  jsonError,
+  PROXY_TIMEOUTS,
+  readBody,
+  responseHeaders,
+  strippedRequestHeaders,
+} from "./proxy-http";
+
+export { MAX_BODY_BYTES, PROXY_TIMEOUTS } from "./proxy-http";
+
+interface LegacyTarget {
+  kind: "legacy";
+  gatewayUrl: string;
+  headers: Record<string, string>;
+}
+
+type ProxyTarget = LegacyTarget | SessionTarget;
 
 @injectable()
 export class AuthProxyService {
   private server: http.Server | null = null;
   private port: number | null = null;
   private listenPromise: Promise<void> | null = null;
-  private readonly targetByToken = new Map<
-    string,
-    { gatewayUrl: string; headers: Record<string, string> }
-  >();
+  private readonly targetByToken = new Map<string, ProxyTarget>();
   private readonly tokenByTarget = new Map<string, string>();
   private readonly log: ScopedLogger;
+  private readonly sessions: GatewaySessionHandler;
 
   constructor(
     @inject(AUTH_PROXY_AUTH)
     private readonly auth: AuthProxyAuth,
     @inject(ROOT_LOGGER)
     rootLogger: RootLogger,
+    @inject(GATEWAY_CREDENTIAL_SOURCE)
+    @optional()
+    private readonly source?: GatewayCredentialSource,
+    @inject(AUTH_PROXY_FETCH)
+    @optional()
+    fetchImpl?: FetchLike,
   ) {
     this.log = rootLogger.scope("auth-proxy");
+    this.sessions = new GatewaySessionHandler({
+      log: this.log,
+      fetchImpl: fetchImpl ?? ((url, init) => fetch(url, init)),
+      source: () => this.requireSource(),
+      forwardLegacy: (url, options, res, abort) =>
+        this.forwardRequest(url, options, res, abort),
+    });
   }
 
   async start(
     gatewayUrl: string,
     headers: Record<string, string> = {},
   ): Promise<string> {
-    const targetKey = JSON.stringify([
+    return this.register(["legacy", gatewayUrl], {
+      kind: "legacy",
       gatewayUrl,
-      Object.entries(headers).sort(([left], [right]) =>
-        left.localeCompare(right),
-      ),
-    ]);
-    let token = this.tokenByTarget.get(targetKey);
-    if (!token) {
-      token = randomBytes(32).toString("base64url");
-      this.tokenByTarget.set(targetKey, token);
-      this.targetByToken.set(token, { gatewayUrl, headers: { ...headers } });
-    }
+      headers: { ...headers },
+    });
+  }
 
-    await this.ensureListening();
-
-    return this.getProxyUrl(token);
+  /**
+   * The bearer and gateway URL resolve per request, so a refreshed token never
+   * changes the loopback URL the CLI holds.
+   */
+  async startGatewaySession(input: {
+    projectId: number;
+    legacyGatewayUrl: string;
+    headers?: Record<string, string>;
+  }): Promise<string> {
+    this.requireSource();
+    return this.register(["session", input.projectId, input.legacyGatewayUrl], {
+      kind: "session",
+      projectId: input.projectId,
+      legacyGatewayUrl: input.legacyGatewayUrl,
+      headers: { ...(input.headers ?? {}) },
+    });
   }
 
   getProxyUrl(token: string): string {
@@ -66,6 +110,28 @@ export class AuthProxyService {
 
   isRunning(): boolean {
     return this.server !== null && this.port !== null;
+  }
+
+  private async register(
+    identity: unknown[],
+    target: ProxyTarget,
+  ): Promise<string> {
+    const targetKey = JSON.stringify([
+      ...identity,
+      Object.entries(target.headers).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ]);
+    let token = this.tokenByTarget.get(targetKey);
+    if (!token) {
+      token = randomBytes(32).toString("base64url");
+      this.tokenByTarget.set(targetKey, token);
+      this.targetByToken.set(token, target);
+    }
+
+    await this.ensureListening();
+
+    return this.getProxyUrl(token);
   }
 
   private ensureListening(): Promise<void> {
@@ -128,6 +194,17 @@ export class AuthProxyService {
       return;
     }
 
+    if (target.kind === "session") {
+      void this.sessions.handle(
+        target,
+        match?.[2] ?? "/",
+        incomingUrl.search,
+        req,
+        res,
+      );
+      return;
+    }
+
     const base = target.gatewayUrl.endsWith("/")
       ? target.gatewayUrl
       : `${target.gatewayUrl}/`;
@@ -156,30 +233,16 @@ export class AuthProxyService {
     if (!sameOrigin || hasPathTraversal) {
       this.log.warn("Rejected proxy request with invalid target URL", {
         method: req.method,
-        incoming: req.url,
-        target: targetUrl.toString(),
       });
       res.writeHead(403);
       res.end("Forbidden");
       return;
     }
 
-    const strippedHeaders = new Set([
-      "authorization",
-      "x-api-key",
-      "api-key",
-      "anthropic-auth-token",
-      "proxy-authorization",
-      "content-length",
-      "transfer-encoding",
-    ]);
     const headers: Record<string, string> = {};
+    const stripped = strippedRequestHeaders(req.headers.connection);
     for (const [key, value] of Object.entries(req.headers)) {
-      if (
-        key === "host" ||
-        key === "connection" ||
-        strippedHeaders.has(key.toLowerCase())
-      ) {
+      if (stripped.has(key.toLowerCase())) {
         continue;
       }
       if (typeof value === "string") {
@@ -211,41 +274,84 @@ export class AuthProxyService {
     };
 
     if (req.method !== "GET" && req.method !== "HEAD") {
-      const chunks: Buffer[] = [];
-      req.on("data", (chunk: Buffer) => chunks.push(chunk));
-      req.on("end", () => {
-        fetchOptions.body = Buffer.concat(chunks);
-        this.forwardRequest(targetUrl.toString(), fetchOptions, res);
+      void readBody(req).then((body) => {
+        if (typeof body === "string") {
+          this.log.warn("Auth proxy refused a request body", {
+            method: req.method,
+            reason: body,
+          });
+        }
+        if (body === "too_large") {
+          // Worded to match the "request body too large" size-error pattern.
+          jsonError(
+            res,
+            413,
+            { type: "request_too_large", message: "request body too large" },
+            { connection: "close" },
+          );
+          return;
+        }
+        if (body === "timeout" || body === "aborted") {
+          jsonError(
+            res,
+            408,
+            { type: "timeout_error", message: "request body not received" },
+            { connection: "close" },
+          );
+          return;
+        }
+        fetchOptions.body = body;
+        void this.forwardRequest(targetUrl, fetchOptions, res, abort);
       });
     } else {
-      this.forwardRequest(targetUrl.toString(), fetchOptions, res);
+      void this.forwardRequest(targetUrl, fetchOptions, res, abort);
     }
   }
 
   private async forwardRequest(
-    url: string,
+    target: URL,
     options: RequestInit,
     res: http.ServerResponse,
+    abort: AbortController,
   ): Promise<void> {
+    if (abort.signal.aborted) return;
     const startedAt = Date.now();
     const progress: StreamProgress = { bytesWritten: 0 };
+    // Logged without the query string, which may carry request detail.
+    const url = `${target.origin}${target.pathname}`;
     let status = 0;
+    let timedOut = false;
     try {
-      const response = await this.auth.authenticatedFetch(url, options);
+      const timer = setTimeout(() => {
+        timedOut = true;
+        abort.abort();
+      }, PROXY_TIMEOUTS.headersMs);
+      let response: Response;
+      try {
+        response = await this.auth.authenticatedFetch(target.toString(), {
+          ...options,
+          redirect: "manual",
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       status = response.status;
 
-      const responseHeaders: Record<string, string> = {};
-      const stripHeaders = new Set([
-        "transfer-encoding",
-        "content-encoding",
-        "content-length",
-      ]);
-      response.headers.forEach((value: string, key: string) => {
-        if (stripHeaders.has(key)) return;
-        responseHeaders[key] = value;
-      });
+      if (status >= 300 && status < 400) {
+        void response.body?.cancel().catch(() => {});
+        this.log.warn("Auth proxy refused an upstream redirect", {
+          url,
+          method: options.method,
+          status,
+        });
+        jsonError(res, 502, {
+          type: "api_error",
+          message: "Unexpected redirect from the PostHog gateway",
+        });
+        return;
+      }
 
-      res.writeHead(response.status, responseHeaders);
+      res.writeHead(response.status, responseHeaders(response));
 
       await streamBodyToResponse(response.body, res, progress);
 
@@ -257,6 +363,18 @@ export class AuthProxyService {
         bytesStreamed: progress.bytesWritten,
       });
     } catch (err) {
+      if (timedOut) {
+        this.log.warn("Auth proxy upstream sent no response headers in time", {
+          url,
+          method: options.method,
+          durationMs: Date.now() - startedAt,
+        });
+        jsonError(res, 504, {
+          type: "timeout_error",
+          message: "PostHog gateway did not respond",
+        });
+        return;
+      }
       if (options.signal?.aborted) {
         this.log.debug("Upstream fetch aborted after client disconnect", {
           url,
@@ -280,5 +398,12 @@ export class AuthProxyService {
       }
       res.end("Proxy error");
     }
+  }
+
+  private requireSource(): GatewayCredentialSource {
+    if (!this.source) {
+      throw new Error("Gateway sessions need a credential source");
+    }
+    return this.source;
   }
 }

@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.facade.models import (
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -45,14 +46,14 @@ type RedshiftSourceLocation = tuple[str | None, str, str]  # (catalog, schema, t
 
 
 def get_default_redshift_schema(source: ExternalDataSource) -> str | None:
-    job_inputs = source.job_inputs or {}
+    job_inputs = SourceInputsStore.load_settings(source)
     if "schema" in job_inputs:
         return normalize_namespace(job_inputs.get("schema"))
     return None
 
 
 def get_default_redshift_catalog(source: ExternalDataSource) -> str | None:
-    database = (source.job_inputs or {}).get("database")
+    database = SourceInputsStore.load(source).get("database")
     return database if isinstance(database, str) and database.strip() else None
 
 
@@ -242,16 +243,16 @@ def reconcile_redshift_schemas(
 
         # Drop dead columns so next sync doesn't emit `SELECT … missing_col`.
         available_names = extract_available_column_names(schema_metadata)
-        pruned_enabled_columns, removed_columns = prune_enabled_columns(matched.enabled_columns, available_names)
-        if removed_columns:
+        pruned = prune_enabled_columns(matched.enabled_columns, available_names)
+        if pruned.removed:
             log.info(
                 "redshift.reconcile_schemas.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(matched.id),
                 schema_name=matched.name,
-                removed_columns=removed_columns,
+                removed_columns=pruned.removed,
             )
-            matched.enabled_columns = pruned_enabled_columns
+            matched.enabled_columns = pruned.kept
             update_fields.append("enabled_columns")
         matched.save(update_fields=update_fields)
 

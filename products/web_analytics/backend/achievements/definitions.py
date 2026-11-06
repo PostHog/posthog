@@ -16,6 +16,8 @@ class TrackKey(StrEnum):
     TRAFFIC = "traffic"
 
 
+STAGE_COUNT = 5
+
 STREAK_ARM_CONTROL = "control"
 STREAK_ARM_HYBRID = "hybrid"
 STREAK_ARM_DAILY = "daily-only"
@@ -185,11 +187,11 @@ def serialize_definitions(arm: str | None = None) -> list[dict]:
 def _validate_tracks() -> None:
     for key, track in TRACKS.items():
         assert track.key == key, f"{key} registered under mismatched key {track.key}"
-        assert len(track.stages) == 5, f"{key} must have exactly 5 stages"
+        assert len(track.stages) == STAGE_COUNT, f"{key} must have exactly {STAGE_COUNT} stages"
         thresholds = [stage.threshold for stage in track.stages]
         assert thresholds == sorted(set(thresholds)), f"{key} stage thresholds must be strictly increasing"
         for arm, arm_thresholds in track.arm_thresholds.items():
-            assert len(arm_thresholds) == 5, f"{key}/{arm} must have exactly 5 thresholds"
+            assert len(arm_thresholds) == STAGE_COUNT, f"{key}/{arm} must have exactly {STAGE_COUNT} thresholds"
             assert list(arm_thresholds) == sorted(set(arm_thresholds)), (
                 f"{key}/{arm} thresholds must be strictly increasing"
             )

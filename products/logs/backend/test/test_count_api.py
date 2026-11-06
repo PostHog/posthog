@@ -1,13 +1,19 @@
 import os
 import json
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework import status
 
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import get_logs_api_team_rate_limiter
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -41,7 +47,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             ("empty_window", {"date_from": "2000-01-01T00:00:00Z", "date_to": "2000-01-02T00:00:00Z"}, 0),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_date_range(self, _name, date_range, expected):
         response = self._count({"dateRange": date_range})
         self.assertEqual(response["count"], expected)
@@ -54,7 +60,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             (["info", "error"], 945),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_severity_filter(self, severities, expected):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "severityLevels": severities})
         self.assertEqual(response["count"], expected)
@@ -67,17 +73,17 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             (["nonexistent-service-xyz"], 0),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_service_filter(self, services, expected):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "serviceNames": services})
         self.assertEqual(response["count"], expected)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_search_term_matches_body_text(self):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "searchTerm": "connection refused"})
         self.assertEqual(response["count"], 1)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_defaults_date_range_to_last_hour(self):
         # No dateRange in request; default should be -1h relative to frozen "now".
         # Fixture's latest timestamp is 2025-12-18T02:00Z — outside the last hour.
@@ -104,7 +110,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_matches_sparkline_sum(self, _name, date_range, filters):
         # Cross-verify: sum of sparkline bucket counts should equal the scalar count
         # for the same query. Catches drift between the two endpoints' WHERE handling.
@@ -124,3 +130,68 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
 
         sparkline_sum = sum(bucket["count"] for bucket in sparkline_response.json())
         self.assertEqual(count_result["count"], sparkline_sum)
+
+    def _post_count_with_personal_api_key(self):
+        token = self.create_personal_api_key_with_scopes(["logs:read"])
+        self.client.logout()
+        return self.client.post(
+            f"/api/projects/{self.team.id}/logs/count",
+            data={"query": {"dateRange": _FIXTURE_WINDOW}},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_full_team_concurrency_limit_refuses_personal_api_key_requests_but_not_sessions(self):
+        limiter = get_logs_api_team_rate_limiter()
+        held_slots = [limiter.use(team_id=self.team.id) for _ in range(limiter.max_concurrency)]
+        try:
+            with patch.object(limiter, "retry_timeout", 0):
+                session_response = self.client.post(
+                    f"/api/projects/{self.team.id}/logs/count",
+                    data={"query": {"dateRange": _FIXTURE_WINDOW}},
+                    content_type="application/json",
+                )
+                api_key_response = self._post_count_with_personal_api_key()
+        finally:
+            for slot in held_slots:
+                if slot is not None:
+                    limiter.release(slot)
+
+        self.assertEqual(session_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(api_key_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertTrue(api_key_response.json()["detail"].startswith(CONCURRENCY_LIMIT_USER_MESSAGE))
+        self.assertEqual(api_key_response["Retry-After"], "1")
+
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_personal_api_key_requests_release_their_concurrency_slot(self):
+        limiter = get_logs_api_team_rate_limiter()
+
+        statuses = [self._post_count_with_personal_api_key().status_code for _ in range(limiter.max_concurrency + 1)]
+
+        self.assertEqual(statuses, [status.HTTP_200_OK] * (limiter.max_concurrency + 1))
+
+    @override_settings(DEBUG=True)
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_personal_api_key_requests_release_their_concurrency_slot_when_the_handler_raises(self):
+        limiter = get_logs_api_team_rate_limiter()
+        self.client.raise_request_exception = False
+
+        with patch(
+            "products.logs.backend.presentation.views.api.CountQueryRunner.run", side_effect=RuntimeError("boom")
+        ):
+            response = self._post_count_with_personal_api_key()
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        self.assertEqual(limiter.redis_client.zcard(f"logs_api:query:per-team:{self.team.id}"), 0)
+
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_personal_api_key_requests_pass_when_the_limiter_redis_is_down(self):
+        broken_redis = MagicMock()
+        broken_redis.eval.side_effect = RedisConnectionError()
+
+        with patch.object(get_logs_api_team_rate_limiter(), "redis_client", broken_redis):
+            response = self._post_count_with_personal_api_key()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

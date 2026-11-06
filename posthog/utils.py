@@ -19,7 +19,7 @@ from contextlib import contextmanager, suppress
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -27,7 +27,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.db import ProgrammingError, models
-from django.db.models.functions import Coalesce, Lower
+from django.db.models.functions import Coalesce
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -47,24 +47,29 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
 from prometheus_client import Histogram
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.run_mode import run_mode
 from posthog.security.url_validation import has_ambiguous_authority
+from posthog.stable_chunks import stable_chunks_for_request
+
+from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 
 tracer = trace.get_tracer(__name__)
 
-# Cardinality is bounded: render_template is only called with the literal template
-# names "index.html", "demo.html", and "render_query.html" — 3 templates × 2 auth
-# states = 6 series total.
+# Cardinality is bounded because every render_template caller passes a literal template
+# name, so each template adds one series per auth state.
 TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
     "posthog_template_context_duration_seconds",
     "Time spent building the SPA template context (get_context_for_template).",
@@ -75,12 +80,14 @@ TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User
+    from rest_framework.serializers import Serializer
+
+    from posthog.models import Organization, Team, User
 
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
     from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
-    from products.product_analytics.backend.models.insight_variable import InsightVariable
+    from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -99,6 +106,10 @@ logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+
+
+# C0 controls anywhere, and a leading space: characters URL parsers strip or drop before reading the authority.
+_URL_CONTROL_CHARS = re.compile(r"^[\x00-\x20]|[\x00-\x1f]")
 
 
 class PotentialSecurityProblemException(Exception):
@@ -124,24 +135,39 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if has_ambiguous_authority(url):
         raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
+    # urlparse and urljoin drop tabs and newlines and strip leading control characters and
+    # spaces, so the value they resolve can differ from the one checked below.
+    if _URL_CONTROL_CHARS.search(url):
+        raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+
     provided_url = urlparse(url)
     if provided_url.hostname and provided_url.scheme:
         site_url = urlparse(settings.SITE_URL)
-        provided_url = provided_url
         if (
             site_url.hostname != provided_url.hostname
             or site_url.port != provided_url.port
             or site_url.scheme != provided_url.scheme
         ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+        return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
-    return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
+    relative_url = url.lstrip("/")
+    # A relative value must stay on SITE_URL: anything still carrying an authority after the
+    # slashes are stripped would be read by urljoin as a protocol-relative URL.
+    if urlparse(relative_url).netloc:
+        raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+
+    return urljoin(settings.SITE_URL.rstrip("/") + "/", relative_url)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class DayRange:
     start: datetime.datetime
     end: datetime.datetime
+
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"DayRange start must not be after end: start={self.start}, end={self.end}")
 
 
 def get_previous_day(at: Optional[datetime.datetime] = None) -> DayRange:
@@ -478,6 +504,101 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
         return ("", (), "")
 
 
+APP_EVALUATION_CONTEXT = "posthog-web-app"
+
+
+def app_flag_keys(definitions: list[dict[str, Any]] | None) -> list[str] | None:
+    """
+    The flags /flags returns for the app, which sends `evaluation_contexts: ['posthog-web-app']`
+    from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts, and it
+    also returns disabled flags and server-only flags, which /flags never sends to a browser.
+    None means the definitions have not loaded yet.
+    """
+    if definitions is None:
+        return None
+    return [definition["key"] for definition in definitions if _app_evaluates_flag(definition)]
+
+
+def _app_evaluates_flag(definition: dict[str, Any]) -> bool:
+    contexts = definition.get("evaluation_contexts")
+    return (
+        definition.get("active", True) is not False
+        and definition.get("evaluation_runtime") != "server"
+        and (not contexts or APP_EVALUATION_CONTEXT in contexts)
+    )
+
+
+@frozen
+class FlagIdentity:
+    """The inputs the web app sends to /flags for a signed-in user, for a local evaluation of the app's flags."""
+
+    distinct_id: str
+    person_properties: dict[str, Any]
+    groups: dict[str, str]
+    group_properties: dict[str, dict[str, Any]]
+
+
+def flag_identity(
+    user: "User",
+    team: "Team | None",
+    organization: "Organization | None",
+    *,
+    member_count: int | None = None,
+    project_count: int | None = None,
+) -> FlagIdentity | None:
+    """
+    Mirrors `userIdentity()` in `frontend/src/lib/utils/posthogIdentity.ts`, which sends these inputs to /flags.
+    Local evaluation drops any flag it cannot decide from them, and decides a flag differently when they differ.
+    The organization serializer computes `member_count` and `project_count`, so a caller without it leaves them
+    out, and a flag that reads them stays undecided. None for a user without a distinct id, who gets no flags.
+    """
+    # A worker loads the user with the fields it needs, and Django reads each other field in a query of its own.
+    deferred = {"distinct_id", "email", "anonymize_data", "date_joined"} & user.get_deferred_fields()
+    if deferred:
+        user.refresh_from_db(fields=sorted(deferred))
+    if not user.distinct_id:
+        return None
+    groups: dict[str, str] = {}
+    group_properties: dict[str, dict[str, Any]] = {}
+    if team is not None:
+        groups["project"] = str(team.uuid)
+        group_properties["project"] = {
+            "id": team.id,
+            "uuid": str(team.uuid),
+            "name": team.name,
+            "ingested_event": team.ingested_event,
+            "is_demo": team.is_demo,
+            "timezone": team.timezone,
+            "instance_tag": settings.INSTANCE_TAG,
+        }
+    if organization is not None:
+        groups["organization"] = str(organization.id)
+        group_properties["organization"] = {
+            "id": str(organization.id),
+            "name": organization.name,
+            "slug": organization.slug,
+            # The serializer's datetime format.
+            "created_at": organization.created_at.isoformat().replace("+00:00", "Z"),
+            "available_product_features": organization.available_product_features,
+            **({"member_count": member_count} if member_count is not None else {}),
+            **({"project_count": project_count} if project_count is not None else {}),
+            "instance_tag": settings.INSTANCE_TAG,
+        }
+        if organization.customer_id:
+            groups["customer"] = organization.customer_id
+    groups["instance"] = settings.SITE_URL
+    group_properties["instance"] = {"site_url": settings.SITE_URL}
+    return FlagIdentity(
+        distinct_id=user.distinct_id,
+        person_properties={
+            "email": None if user.anonymize_data else user.email,
+            "joined_at": user.date_joined.isoformat(),
+        },
+        groups=groups,
+        group_properties=group_properties,
+    )
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -488,6 +609,17 @@ def get_context_for_template(
     authenticated = "true" if request.user.is_authenticated else "false"
     with TEMPLATE_CONTEXT_DURATION_HISTOGRAM.labels(template_name=template_name, authenticated=authenticated).time():
         return _build_template_context(template_name, request, context, team_for_public_context)
+
+
+def get_persisted_feature_flags_for_app_context() -> list[str]:
+    static_keys = list(settings.PERSISTED_FEATURE_FLAGS)
+    non_cloud = not is_cloud()
+    if non_cloud and settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        static_keys = [*static_keys, *settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    flags = get_dynamic_persisted_feature_flags(posthoganalytics.feature_flag_definitions(), static_keys)
+    if non_cloud and not settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        return [flag for flag in flags if flag not in settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    return flags
 
 
 def _build_template_context(
@@ -505,6 +637,9 @@ def _build_template_context(
 
     if settings.STRIPE_PUBLIC_KEY:
         context["stripe_public_key"] = settings.STRIPE_PUBLIC_KEY
+
+    if settings.ORIGIN_TRIAL_TOKENS:
+        context["origin_trial_tokens"] = settings.ORIGIN_TRIAL_TOKENS
 
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
@@ -533,50 +668,47 @@ def _build_template_context(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_host"] = "https://internal-cf.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
         # posthog-js uses this token to evaluate PostHog's own gating flags, so it must point at the
-        # team those flags are synced to — the dogfood-flags team (first team by PK), the same team
-        # the server-side bootstrap evaluates against via _build_flag_provider(). Do NOT use the
-        # self-capture team here (posthoganalytics.api_key = most-recently-active user's current_team):
-        # it drifts onto demo teams that hold no internal flags, so flags load from the bootstrap and
-        # then vanish the moment posthog-js reloads them against that team.
-        dogfood_team = resolve_dogfood_flags_team()
-        if dogfood_team is not None:
-            context["js_posthog_api_key"] = dogfood_team.api_token
+        # team the server-side bootstrap evaluates against via _build_flag_provider(). Both resolve
+        # through resolve_self_flags_team() for that reason: the POSTHOG_SELF_TEAM_ID override when
+        # it is set, else the dogfood-flags team that `sync_feature_flags_from_api` writes to. Do NOT
+        # use the self-capture team here (posthoganalytics.api_key = most-recently-active user's
+        # current_team): it drifts onto demo teams that hold no internal flags, so flags load from
+        # the bootstrap and then vanish the moment posthog-js reloads them against that team.
+        self_flags_team = resolve_self_flags_team()
+        if self_flags_team is not None:
+            context["js_posthog_api_key"] = self_flags_team.api_token
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
-        elif posthoganalytics.api_key:
+        elif get_explicit_self_team_id() is None and posthoganalytics.api_key:
+            # Only reachable without an override. A pinned team that does not exist leaves the token
+            # unset, because sending any other team's token is the mismatch described above.
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
-        context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_api_key"] = POSTHOG_JS_CLOUD_TOKEN
+        context["js_posthog_host"] = POSTHOG_JS_CLOUD_HOST
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
-        "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": not request.user or not request.user.is_authenticated,
+        "run_mode": run_mode().value,
     }
 
     posthog_bootstrap: dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
 
     # Set the frontend app context
+    # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.file_system.user_product_list import UserProductListSerializer
-        from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
-        from posthog.api.team import TeamSerializer
-        from posthog.api.user import UserSerializer
-        from posthog.models.file_system.user_product_list import UserProductList
-        from posthog.models.user_home_settings import UserHomeSettings
-        from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
-        from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
         with tracer.start_as_current_span("template.preflight"):
@@ -588,9 +720,9 @@ def _build_template_context(
             "current_team": None,
             "preflight": preflight_payload,
             "default_event_name": "$pageview",
-            "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
+            "project_access_denied": getattr(request, "project_access_denied", None),
             "commit_sha": context["git_rev"],
             "livestream_host": settings.LIVESTREAM_HOST,
             **posthog_app_context,
@@ -603,123 +735,60 @@ def _build_template_context(
             ).data
         elif request.user.pk:
             user = cast("User", request.user)
-
-            user_permissions = UserPermissions(user=user, team=user.team)
-            user_access_control = UserAccessControl(user=user, team=user.team)
-            with tracer.start_as_current_span("template.rbac.effective"):
-                effective_access: dict[str, Any] = {}
-                for resource in ACCESS_CONTROL_RESOURCES:
-                    with tracer.start_as_current_span(f"template.rbac.effective.{resource}"):
-                        effective_access[resource] = user_access_control.effective_access_level_for_resource(resource)
-                posthog_app_context["effective_resource_access_control"] = effective_access
-            with tracer.start_as_current_span("template.rbac.levels"):
-                resource_access: dict[str, Any] = {}
-                for resource in ACCESS_CONTROL_RESOURCES:
-                    with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
-                        resource_access[resource] = user_access_control.access_level_for_resource(resource)
-                posthog_app_context["resource_access_control"] = resource_access
-
-            with tracer.start_as_current_span("template.user_serializer"):
-                user_serialized = UserSerializer(
-                    request.user,
-                    context={
-                        "request": request,
-                        "user_permissions": user_permissions,
-                        "user_access_control": user_access_control,
-                    },
-                    many=False,
-                )
-                posthog_app_context["current_user"] = user_serialized.data
-                posthog_distinct_id = user_serialized.data.get("distinct_id")
-
-            if user.team:
-                with tracer.start_as_current_span("template.team_serializer"):
-                    team_serialized = TeamSerializer(
-                        user.team,
-                        context={
-                            "request": request,
-                            "user_permissions": user_permissions,
-                            "user_access_control": user_access_control,
-                        },
-                        many=False,
+            variant = deferred_app_context_variant(request, user) if template_name == "index.html" else None
+            if variant:
+                posthog_app_context["deferred_app_context_variant"] = variant
+            if variant == "test":
+                # The page fetches the user's data from `app_context` while its JS loads.
+                posthog_app_context["deferred"] = True
+                posthog_distinct_id = user.distinct_id
+            else:
+                add_user_app_context(request, posthog_app_context)
+                posthog_distinct_id = posthog_app_context["current_user"].get("distinct_id")
+                if posthog_distinct_id:
+                    # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
+                    posthog_bootstrap["featureFlags"] = feature_flag_bootstrap(
+                        user, posthog_app_context["current_user"]
                     )
-                    posthog_app_context["current_team"] = team_serialized.data
 
-                with tracer.start_as_current_span("template.project_serializer"):
-                    project_serialized = ProjectSerializer(
-                        user.team.project,
-                        context={"request": request, "user_permissions": user_permissions},
-                        many=False,
-                    )
-                    posthog_app_context["current_project"] = project_serialized.data
-                posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
-                event_info = get_default_event_info(user.team)
-                posthog_app_context["default_event_name"] = event_info["default_event_name"]
-                posthog_app_context["has_pageview"] = event_info["has_pageview"]
-                posthog_app_context["has_screen"] = event_info["has_screen"]
-                posthog_app_context["has_person_email"] = get_has_person_email(user.team)
+    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view).
+    # A key absent from this list never reaches `window.POSTHOG_APP_CONTEXT`, so the scene that reads it
+    # silently falls back.
+    for caller_key in (
+        "oauth_application",
+        "oauth_mcp_consent",
+        "oauth_consent_access_controls_apply",
+        "oauth_scope_resolution",
+    ):
+        if caller_key in context:
+            posthog_app_context[caller_key] = context.pop(caller_key)
 
-                with tracer.start_as_current_span("template.user_product_list"):
-                    user_product_list = UserProductListSerializer(
-                        UserProductList.objects.filter(team=user.team, user=user, enabled=True).order_by(
-                            Lower("product_path")
-                        ),
-                        many=True,
-                    )
-                    posthog_app_context["custom_products"] = user_product_list.data
-
-                with tracer.start_as_current_span("template.user_home_settings"):
-                    home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
-                    posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
-
-    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
-    if "oauth_application" in context:
-        posthog_app_context["oauth_application"] = context.pop("oauth_application")
-    if "oauth_mcp_consent" in context:
-        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
-
-    # JSON dumps here since there may be objects like Queries
-    # that are not serializable by Django's JSON serializer
-    context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
-
-    if posthog_distinct_id:
-        groups = {}
-        group_properties = {}
-        person_properties = {}
-        if request.user and request.user.is_authenticated:
-            user = cast("User", request.user)
-            person_properties["email"] = user.email
-            person_properties["joined_at"] = user.date_joined.isoformat()
-            if user.organization:
-                groups["organization"] = str(user.organization.id)
-                group_properties["organization"] = {
-                    "name": user.organization.name,
-                    "created_at": user.organization.created_at.isoformat(),
-                }
-
-        with tracer.start_as_current_span("template.feature_flag_bootstrap"):
-            feature_flags = posthoganalytics.get_all_flags(
-                posthog_distinct_id,
-                only_evaluate_locally=True,
-                person_properties=person_properties,
-                groups=groups,
-                group_properties=group_properties,
-            )
-        # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
-        posthog_bootstrap["featureFlags"] = feature_flags
+    context["posthog_app_context"] = posthog_app_context
 
     # This allows immediate flag availability on the frontend, atleast for flags
     # that don't depend on any person properties. To get these flags, add person properties to the
     # `get_all_flags` call above.
-    context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
+    context["posthog_bootstrap"] = posthog_bootstrap
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
     # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
     if template_name == "index.html":
+        is_authenticated = bool(request.user and request.user.is_authenticated)
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
-            bool(request.user and request.user.is_authenticated)
+            is_authenticated
         )
+        stable_chunks = stable_chunks_for_request(request)
+        if stable_chunks:
+            context["stable_chunks"] = True
+            context["stable_chunks_importmap"] = stable_chunks.import_map_json(
+                context["js_url"], logged_out=not is_authenticated
+            )
+            context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
+            if stable_chunks.eager_css_urls:
+                # The stable page links its split stylesheets and loads the full one only as a fallback.
+                context["preload_css_url"] = ""
+                context["stable_preload_css_urls"] = stable_chunks.eager_css_urls
         # Theme for the pre-React shell (critical CSS in index.html), mirroring the app's
         # themeLogic.isDarkModeOn: anonymous pages are always light, a missing theme_mode
         # means light, and only "system" defers to prefers-color-scheme.
@@ -733,7 +802,12 @@ def _build_template_context(
 
         support_secret = get_instance_setting("CONVERSATIONS_HMAC_SIGNING_SECRET")
         if support_secret:
-            from products.conversations.backend.services.identity import compute_identity_hash
+            from products.conversations.backend.services.identity import (
+                IDENTITY_CLAIM_MAX_AGE_SECONDS,
+                canonicalize_claim_value,
+                compute_identity_claim_hash,
+                compute_identity_hash,
+            )
 
             context["js_posthog_identity_distinct_id"] = posthog_distinct_id
             context["js_posthog_identity_hash"] = compute_identity_hash(
@@ -741,7 +815,245 @@ def _build_template_context(
                 support_secret,
             )
 
+            # Sign the logged-in user's verified email as a claim bound to their distinct_id.
+            # The widget backend trusts this attested email to bridge tickets keyed on an email
+            # string (Slack, email, Zendesk), instead of the mutable person.properties.email.
+            user_email = None
+            if request.user and request.user.is_authenticated:
+                identity_user = cast("User", request.user)
+                if identity_user.is_email_verified is True:
+                    user_email = identity_user.email
+            if user_email:
+                canonical_email = canonicalize_claim_value("email", user_email)
+                expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
+                context["js_posthog_identity_claims"] = {
+                    "email": {
+                        "value": canonical_email,
+                        "expires_at": expires_at,
+                        "hash": compute_identity_claim_hash(
+                            posthog_distinct_id,
+                            "email",
+                            canonical_email,
+                            support_secret,
+                            expires_at=expires_at,
+                        ),
+                    }
+                }
+
     return context
+
+
+DEFERRED_APP_CONTEXT_FLAG = "deferred-app-context"
+DEFERRED_APP_CONTEXT_PARAM = "deferred_app_context"
+
+
+def deferred_app_context_variant(request: HttpRequest, user: "User") -> Optional[str]:
+    """
+    The variant of the app page. "test" leaves out the user's data and fetches it from `app_context` instead.
+    None means the user is outside the experiment.
+    The query param wins over the experiment, so a lab run can pick a side and a failed fetch can reload without it.
+    """
+    param = request.GET.get(DEFERRED_APP_CONTEXT_PARAM)
+    if param is not None:
+        return "test" if param == "1" else "control"
+    try:
+        variant = posthoganalytics.get_feature_flag(
+            DEFERRED_APP_CONTEXT_FLAG,
+            str(user.distinct_id),
+            person_properties={"email": user.email},
+            only_evaluate_locally=True,
+            # The SDK would report every signed-in user, so only the experiment's users are reported below.
+            send_feature_flag_events=False,
+        )
+        if isinstance(variant, str):
+            posthoganalytics.capture(
+                "$feature_flag_called",
+                distinct_id=str(user.distinct_id),
+                properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
+            )
+            return variant
+        return None
+    except Exception as e:
+        capture_exception(e)
+        return None
+
+
+def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Optional[dict[str, Any]]:
+    organization = current_user.get("organization")
+    identity = flag_identity(
+        user,
+        user.team if current_user.get("team") else None,
+        user.organization if organization else None,
+        member_count=organization["member_count"] if organization else None,
+        project_count=len(organization["teams"]) if organization else None,
+    )
+    if identity is None:
+        return None
+    flag_keys = app_flag_keys(posthoganalytics.feature_flag_definitions())
+    # Without definitions the SDK loads them and evaluates every flag, server-only flags included.
+    if flag_keys is None:
+        return None
+    # The SDK reads an empty list as "evaluate every flag".
+    if not flag_keys:
+        return {}
+    with tracer.start_as_current_span("template.feature_flag_bootstrap"):
+        return posthoganalytics.get_all_flags(
+            identity.distinct_id,
+            only_evaluate_locally=True,
+            person_properties=identity.person_properties,
+            groups=identity.groups,
+            group_properties=identity.group_properties,
+            flag_keys_to_evaluate=flag_keys,
+        )
+
+
+# Fields the first screen does not read. A deferred page fetches them with `stage=full` after the app boots.
+FULL_STAGE_USER_FIELDS = frozenset({"is_2fa_enabled", "has_sso_enforcement"})
+FULL_STAGE_TEAM_FIELDS = frozenset({"product_intents"})
+FULL_STAGE_PROJECT_FIELDS = FULL_STAGE_TEAM_FIELDS
+
+AppContextStage = Literal["inline", "boot", "full"]
+
+
+def _serialize_app_context_stage(
+    serializer: "Serializer", full_stage_fields: frozenset[str], stage: AppContextStage
+) -> dict[str, Any]:
+    if stage == "inline":
+        return serializer.data
+
+    def in_stage(name: str) -> bool:
+        return (name in full_stage_fields) == (stage == "full")
+
+    for name in list(serializer.fields):
+        if not in_stage(name):
+            serializer.fields.pop(name)
+    # A `to_representation` hook can add a field back, such as the `shortcut_position` backfill, so filter the output too.
+    return {name: value for name, value in serializer.data.items() if in_stage(name)}
+
+
+def add_user_app_context(
+    request: HttpRequest, posthog_app_context: dict[str, Any], stage: Literal["inline", "boot"] = "inline"
+) -> None:
+    """Adds the signed-in user's user, team, project and access data to the app context."""
+    from posthog.api.project import ProjectSerializer
+    from posthog.api.team.team_serializer import TeamSerializer
+    from posthog.api.user import UserSerializer
+    from posthog.models.user_home_settings import UserHomeSettings
+    from posthog.user_permissions import UserPermissions
+
+    from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
+    from products.tasks.backend.facade.access import get_cached_posthog_ai_access_decision
+
+    user = cast("User", request.user)
+
+    user_permissions = UserPermissions(user=user, team=user.team)
+    user_access_control = UserAccessControl(user=user, team=user.team)
+    team = user.team
+    if team and not user_access_control.has_project_access:
+        user.current_team = None
+        user.team = None
+        user.save(update_fields=["current_team"])
+        user_permissions = UserPermissions(user=user, team=None)
+        user_access_control = UserAccessControl(user=user, team=None)
+    with tracer.start_as_current_span("template.rbac.effective"):
+        effective_access: dict[str, Any] = {}
+        for resource in ACCESS_CONTROL_RESOURCES:
+            with tracer.start_as_current_span(f"template.rbac.effective.{resource}"):
+                effective_access[resource] = user_access_control.effective_access_level_for_resource(resource)
+        posthog_app_context["effective_resource_access_control"] = effective_access
+    with tracer.start_as_current_span("template.rbac.levels"):
+        resource_access: dict[str, Any] = {}
+        for resource in ACCESS_CONTROL_RESOURCES:
+            with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
+                access = user_access_control.access_level_for_resource(resource)
+                resource_access[resource] = access.access_level if access else None
+        posthog_app_context["resource_access_control"] = resource_access
+
+    with tracer.start_as_current_span("template.user_serializer"):
+        user_serialized = UserSerializer(
+            request.user,
+            context={
+                "request": request,
+                "user_permissions": user_permissions,
+                "user_access_control": user_access_control,
+            },
+            many=False,
+        )
+        posthog_app_context["current_user"] = _serialize_app_context_stage(
+            user_serialized, FULL_STAGE_USER_FIELDS, stage
+        )
+
+    if user.team:
+        with tracer.start_as_current_span("template.team_serializer"):
+            team_serialized = TeamSerializer(
+                user.team,
+                context={
+                    "request": request,
+                    "user_permissions": user_permissions,
+                    "user_access_control": user_access_control,
+                },
+                many=False,
+            )
+            posthog_app_context["current_team"] = _serialize_app_context_stage(
+                team_serialized, FULL_STAGE_TEAM_FIELDS, stage
+            )
+
+        with tracer.start_as_current_span("template.project_serializer"):
+            project_serialized = ProjectSerializer(
+                user.team.project,
+                context={"request": request, "user_permissions": user_permissions},
+                many=False,
+            )
+            posthog_app_context["current_project"] = _serialize_app_context_stage(
+                project_serialized, FULL_STAGE_PROJECT_FIELDS, stage
+            )
+        event_info = get_default_event_info(user.team)
+        posthog_app_context["default_event_name"] = event_info["default_event_name"]
+        posthog_app_context["has_pageview"] = event_info["has_pageview"]
+        posthog_app_context["has_screen"] = event_info["has_screen"]
+        if stage == "inline":
+            posthog_app_context["has_person_email"] = get_has_person_email(user.team)
+
+        with tracer.start_as_current_span("template.posthog_ai_access"):
+            try:
+                posthog_ai_access = get_cached_posthog_ai_access_decision(user, user.team.organization).allowed
+            except Exception as error:
+                capture_exception(error)
+                posthog_ai_access = False
+            posthog_app_context["posthog_ai_access"] = posthog_ai_access
+
+        with tracer.start_as_current_span("template.user_home_settings"):
+            home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
+            posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
+
+
+def full_stage_user_app_context(request: HttpRequest) -> dict[str, Any]:
+    """The app context fields that `add_user_app_context` leaves out of the boot stage."""
+    from posthog.api.project import ProjectSerializer
+    from posthog.api.team.team_serializer import TeamSerializer
+    from posthog.api.user import UserSerializer
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+    user = cast("User", request.user)
+    full_stage: dict[str, Any] = {
+        "current_user": _serialize_app_context_stage(
+            UserSerializer(user, context={"request": request}), FULL_STAGE_USER_FIELDS, "full"
+        )
+    }
+    if user.team and UserAccessControl(user=user, team=user.team).has_project_access:
+        # The id lets the page skip fields for a team it no longer shows.
+        full_stage["current_team"] = {
+            "id": user.team.id,
+            **_serialize_app_context_stage(
+                TeamSerializer(user.team, context={"request": request}), FULL_STAGE_TEAM_FIELDS, "full"
+            ),
+        }
+        full_stage["current_project"] = _serialize_app_context_stage(
+            ProjectSerializer(user.team.project, context={"request": request}), FULL_STAGE_PROJECT_FIELDS, "full"
+        )
+        full_stage["has_person_email"] = get_has_person_email(user.team)
+    return full_stage
 
 
 def render_template(
@@ -825,6 +1137,39 @@ def get_dogfood_flags_team_id() -> Optional[int]:
     return team.id if team is not None else None
 
 
+def get_explicit_self_team_id() -> Optional[int]:
+    """The `POSTHOG_SELF_TEAM_ID` operator override, or None when it is unset.
+
+    Truthiness, not `is not None`: an empty env var means "unset" and must fall through to the
+    defaults, not crash on int("").
+    """
+    raw_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
+    return int(raw_team_id) if raw_team_id else None
+
+
+def resolve_self_flags_team() -> Optional["Team"]:
+    """Resolve the team whose flag definitions represent this instance, honoring the override.
+
+    This must stay in lockstep with `_build_flag_provider()`, which pins the same team for the
+    server-side bootstrap. posthog-js evaluates PostHog's own gating flags with this team's token,
+    so when the two resolve to different teams the browser reloads flags against a team that holds
+    no definitions for them.
+
+    When the override names a team that does not exist, return None rather than another team: the
+    provider still pins definitions to that id, so substituting a different team here reintroduces
+    the mismatch above.
+    """
+    Team = apps.get_model("posthog", "Team")
+    explicit_team_id = get_explicit_self_team_id()
+    if explicit_team_id is None:
+        return resolve_dogfood_flags_team()
+    try:
+        return Team.objects.filter(pk=explicit_team_id).first()
+    except ProgrammingError:
+        # Table absent before migrations have run.
+        return None
+
+
 def _build_flag_provider() -> "HyperCacheFlagProvider":
     """Construct the HyperCache flag-definition provider for this deploy.
 
@@ -839,12 +1184,11 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
         HyperCacheFlagProvider,
     )
 
-    explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
-    if explicit_team_id:
-        # Operator override: pin the flag-definitions team explicitly.
-        # Truthiness, not `is not None`: an empty env var means "unset" and must
-        # fall through to the defaults below, not crash on int("").
-        return HyperCacheFlagProvider.for_static_team(int(explicit_team_id))
+    explicit_team_id = get_explicit_self_team_id()
+    if explicit_team_id is not None:
+        # Operator override: pin the flag-definitions team explicitly. The browser token resolves
+        # through the same override in resolve_self_flags_team(), so both stay on this team.
+        return HyperCacheFlagProvider.for_static_team(explicit_team_id)
     if settings.SELF_CAPTURE and not settings.E2E_TESTING:
         # Local/self-hosted: read flag definitions from the dogfood team
         # (project.teams.first()), resolved lazily once teams/migrations exist.
@@ -874,7 +1218,7 @@ async def initialize_self_capture_api_token():
     if local_api_key is not None:
         posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
-        posthoganalytics.host = settings.SITE_URL
+        posthoganalytics.host = settings.SELF_CAPTURE_HOST or settings.SITE_URL
 
         # ready() wires the flag-definition provider only when posthoganalytics is enabled at
         # that point — true for WSGI but NOT for ASGI, where self-capture is deferred to here.
@@ -897,7 +1241,7 @@ def _default_event_info_cache_key(team_id: int) -> str:
 
 @tracer.start_as_current_span("template.default_event_info")
 def get_default_event_info(team: "Team") -> dict:
-    from posthog.models import EventDefinition
+    from products.event_definitions.backend.models import EventDefinition
 
     cache_key = _default_event_info_cache_key(team.id)
     cached = get_safe_cache(cache_key)
@@ -976,8 +1320,7 @@ def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
 
 @tracer.start_as_current_span("template.has_person_email")
 def get_has_person_email(team: "Team") -> bool:
-    from posthog.models import PropertyDefinition
-
+    from products.event_definitions.backend.models import PropertyDefinition
     from products.event_definitions.backend.models.property_definition import PERSON_EMAIL_PROPERTY_NAME
 
     cache_key = _has_person_email_cache_key(team.project_id)
@@ -1002,52 +1345,6 @@ def get_has_person_email(team: "Team") -> bool:
 
 def invalidate_has_person_email_cache(project_id: int) -> None:
     safe_cache_delete(_has_person_email_cache_key(project_id))
-
-
-@tracer.start_as_current_span("template.frontend_apps")
-def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
-    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
-
-    plugin_configs = (
-        Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
-        .filter(
-            pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
-            pluginsourcefile__filename="frontend.tsx",
-        )
-        .values(
-            "pluginconfig__id",
-            "pluginconfig__config",
-            "config_schema",
-            "id",
-            "plugin_type",
-            "name",
-        )
-        .all()
-    )
-
-    frontend_apps = {}
-    for p in plugin_configs:
-        config = p["pluginconfig__config"] or {}
-        config_schema = p["config_schema"] or {}
-        secret_fields = {field["key"] for field in config_schema if field.get("secret")}
-        for key in secret_fields:
-            if key in config:
-                config[key] = "** SECRET FIELD **"
-        frontend_apps[p["pluginconfig__id"]] = {
-            "pluginConfigId": p["pluginconfig__id"],
-            "pluginId": p["id"],
-            "pluginType": p["plugin_type"],
-            "name": p["name"],
-            "url": f"/app/{p['pluginconfig__id']}/",
-            "config": config,
-        }
-
-    return frontend_apps
-
-
-def json_uuid_convert(o):
-    if isinstance(o, uuid.UUID):
-        return str(o)
 
 
 def friendly_time(seconds: float):
@@ -1234,8 +1531,13 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
+def generate_cache_key_prefix(team_pk: int) -> str:
+    """The query cache is a single keyspace shared by every team, so each key carries its own team."""
+    return f"cache_{team_pk}_"
+
+
 def generate_cache_key(team_pk: int, stringified: str) -> str:
-    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
+    return f"{generate_cache_key_prefix(team_pk)}{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:
@@ -1614,7 +1916,7 @@ def get_daterange(
     return time_range
 
 
-def get_safe_cache(cache_key: str):
+def get_safe_cache(cache_key: str) -> Any:
     try:
         cached_result = cache.get(cache_key)  # cache.get is safe in most cases
         return cached_result
@@ -1710,10 +2012,13 @@ class GenericEmails:
             self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:
-        at_location = email.find("@")
-        if at_location == -1:
+        _, separator, domain = email.rpartition("@")
+        if not separator:
             return False
-        return self.emails.get(email[(at_location + 1) :], False)
+        return self.is_generic_domain(domain)
+
+    def is_generic_domain(self, domain: str) -> bool:
+        return self.emails.get(domain, False)
 
 
 # maxsize=2 keeps the previous hour's bucket warm so requests interleaved across the
@@ -1758,6 +2063,28 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
+def _with_saved_metric_variables(request_filters: dict, dashboard_filters: dict) -> dict:
+    """A metric variable that the client sends as its name and selection gets its saved definition."""
+    requested = request_filters.get("metricVariables")
+    if not isinstance(requested, list):
+        return request_filters
+    saved = {
+        variable["name"]: variable
+        for variable in dashboard_filters.get("metricVariables") or []
+        if isinstance(variable, dict) and isinstance(variable.get("name"), str)
+    }
+    metric_variables = []
+    for variable in requested:
+        if not isinstance(variable, dict) or variable.get("source"):
+            metric_variables.append(variable)
+            continue
+        if not isinstance(variable.get("name"), str):
+            raise serializers.ValidationError({"filters_override": "A metric variable name must be a string."})
+        if variable["name"] in saved:
+            metric_variables.append({**saved[variable["name"]], "current": variable.get("current")})
+    return {**request_filters, "metricVariables": metric_variables}
+
+
 def filters_override_requested_by_client(
     request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
 ) -> dict:
@@ -1784,18 +2111,54 @@ def filters_override_requested_by_client(
     except Exception:
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
+    if isinstance(request_filters, dict):
+        request_filters = _with_saved_metric_variables(request_filters, dashboard_filters or {})
+    validate_filters_override(request_filters)
     return {**dashboard_filters, **request_filters}
+
+
+def validate_filters_override(request_filters: Any) -> None:
+    from posthog.schema import DashboardFilter
+
+    from posthog.hogql_queries.apply_dashboard_filters import (
+        dashboard_filter_from_dict,
+        normalize_dashboard_filters_properties,
+    )
+
+    if not isinstance(request_filters, dict):
+        raise serializers.ValidationError({"filters_override": "filters_override must be a JSON object."})
+
+    try:
+        dashboard_filter_from_dict(normalize_dashboard_filters_properties(request_filters))
+    except PydanticValidationError as e:
+        accepted_keys = ", ".join(DashboardFilter.model_fields)
+        unknown_keys = sorted(
+            {
+                str(error["loc"][0])
+                for error in e.errors()
+                if error["type"] == "extra_forbidden" and len(error["loc"]) == 1
+            }
+        )
+        if unknown_keys:
+            detail = f"Unknown key(s) in filters_override: {', '.join(unknown_keys)}. Accepted keys: {accepted_keys}."
+        else:
+            first_error = e.errors()[0]
+            location = ".".join(str(part) for part in first_error["loc"])
+            detail = f"Invalid value in filters_override at '{location}': {first_error['msg']}."
+        raise serializers.ValidationError({"filters_override": detail})
+    except ValueError as e:
+        raise serializers.ValidationError({"filters_override": f"Invalid value in filters_override: {e}."})
 
 
 def variables_override_requested_by_client(
     request: Optional[Request],
     dashboard: Optional["Dashboard"],
-    variables: list["InsightVariable"],
+    variables: list["InsightVariableDefinition"],
     is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
-    from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+    from products.product_analytics.backend.facade.api import map_stale_to_latest
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
@@ -1999,19 +2362,24 @@ def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) ->
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+def parse_crontab(schedule: str) -> crontab:
+    """Parse a five-field cron string. Raises for a wrong field count or an invalid field."""
+    minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
+    return crontab(
+        minute=minute,
+        hour=hour,
+        day_of_month=day_of_month,
+        month_of_year=month_of_year,
+        day_of_week=day_of_week,
+    )
+
+
 def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     if schedule is None or schedule == "":
         return None
 
     try:
-        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
-        return crontab(
-            minute=minute,
-            hour=hour,
-            day_of_month=day_of_month,
-            month_of_year=month_of_year,
-            day_of_week=day_of_week,
-        )
+        return parse_crontab(schedule)
     except Exception as err:
         capture_exception(err)
         return None
@@ -2281,8 +2649,7 @@ def to_json(obj: dict) -> bytes:
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
-    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
-    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)
 
 
 def get_current_user_from_thread() -> Optional["User"]:

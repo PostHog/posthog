@@ -6,11 +6,14 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
+from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 from products.cohorts.backend.models.cohort import Cohort
@@ -38,6 +41,30 @@ class TestHogFunction(TestCase):
         assert item.hog == ""
         assert not item.enabled
 
+    @parameterized.expand(
+        [("secret_last", [False, True]), ("secret_first", [True, False]), ("no_longer_secret", [False])]
+    )
+    def test_stored_secrets_never_move_to_plaintext(self, _name: str, secret_flags: list[bool]) -> None:
+        secret = {"value": "example-private-value"}
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Secret storage",
+            type="destination",
+            inputs_schema=[{"key": "credential", "type": "string", "secret": True}],
+            inputs={"credential": secret},
+        )
+        function.inputs_schema = [
+            {"key": "message", "type": "string"},
+            *[{"key": "credential", "type": "string", "secret": secret_flag} for secret_flag in secret_flags],
+        ]
+        function.inputs = {"credential": secret, "message": {"value": "example-public-value"}}
+
+        function.save()
+
+        function.refresh_from_db()
+        assert function.inputs == {"message": {"value": "example-public-value"}}
+        assert (function.encrypted_inputs or {}) == ({"credential": secret} if any(secret_flags) else {})
+
     def test_hog_function_team_no_filters_compilation(self):
         item = HogFunction.objects.create(name="Test", team=self.team, type="destination")
 
@@ -51,14 +78,14 @@ class TestHogFunction(TestCase):
         ]
         self.team.save()
 
-        action = Action.objects.create(team=self.team, name="Test Action")
+        action = create_action(team=self.team, name="Test Action")
         item = HogFunction.objects.create(
             name="Test",
             type=HogFunctionType.DESTINATION,
             team=self.team,
             filters={
                 "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions", "order": 1}],
+                "actions": [{"id": str(action.id), "name": "Test Action", "type": "actions", "order": 1}],
                 "filter_test_accounts": True,
             },
         )
@@ -66,8 +93,9 @@ class TestHogFunction(TestCase):
         # Some json serialization is needed to compare the bytecode more easily in tests
         json_filters = to_dict(item.filters)
         assert json_filters == {
+            "bytecode_contract": RUNTIME_CONTRACT,
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-            "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions", "order": 1}],
+            "actions": [{"id": str(action.id), "name": "Test Action", "type": "actions", "order": 1}],
             "filter_test_accounts": True,
             "bytecode": [
                 "_H",
@@ -130,6 +158,129 @@ class TestHogFunction(TestCase):
             == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 5, 47, 3, 35, 33, 1]'
         )
 
+    def test_save_keeps_working_bytecode_when_filters_stop_compiling(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
+
+        item = HogFunction.objects.create(
+            name="Test",
+            type=HogFunctionType.DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={"filter_test_accounts": True},
+        )
+        working_bytecode = to_dict(item.filters)["bytecode"]
+        assert working_bytecode is not None
+
+        cohort.is_static = True
+        cohort.save()
+
+        item.name = "Renamed"
+        item.save()
+
+        item.refresh_from_db()
+        assert item.enabled
+        assert to_dict(item.filters)["bytecode"] == working_bytecode
+        assert "static cohort" in to_dict(item.filters)["bytecode_error"]
+
+    def test_save_leaves_an_existing_enabled_function_without_bytecode_alone(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
+
+        item = HogFunction.objects.create(
+            name="Test",
+            type=HogFunctionType.DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={"filter_test_accounts": True},
+        )
+        cohort.is_static = True
+        cohort.save()
+        # An enabled function that already lost its bytecode. Written past save() so the row keeps
+        # that shape. A bulk re-save of every destination must not switch it off, because the
+        # notification command and the recompile task both need it enabled to reach it.
+        HogFunction.objects.filter(id=item.id).update(
+            filters={"filter_test_accounts": True, "bytecode": None, "bytecode_error": "static cohort"}
+        )
+
+        item.name = "Renamed"
+        item.save()
+
+        item.refresh_from_db()
+        assert item.enabled
+        assert to_dict(item.filters)["bytecode"] is None
+
+    def test_save_that_changes_the_filters_does_not_reuse_the_old_bytecode(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
+
+        item = HogFunction.objects.create(
+            name="Test",
+            type=HogFunctionType.DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={"filter_test_accounts": True},
+        )
+        assert to_dict(item.filters)["bytecode"] is not None
+
+        cohort.is_static = True
+        cohort.save()
+
+        item.filters = {"filter_test_accounts": True, "events": [{"id": "$pageview", "type": "events"}]}
+        item.save()
+
+        item.refresh_from_db()
+        assert to_dict(item.filters)["bytecode"] is None
+        assert "static cohort" in to_dict(item.filters)["bytecode_error"]
+
+    def test_create_with_uncompilable_filters_is_not_enabled(self):
+        cohort = Cohort.objects.create(team=self.team, name="Imported users", is_static=True)
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
+
+        item = HogFunction.objects.create(
+            name="Test",
+            type=HogFunctionType.DESTINATION,
+            team=self.team,
+            enabled=True,
+            filters={"filter_test_accounts": True},
+        )
+
+        item.refresh_from_db()
+        assert not item.enabled
+        assert to_dict(item.filters)["bytecode"] is None
+        assert "static cohort" in to_dict(item.filters)["bytecode_error"]
+
 
 class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
     def setUp(self):
@@ -139,7 +290,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         self.user = user
         self.org = org
 
-        self.action = Action.objects.create(
+        self.action = create_action(
             team=self.team,
             name="Test Action",
             steps_json=[
@@ -157,7 +308,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             ],
         )
 
-        self.action2 = Action.objects.create(
+        self.action2 = create_action(
             team=self.team,
             name="Test Action",
             steps_json=[
@@ -210,22 +361,26 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
 
         # Modify the action and check that the bytecode is updated
-        self.action.steps_json = [
-            {
-                "event": "test-event",
-                "properties": [
+        # 2 reads by the test helper (the action, then its team for the save), then the save's own 12: 1 update
+        # action, 2 activity logging, 1 load action, 1 load hog functions, 1 load hog flows, 1 load all related
+        # actions, 1 bulk update hog functions, 5 filesystem
+        with self.assertNumQueries(14):
+            update_action(
+                self.action,
+                steps_json=[
                     {
-                        "key": "prop-1",
-                        "operator": "exact",
-                        "value": "change-value",
-                        "type": "event",
+                        "event": "test-event",
+                        "properties": [
+                            {
+                                "key": "prop-1",
+                                "operator": "exact",
+                                "value": "change-value",
+                                "type": "event",
+                            }
+                        ],
                     }
                 ],
-            }
-        ]
-        # 1 update action, 2 activity logging, 1 load action, 1 load hog functions, 1 load hog flows, 1 load all related actions, 1 bulk update hog functions, 5 filesystem
-        with self.assertNumQueries(12):
-            self.action.save()
+            )
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()
 
@@ -283,9 +438,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$host", "operator": "regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)"},
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
-        # 1 read old secret tokens (pre_save), 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions
-        # Note: RemoteConfig refresh queries are now deferred via async signals
-        with self.assertNumQueries(5):
+        # 1 read old secret tokens (pre_save), 1 update team. The hog flow and hog function refreshes run on commit.
+        with self.captureOnCommitCallbacks(execute=True), self.assertNumQueries(2):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

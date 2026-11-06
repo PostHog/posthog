@@ -11,6 +11,8 @@ from django.utils import timezone
 
 from pydantic import BaseModel
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
@@ -19,9 +21,9 @@ from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.experiments.backend.models.experiment import Experiment
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.experiments.backend.facade import api as experiments_api
+from products.experiments.backend.facade.contracts import CreateExperimentInput, Experiment
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
 class PlaywrightSetupVariableType(StrEnum):
@@ -177,7 +179,6 @@ def create_organization_with_team(
             "say_on_complete": False,
             "skip_materialization": True,
             "skip_flag_sync": True,
-            "skip_user_product_list": True,
         }
 
         with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
@@ -227,6 +228,15 @@ def create_organization_with_team(
         update_fields.append("is_staff")
     user.save(update_fields=update_fields)
 
+    # Pin the mode almost every production project runs on. Without this the mode follows the
+    # environment: Playwright CI leaves the PERSON_ON_EVENTS_* variables unset and runs with
+    # DEBUG off, while the local e2e stack sets PERSON_ON_EVENTS_OVERRIDE.
+    team.modifiers = {
+        **(team.modifiers or {}),
+        "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.value,
+    }
+    team_update_fields = ["modifiers"]
+
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
         team.onboarding_tasks = {
@@ -248,12 +258,14 @@ def create_organization_with_team(
             "create_experiment": "completed",
             "launch_experiment": "completed",
         }
-        team.save()
+        team_update_fields.append("onboarding_tasks")
+
+    team.save(update_fields=team_update_fields)
 
     created_variables = _create_variables(data, team)
     created_insights = _create_insights(data, team, user, created_variables)
     created_dashboards = _create_dashboards(data, team, user, created_variables, created_insights)
-    _create_events_and_persons(data, team)
+    _create_events_and_persons(data.events, data.persons, team)
     created_experiments = _create_experiments(data, team, user)
 
     return PlaywrightWorkspaceSetupResult(
@@ -279,7 +291,7 @@ def create_organization_with_team(
         ),
         created_experiments=(
             [
-                PlaywrightSetupCreatedExperiment(id=e.id, feature_flag_key=e.feature_flag.key)
+                PlaywrightSetupCreatedExperiment(id=e.id, feature_flag_key=e.feature_flag_key)
                 for e in created_experiments
             ]
             if created_experiments
@@ -390,21 +402,22 @@ def _create_experiments(
     if not data.experiments:
         return []
 
-    from products.experiments.backend.experiment_service import ExperimentService
-
-    service = ExperimentService(team=team, user=user)
     created: list[Experiment] = []
     for exp_spec in data.experiments:
         start_date = None
         if exp_spec.start_date:
             start_date = datetime.fromisoformat(exp_spec.start_date.replace("Z", "+00:00"))
 
-        experiment = service.create_experiment(
-            name=exp_spec.name,
-            feature_flag_key=exp_spec.feature_flag_key,
-            metrics=exp_spec.metrics,
-            metrics_secondary=exp_spec.metrics_secondary,
-            start_date=start_date,
+        experiment = experiments_api.create_experiment(
+            team=team,
+            user=user,
+            input_dto=CreateExperimentInput(
+                name=exp_spec.name,
+                feature_flag_key=exp_spec.feature_flag_key,
+                metrics=exp_spec.metrics,
+                metrics_secondary=exp_spec.metrics_secondary,
+                start_date=start_date,
+            ),
         )
         created.append(experiment)
     return created
@@ -438,45 +451,68 @@ def _wait_for_events_in_clickhouse(team_id: int, expected_count: int, timeout_se
     )
 
 
-def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -> None:
-    if not data.events and not data.persons:
+def _create_events_and_persons(
+    events: list[PlaywrightSetupEvent] | None, persons: list[PlaywrightSetupPerson] | None, team: Team
+) -> None:
+    if not events and not persons:
         return
 
     import uuid as uuid_module
 
     from posthog.models.event.util import create_event
-    from posthog.models.person.util import create_person, create_person_distinct_id
+    from posthog.models.person.util import create_person, create_person_distinct_id, get_persons_mapped_by_distinct_id
     from posthog.models.utils import UUIDT
     from posthog.test.persons import (
         add_distinct_id,
         create_person as create_test_person,
     )
 
-    person_uuids: dict[str, str] = {}
+    # The harness retries a 500 (e.g. a transient ClickHouse blip during the insert loop
+    # below) up to 3 times. Person/distinct-id rows already committed to Postgres by an
+    # earlier attempt must not be recreated — the unique_distinct_id_for_team constraint
+    # would reject it, turning a retryable failure into a hard one and burying the
+    # original error under a confusing one. Look up what already exists first and reuse
+    # it, so a retry is a no-op for anything the previous attempt already seeded.
+    all_requested_distinct_ids = list(
+        {distinct_id for person_spec in (persons or []) for distinct_id in person_spec.distinct_ids}
+        | {event_spec.distinct_id for event_spec in (events or [])}
+    )
+    person_uuids: dict[str, str] = {
+        distinct_id: str(existing_person.uuid)
+        for distinct_id, existing_person in (
+            get_persons_mapped_by_distinct_id(team.pk, all_requested_distinct_ids).items()
+            if all_requested_distinct_ids
+            else []
+        )
+    }
 
     # Create explicit persons (may have multiple distinct IDs)
-    if data.persons:
-        for person_spec in data.persons:
+    if persons:
+        for person_spec in persons:
+            if all(distinct_id in person_uuids for distinct_id in person_spec.distinct_ids):
+                continue
             person_uuid = str(UUIDT())
             props = person_spec.properties or {}
             create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
             pg_person = create_test_person(team=team, uuid=person_uuid, properties=props)
             for distinct_id in person_spec.distinct_ids:
+                if distinct_id in person_uuids:
+                    continue
                 create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
                 add_distinct_id(person=pg_person, distinct_id=distinct_id)
                 person_uuids[distinct_id] = person_uuid
 
-    if not data.events:
+    if not events:
         return
 
     # Collect person properties from $set in event properties (last write wins)
     person_props: dict[str, dict[str, Any]] = {}
-    for event_spec in data.events:
+    for event_spec in events:
         if event_spec.properties and "$set" in event_spec.properties:
             person_props.setdefault(event_spec.distinct_id, {}).update(event_spec.properties["$set"])
 
-    # Create persons for distinct_ids not already created via explicit persons
-    distinct_ids = {e.distinct_id for e in data.events}
+    # Create persons for distinct_ids not already created via explicit persons or a prior attempt
+    distinct_ids = {e.distinct_id for e in events}
     for distinct_id in distinct_ids:
         if distinct_id in person_uuids:
             continue
@@ -490,8 +526,25 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
 
     baseline_count = _count_events_in_clickhouse(team.pk)
 
-    for event_spec in data.events:
-        ts = datetime.fromisoformat(event_spec.timestamp.replace("Z", "+00:00"))
+    dated_events = [
+        (datetime.fromisoformat(event_spec.timestamp.replace("Z", "+00:00")), event_spec) for event_spec in events
+    ]
+
+    # A person-on-events mode resolves `events.person.properties` from the event's own
+    # person_properties column, not from the person table. Apply each $set in timestamp order,
+    # the way ingestion does, so an event carries the properties set by the time it happened.
+    properties_so_far: dict[str, dict[str, Any]] = {
+        distinct_id: dict(person_spec.properties or {})
+        for person_spec in (persons or [])
+        for distinct_id in person_spec.distinct_ids
+    }
+    person_properties_per_event: list[dict[str, Any]] = [{} for _ in dated_events]
+    for index, (_, event_spec) in sorted(enumerate(dated_events), key=lambda item: item[1][0]):
+        person_properties = properties_so_far.setdefault(event_spec.distinct_id, {})
+        person_properties.update((event_spec.properties or {}).get("$set") or {})
+        person_properties_per_event[index] = dict(person_properties)
+
+    for (ts, event_spec), person_properties in zip(dated_events, person_properties_per_event):
         create_event(
             event_uuid=UUIDT(unix_time_ms=int(ts.timestamp() * 1000)),
             event=event_spec.event,
@@ -500,15 +553,74 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
             timestamp=ts,
             properties=event_spec.properties or {},
             person_id=uuid_module.UUID(person_uuids[event_spec.distinct_id]),
+            person_properties=person_properties,
         )
 
-    _wait_for_events_in_clickhouse(team.pk, baseline_count + len(data.events))
+    _wait_for_events_in_clickhouse(team.pk, baseline_count + len(events))
 
     # Populate event/property definitions so the taxonomic filter works
     from products.demo.backend.facade.api import infer_taxonomy_for_team
 
     with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
         infer_taxonomy_for_team(team.pk)
+
+
+class PlaywrightSeedEventsData(BaseModel):
+    team_id: int
+    events: list[PlaywrightSetupEvent]
+    persons: list[PlaywrightSetupPerson] | None = None
+
+
+class PlaywrightSeedEventsResult(BaseModel):
+    team_id: int
+    events_created: int
+
+
+def seed_events(data: PlaywrightSeedEventsData) -> PlaywrightSeedEventsResult:
+    """Seed events (and optional persons) directly into ClickHouse for a team created earlier in
+    the same test. Use this when an event must reference an id minted after workspace setup (e.g.
+    an evaluation created through the API), so it can't be seeded via `events` on
+    `organization_with_team`, which only runs at workspace-creation time."""
+    team = Team.objects.get(id=data.team_id)
+    _create_events_and_persons(data.events, data.persons, team)
+    return PlaywrightSeedEventsResult(team_id=data.team_id, events_created=len(data.events))
+
+
+class PlaywrightSeedEvaluationData(BaseModel):
+    team_id: int
+    name: str
+    evaluation_type: str
+    evaluation_config: dict[str, Any]
+    output_type: str
+    output_config: dict[str, Any]
+    enabled: bool = False
+
+
+class PlaywrightSeedEvaluationResult(BaseModel):
+    evaluation_id: str
+
+
+def seed_evaluation(data: PlaywrightSeedEvaluationData) -> PlaywrightSeedEvaluationResult:
+    """Create an Evaluation with `output_config` stored exactly as given, bypassing the config
+    normalization every `save()` call applies. Use this to reproduce a config shaped like it
+    predates a field (e.g. missing `true_is_failure` entirely) — no through-the-app path can
+    produce that shape, since both the API and the model's own `save()` fill in every default."""
+    from products.ai_observability.backend.models.evaluations import Evaluation
+
+    evaluation = Evaluation.objects.create(
+        team_id=data.team_id,
+        name=data.name,
+        evaluation_type=data.evaluation_type,
+        evaluation_config=data.evaluation_config,
+        output_type=data.output_type,
+        output_config=data.output_config,
+        enabled=data.enabled,
+    )
+    # save() just normalized output_config above — overwrite via a queryset update, which bypasses
+    # save(), so the row ends up with exactly the caller's shape.
+    Evaluation.objects.filter(pk=evaluation.pk).update(output_config=data.output_config)
+
+    return PlaywrightSeedEvaluationResult(evaluation_id=str(evaluation.pk))
 
 
 class PlaywrightHogFunctionTemplateData(BaseModel):
@@ -623,6 +735,16 @@ PLAYWRIGHT_SETUP_FUNCTIONS: dict[str, SetupFunctionConfig] = {
         function=create_hog_function_template,  # type: ignore
         input_model=PlaywrightHogFunctionTemplateData,
         description="Seeds a single HogFunctionTemplate row (templates are global, not team-scoped)",
+    ),
+    "seed_events": SetupFunctionConfig(
+        function=seed_events,  # type: ignore
+        input_model=PlaywrightSeedEventsData,
+        description="Seeds events (and optional persons) into ClickHouse for an existing team",
+    ),
+    "seed_evaluation": SetupFunctionConfig(
+        function=seed_evaluation,  # type: ignore
+        input_model=PlaywrightSeedEvaluationData,
+        description="Seeds an Evaluation row with output_config stored exactly as given, bypassing save() normalization",
     ),
     "oauth_application": SetupFunctionConfig(
         function=create_oauth_application,  # type: ignore

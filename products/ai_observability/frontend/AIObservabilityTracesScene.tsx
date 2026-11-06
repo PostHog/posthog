@@ -1,14 +1,17 @@
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -20,6 +23,12 @@ import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { normalizeMessages } from './messageNormalization'
+import { toFullPageListParams } from './redesign/trace/adapter/toBackLink'
+import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './redesign/trace/traceDrawerLists'
+import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
+import { hasOwnClickHandler } from './redesign/trace/traceDrawerRows'
+import { useTraceDrawerRows } from './redesign/trace/TraceDrawerRowsHost'
+import { TraceListRow } from './redesign/trace/traceListRows'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -34,8 +43,11 @@ import {
     isToolResult,
     isToolStepItem,
     LLM_TRACES_PAGE_SIZE,
-    sanitizeTraceUrlSearchParams,
 } from './utils'
+
+const TRACES_DATA_NODE_KEY = 'llm-analytics-traces'
+const TRACE_DRAWER_LIST_ID = 'traces'
+const TRACE_LINKS = '[data-attr="trace-id-link"], [data-attr="trace-name-link"]'
 
 export function AIObservabilityTraces(): JSX.Element {
     useMountedLogic(traceReviewsLazyLoaderLogic)
@@ -46,9 +58,9 @@ export function AIObservabilityTraces(): JSX.Element {
     const { tracesQuery } = useValues(aiObservabilityTracesTabLogic)
     const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
-    const baseContext = useTracesQueryContext()
+    const drawerContext = useTracesDrawerContext(TRACE_DRAWER_LIST_ID, TRACES_DATA_NODE_KEY)
     const context: QueryContext<DataTableNode> = {
-        ...baseContext,
+        ...drawerContext,
         ...(appliedSearchTerm
             ? {
                   emptyStateHeading: 'No traces matched your search',
@@ -87,7 +99,13 @@ export function AIObservabilityTraces(): JSX.Element {
                     )
                 }}
                 context={context}
-                uniqueKey="llm-analytics-traces"
+                uniqueKey={TRACES_DATA_NODE_KEY}
+            />
+            <TraceDrawerQueryHost
+                listId={TRACE_DRAWER_LIST_ID}
+                dataNodeKey={TRACES_DATA_NODE_KEY}
+                query={tracesQuery.source}
+                toRow={toTraceDrawerRow}
             />
         </div>
     )
@@ -135,11 +153,95 @@ function TracesOptionsMenu(): JSX.Element | null {
     )
 }
 
+// An omitted timestamp makes the detail view use its wide default date range. A timestamp
+// built from a missing or unparseable `createdAt` would instead point the lookup at a
+// ten-minute window around the present, where an older trace is not found.
+function getTraceLookupTimestamp(row: LLMTrace): string | undefined {
+    return row.createdAt && dayjs(row.createdAt).isValid() ? getTraceTimestamp(row.createdAt) : undefined
+}
+
+function toTraceListRow(trace: LLMTrace): TraceListRow {
+    return { traceId: trace.id, timestamp: getTraceLookupTimestamp(trace) ?? null, stepId: null }
+}
+
+export function toTraceDrawerRow(result: unknown): TraceListRow | null {
+    const trace = getTraceFromRow({ result })
+    return trace && toTraceListRow(trace)
+}
+
+function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, unknown>): string {
+    return combineUrl(urls.aiObservabilityTrace(row.id), {
+        ...toFullPageListParams(searchParams),
+        back_to: TRACE_DRAWER_LISTS[TRACE_DRAWER_LIST_ID].backTo,
+        timestamp: getTraceLookupTimestamp(row),
+    }).url
+}
+
+function getTraceFromRow(record: unknown): LLMTrace | null {
+    if (typeof record !== 'object' || !record || !('result' in record)) {
+        return null
+    }
+    const result = record.result
+    if (typeof result !== 'object' || !result || Array.isArray(result) || !('id' in result) || !result.id) {
+        return null
+    }
+    return result as LLMTrace
+}
+
+export function useTracesDrawerContext(listId: TraceDrawerListId, dataNodeKey: string): QueryContext<DataTableNode> {
+    const baseContext = useTracesQueryContext()
+    const { rowProps: baseRowProps } = baseContext
+    const { isEnabled, rowProps: toDrawerRowProps } = useTraceDrawerRows(listId, TRACE_LINKS)
+    const drawerRowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
+        (record) => {
+            const baseProps = baseRowProps?.(record) ?? {}
+            const trace = getTraceFromRow(record)
+            const rowProps = toDrawerRowProps(trace && toTraceListRow(trace))
+            return { ...baseProps, ...rowProps, className: clsx(baseProps.className, rowProps.className) }
+        },
+        [baseRowProps, toDrawerRowProps]
+    )
+    return { ...baseContext, dataNodeLogicKey: dataNodeKey, rowProps: isEnabled ? drawerRowProps : baseRowProps }
+}
+
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
+    const { searchParams } = useValues(router)
+    const { push } = useActions(router)
+    // Stable identity so DataTable's `onRow` useCallback holds and rows are not re-rendered each poll cycle.
+    const rowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
+        (record) => {
+            const row = getTraceFromRow(record)
+            if (!row) {
+                return {}
+            }
+            const url = buildTraceDetailUrl(row, searchParams)
+            return {
+                onClick: (event) => {
+                    if (hasOwnClickHandler(event.target)) {
+                        return
+                    }
+                    if (event.metaKey || event.ctrlKey) {
+                        newInternalTab(url)
+                    } else {
+                        push(url)
+                    }
+                },
+                onAuxClick: (event) => {
+                    if (event.button !== 1 || hasOwnClickHandler(event.target)) {
+                        return
+                    }
+                    event.preventDefault()
+                    newInternalTab(url)
+                },
+            }
+        },
+        [push, searchParams]
+    )
     return {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
         dataTableMaxPaginationLimit: LLM_TRACES_PAGE_SIZE,
+        rowProps,
         columns: {
             id: {
                 title: 'ID',
@@ -197,23 +299,24 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
     }
 }
 
+// DataTable passes each renderer the row the response actually returned, which can
+// lack fields `LLMTrace` declares as present. A throw in a cell reaches the scene's
+// error boundary and blanks the whole traces list, so every renderer below degrades
+// to a dash instead.
+function traceEvents(row: LLMTrace): LLMTrace['events'] {
+    return Array.isArray(row.events) ? row.events : []
+}
+
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+    if (!row.id) {
+        return <>–</>
+    }
     return (
         <strong>
             <Tooltip title={row.id}>
-                <Link
-                    to={
-                        combineUrl(urls.aiObservabilityTrace(row.id), {
-                            ...nonTraceSearchParams,
-                            back_to: 'traces',
-                            timestamp: getTraceTimestamp(row.createdAt),
-                        }).url
-                    }
-                    data-attr="trace-id-link"
-                >
+                <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-id-link">
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
                 </Link>
             </Tooltip>
@@ -224,22 +327,17 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+    const name = row.traceName || '–'
     return (
         <div className="flex items-center gap-2">
             <strong>
-                <Link
-                    to={
-                        combineUrl(urls.aiObservabilityTrace(row.id), {
-                            ...nonTraceSearchParams,
-                            back_to: 'traces',
-                            timestamp: getTraceTimestamp(row.createdAt),
-                        }).url
-                    }
-                    data-attr="trace-name-link"
-                >
-                    {row.traceName || '–'}
-                </Link>
+                {row.id ? (
+                    <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-name-link">
+                        {name}
+                    </Link>
+                ) : (
+                    name
+                )}
             </strong>
             {row.isSupportTrace && <LemonTag type="muted">Support</LemonTag>}
         </div>
@@ -248,6 +346,9 @@ const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
 
 const TimestampColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
+    if (!row.createdAt) {
+        return <>–</>
+    }
     return <TZLabel time={row.createdAt} />
 }
 TimestampColumn.displayName = 'TimestampColumn'
@@ -256,7 +357,7 @@ const PromptVersionColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const promptVersions = Array.from(
         new Set(
-            row.events
+            traceEvents(row)
                 .map((event) => event.properties?.['$ai_prompt_version'])
                 .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
                 .map((value) => String(value))
@@ -282,7 +383,7 @@ const PromptVersionIdColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const promptVersionIds = Array.from(
         new Set(
-            row.events
+            traceEvents(row)
                 .map((event) => event.properties?.['$ai_prompt_version_id'])
                 .filter((value): value is string => typeof value === 'string' && value.length > 0)
         )
@@ -347,7 +448,7 @@ function useTraceMessagesForRow(row: LLMTrace): TraceMessages | null | undefined
             ensureTraceMessagesLoaded([{ id: row.id, createdAt: row.createdAt ?? null }])
         }
     }, [row.id, row.createdAt, ensureTraceMessagesLoaded])
-    return getTraceMessages(row.id)
+    return row.id ? getTraceMessages(row.id) : null
 }
 
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
@@ -372,9 +473,7 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const messages = useTraceMessagesForRow(row)
 
-    const errorEventFound = Array.isArray(row.events)
-        ? row.events.find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
-        : false
+    const errorEventFound = traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
     if (errorEventFound) {
         return (
             <LemonTag type="danger" className="font-mono max-w-50 truncate">
@@ -503,10 +602,11 @@ export function pickLastOutputMessage(
  * Some SDKs emit the trace input/output as a state wrapper object rather than a
  * bare messages array. Langchain/LangGraph writes `$ai_input_state` /
  * `$ai_output_state` as something like `{ agent_mode, messages: [...], ... }`.
- * Drill into the known `.messages` key so the picker sees a clean array; for
- * unknown wrapper shapes (agent-specific state like `{ current_step, ... }`)
- * return `null` in strict mode so the picker can fall through to the
- * generation-level fallback rather than dumping raw JSON.
+ * Drill into the known `.messages` key so the picker sees a clean array. The
+ * Vercel AI OTel path writes a single bare message object (`{ role, content }`),
+ * so wrap that as a one-element array. For unknown wrapper shapes (agent-specific
+ * state like `{ current_step, ... }`) return `null` in strict mode so the picker
+ * can fall through to the generation-level fallback rather than dumping raw JSON.
  */
 function unwrapMessageContainer(raw: unknown, strict: boolean): unknown {
     if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -516,7 +616,20 @@ function unwrapMessageContainer(raw: unknown, strict: boolean): unknown {
     if (Array.isArray(obj.messages)) {
         return obj.messages
     }
+    if (isSingleMessage(obj)) {
+        return [obj]
+    }
     return strict ? null : raw
+}
+
+/**
+ * `role` alone is too weak a signal, since a state wrapper can carry one too.
+ * Requiring the payload as well (`content` for the chat shapes, a `parts` array
+ * for the OTel one) keeps those wrappers falling through to the strict-mode
+ * fallback.
+ */
+function isSingleMessage(obj: Record<string, unknown>): boolean {
+    return typeof obj.role === 'string' && ('content' in obj || Array.isArray(obj.parts))
 }
 
 function safeNormalize(

@@ -2,12 +2,12 @@ import { FileIcon, WarningCircle, X } from "@phosphor-icons/react";
 import {
   Button,
   cn,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
 import { fileExtensionLabel } from "@posthog/ui/features/message-editor/fileKind";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import type { ReactNode } from "react";
 
 export type AttachmentUploadStatus = "uploading" | "error";
@@ -88,10 +88,7 @@ export function Attachment({
               {status && (
                 <span className="absolute inset-0 flex items-center justify-center bg-[var(--gray-a5)]">
                   {status === "uploading" ? (
-                    <Spinner
-                      className="size-3.5"
-                      aria-label="Uploading attachment"
-                    />
+                    <Spinner size="md" label="Uploading attachment" />
                   ) : (
                     <WarningCircle
                       size={14}

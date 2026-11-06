@@ -34,8 +34,13 @@ from posthog.sync import database_sync_to_async
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
-from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.actions.backend.facade.api import list_actions
+from products.actions.backend.facade.contracts import Action, ActionNotFound
+from products.event_definitions.backend.models.property_definition import (
+    PropertyDefinition,
+    PropertyType,
+    effective_project_id_expr,
+)
 
 from ee.hogai.chat_agent.taxonomy.format import (
     enrich_props_with_descriptions,
@@ -43,6 +48,7 @@ from ee.hogai.chat_agent.taxonomy.format import (
     format_properties_yaml,
     format_property_values,
 )
+from ee.hogai.chat_agent.taxonomy.session_properties import session_property_types
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
     VirtualPropertyGroup,
@@ -137,7 +143,7 @@ class TaxonomyTaskExecutorNode(
     """
 
     async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
-        taxonomy_toolkit = TaxonomyAgentToolkit(self._team, self._user)
+        taxonomy_toolkit = TaxonomyAgentToolkit(self._team, self._user, event_source=self.context_manager.event_source)
         input_tuples: list[TaskExecutionInputTuple] = []
         for task in tool_calls:
             if task.name == "retrieve_event_or_action_properties":
@@ -154,9 +160,10 @@ class TaxonomyTaskExecutorNode(
 class TaxonomyAgentToolkit:
     """Base toolkit for taxonomy agents that handle tool execution."""
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, event_source: EventSource = EventSource.POSTHOG_AI):
         self._team = team
         self._user = user
+        self._event_source = event_source
         self.MAX_ENTITIES_PER_BATCH = 6
         self.MAX_PROPERTIES = 500
 
@@ -230,7 +237,8 @@ class TaxonomyAgentToolkit:
         )
 
         qs = (
-            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
             .exclude(description__isnull=True)
             .exclude(description="")
         )
@@ -271,15 +279,10 @@ class TaxonomyAgentToolkit:
             sample_values = cast(list[str | int | float], DEFAULT_CHANNEL_TYPES.copy())
             sample_count = len(sample_values)
             is_str = True
-        elif (
-            property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]
-            and "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]
-        ):
+        elif "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]:
             sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
             sample_count = None
-            is_str = (
-                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"] == PropertyType.String
-            )
+            is_str = session_property_types().get(property_name) == PropertyType.String
         else:
             return TaxonomyErrorMessages.property_values_not_found(property_name, "session")
 
@@ -315,7 +318,8 @@ class TaxonomyAgentToolkit:
             # Use cache-first execution mode for optimal performance
             response = runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                analytics_props={"source": EventSource.POSTHOG_AI},
+                user=self._user,
+                analytics_props={"source": self._event_source},
             )
         return response, verbose_name
 
@@ -506,7 +510,7 @@ class TaxonomyAgentToolkit:
         event_name_or_action_id = task.args["event_name_or_action_id"]
         try:
             response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
-        except Action.DoesNotExist:
+        except ActionNotFound:
             project_actions = await self._get_project_actions()
             if not project_actions:
                 result = TaxonomyErrorMessages.no_actions_exist()
@@ -541,8 +545,10 @@ class TaxonomyAgentToolkit:
             )
 
         restricted = await self._restricted_property_names(PropertyDefinition.Type.EVENT)
-        qs = PropertyDefinition.objects.filter(
-            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
+        qs = PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+            effective_project_id=self._team.project_id,
+            type=PropertyDefinition.Type.EVENT,
+            name__in=[item.property for item in response.results],
         )
         property_definitions = [prop async for prop in qs]
         property_to_type = {
@@ -681,11 +687,7 @@ class TaxonomyAgentToolkit:
                 status=status,
             )
         elif entity == "session":
-            props = [
-                (prop_name, prop["type"])
-                for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
-                if prop.get("type") is not None
-            ]
+            props = list(session_property_types().items())
 
             if props:
                 result = self._format_properties(self._enrich_props_with_descriptions("session", props))
@@ -725,8 +727,10 @@ class TaxonomyAgentToolkit:
             prop_type = PropertyDefinition.Type.PERSON
             group_type_index = None
 
-        property_definitions = PropertyDefinition.objects.filter(
-            team=self._team,
+        property_definitions = PropertyDefinition.objects.alias(
+            effective_project_id=effective_project_id_expr()
+        ).filter(
+            effective_project_id=self._team.project_id,
             name__in=property_names,
             type=prop_type,
             group_type_index=group_type_index,
@@ -761,12 +765,13 @@ class TaxonomyAgentToolkit:
         ):
             return ActorsPropertyTaxonomyQueryRunner(query, self._team, user=self._user).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                analytics_props={"source": EventSource.POSTHOG_AI},
+                user=self._user,
+                analytics_props={"source": self._event_source},
             )
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_project_actions(self) -> list[Action]:
-        return list(Action.objects.filter(team__project_id=self._team.project_id, deleted=False))
+        return list_actions(project_id=self._team.project_id)
 
     async def retrieve_event_or_action_properties_parallel(
         self, event_name_or_action_ids: list[str | int]
@@ -803,10 +808,10 @@ class TaxonomyAgentToolkit:
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_definitions_for_event_or_action(self, property_names: list[str]) -> dict[str, PropertyDefinitionOrVirtual]:
-        definitions = {
+        definitions: dict[str, PropertyDefinition] = {
             prop.name: prop
-            for prop in PropertyDefinition.objects.filter(
-                team=self._team,
+            for prop in PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+                effective_project_id=self._team.project_id,
                 name__in=property_names,
                 type=PropertyDefinition.Type.EVENT,
             )

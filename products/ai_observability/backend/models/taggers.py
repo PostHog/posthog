@@ -115,7 +115,7 @@ class Tagger(UUIDTModel):
         ]
 
     # Core fields
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     enabled = models.BooleanField(default=False)
@@ -140,14 +140,14 @@ class Tagger(UUIDTModel):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name
 
     def save(self, *args, **kwargs):
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 

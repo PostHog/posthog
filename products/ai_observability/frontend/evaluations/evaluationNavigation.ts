@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
+
 export interface EvaluationBackTarget {
     name: 'Evaluations' | 'Templates' | 'Sentiment' | 'Trace'
     path: string
@@ -10,7 +12,13 @@ export interface EvaluationBackTarget {
 }
 
 function searchParamsWithoutEvaluationSource(searchParams: Record<string, any>): Record<string, any> {
-    const { returnTo: _returnTo, template: _template, type: _type, ...remainingSearchParams } = searchParams
+    const {
+        evaluation_tab: _evaluationTab,
+        returnTo: _returnTo,
+        template: _template,
+        type: _type,
+        ...remainingSearchParams
+    } = withoutTraceDrawerParams(searchParams)
     return remainingSearchParams
 }
 

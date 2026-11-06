@@ -16,6 +16,38 @@ If you'd rather not use our wizard, you can install the CLI by running:
 npm install -g @posthog/cli@latest
 ```
 
+Or with the install script on macOS and Linux:
+
+```bash
+curl -LsSf https://releases.posthog.com/posthog-cli/install.sh | sh
+```
+
+Or with the install script on Windows (PowerShell):
+
+```powershell
+irm https://releases.posthog.com/posthog-cli/install.ps1 | iex
+```
+
+Or with Homebrew:
+
+```bash
+brew install posthog/tap/posthog-cli
+```
+
+Or with Cargo:
+
+```bash
+cargo install posthog-cli
+```
+
+To update, run:
+
+```bash
+posthog-cli update
+```
+
+If you installed with the macOS or Linux script, it updates in place. If you installed with the Windows script, it prints a command to rerun the installer. If you used npm, Homebrew or cargo, it prints the command your package manager expects instead.
+
 Note: if you are installing the CLI for use with a coding agent, you should follow our [setup for agents](https://posthog.com/docs/cli#setup-for-agents) instructions.
 
 ## Usage
@@ -34,6 +66,7 @@ Commands:
   hermes       Upload hermes sourcemaps to PostHog
   proguard     Upload proguard mapping files to PostHog
   symbol-sets  Upload, download, and manage symbol sets
+  release      Look up the release a build belongs to
   api          Agent-first PostHog API tools
   help         Print this message or the help of the given subcommand(s)
 
@@ -43,7 +76,7 @@ Options:
       --skip-ssl-verification    Skip SSL certificate verification when talking to the PostHog API. Use only with self-signed certificates
       --rate-limit <RATE_LIMIT>  Set the number of requests per minute for the Posthog API Client [env: POSTHOG_CLIENT_RATE_LIMIT=]
       --dotenv-file <PATH>       Load PostHog credentials from this dotenv-style file when not present in the process environment. Prefer this over the `--env-file` alias: the npm package runs the binary through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling. Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh) [env: POSTHOG_CLI_DOTENV_FILE=]
-      --dry-run[=<DRY_RUN>]      Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting PostHog or requiring credentials. Intended for CI gates that bundle to catch regressions but must not (or cannot) upload. Not for release builds. Pass it before the subcommand (`posthog-cli --dry-run hermes upload ...`) or set `POSTHOG_CLI_DRY_RUN`. This is distinct from the `exp endpoints` `--dry-run`, which previews endpoint changes [env: POSTHOG_CLI_DRY_RUN=] [default: false] [possible values: true, false]
+      --dry-run[=<DRY_RUN>]      Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard, release) without contacting PostHog or requiring credentials. Intended for CI gates that bundle to catch regressions but must not (or cannot) upload. Not for release builds. Pass it before the subcommand (`posthog-cli --dry-run hermes upload ...`) or set `POSTHOG_CLI_DRY_RUN`. This is distinct from the `exp endpoints` `--dry-run`, which previews endpoint changes [env: POSTHOG_CLI_DRY_RUN=] [default: false] [possible values: true, false]
   -h, --help                     Print help
   -V, --version                  Print version
 ```
@@ -69,7 +102,15 @@ A single command handles both desktop/server formats:
 - **macOS (Apple `.dSYM`):** dSYM bundles are packaged through the same path as `posthog-cli dsym upload`. That path shells out to `dwarfdump` (bundled with Xcode), so it only runs on macOS — if `dwarfdump` is missing, the bundle is reported and skipped while any ELF symbols in the same directory still upload.
 - **macOS (Mach-O executables):** binaries that embed their own DWARF upload directly, keyed by their `LC_UUID`; universal (fat) binaries upload one symbol set per architecture slice. This branch is cross-platform. It exists mainly for Go, which never produces a dSYM (`dsymutil` reports "no debug symbols in executable") — but note Go compresses the embedded DWARF by default, which symbolication can't read yet, so build with `-ldflags=-compressdwarf=false`. C/Swift/Rust executables normally carry no embedded DWARF; upload their dSYMs instead.
 
-Pass `--include-source` to bundle the referenced source files for richer context around frames.
+Pass `--include-source` to bundle referenced source files for context around frames.
+For Flutter `.symbols` files, add `--source-root <app-directory>` to include only source files inside your app directory:
+
+```bash
+posthog-cli symbol-sets upload --directory ./build/debug-info --include-source --source-root ./lib
+```
+
+This option limits uploaded source files, not the debug symbols scanned under `--directory`.
+Upload from the build machine while those source files are still available.
 
 The standalone `posthog-cli dsym upload` command is unchanged and still recommended for dSYM-only Xcode build phases, where it also reads release and version metadata from each bundle's `Info.plist`.
 
@@ -89,10 +130,35 @@ POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY=32 npm run build
 
 The CLI flag takes precedence over the environment variable. Both require a value greater than zero. This setting applies only to plain sourcemap uploads; other CLI concurrency remains unchanged.
 
+## Resolving a release
+
+`posthog-cli release resolve` prints the id of the release the current build belongs to, creating the release if it doesn't exist yet.
+The upload commands do this for you, so reach for it when something else needs the id: a bundler plugin that injects the release into your chunks itself, or a deploy script that wants to record which release it shipped.
+
+```bash
+posthog-cli release resolve --release-name my-app --release-version 1.4.0
+01a0002e-93b5-0000-24cf-fc02638acd46
+```
+
+Only the id goes to stdout, so `RELEASE_ID=$(posthog-cli release resolve)` works.
+Pass `--json` to get the whole release, including its hash id and the version that git or CI metadata filled in.
+
+Both `--release-name` and `--release-version` are read from git or CI metadata when you leave them out.
+When neither the flags nor that metadata identify a release, the command prints nothing (or `null` with `--json`) and exits `0`, so a build can carry on without one.
+A failed lookup exits non-zero instead.
+
+Add `--build` to give a build number its own release: it is packed into the version, so `--release-version 1.4.0 --build 42` resolves to a different release than `--release-version 1.4.0` alone.
+
+Pass `--info-plist <path>` to read the release name, version, and build from `CFBundleIdentifier`, `CFBundleShortVersionString`, and `CFBundleVersion`.
+The CLI resolves exact Xcode build-setting references such as `$(APP_VERSION)` and `${BUILD_NUMBER}` from the environment.
+Missing, unresolved, or compound values fall back to `PRODUCT_BUNDLE_IDENTIFIER`, `MARKETING_VERSION`, and `CURRENT_PROJECT_VERSION`.
+Explicit `--release-name`, `--release-version`, and `--build` values take precedence.
+
 ## Skipping uploads (dry run)
 
 Pass `--dry-run` before the subcommand (`posthog-cli --dry-run hermes upload ...`), or set `POSTHOG_CLI_DRY_RUN=true`, to turn the upload commands — `sourcemap`, `dsym`, `hermes`, and `proguard` — into a no-op.
-The CLI logs that it skipped the upload and exits `0` without contacting PostHog or requiring credentials.
+`release resolve` is skipped too, since resolving a release can create one.
+The CLI logs what it skipped and exits `0` without contacting PostHog or requiring credentials.
 (This top-level flag is separate from the `exp endpoints` `--dry-run`, which previews endpoint changes.)
 
 This is meant for CI gates that still want to run the bundling step (to catch Metro/Hermes or sourcemap regressions) but must not — or cannot — upload artifacts, for example pull-request checks that don't have PostHog credentials.
@@ -110,6 +176,7 @@ Commands require different API scopes. Make sure to set these scopes on your per
 | `sourcemap`                   | `error_tracking:write`                     |
 | `symbol-sets`                 | `error_tracking:write`                     |
 | `dsym`                        | `error_tracking:write`                     |
+| `release`                     | `error_tracking:write`                     |
 | `exp endpoints list/get/pull` | `endpoint:read`                            |
 | `exp endpoints push`          | `endpoint:write`, `insight_variable:write` |
 | `exp endpoints run`           | `query:read`                               |
@@ -132,6 +199,20 @@ posthog-cli api agents-md install
 ```
 
 Destructive tools require `--confirm` when executed. Use `--dry-run` before mutations.
+
+### Concurrent agents and project targeting
+
+Give each API call its own target with `--project-id` and optionally `--organization-id`:
+
+```bash
+posthog-cli api call --project-id 123 --json feature-flag-get-all '{"limit":5}'
+posthog-cli api call --project-id 456 --json feature-flag-get-all '{"limit":5}'
+posthog-cli api call --organization-id 00000000-0000-0000-0000-000000000001 --json projects-get '{}'
+```
+
+These calls can run concurrently with the same API key, including against projects in different organizations. The key must already grant access to both targets. A project-only target derives its organization from the project. An organization-only target never falls back to a project in another organization; pass a project ID for project-scoped tools.
+
+Explicit target flags replace both inherited target defaults, so an organization override does not inherit the project from your saved login, and a project override does not inherit another organization. Targets apply to one invocation and do not update your saved login or website selection. Repeat the flags on each call, or set `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_ORGANIZATION_ID` separately in each agent's environment. The API bundle also accepts `POSTHOG_PROJECT_ID` and `POSTHOG_ORGANIZATION_ID`, which take precedence over the `POSTHOG_CLI_*` aliases. Switch tools do not persist a selection across CLI invocations.
 
 `posthog-cli api --agent-help` prints the full agent-facing guide — the same exec tool reference the PostHog MCP server serves, rewritten for CLI invocation — so agents can load it into context before interacting with PostHog APIs.
 

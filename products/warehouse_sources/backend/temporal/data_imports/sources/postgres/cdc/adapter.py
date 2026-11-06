@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -11,8 +11,15 @@ import psycopg
 import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCLag
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import tls_options
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
+    PostgresCDCConfig,
+    PostgresSetupNames,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
 )
@@ -34,9 +41,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     slot_exists,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _is_dropped_or_connect_timeout,
     _retry_on_connection_dropped,
     source_requires_ssl,
 )
+from products.warehouse_sources.backend.types import CDCEngine
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -47,14 +56,27 @@ logger = logging.getLogger(__name__)
 _retry_logger = structlog.get_logger(__name__)
 
 
-def _slot_setup_error_message(exc: Exception) -> str:
-    """User-facing message for a failed slot/publication setup.
+def _customer_fixable_setup_message(exc: BaseException) -> str | None:
+    """User-facing advice when a slot/publication setup failure is one the customer can fix on
+    their own database, or None for anything else.
 
     When the failure is a lack of replication privilege — the most common CDC blocker —
     point at the simplest fix rather than only echoing the raw error: switch the affected
     tables to Incremental sync, which needs only SELECT.
     """
     message = str(exc).lower()
+    # PostgreSQL rejects CREATE PUBLICATION FOR TABLE and ALTER PUBLICATION ADD TABLE with this
+    # wording when the connecting role does not own the table. A role with REPLICATION and SELECT
+    # but no ownership reaches that point, so it needs its own guidance: the replication grant the
+    # permission branch below asks for does not fix it.
+    if "must be owner of" in message:
+        return (
+            f"Could not publish the tables CDC syncs: {exc} "
+            "PostgreSQL only lets a table's owner publish it. Make the database user the owner of "
+            "these tables, or add it to the role that owns them. If you can't change ownership, "
+            "switch these tables to Incremental sync instead of CDC. Incremental needs only SELECT "
+            "permission."
+        )
     is_permission_error = isinstance(exc, psycopg.errors.InsufficientPrivilege) or (
         "permission denied" in message or "must be superuser" in message
     )
@@ -65,7 +87,21 @@ def _slot_setup_error_message(exc: Exception) -> str:
             "Either grant it replication access, or switch these tables to Incremental sync "
             "instead of CDC. Incremental needs only SELECT permission."
         )
-    return f"Failed to create replication slot: {exc}"
+    # A read replica or read-only standby rejects the CREATE PUBLICATION that CDC needs.
+    if "in a read-only transaction" in message:
+        return (
+            f"Failed to create replication slot: {exc} "
+            "CDC has to create a replication slot and publication, which only a writable primary "
+            "database allows. This connection points at a read replica or read-only standby. "
+            "Connect to the primary database, or switch these tables to Incremental sync, which "
+            "needs only SELECT."
+        )
+    return None
+
+
+def _slot_setup_error_message(exc: Exception) -> str:
+    """User-facing message for a failed slot/publication setup."""
+    return _customer_fixable_setup_message(exc) or f"Failed to create replication slot: {exc}"
 
 
 def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, str]:
@@ -78,8 +114,15 @@ def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, st
 
 
 class PostgresCDCAdapter:
+    engine = CDCEngine.POSTGRES
+
     def parse_cdc_config(self, source: ExternalDataSource) -> PostgresCDCConfig:
         return PostgresCDCConfig.from_source(source)
+
+    def position_to_seq(self, position_serialized: str) -> int:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
+
+        return PgLSN.deserialize(position_serialized).value
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader:
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
@@ -88,7 +131,7 @@ class PostgresCDCAdapter:
         )
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
-        inputs = source.job_inputs or {}
+        inputs = SourceInputsStore.load(source)
         cdc_config = self.parse_cdc_config(source)
         # Two-arg form honors the SSH-tunnel `require_tls` opt-out, matching the management
         # path (slot_manager.cdc_pg_connection) so a tunnelled source that opted out of TLS
@@ -101,6 +144,7 @@ class PostgresCDCAdapter:
             user=inputs.get("user", ""),
             password=inputs.get("password", ""),
             require_ssl=source_requires_ssl(source, config),
+            tls=tls_options(config),
             slot_name=cdc_config.slot_name,
             publication_name=cdc_config.publication_name,
         )
@@ -117,31 +161,36 @@ class PostgresCDCAdapter:
         management_mode: Literal["posthog", "self_managed"],
         tables: list[str],
         schema: str,
-        slot_name: str | None,
-        publication_name: str | None,
+        setup: Mapping[str, Any],
     ) -> list[str]:
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.prerequisite_validator import (
             validate_cdc_prerequisites,
         )
 
+        names = PostgresSetupNames.from_setup(setup)
         with self.management_connection(source) as conn:
             return validate_cdc_prerequisites(
                 conn=conn,
                 management_mode=management_mode,
                 tables=tables,
                 schema=schema,
-                slot_name=slot_name,
-                publication_name=publication_name,
+                slot_name=names.slot_name,
+                publication_name=names.publication_name,
             )
 
-    def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None:
-        drop_slot_and_publication(conn, slot_name, pub_name)
+    def drop_stream(self, conn: Any, source: ExternalDataSource) -> None:
+        cdc_config = self.parse_cdc_config(source)
+        drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
 
-    def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None:
-        return get_slot_lag_bytes(conn, slot_name)
+    def stream_exists(self, conn: Any, source: ExternalDataSource) -> bool:
+        return slot_exists(conn, self.parse_cdc_config(source).slot_name)
 
-    def get_retention_cap_mb(self, conn: Any) -> int | None:
-        return get_max_slot_wal_keep_size_mb(conn)
+    def get_lag(self, conn: Any, source: ExternalDataSource) -> CDCLag | None:
+        lag_bytes = get_slot_lag_bytes(conn, self.parse_cdc_config(source).slot_name)
+        retention_cap_mb = get_max_slot_wal_keep_size_mb(conn)
+        if lag_bytes is None:
+            return None
+        return CDCLag(behind_bytes=lag_bytes, retention_cap_mb=retention_cap_mb)
 
     def is_slot_invalidation_error(self, exc: BaseException) -> bool:
         return is_slot_invalidation_error(exc)
@@ -149,15 +198,19 @@ class PostgresCDCAdapter:
     def is_connection_error(self, exc: BaseException) -> bool:
         # psycopg raises OperationalError for every failure to reach the source DB
         # (connect timeout, refused, unreachable host, DNS, dropped, auth); sshtunnel
-        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established.
-        # Neither points at a bug in our code.
-        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError)
+        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established;
+        # the host policy raises HostNotAllowedError before any socket opens.
+        # None points at a bug in our code.
+        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
+
+    def customer_fixable_error_message(self, exc: BaseException) -> str | None:
+        return _customer_fixable_setup_message(exc)
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_postgres_cdc_error(exc)
         return cdc_error_info(category) if category is not None else None
 
-    def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
+    def recreate_stream(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop the dead replication slot and create a fresh one against the existing
         publication, recreating the publication first when PostHog owns it and it's gone.
 
@@ -193,9 +246,16 @@ class PostgresCDCAdapter:
         # connection (the slot invalidation that triggered recovery), so a transient drop
         # mid-recreate — the server terminating our backend on a deploy/failover, an idle cull —
         # is likely. drop_slot runs first on every attempt, so retrying is idempotent; absorb the
-        # drop in-process instead of failing the whole recovery. Permanent errors (auth, a missing
-        # customer-owned publication) don't match the predicate and re-raise immediately.
-        consistent_point = _retry_on_connection_dropped(_recreate, _retry_logger)
+        # drop in-process instead of failing the whole recovery. Widen the predicate to also
+        # retry connect-time timeouts: cdc_pg_connection opens with the same _connect_to_postgres
+        # the main streaming path uses, and classify_postgres_cdc_error now treats an exhausted
+        # ConnectionTimeout as non-retryable on the assumption every reconnect already timed out —
+        # without retrying it here first, a single transient connect timeout would abort recovery
+        # instead of reaching that exhausted state. Permanent errors (auth, a missing
+        # customer-owned publication) don't match either predicate and re-raise immediately.
+        consistent_point = _retry_on_connection_dropped(
+            _recreate, _retry_logger, is_retryable=_is_dropped_or_connect_timeout
+        )
 
         return {"cdc_consistent_point": consistent_point}
 
@@ -327,42 +387,53 @@ class PostgresCDCAdapter:
                 else []
             )
         return {
+            "slot_name": cdc_config.slot_name,
+            "publication_name": cdc_config.publication_name,
             "slot_exists": slot_present,
             "publication_exists": pub_present,
             "lag_bytes": lag_bytes,
             "published_tables": published_tables,
         }
 
+    def capture_resources_present(self, status: Mapping[str, Any]) -> bool:
+        return status.get("slot_exists") is not False and status.get("publication_exists") is not False
+
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication."""
+        """ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication. Raises on failure."""
         self._alter_publication_membership(source, schema, table, add=True)
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
         """Best-effort ALTER PUBLICATION DROP TABLE. No-op for self-managed / no publication."""
-        self._alter_publication_membership(source, schema, table, add=False)
-
-    def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:
-        cdc_config = self.parse_cdc_config(source)
-        # PostHog only manages the publication in posthog-managed mode.
-        if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
-            return
         try:
-            with cdc_pg_connection(source) as conn:
-                if add:
-                    add_table_to_publication(conn, cdc_config.publication_name, schema, table)
-                else:
-                    remove_table_from_publication(conn, cdc_config.publication_name, schema, table)
+            self._alter_publication_membership(source, schema, table, add=False)
         except Exception:
             logger.exception(
-                "Failed to %s table %s.%s %s CDC publication '%s' (best-effort), source_id=%s",
-                "add" if add else "remove",
+                "Failed to remove table %s.%s from CDC publication (best-effort), source_id=%s",
                 schema,
                 table,
-                "to" if add else "from",
-                cdc_config.publication_name,
                 source.id,
             )
 
+    def manages_capture_set(self, source: ExternalDataSource) -> bool:
+        return self._managed_publication_name(source) is not None
+
+    def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:
+        publication_name = self._managed_publication_name(source)
+        if publication_name is None:
+            return
+        with cdc_pg_connection(source) as conn:
+            if add:
+                add_table_to_publication(conn, publication_name, schema, table)
+            else:
+                remove_table_from_publication(conn, publication_name, schema, table)
+
+    def _managed_publication_name(self, source: ExternalDataSource) -> str | None:
+        cdc_config = self.parse_cdc_config(source)
+        # PostHog only manages the publication in posthog-managed mode.
+        if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
+            return None
+        return cdc_config.publication_name
+
     def _resolve_schema(self, source: ExternalDataSource) -> str:
-        raw = (source.job_inputs or {}).get("schema")
+        raw = SourceInputsStore.load_settings(source).get("schema")
         return raw.strip() if isinstance(raw, str) and raw.strip() else "public"

@@ -5,8 +5,10 @@ from django.db import models
 from django.db.models import F, Func, Q, Value
 from django.db.models.expressions import NegatedExpression
 from django.db.models.lookups import Exact
+from django.utils import timezone
 
 from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
@@ -21,22 +23,21 @@ def _json_type_is_not(field_name: str, json_type: str) -> NegatedExpression:
     return NegatedExpression(_json_type_is(field_name, json_type))
 
 
-class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class Dataset(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = TeamScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     metadata = models.JSONField(blank=True, default=dict)
     archived = models.BooleanField(default=False)
+    last_used_at = models.DateTimeField(default=timezone.now, null=True)
+    expired_at = models.DateTimeField(null=True, blank=True)
+    retention_checked_at = models.DateTimeField(null=True, blank=True)
     current_revision = models.ForeignKey(
         "DatasetRevision",
         on_delete=models.RESTRICT,
@@ -49,13 +50,19 @@ class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         db_table = "llm_analytics_dataset_v2"
         ordering = ["-created_at", "id"]
         constraints = [
-            models.UniqueConstraint(fields=["team", "name"], name="uniq_llma_dataset_v2_team_name"),
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=Q(expired_at__isnull=True),
+                name="uniq_llma_dataset_v2_live_name",
+            ),
             models.CheckConstraint(
                 condition=_json_type_is("metadata", "object"),
                 name="llma_dataset_v2_metadata_object",
             ),
         ]
         indexes = [
+            models.Index(fields=["last_used_at", "id"], name="llma_dataset_retention_idx"),
+            models.Index(fields=["retention_checked_at", "id"], name="llma_dataset_retention_chk_idx"),
             models.Index(
                 fields=["team", "archived", "-created_at", "id"],
                 name="llma_dataset_v2_team_arch_idx",
@@ -76,21 +83,20 @@ class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 class DatasetRevision(UUIDModel, CreatedMetaFields):
     objects = TeamScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="revisions")
     revision = models.PositiveIntegerField()
+    last_used_at = models.DateTimeField(default=timezone.now, null=True)
+    expired_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "llm_analytics_datasetrevision_v2"
         ordering = ["-revision"]
+        indexes = [models.Index(fields=["last_used_at", "id"], name="llma_revision_retention_idx")]
         constraints = [
             models.UniqueConstraint(
                 fields=["dataset", "revision"],
@@ -110,13 +116,9 @@ class DatasetRevision(UUIDModel, CreatedMetaFields):
 class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = TeamScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="items")
@@ -154,13 +156,9 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 class DatasetItemVersion(UUIDModel, CreatedMetaFields):
     objects = TeamScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="item_versions")
@@ -171,6 +169,7 @@ class DatasetItemVersion(UUIDModel, CreatedMetaFields):
         related_name="item_versions",
     )
     version = models.PositiveIntegerField()
+    last_used_at = models.DateTimeField(default=timezone.now, null=True)
     archived = models.BooleanField(default=False)
     input = models.JSONField()
     expected_output = models.JSONField(null=True, blank=True)

@@ -21,16 +21,53 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from typing import Any
 
-from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+from .enums import (
+    AttributeScope,
+    DashboardImportPhase,
+    DashboardImportSource,
+    DashboardImportState,
+    DashboardTemplateSource,
+    DashboardTemplateStatus,
+    FilterOp,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+    PanelImportOutcome,
+    PanelProgressState,
+    PanelQueryLanguage,
+)
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+DEFAULT_QUERY_COUNT_DAYS = 30
+MAX_QUERY_COUNT_DAYS = 90
+MAX_PROMQL_LENGTH = 8192
+MAX_SPARKLINE_BATCH_SIZE = 20
+
+
+class MetricQueryTooManyRowsError(ValueError):
+    """The query has more (time bucket, series) rows than the row budget allows.
+
+    A caller can retry with a coarser interval, because fewer buckets give fewer rows.
+    """
+
 
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"
+
+# Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
+# Staff-only while it is a proof of concept.
+METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
+
+# Gates the Grafana and screenshot dashboard import, on top of METRICS_FEATURE_FLAG.
+METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
+
+# Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
+METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,8 +103,14 @@ class MetricQueryClause:
     quantile: float | None = None
     # Constrains rows to one metric type; None keeps all types (legacy).
     metric_type: MetricType | None = None
+    # Applied to each series before `aggregation` combines them.
+    range_function: MetricRangeFunction | None = None
 
     def __post_init__(self) -> None:
+        if self.aggregation.is_raw and self.group_by:
+            raise ValueError("group_by needs an aggregation; without one every series stays separate")
+        if self.range_function is not None and self.aggregation.is_counter_function:
+            raise ValueError("range_function cannot combine with the legacy rate or increase aggregation")
         if self.aggregation.needs_quantile:
             if self.quantile is None:
                 raise ValueError(f"{self.aggregation} requires a quantile")
@@ -93,6 +136,9 @@ class MetricQueryRequest:
     date_to: dt.datetime
     interval: str | None = None
     formula: str | None = None
+    # False leaves a bucket without data as a None point (a gap), so a mean over the points skips it.
+    # A formula needs aligned values, so it requires the zero fill.
+    zero_fill: bool = True
 
     def __post_init__(self) -> None:
         if not self.clauses:
@@ -101,6 +147,8 @@ class MetricQueryRequest:
             raise ValueError(f"at most {MAX_CLAUSES_PER_QUERY} clauses are allowed per query")
         if self.date_to <= self.date_from:
             raise ValueError("date_to must be after date_from")
+        if self.formula is not None and not self.zero_fill:
+            raise ValueError("a formula requires zero_fill")
         names = [c.name for c in self.clauses]
         if len(names) != len(set(names)):
             raise ValueError("clause names must be unique")
@@ -127,6 +175,13 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
+    # UCUM unit of the values in `points` (e.g. "By", "ms", "ms/s"). It differs
+    # from the ingested unit when the clause transforms the values: COUNT has no
+    # unit and RATE is per second. Set by `run_metric_query`, not by callers.
+    unit: str | None = None
+    # Bucket upper edges a histogram quantile was estimated from, merged over every
+    # point. The estimate can be anywhere between two edges. None for other aggregations.
+    histogram_bounds: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,7 +224,7 @@ class MetricAnomalyReport:
 
 @dataclass(frozen=True, slots=True)
 class MetricEventSample:
-    """A single raw metric emission: one `metric_samples` row enriched with its
+    """A single raw metric emission: one `metrics` row enriched with its
     `metric_series` labels. Backs the Samples view and the metric->trace pivot.
     Distinct from `MetricSeries`, which is aggregated at query time.
     """
@@ -189,6 +244,27 @@ class MetricEventSample:
     span_id: str
     attributes: dict[str, str]
     resource_attributes: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricErrorSpike:
+    """An Error Tracking issue spike detected in a time window.
+
+    PoC for the metrics chart's error-spike overlay: team-wide, not yet
+    scoped to a specific metric's service (Error Tracking issues carry no
+    service attribution today; scoping needs a service attribute on spikes
+    or a trace_id join against $exception events).
+
+    Deliberately narrower than error_tracking's own ErrorTrackingSpikeEvent
+    contract (fewer fields, string timestamps instead of datetime) since the
+    chart overlay only needs enough to render and link a marker. Keep it
+    narrow rather than reusing that contract directly, so metrics isn't
+    coupled to error_tracking's internal shape.
+    """
+
+    detected_at: str  # ISO 8601
+    issue_id: str
+    issue_name: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,3 +383,197 @@ class IncidentContext:
         if self.fired_at.tzinfo is None:
             raise ValueError("fired_at must be timezone-aware")
         object.__setattr__(self, "fired_at", self.fired_at.astimezone(dt.UTC))
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsServiceOverview:
+    """One service's ingestion rollup inside the overview window."""
+
+    service_name: str
+    metric_names: int
+    series: int
+    last_seen: str  # ISO 8601
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsOverview:
+    """The landing-page answer to "is anything ingesting": how fresh the
+    newest datapoint is, plus window-scoped inventory counts per service.
+
+    `last_seen` deliberately ignores the window — when ingestion stops, the
+    window-scoped numbers go to zero but the status strip still needs to say
+    how long ago the last datapoint arrived. None means never ingested (or
+    everything aged past the series table's retention).
+    """
+
+    last_seen: str | None  # ISO 8601
+    metric_names: int
+    series: int
+    lookback_seconds: int
+    services: tuple[MetricsServiceOverview, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryCount:
+    """How often queries read one metric of a team inside a window of days.
+
+    A query counts once for each metric that it selects, whatever the number of clauses or selectors that name it.
+    Builder, heatmap and PromQL queries count, from the app, alerts and the Prometheus API.
+    SQL mode queries do not count.
+    A PromQL selector that names no metric, such as `{__name__=~"http_.*"}`, counts nothing.
+    """
+
+    metric_name: str
+    query_count: int
+    last_queried_at: dt.datetime
+
+
+class DashboardImportError(ValueError):
+    """A dashboard import cannot start or continue. The message is safe to show to the user."""
+
+
+class DashboardImportInProgress(DashboardImportError):
+    """The user already has a dashboard import that has not finished."""
+
+
+class DashboardImportNotAllowed(DashboardImportError):
+    """The organization does not allow the import: AI data processing is off, or the AI credits ran out."""
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportRequest:
+    source: DashboardImportSource
+    name: str | None = None
+    grafana_json: str | None = None
+    image: bytes | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportPanel:
+    key: str
+    title: str
+    outcome: PanelImportOutcome
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportPanelProgress:
+    key: str
+    title: str
+    state: PanelProgressState
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportSummary:
+    total: int
+    imported: int
+    approximated: int
+    failed: int
+    skipped: int
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportStatus:
+    """Where an import is. `id` is None for an import that needed no agent and finished in the request."""
+
+    id: str | None
+    source: DashboardImportSource
+    status: DashboardImportState
+    dashboard_name: str
+    phase: DashboardImportPhase | None = None
+    panel_progress: tuple[DashboardImportPanelProgress, ...] = ()
+    # The import compares at most `layout_rounds` pictures of the dashboard with the screenshot. None when it does not.
+    layout_rounds: int | None = None
+    layout_round: int | None = None
+    dashboard_id: int | None = None
+    error: str | None = None
+    summary: DashboardImportSummary | None = None
+    panels: tuple[DashboardImportPanel, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PanelQueryCheckRequest:
+    """One panel query for the import agent to check. `builder` holds the builder query as JSON."""
+
+    key: str
+    language: PanelQueryLanguage
+    title: str = ""
+    promql: str | None = None
+    builder: dict[str, Any] | None = None
+    histogram_metric: str | None = None
+    hogql: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PanelQueryCheckResult:
+    key: str
+    valid: bool
+    error: str | None = None
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SuggestedDashboard:
+    """A dashboard from the bank that suits the metrics of a team."""
+
+    id: str
+    template_id: str
+    name: str
+    description: str
+    reason: str
+    panel_count: int
+    matched_metric_count: int
+    coverage: float
+    dashboard_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardTemplateRound:
+    """One check round of a generation: a picture of the preview dashboard, and what the model said about it."""
+
+    round: int
+    has_picture: bool
+    looks_good: bool | None = None
+    problems: tuple[str, ...] = ()
+    revised: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardTemplateSummary:
+    id: str
+    key: str
+    name: str
+    description: str
+    source: DashboardTemplateSource
+    status: DashboardTemplateStatus
+    metric_names: tuple[str, ...]
+    panel_titles: tuple[str, ...]
+    created_at: dt.datetime
+    suggestion_count: int = 0
+    source_team_id: int | None = None
+    preview_team_id: int | None = None
+    preview_dashboard_id: int | None = None
+    rounds: tuple[DashboardTemplateRound, ...] = ()
+    dropped_panels: tuple[str, ...] = ()
+    error: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: dt.datetime | None = None
+
+
+class SuggestedDashboardError(Exception):
+    """An action on a suggestion or a template failed. The message is safe to show."""
+
+
+class SuggestedDashboardNotFound(SuggestedDashboardError):
+    pass
+
+
+class PromQLQueryError(ValueError):
+    """A PromQL query that Snuffle rejected or could not run. The message is safe to show.
+
+    `transient` says the backend failed rather than the query, so the same query can succeed later.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient

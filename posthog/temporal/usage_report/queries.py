@@ -41,13 +41,13 @@ canonical reference.
 import dataclasses
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.db.models import Count
 
-from posthog.constants import FlagRequestType
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team
 from posthog.tasks.usage_report import (
+    TeamUsageRows,
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
     get_teams_with_active_external_data_schemas_in_period,
@@ -60,20 +60,23 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
-    get_teams_with_cdp_billable_invocations_in_period,
+    get_teams_with_business_knowledge_usage_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
     get_teams_with_event_count_with_groups_in_period,
     get_teams_with_exceptions_captured_in_period,
-    get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_free_historical_rows_synced_in_period,
     get_teams_with_heatmap_count_in_period,
     get_teams_with_hog_function_calls_in_period,
     get_teams_with_hog_function_fetch_calls_in_period,
     get_teams_with_logs_bytes_in_period,
+    get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_logs_records_in_period,
+    get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_logs_retention_bytes_in_period,
+    get_teams_with_mcp_event_count_in_period,
+    get_teams_with_metrics_usage_in_period,
     get_teams_with_mobile_billable_recording_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
@@ -81,18 +84,18 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_replay_vision_observation_count_in_period,
+    get_teams_with_replay_vision_spend_projection,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
     get_teams_with_signals_credits_used_in_period,
+    get_teams_with_signals_spend_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
-    get_teams_with_workflow_billable_invocations_in_period,
-    get_teams_with_workflow_emails_sent_in_period,
-    get_teams_with_workflow_push_sent_in_period,
-    get_teams_with_workflow_sms_sent_in_period,
+    get_teams_with_workflow_transactional_emails_sent_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
 )
+from posthog.usage_counters import UsageCounter, UsageCounterService
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade import api as error_tracking_api
@@ -110,7 +113,9 @@ def _group_types_total() -> list[dict[str, int]]:
 
 
 def _dashboard_count() -> list[dict[str, int]]:
-    return list(Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]], list(Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    )
 
 
 def _dashboard_template_count() -> list[dict[str, int]]:
@@ -141,7 +146,10 @@ def _dashboard_tagged_count() -> list[dict[str, int]]:
 
 
 def _ff_count() -> list[dict[str, int]]:
-    return list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]],
+        list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
+    )
 
 
 def _ff_active_count() -> list[dict[str, int]]:
@@ -151,16 +159,24 @@ def _ff_active_count() -> list[dict[str, int]]:
 
 
 def _survey_count() -> list[dict[str, int]]:
-    return list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]], list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    )
 
 
 def _replay_vision_scanner_count() -> list[dict[str, int]]:
-    return list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]],
+        list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
+    )
 
 
 def _replay_vision_scanner_active_count() -> list[dict[str, int]]:
-    return list(
-        ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+    return cast(
+        list[dict[str, int]],
+        list(
+            ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
     )
 
 
@@ -217,6 +233,22 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
     }
 
 
+def _replay_vision_spend_projection(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    projection = get_teams_with_replay_vision_spend_projection(begin, end)
+    return {
+        "scanner_credits": projection.scanner_credits,
+        "backfill_credits": projection.backfill_credits,
+    }
+
+
+def _business_knowledge_usage(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    usage = get_teams_with_business_knowledge_usage_in_period(begin, end)
+    return {
+        "chunks": usage.chunks,
+        "queries": usage.queries,
+    }
+
+
 def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     usage = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
     return {
@@ -262,7 +294,13 @@ QUERIES: list[QuerySpec] = [
     ),
     QuerySpec(
         name="teams_with_event_count_with_groups_in_period",
-        fn=get_teams_with_event_count_with_groups_in_period,
+        fn=lambda b, e: get_teams_with_event_count_with_groups_in_period(b, e, count_distinct=True),
+        timeout_minutes=30,
+    ),
+    QuerySpec(
+        name="teams_with_mcp_event_count_in_period",
+        fn=get_teams_with_mcp_event_count_in_period,
+        timeout_minutes=30,
     ),
     QuerySpec(
         name="all_event_metrics",
@@ -278,6 +316,11 @@ QUERIES: list[QuerySpec] = [
             "web_events": "teams_with_web_events_count_in_period",
             "web_lite_events": "teams_with_web_lite_events_count_in_period",
             "node_events": "teams_with_node_events_count_in_period",
+            "node_mcp_events": "teams_with_node_mcp_events_count_in_period",
+            "python_mcp_events": "teams_with_python_mcp_events_count_in_period",
+            "rust_mcp_events": "teams_with_rust_mcp_events_count_in_period",
+            "go_mcp_events": "teams_with_go_mcp_events_count_in_period",
+            "ruby_mcp_events": "teams_with_ruby_mcp_events_count_in_period",
             "mcp_tool_call_events": "teams_with_mcp_tool_call_events_count_in_period",
             "mcp_missing_capability_events": "teams_with_mcp_missing_capability_events_count_in_period",
             "mcp_initialize_events": "teams_with_mcp_initialize_events_count_in_period",
@@ -287,11 +330,15 @@ QUERIES: list[QuerySpec] = [
             "mcp_prompt_get_events": "teams_with_mcp_prompt_get_events_count_in_period",
             "mcp_prompts_list_events": "teams_with_mcp_prompts_list_events_count_in_period",
             "openclaw_events": "teams_with_openclaw_events_count_in_period",
+            "opencode_events": "teams_with_opencode_events_count_in_period",
             "posthog_pi_events": "teams_with_posthog_pi_events_count_in_period",
             "posthog_ai_events": "teams_with_posthog_ai_events_count_in_period",
+            "posthog_python_ai_events": "teams_with_posthog_python_ai_events_count_in_period",
+            "posthog_dotnet_ai_events": "teams_with_posthog_dotnet_ai_events_count_in_period",
             "edge_events": "teams_with_edge_events_count_in_period",
             "convex_events": "teams_with_convex_events_count_in_period",
             "android_events": "teams_with_android_events_count_in_period",
+            "kmp_events": "teams_with_kmp_events_count_in_period",
             "flutter_events": "teams_with_flutter_events_count_in_period",
             "ios_events": "teams_with_ios_events_count_in_period",
             "go_events": "teams_with_go_events_count_in_period",
@@ -300,9 +347,13 @@ QUERIES: list[QuerySpec] = [
             "ruby_events": "teams_with_ruby_events_count_in_period",
             "python_events": "teams_with_python_events_count_in_period",
             "php_events": "teams_with_php_events_count_in_period",
+            "laravel_events": "teams_with_laravel_events_count_in_period",
             "dotnet_events": "teams_with_dotnet_events_count_in_period",
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
+            "godot_events": "teams_with_godot_events_count_in_period",
+            "unreal_events": "teams_with_unreal_events_count_in_period",
+            "roblox_events": "teams_with_roblox_events_count_in_period",
             "rust_events": "teams_with_rust_events_count_in_period",
         },
         timeout_minutes=30,
@@ -348,11 +399,17 @@ QUERIES: list[QuerySpec] = [
     # ---- ClickHouse: feature flag requests -----------------------------------
     QuerySpec(
         name="teams_with_decide_requests_count_in_period",
-        fn=lambda b, e: get_teams_with_feature_flag_requests_count_in_period(b, e, FlagRequestType.DECIDE),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_REQUESTS, b, e),
     ),
     QuerySpec(
         name="teams_with_local_evaluation_requests_count_in_period",
-        fn=lambda b, e: get_teams_with_feature_flag_requests_count_in_period(b, e, FlagRequestType.LOCAL_EVALUATION),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, b, e),
+    ),
+    QuerySpec(
+        name="teams_with_local_evaluation_not_modified_requests_count_in_period",
+        fn=lambda b, e: UsageCounterService().get_legacy(
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS, b, e
+        ),
     ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(
@@ -475,7 +532,7 @@ QUERIES: list[QuerySpec] = [
     ),
     QuerySpec(
         name="teams_with_cdp_billable_invocations_in_period",
-        fn=get_teams_with_cdp_billable_invocations_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.CDP_INVOCATIONS, b, e),
     ),
     # ---- ClickHouse: AI ------------------------------------------------------
     QuerySpec(
@@ -489,6 +546,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_signals_credits_used_in_period",
         fn=get_teams_with_signals_credits_used_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_signals_spend_credits_used_in_period",
+        fn=get_teams_with_signals_spend_credits_used_in_period,
     ),
     QuerySpec(
         name="teams_with_posthog_code_credits_used_in_period",
@@ -515,22 +576,36 @@ QUERIES: list[QuerySpec] = [
             "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
         },
     ),
+    # ---- Postgres: business knowledge usage ledger --------------------------
+    QuerySpec(
+        name="business_knowledge_usage",
+        fn=_business_knowledge_usage,
+        output="multi",
+        multi_keys_mapping={
+            "chunks": "teams_with_business_knowledge_chunks_in_period",
+            "queries": "teams_with_business_knowledge_queries_in_period",
+        },
+    ),
     # ---- ClickHouse: workflows / messaging ----------------------------------
     QuerySpec(
         name="teams_with_workflow_emails_sent_in_period",
-        fn=get_teams_with_workflow_emails_sent_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_EMAILS, b, e),
+    ),
+    QuerySpec(
+        name="teams_with_workflow_transactional_emails_sent_in_period",
+        fn=get_teams_with_workflow_transactional_emails_sent_in_period,
     ),
     QuerySpec(
         name="teams_with_workflow_push_sent_in_period",
-        fn=get_teams_with_workflow_push_sent_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_PUSH, b, e),
     ),
     QuerySpec(
         name="teams_with_workflow_sms_sent_in_period",
-        fn=get_teams_with_workflow_sms_sent_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_SMS, b, e),
     ),
     QuerySpec(
         name="teams_with_workflow_billable_invocations_in_period",
-        fn=get_teams_with_workflow_billable_invocations_in_period,
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_INVOCATIONS, b, e),
     ),
     # ---- ClickHouse: logs ---------------------------------------------------
     QuerySpec(
@@ -564,6 +639,14 @@ QUERIES: list[QuerySpec] = [
             "90d": "teams_with_logs_retention_90d_bytes_in_period",
         },
     ),
+    QuerySpec(
+        name="teams_with_logs_retention_byte_days_in_period",
+        fn=get_teams_with_logs_retention_byte_days_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_logs_distinct_patterns_in_period",
+        fn=get_teams_with_logs_distinct_patterns_in_period,
+    ),
     # ---- ClickHouse: APM tracing ---------------------------------------------
     QuerySpec(
         name="apm_tracing_usage",
@@ -572,6 +655,16 @@ QUERIES: list[QuerySpec] = [
         multi_keys_mapping={
             "bytes": "teams_with_apm_tracing_bytes_in_period",
             "spans": "teams_with_apm_tracing_spans_in_period",
+        },
+    ),
+    # ---- ClickHouse: Metrics (OTel) -------------------------------------------
+    QuerySpec(
+        name="metrics_usage",
+        fn=get_teams_with_metrics_usage_in_period,
+        output="multi",
+        multi_keys_mapping={
+            "bytes": "teams_with_metrics_bytes_in_period",
+            "records": "teams_with_metrics_records_in_period",
         },
     ),
     # ---- Snapshot queries (kind="snapshot") ---------------------------------
@@ -679,6 +772,16 @@ QUERIES: list[QuerySpec] = [
         fn=_replay_vision_scanner_active_count,
         timeout_minutes=5,
         kind="snapshot",
+    ),
+    QuerySpec(
+        name="replay_vision_spend_projection",
+        fn=_replay_vision_spend_projection,
+        timeout_minutes=5,
+        output="multi",
+        multi_keys_mapping={
+            "scanner_credits": "teams_with_replay_vision_scanner_projected_credits",
+            "backfill_credits": "teams_with_replay_vision_backfill_committed_credits",
+        },
     ),
     QuerySpec(
         name="teams_with_issues_created_total",

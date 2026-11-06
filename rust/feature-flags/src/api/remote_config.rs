@@ -30,6 +30,7 @@
 //! request could replay the decrypted body to a secret-key caller without ever hitting
 //! the etag check.
 
+use crate::api::api_key_usage::ApiKeyKind;
 use crate::{
     api::{auth, errors::FlagError, flag_definitions},
     database::get_connection_with_metrics,
@@ -37,6 +38,7 @@ use crate::{
     metrics::consts::{REMOTE_CONFIG_AUTH_COUNTER, REMOTE_CONFIG_ETAG_COUNTER},
     router::State as AppState,
     team::team_models::Team,
+    utils::python_truthiness::is_falsy,
 };
 use axum::{
     debug_handler,
@@ -192,6 +194,10 @@ pub async fn remote_config(
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
 
+    // Raw filters, deliberately outside the fail-closed config-format boundary the
+    // evaluation paths use: Django's own view reads `payloads["true"]` just as raw and is
+    // shadow-compared against this one, so a Rust-only version guard would read as a
+    // permanent mismatch.
     let stored = filters.get("payloads").and_then(|p| p.get("true"));
 
     // Resolve the payload, mirroring Django's `Response(payloads["true"] or None)`: the stored
@@ -214,7 +220,7 @@ pub async fn remote_config(
 
     // Django applies `or None` to the final value and renders None as an empty body, not
     // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
-    // string nulls out too.
+    // string nulls out too. In practice the payload is always a JSON-encoded string.
     let payload = payload.filter(|v| !is_falsy(v));
 
     // `Value::to_string` produces the same compact JSON `Json(v)` would serialize, so the
@@ -331,20 +337,6 @@ fn empty_ok_no_content_type(etag: &str) -> Response {
     (StatusCode::OK, revalidation_headers(etag)).into_response()
 }
 
-/// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload
-/// is always a JSON-encoded string, but cover every falsy JSON value so the behaviour
-/// matches Python exactly: null, false, zero, and empty string/array/object.
-fn is_falsy(v: &Value) -> bool {
-    match v {
-        Value::Null => true,
-        Value::Bool(b) => !b,
-        Value::Number(n) => n.as_f64() == Some(0.0),
-        Value::String(s) => s.is_empty(),
-        Value::Array(a) => a.is_empty(),
-        Value::Object(o) => o.is_empty(),
-    }
-}
-
 /// Authenticates and resolves the decrypt gate against the already-resolved scope team,
 /// mirroring Django.
 ///
@@ -359,8 +351,8 @@ async fn authenticate(
     headers: &HeaderMap,
 ) -> Result<AuthOutcome, FlagError> {
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (team_id, _api_token, is_project_secret) =
-            auth::validate_secret_api_token(state, &token).await?;
+        let secret = auth::validate_secret_api_token(state, &token).await?;
+        let team_id = secret.team_id;
         // Django: authenticated_team.id == view.team.id.
         if team_id != scope_team_id {
             // Mismatch resolves like Django: 403 when a real (different) team owns the
@@ -378,16 +370,12 @@ async fn authenticate(
         // because it decides redact-vs-decrypt, so the mix is worth watching during phase 2/3.
         inc(
             REMOTE_CONFIG_AUTH_COUNTER,
-            &[(
-                "method".to_string(),
-                if is_project_secret {
-                    "project_secret_api_key".to_string()
-                } else {
-                    "secret_api_key".to_string()
-                },
-            )],
+            &[("method".to_string(), secret.method_label().to_string())],
             1,
         );
+        state
+            .record_project_secret_key_usage(secret.project_secret_key_id)
+            .await;
         // Secret-key requests are not throttled by Django's RemoteConfigThrottle.
         return Ok(AuthOutcome::Authorized {
             should_decrypt: false,
@@ -426,7 +414,9 @@ async fn authenticate(
 
         // Track PAK usage so a key used only for remote config doesn't look dormant and get
         // rotated as unused. Shared with flag_definitions via the State helper.
-        state.record_pak_last_used(pak_id).await;
+        state
+            .record_api_key_last_used(ApiKeyKind::Personal, pak_id)
+            .await;
 
         return Ok(AuthOutcome::Authorized {
             should_decrypt: true,
@@ -449,8 +439,9 @@ async fn resolve_current_team(
     headers: &HeaderMap,
 ) -> Result<Option<Team>, FlagError> {
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (team_id, _api_token, _is_project_secret) =
-            auth::validate_secret_api_token(state, &token).await?;
+        let team_id = auth::validate_secret_api_token(state, &token)
+            .await?
+            .team_id;
         return Ok(Some(state.flag_service().get_team_by_id(team_id).await?));
     }
     if let Some(key) = auth::extract_personal_api_key(headers)? {
@@ -545,28 +536,4 @@ async fn load_remote_config_flag(
         warn!("remote_config flag query failed: {e}");
         FlagError::DatabaseUnavailable
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::is_falsy;
-    use serde_json::json;
-
-    #[test]
-    fn is_falsy_matches_python_truthiness() {
-        // Django's `payloads["true"] or None` nulls out every falsy JSON value.
-        assert!(is_falsy(&json!(null)));
-        assert!(is_falsy(&json!(false)));
-        assert!(is_falsy(&json!(0)));
-        assert!(is_falsy(&json!(0.0)));
-        assert!(is_falsy(&json!("")));
-        assert!(is_falsy(&json!([])));
-        assert!(is_falsy(&json!({})));
-        // Truthy values pass through.
-        assert!(!is_falsy(&json!(true)));
-        assert!(!is_falsy(&json!(1)));
-        assert!(!is_falsy(&json!("x")));
-        assert!(!is_falsy(&json!([1])));
-        assert!(!is_falsy(&json!({"k": "v"})));
-    }
 }

@@ -1,0 +1,49 @@
+rules:
+    - id: frimousse-via-emoji-picker-panel
+      message: |
+          `frimousse` imported or re-exported directly. Render `EmojiPickerPanel` or `EmojiPickerPopover`
+          from `lib/components/EmojiPicker` instead.
+
+          frimousse fetches its emoji data from the `emojibaseUrl` prop of `EmojiPicker.Root`,
+          and the prop defaults to `https://cdn.jsdelivr.net/npm/emojibase-data@latest`. A
+          picker that does not pass the prop silently takes that default. The URL lives inside
+          the dependency, not in our source, so searching the repository for the CDN does not
+          find those call sites.
+
+          The app's `connect-src` does not list jsdelivr, and should not: an open CDN there
+          lets anyone publish the bytes the app reads. The browser refuses the fetch, and
+          frimousse has no error state, so the picker shows "Loading…" forever.
+
+          The panel passes the same-origin URL that the build serves the pinned
+          `emojibase-data` files from, so the policy needs no CDN entry.
+
+          If you genuinely need frimousse directly, put
+          `// nosemgrep: frimousse-via-emoji-picker-panel` on the line before the import
+          with a reason, and pass a same-origin `emojibaseUrl` to `EmojiPicker.Root`.
+      severity: ERROR
+      languages: [typescript, javascript]
+      paths:
+          # The leading slash pins these to the repository root, which is where the app
+          # and the panel live. Without it semgrep warns that it will anchor them anyway.
+          include:
+              - /frontend/src
+              - /products
+              - /common
+          exclude:
+              # The panel is the one place that may import the package.
+              - /frontend/src/lib/components/EmojiPicker/EmojiPickerPanel.tsx
+      pattern-either:
+          - pattern: import { ... } from 'frimousse'
+          - pattern: import $X from 'frimousse'
+          - pattern: import * as $X from 'frimousse'
+          - pattern: import 'frimousse'
+          - pattern: import('frimousse')
+          - pattern: require('frimousse')
+          # Named re-exports already match the import patterns above. This one covers
+          # `export * from` and `export * as $X from`, which they miss.
+          - pattern: export * from 'frimousse'
+      metadata:
+          category: security
+          confidence: HIGH
+          references:
+              - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/connect-src

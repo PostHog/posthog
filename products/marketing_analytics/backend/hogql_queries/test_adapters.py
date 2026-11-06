@@ -1760,6 +1760,26 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         self._validate_query_structure(query, "RedditAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
+    @parameterized.expand(
+        [
+            ("GoogleAds", GoogleAdsAdapter, GoogleAdsConfig, "metrics_cost_micros"),
+            ("RedditAds", RedditAdsAdapter, RedditAdsConfig, "spend"),
+            ("SnapchatAds", SnapchatAdsAdapter, SnapchatAdsConfig, "spend"),
+        ]
+    )
+    def test_micros_cost_is_cast_before_the_division(self, source_type, adapter_class, config_class, cost_column):
+        config = config_class(
+            campaign_table=self._create_mock_table("micros_campaign", source_type),
+            stats_table=self._create_mock_table("micros_stats", source_type),
+            source_type=source_type,
+            source_id=f"{source_type}_micros",
+        )
+
+        query = adapter_class(config=config, context=self.context).build_query()
+
+        assert query is not None
+        assert f"divide(toFloat(micros_stats.{cost_column}), 1000000)" in query.to_hogql()
+
     def test_meta_ads_query_generation(self):
         campaign_table = self._create_mock_table("meta_campaigns", "MetaAds")
         stats_table = self._create_mock_table("meta_campaign_stats", "MetaAds")
@@ -2713,3 +2733,22 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         hogql_query = query.to_hogql()
         assert "convertCurrency" in hogql_query
         assert expected_in_query in hogql_query
+
+    def test_currency_conversion_date_cannot_be_null(self):
+        # `convertCurrency` resolves its rate through `dictGetOrDefault`, which rejects a
+        # Nullable(Date) key outright rather than returning its default — and warehouse date
+        # columns read back nullable. A bare toDate() here fails the entire cost query.
+        stats_table = self._create_mock_table("google_stats", "GoogleAds")
+        stats_table.columns = {"customer_currency_code": True}
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("google_campaign", "GoogleAds"),
+            stats_table=stats_table,
+            source_type="GoogleAds",
+            source_id="google_ads",
+        )
+        query = GoogleAdsAdapter(config=config, context=self.context).build_query()
+        assert query is not None
+        hogql_query = query.to_hogql()
+
+        assert "convertCurrency" in hogql_query
+        assert "coalesce(toDate(google_stats.segments_date), today())" in hogql_query

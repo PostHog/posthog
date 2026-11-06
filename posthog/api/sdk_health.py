@@ -20,17 +20,13 @@ from products.growth.backend.constants import (
     SDK_TYPES,
     SdkVersionEntry,
     github_sdk_versions_key,
-    team_sdk_versions_v2_key,
+    team_sdk_versions_v3_key,
 )
 from products.growth.backend.sdk_health import SdkHealthReport, compute_sdk_health
 
 # NOTE: products.growth.backend.team_sdk_versions is imported lazily inside get_team_data
-# below. It transitively imports from posthog/dags which calls django.setup() — that
-# causes a RuntimeError("populate() isn't reentrant") if we let it happen at module
-# import time from posthog/api/__init__.py. SDK_TYPES used to trigger the same chain
-# when it lived in products.growth.dags.github_sdk_versions; it now lives in
-# products.growth.backend.constants (which has no Django side effects) and can be a
-# top-level import.
+# below. Importing it pulls posthog.hogql.query, the direct-SQL adapters, and
+# ee.clickhouse.materialized_columns, none of which the rest of posthog/api needs.
 
 logger = structlog.get_logger(__name__)
 
@@ -179,8 +175,8 @@ class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 type=bool,
                 required=False,
                 description=(
-                    "When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. "
-                    "Use sparingly — data is refreshed every 12 hours by a background job."
+                    "When true, bypasses the cache and re-reads SDK usage. The cached answer is at "
+                    "most an hour old, so use this sparingly."
                 ),
             ),
         ],
@@ -229,8 +225,8 @@ class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 @permission_classes([IsAuthenticated])
 def sdk_health(request: Request) -> Response:
     """
-    Serve team SDK versions. Data is cached by the Temporal sdk_outdated health check.
-    Supports force_refresh=true for on-demand detection.
+    Serve team SDK versions, built from the daily rollup plus live events and cached for an hour.
+    Supports force_refresh=true to rebuild the answer now.
     """
     user = cast(User, request.user)
 
@@ -278,7 +274,7 @@ def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersio
     redis_client = get_client()
 
     if not force_refresh:
-        cache_key = team_sdk_versions_v2_key(team_id)
+        cache_key = team_sdk_versions_v3_key(team_id)
         cached_data = redis_client.get(cache_key)
         if cached_data:
             try:

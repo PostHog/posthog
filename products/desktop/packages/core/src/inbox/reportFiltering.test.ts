@@ -8,6 +8,8 @@ import {
   filterReportsBySearch,
   INBOX_PIPELINE_STATUS_FILTER,
   INBOX_PIPELINE_STATUSES,
+  INBOX_REFETCH_INTERVAL_MS,
+  sortInboxReports,
 } from "./reportFiltering";
 
 describe("inbox pipeline statuses", () => {
@@ -15,6 +17,12 @@ describe("inbox pipeline statuses", () => {
     expect(INBOX_PIPELINE_STATUS_FILTER).toBe(
       INBOX_PIPELINE_STATUSES.join(","),
     );
+  });
+});
+
+describe("inbox polling", () => {
+  it("keeps the shared mobile refresh cadence", () => {
+    expect(INBOX_REFETCH_INTERVAL_MS).toBe(3_000);
   });
 });
 
@@ -150,6 +158,22 @@ describe("buildArchiveListOrdering", () => {
     expect(buildArchiveListOrdering("updated_at", "desc")).not.toContain(
       "status",
     );
+  });
+});
+
+describe("sortInboxReports", () => {
+  it("interleaves separately loaded buckets using the selected ordering", () => {
+    const reports = [
+      makeReport({ id: "older", created_at: "2025-01-01T00:00:00Z" }),
+      makeReport({ id: "newest", created_at: "2025-03-01T00:00:00Z" }),
+      makeReport({ id: "middle", created_at: "2025-02-01T00:00:00Z" }),
+    ];
+
+    expect(
+      sortInboxReports(reports, "created_at", "desc").map(
+        (report) => report.id,
+      ),
+    ).toEqual(["newest", "middle", "older"]);
   });
 });
 

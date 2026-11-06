@@ -1,45 +1,38 @@
 import copy
-import json
-from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import DatabaseError, models, transaction
+from django.db import DatabaseError, models
 from django.db.models import Func, IntegerField, Q, QuerySet
 from django.db.models.fields.json import KeyTransform
-from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest
 from django.utils import timezone
 
-import structlog
-from django_deprecate_fields import deprecate_field
-
-from posthog.caching.flags_redis_cache import write_flags_to_cache
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
-from posthog.exceptions_capture import capture_exception
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
-from posthog.models.signals import mutable_receiver
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySet
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
-
-FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
-
-logger = structlog.get_logger(__name__)
+from products.feature_flags.backend.facade.config import ConfigFormatError, ConfigV1, decode_config, require_v1_config
+from products.feature_flags.backend.facade.references import InvalidIds, references
+from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
 
+    from posthog.models.activity_logging.activity_log import ActivityContextBase, Trigger
     from posthog.models.team import Team
 
+    from products.experiments.backend.facade.contracts import LinkedExperiment
     from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
 
@@ -61,6 +54,10 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
     Callers decide what ``None`` means: the gate declines to gate an uninterpretable change; the
     dispatcher raises. Apply-time-only validation (variant rollout sums, payload-key matching)
     stays in the dispatcher.
+
+    Raises ``ConfigFormatError`` when any operation other than ``update_status`` targets a flag
+    whose ``filters`` is not config version 1. ``update_status`` never reads ``filters``, so it
+    never raises.
     """
     operation = payload.get("operation")
     if operation is None or "value" not in payload:
@@ -71,6 +68,8 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
         return {"active": value}
 
     current_filters = flag.get_filters()
+    # The merges below are v1 merges; a target in another format fails closed here.
+    require_v1_config(current_filters)
 
     if operation == "add_release_condition":
         new_groups = value.get("groups", []) if isinstance(value, dict) else []
@@ -86,11 +85,17 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
             return None
         new_variants = value.get("variants", [])
         new_payloads = value.get("payloads", {})
-        # Deep-copy before mutating: current_filters is flag.filters (a live reference), so assigning
-        # into its nested multivariate dict would mutate the flag's pre-change state in place and
-        # defeat the approval gate's old-vs-new comparison.
-        updated_multivariate = copy.deepcopy(current_filters.get("multivariate", {}))
-        updated_multivariate["variants"] = new_variants
+        if not new_variants:
+            # Clearing variants makes the flag boolean; the canonical stored shape for that is
+            # multivariate: null. {"variants": []} is an invalid shape (#50084) that migration
+            # 0007 cleaned and the filters serializer rejects.
+            updated_multivariate = None
+        else:
+            # Deep-copy before mutating: current_filters is flag.filters (a live reference), so
+            # assigning into its nested multivariate dict would mutate the flag's pre-change state
+            # in place and defeat the approval gate's old-vs-new comparison.
+            updated_multivariate = copy.deepcopy(current_filters.get("multivariate") or {})
+            updated_multivariate["variants"] = new_variants
         return {
             "filters": {
                 **current_filters,
@@ -141,10 +146,18 @@ class FeatureFlagManager(RootTeamManager):
         return FeatureFlagQuerySet(self.model, using=self._db).exclude(deleted=True)
 
 
-class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     # Reverse relation from FeatureFlagEvaluationContext.feature_flag (related_name="flag_evaluation_contexts").
     if TYPE_CHECKING:
         flag_evaluation_contexts: RelatedManager[FeatureFlagEvaluationContext]
+
+    # Never persisted. A caller that rewrites the flag as a side effect of another action
+    # (for example the experiment exposure freeze) sets this before the gated write; the
+    # activity-log receiver reads it so the entry does not render as a manual edit.
+    _activity_trigger: "Trigger | None" = None
+    # Never persisted. The update serializer sets this before the write when the request carries a rollback reason,
+    # so the reason lands on the activity log entry of the same edit.
+    _activity_context: "ActivityContextBase | None" = None
 
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
@@ -156,8 +169,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # DEPRECATED: rollout percentage now lives in filters["groups"][N]["rollout_percentage"]
     rollout_percentage = deprecate_field(models.IntegerField(null=True, blank=True))
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(null=True, auto_now=True)
     deleted = models.BooleanField(default=False)
@@ -179,7 +192,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     )
 
     ensure_experience_continuity = models.BooleanField(default=False, null=True, blank=True)
-    usage_dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    usage_dashboard = models.ForeignKey(
+        "dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "dashboards.Dashboard",
         through="FeatureFlagDashboards",
@@ -226,6 +241,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # Cache projection: whether the flag backs an experiment. Annotated via a bulk
     # Exists query (or read from cache) to avoid a per-flag experiment lookup.
     _has_experiment: Optional[bool] = None
+
+    # The flag API sets this to the flag's experiments that are not deleted, loaded for all flags of a response in one
+    # query. When it is not set, the serializer queries the experiments of each flag.
+    _active_experiments: tuple["LinkedExperiment", ...]
 
     last_called_at = models.DateTimeField(
         null=True,
@@ -291,7 +310,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             type="feature_flag",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.key or "Untitled",
-            href=f"/feature_flags/{self.id}",
+            href=f"/feature-flags/{self.id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,
@@ -300,6 +319,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         )
 
     def get_analytics_metadata(self) -> dict:
+        try:
+            self._v1_filters()
+        except ConfigFormatError as exc:
+            return {"created_at": self.created_at, "config_format": exc.config_format.kind}
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
         payload_count = len(self._payloads)
@@ -316,22 +339,39 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             "payload_count": payload_count,
         }
 
+    def _v1_filters(self) -> dict:
+        """The stored document when it is config version 1; any other format raises ``ConfigFormatError``.
+
+        The accessors below read v1 keys. A document in another format must never reach
+        them and be read as a flag with no conditions and no variants; callers that can
+        meet such a row catch the error. ``get_filters()`` stays raw for readers that
+        classify the document themselves.
+        """
+        filters = self.get_filters()
+        require_v1_config(filters)
+        return filters
+
     @property
     def conditions(self):
         "Each feature flag can have multiple conditions to match, they are OR-ed together."
-        return self.get_filters().get("groups", []) or []
+        return self._v1_filters().get("groups", []) or []
 
     @property
     def has_feature_enrollment(self) -> bool:
-        return bool(self.get_filters().get("feature_enrollment", False))
+        return bool(self._v1_filters().get("feature_enrollment", False))
 
     @property
     def holdout(self):
-        return self.get_filters().get("holdout", None)
+        return self._v1_filters().get("holdout", None)
+
+    @property
+    def early_exit(self) -> bool:
+        "If True, evaluation stops at the first condition whose properties match, also when the user falls outside its rollout"
+        return bool(self._v1_filters().get("early_exit", False))
 
     @property
     def _payloads(self):
-        return self.get_filters().get("payloads", {}) or {}
+        return self._v1_filters().get("payloads", {}) or {}
 
     def get_payload(self, match_val: str) -> Optional[object]:
         return self._payloads.get(match_val, None)
@@ -339,12 +379,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     @property
     def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
         "If None, aggregating this feature flag by persons, otherwise by groups of given group_type_index"
-        return self.get_filters().get("aggregation_group_type_index", None)
+        return self._v1_filters().get("aggregation_group_type_index", None)
 
     @property
     def variants(self):
         # :TRICKY: .get("multivariate", {}) returns "None" if the key is explicitly set to "null" inside json filters
-        multivariate = self.get_filters().get("multivariate", None)
+        multivariate = self._v1_filters().get("multivariate", None)
         if isinstance(multivariate, dict):
             variants = multivariate.get("variants", None)
             if isinstance(variants, list):
@@ -353,7 +393,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     @property
     def is_eligible_for_experiment(self) -> bool:
-        return experiment_eligibility_error(self.variants) is None
+        try:
+            variants = self.variants
+        except ConfigFormatError:
+            # Only a v1 document carries the variants an experiment reads.
+            return False
+        return experiment_eligibility_error(variants) is None
 
     @property
     def usage_dashboard_has_enriched_insights(self) -> bool:
@@ -396,6 +441,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
         stop_traversal_at_static: bool = False,
+        invalid_cohort_ids: InvalidIds | None = None,
     ) -> list[int]:
         from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
@@ -403,39 +449,40 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             seen_cohorts_cache = {}
 
         cohort_ids = set()
-        for condition in self.conditions:
-            props = condition.get("properties", [])
-            for prop in props:
-                if prop.get("type") == "cohort":
-                    cohort_id = int(prop.get("value"))
-                    try:
-                        if cohort_id in seen_cohorts_cache:
-                            cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
-                            if not cohort:
-                                continue
-                        else:
-                            cohort = Cohort.objects.db_manager(using_database).get(
-                                pk=cohort_id,
-                                team__project_id=self.team.project_id,
-                                deleted=False,
-                            )
-                            seen_cohorts_cache[cohort_id] = cohort
-
-                        cohort_ids.add(cohort.pk)
-                        cohort_ids.update(
-                            [
-                                dependency_cohort.pk
-                                for dependency_cohort in get_all_cohort_dependencies(
-                                    cohort,
-                                    using_database=using_database,
-                                    seen_cohorts_cache=seen_cohorts_cache,
-                                    stop_traversal_at_static=stop_traversal_at_static,
-                                )
-                            ]
-                        )
-                    except Cohort.DoesNotExist:
-                        seen_cohorts_cache[cohort_id] = ""
+        # Unreadable formats raise. By default, v1 raises on a non-integer id. v2 skips it, as Rust does.
+        config = decode_config(self.get_filters())
+        if invalid_cohort_ids is None:
+            invalid_cohort_ids = "raise" if isinstance(config, ConfigV1) else "skip"
+        direct_ids = references(config, invalid_cohort_ids=invalid_cohort_ids).cohort_ids
+        for cohort_id in direct_ids:
+            try:
+                if cohort_id in seen_cohorts_cache:
+                    cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
+                    if not cohort:
                         continue
+                else:
+                    cohort = Cohort.objects.db_manager(using_database).get(
+                        pk=cohort_id,
+                        team__project_id=self.team.project_id,
+                        deleted=False,
+                    )
+                    seen_cohorts_cache[cohort_id] = cohort
+
+                cohort_ids.add(cohort.pk)
+                cohort_ids.update(
+                    [
+                        dependency_cohort.pk
+                        for dependency_cohort in get_all_cohort_dependencies(
+                            cohort,
+                            using_database=using_database,
+                            seen_cohorts_cache=seen_cohorts_cache,
+                            stop_traversal_at_static=stop_traversal_at_static,
+                        )
+                    ]
+                )
+            except Cohort.DoesNotExist:
+                seen_cohorts_cache[cohort_id] = ""
+                continue
         if sort_by_topological_order:
             return sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
 
@@ -447,7 +494,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         user: Optional[AbstractBaseUser] = None,
         scheduled_change_id: Optional[int] = None,
     ):
-        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+        from products.feature_flags.backend.facade.api import update_flag
 
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
@@ -461,11 +508,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         # It's not the correct type, but it matches enough to get the job done
         http_request.user = user or self.created_by  # type: ignore
         http_request.method = "PATCH"  # This is a partial update, not a new creation
-        context = {
-            "request": http_request,
-            "team_id": self.team_id,
-            "project_id": self.team.project_id,
-        }
 
         # Apply-time-only validation for variant changes, before shaping the payload. The gate skips
         # these because an invalid change can't be approved into applying anyway; here they surface
@@ -477,8 +519,11 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
             if new_variants:
                 total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
-                if total_rollout != 100:
-                    raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
+                if not variant_rollout_sum_is_100(total_rollout):
+                    raise ValueError(
+                        f"Invalid variant rollout percentages: sum is "
+                        f"{format_variant_rollout_sum(total_rollout)}, must be 100"
+                    )
 
             variant_keys = {v.get("key") for v in new_variants}
             payload_keys = set(new_payloads.keys()) if new_payloads else set()
@@ -495,9 +540,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         if serializer_data is None:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
 
-        serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)
-        if serializer.is_valid(raise_exception=True):
-            serializer.save()
+        update_flag(self, serializer_data, team=self.team, user=http_request.user, request=http_request)
 
     @property
     def uses_cohorts(self) -> bool:
@@ -509,13 +552,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return False
 
 
-@mutable_receiver([post_save, post_delete], sender=FeatureFlag)
-def refresh_flag_cache_on_updates(sender, instance, **kwargs):
-    # Defer cache update until after the transaction commits
-    # This ensures the database has the new data before we query it
-    transaction.on_commit(lambda: set_feature_flags_for_team_in_cache(instance.team.project_id))
-
-
 class FeatureFlagHashKeyOverride(models.Model):
     # Can't use a foreign key to feature_flag_key directly, since
     # the unique constraint is on (team_id+key), and not just key.
@@ -525,8 +561,8 @@ class FeatureFlagHashKeyOverride(models.Model):
     # DO_NOTHING: Person/Team deletion handled manually via FeatureFlagHashKeyOverride.objects.filter(...).delete()
     # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
     # db_constraint=False: No database FK constraint - FeatureFlagHashKeyOverride may live in separate database
-    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING, db_constraint=False)
+    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING, db_constraint=False, related_name="+")
     hash_key = models.CharField(max_length=400)
 
     class Meta:
@@ -544,9 +580,9 @@ class FeatureFlagHashKeyOverride(models.Model):
 # DEPRECATED: This model is no longer used, but it's not deleted to avoid downtime
 class FeatureFlagOverride(models.Model):
     feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
     override_value = models.JSONField()
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         constraints = [
@@ -559,19 +595,17 @@ class FeatureFlagOverride(models.Model):
 
 
 def get_feature_flags(
-    team: Optional["Team"] = None,
-    project_id: Optional[int] = None,
+    team: "Team",
     exclude_encrypted_payloads: bool = False,
 ) -> list[FeatureFlag]:
     """
-    Fetch FeatureFlag objects for a team or project.
+    Fetch FeatureFlag objects for a team.
 
     Evaluation tags are always aggregated using ArrayAgg for performance.
     This avoids N+1 queries when serializing flags with evaluation tags.
 
     Args:
-        team: Team to get flags for (mutually exclusive with project_id)
-        project_id: Project ID to get flags for (mutually exclusive with team)
+        team: Team to get flags for
         exclude_encrypted_payloads: If True, exclude flags with
             has_encrypted_payloads=True. These flags can only be accessed
             via the /remote_config endpoint, which handles decryption.
@@ -581,21 +615,12 @@ def get_feature_flags(
     Returns:
         List of FeatureFlag model instances with evaluation tags pre-loaded
     """
-    # Build query filter
-    filter_kwargs: dict[str, Any]
-    if team is not None:
-        filter_kwargs = {"team": team}
-    elif project_id is not None:
-        filter_kwargs = {"team__project_id": project_id}
-    else:
-        raise ValueError("Either team or project_id must be provided")
-
     # Include disabled flags (active=False) so flag dependencies can reference them
     # and evaluate them as false, rather than raising DependencyNotFound errors.
 
     # Aggregate evaluation context names into a string array per flag in one query,
     # avoiding N+1 queries when serializing many flags.
-    qs = FeatureFlag.objects.filter(**filter_kwargs)
+    qs = FeatureFlag.objects.filter(team=team)
 
     # Use .exclude() (not .filter(=False)) so legacy rows with NULL
     # has_encrypted_payloads remain included, matching prior behavior.
@@ -644,81 +669,9 @@ def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
     return list(serialized_data)
 
 
-def set_feature_flags_for_team_in_cache(
-    project_id: int,
-) -> list[FeatureFlag]:
-    # Fetch flags once (with evaluation contexts pre-loaded)
-    all_feature_flags = get_feature_flags(project_id=project_id)
-
-    # Serialize for cache storage
-    serialized_flags = serialize_feature_flags(all_feature_flags)
-
-    # Write to Redis cache
-    write_flags_to_cache(f"team_feature_flags_{project_id}", json.dumps(serialized_flags), FIVE_DAYS)
-
-    return all_feature_flags
-
-
-def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[FeatureFlag]]:
-    try:
-        flag_data = cache.get(f"team_feature_flags_{project_id}")
-    except Exception:
-        logger.exception("Redis is unavailable")
-        return None
-
-    if flag_data is not None:
-        try:
-            parsed_data = json.loads(flag_data)
-            flags = [_feature_flag_from_cache_entry(entry) for entry in parsed_data]
-            # Filter to only return active flags. The cache includes inactive flags
-            # for dependency resolution (used by the Rust service), but Python callers
-            # expect only active flags for backward compatibility.
-            return [f for f in flags if f.active]
-        except Exception as e:
-            logger.exception("Error parsing flags from cache")
-            capture_exception(e)
-            return None
-
-    return None
-
-
-@lru_cache(maxsize=1)
-def _feature_flag_model_field_names() -> frozenset[str]:
-    """Names accepted by the FeatureFlag constructor (concrete fields only), used to
-    separate real model fields from serializer-only extras in cached payloads. The
-    field set is constant for the process, so it's computed once and cached."""
-    names: set[str] = set()
-    for field in FeatureFlag._meta.concrete_fields:
-        names.add(field.name)
-        names.add(field.attname)  # FK attnames like `team_id`
-    return frozenset(names)
-
-
-def _feature_flag_from_cache_entry(entry: dict[str, Any]) -> FeatureFlag:
-    """Reconstruct a FeatureFlag from one cached payload entry.
-
-    The cache payload comes from EvaluationFeatureFlagSerializer, which emits
-    SerializerMethodFields (e.g. `evaluation_contexts`, `has_experiment`) that are not
-    model fields. Keep only real model fields so unknown extras are ignored rather than
-    crashing the FeatureFlag(**...) constructor; known extras are then assigned onto the
-    instance.
-    """
-    model_field_names = _feature_flag_model_field_names()
-    model_fields = {key: value for key, value in entry.items() if key in model_field_names}
-
-    flag = FeatureFlag(**model_fields)
-    # Evaluation contexts are derived data, not a DB field. Accept both the current
-    # `evaluation_contexts` key and the legacy `evaluation_tags` key for entries
-    # written before the rename.
-    flag._evaluation_tag_names = entry.get("evaluation_contexts", entry.get("evaluation_tags"))
-    # Preserve has_experiment so a cache-read flag answers without a per-flag experiment query.
-    flag._has_experiment = entry.get("has_experiment")
-    return flag
-
-
 class FeatureFlagDashboards(models.Model):
     feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE)
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
 

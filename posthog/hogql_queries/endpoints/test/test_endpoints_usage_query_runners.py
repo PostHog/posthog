@@ -1,5 +1,7 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -21,7 +23,7 @@ from posthog.hogql_queries.endpoints.endpoints_usage_table import EndpointsUsage
 from posthog.hogql_queries.endpoints.endpoints_usage_trends import EndpointsUsageTrendsQueryRunner
 
 
-class TestSafeFloat(APIBaseTest):
+class TestSafeFloat(SimpleTestCase):
     @parameterized.expand(
         [
             (None, 0.0),
@@ -41,7 +43,7 @@ class TestSafeFloat(APIBaseTest):
 
 
 class TestEndpointsUsageOverviewQueryRunner(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_overview_query_sql(self):
         query = EndpointsUsageOverviewQuery(
             kind="EndpointsUsageOverviewQuery",
@@ -53,7 +55,7 @@ class TestEndpointsUsageOverviewQueryRunner(ClickhouseTestMixin, QueryMatchingTe
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_overview_query_with_endpoint_filter_sql(self):
         query = EndpointsUsageOverviewQuery(
             kind="EndpointsUsageOverviewQuery",
@@ -66,7 +68,7 @@ class TestEndpointsUsageOverviewQueryRunner(ClickhouseTestMixin, QueryMatchingTe
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_overview_query_with_materialization_filter_sql(self):
         query = EndpointsUsageOverviewQuery(
             kind="EndpointsUsageOverviewQuery",
@@ -79,7 +81,7 @@ class TestEndpointsUsageOverviewQueryRunner(ClickhouseTestMixin, QueryMatchingTe
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_row_to_metrics_dict(self):
         query = EndpointsUsageOverviewQuery(
             kind="EndpointsUsageOverviewQuery",
@@ -110,7 +112,7 @@ class TestEndpointsUsageOverviewQueryRunner(ClickhouseTestMixin, QueryMatchingTe
             (0.0, 0.0, 0.0),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_calculate_change_pct(self, current, previous, expected):
         query = EndpointsUsageOverviewQuery(
             kind="EndpointsUsageOverviewQuery",
@@ -124,7 +126,7 @@ class TestEndpointsUsageOverviewQueryRunner(ClickhouseTestMixin, QueryMatchingTe
 
 
 class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_trends_query_requests_metric_sql(self):
         query = EndpointsUsageTrendsQuery(
             kind="EndpointsUsageTrendsQuery",
@@ -137,7 +139,7 @@ class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_trends_query_bytes_read_metric_sql(self):
         query = EndpointsUsageTrendsQuery(
             kind="EndpointsUsageTrendsQuery",
@@ -150,7 +152,7 @@ class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_trends_query_cpu_seconds_metric_sql(self):
         query = EndpointsUsageTrendsQuery(
             kind="EndpointsUsageTrendsQuery",
@@ -163,7 +165,7 @@ class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_trends_query_error_rate_metric_sql(self):
         query = EndpointsUsageTrendsQuery(
             kind="EndpointsUsageTrendsQuery",
@@ -176,7 +178,7 @@ class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_trends_query_hourly_interval_sql(self):
         query = EndpointsUsageTrendsQuery(
             kind="EndpointsUsageTrendsQuery",
@@ -190,7 +192,7 @@ class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_trends_query_weekly_interval_sql(self):
         query = EndpointsUsageTrendsQuery(
             kind="EndpointsUsageTrendsQuery",
@@ -204,7 +206,7 @@ class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_trends_query_with_endpoint_breakdown_sql(self):
         query = EndpointsUsageTrendsQuery(
             kind="EndpointsUsageTrendsQuery",
@@ -218,7 +220,7 @@ class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_trends_query_with_materialization_breakdown_sql(self):
         query = EndpointsUsageTrendsQuery(
             kind="EndpointsUsageTrendsQuery",
@@ -232,7 +234,7 @@ class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_trends_query_with_status_breakdown_sql(self):
         query = EndpointsUsageTrendsQuery(
             kind="EndpointsUsageTrendsQuery",
@@ -248,7 +250,7 @@ class TestEndpointsUsageTrendsQueryRunner(ClickhouseTestMixin, QueryMatchingTest
 
 
 class TestEndpointsUsageTableQueryRunner(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_table_query_by_endpoint_sql(self):
         query = EndpointsUsageTableQuery(
             kind="EndpointsUsageTableQuery",
@@ -261,7 +263,7 @@ class TestEndpointsUsageTableQueryRunner(ClickhouseTestMixin, QueryMatchingTest,
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_table_query_by_materialization_type_sql(self):
         query = EndpointsUsageTableQuery(
             kind="EndpointsUsageTableQuery",
@@ -274,7 +276,7 @@ class TestEndpointsUsageTableQueryRunner(ClickhouseTestMixin, QueryMatchingTest,
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_table_query_by_api_key_sql(self):
         query = EndpointsUsageTableQuery(
             kind="EndpointsUsageTableQuery",
@@ -287,7 +289,7 @@ class TestEndpointsUsageTableQueryRunner(ClickhouseTestMixin, QueryMatchingTest,
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_table_query_by_status_sql(self):
         query = EndpointsUsageTableQuery(
             kind="EndpointsUsageTableQuery",
@@ -300,7 +302,7 @@ class TestEndpointsUsageTableQueryRunner(ClickhouseTestMixin, QueryMatchingTest,
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_table_query_with_pagination_sql(self):
         query = EndpointsUsageTableQuery(
             kind="EndpointsUsageTableQuery",
@@ -315,7 +317,7 @@ class TestEndpointsUsageTableQueryRunner(ClickhouseTestMixin, QueryMatchingTest,
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_table_query_with_order_by_sql(self):
         query = EndpointsUsageTableQuery(
             kind="EndpointsUsageTableQuery",
@@ -329,7 +331,7 @@ class TestEndpointsUsageTableQueryRunner(ClickhouseTestMixin, QueryMatchingTest,
 
         self.assertQueryMatchesSnapshot(hogql)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_table_query_with_materialization_filter_sql(self):
         query = EndpointsUsageTableQuery(
             kind="EndpointsUsageTableQuery",

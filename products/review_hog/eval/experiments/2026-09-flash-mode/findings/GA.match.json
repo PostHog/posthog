@@ -1,0 +1,182 @@
+{
+    "GA1": {
+        "cluster": 26,
+        "confidence": "high",
+        "reason": "Same claim: the PATCH path accepts stamphog_review_inbox_prs=true with no server-side has_reviewable_repo_config precondition, exactly cluster 26's 'PATCH-writable without a stamphog_connected precondition validator'."
+    },
+    "GA2": {
+        "cluster": 13,
+        "confidence": "high",
+        "reason": "Same root cause and anchor (tasks.py:113): _parse_pr_url's re.search pattern is not host-anchored so lookalike hosts parse as GitHub URLs; the extra ?/# character-class point is a consequence of the same loose regex, not a separate defect."
+    },
+    "GA3": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New claim: the tach.toml comment says facade-only enforcement while stamphog's [[interfaces]] block also exposes presentation views; runner-up cluster 55 asserts the dependency is not declared at all, which GA3 accepts as declared."
+    },
+    "GA4": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "New claim about input-shape validation (blank/malformed pr_url, non-positive ids) at the facade boundary; runner-up cluster 17 is about a team-membership ownership check on acting_user_id, a different root cause (authorization, not shape)."
+    },
+    "GA5": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New claim: the `author_is_bot and not self_driving` guard is duplicated in review_pr.py and review_local.py with drift risk; no cluster is about guard-condition duplication (cluster 19 is an AGENTS.md cross-reference gap, not code duplication)."
+    },
+    "GA6": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "New claim: the audit-trail comment at review_pr.py:937 overstates what classification.self_driving records (a bare boolean, no linkage ids); runner-up cluster 24 says relaxed gates leave no trace at all, which GA6 contradicts, and cluster 67 is about review_local's empty pipeline.provenance."
+    },
+    "GA7": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Same claim and anchor (receivers.py:111-126): the gate checks one canonical acting reviewer's toggle, so an opted-in non-canonical assigned reviewer is ignored, contradicting the PR's 'any assigned reviewer opted in' description."
+    },
+    "GA8": {
+        "cluster": 41,
+        "confidence": "high",
+        "reason": "Same claim: the receiver-leg head-keyed dedupe excludes FAILED, so a persistently failing head spawns a fresh run on every refire with no cap or cooldown."
+    },
+    "GA9": {
+        "cluster": 18,
+        "confidence": "high",
+        "reason": "Same claim and anchor (facade/api.py:120): has_reviewable_repo_config omits the provider=\"github\" filter that sibling repo-config lookups apply."
+    },
+    "GA10": {
+        "cluster": 53,
+        "confidence": "medium",
+        "reason": "Its second claim is exactly cluster 53 ('New commits were pushed' rendered on a reopened/non-push dismissal); its lead claim (resolver-None ambiguity yielding a false opt-out comment) has no cluster and is stated standalone by GA31, so the known half decides the match."
+    },
+    "GA11": {
+        "cluster": 44,
+        "confidence": "high",
+        "reason": "Same claim and anchor (tasks.py:1236): stamphog_inbox_pr_create_run_failed omits error=str(e) that sibling handlers include."
+    },
+    "GA12": {
+        "cluster": 36,
+        "confidence": "high",
+        "reason": "Same claim: the webhook leg's _supersede_prior_runs + create path has no head-based dedupe against a receiver-leg run at the same head, so both legs review the same commit."
+    },
+    "GA13": {
+        "cluster": 33,
+        "confidence": "medium",
+        "reason": "Same claim (repo-config read + tasks-facade lookup + resolver chain paid on every skipped bot head-changing delivery, with the unindexed branch fallback) but anchored at tasks.py:179 rather than facade/api.py:504; runner-ups 23 (index only) and 12 (resolver chain only) each cover just a sub-claim."
+    },
+    "GA14": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Same claim and anchor (tasks.py:1109-1127): process_inbox_pr_review never re-checks the acting reviewer's toggle, trusting the queue-time decision unlike the webhook leg."
+    },
+    "GA15": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New claim: README describes the receiver trigger as a one-shot PR-open event while it re-fires on every TaskRun save carrying pr_url; runner-up cluster 59 is the stale-checkout 'contracts do not exist' false positive, and 60 is the em-dash style nit."
+    },
+    "GA16": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "New claim: has_reviewable_repo_config (via get_stamphog_connected) reads the stamphog product-DB reader with no writer pin, so replica lag reports a just-connected repo as disconnected; runner-up cluster 76 is about ReviewUserSettings (main DB) and cluster 15 about find_task_run, both different reads."
+    },
+    "GA17": {
+        "cluster": 51,
+        "confidence": "medium",
+        "reason": "Same root cause (the broad except + logger.exception in get_stamphog_connected) with a different consequence framing (per-request ERROR traceback flood during an outage vs. collapsing transient and real failures into one log level)."
+    },
+    "GA18": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Same claim: process_inbox_pr_review stamps inbox_review provenance without re-verifying bot authorship or head-repo == config repo, unlike the webhook carve-out, and activities.py turns self_driving on from that provenance alone."
+    },
+    "GA19": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Same claim and anchor (review_local.py:321): bool(context.get(\"self_driving_review\")) truthy coercion instead of a strict `is True` check."
+    },
+    "GA20": {
+        "cluster": 27,
+        "confidence": "high",
+        "reason": "Same claim: fail-soft False from get_stamphog_connected is indistinguishable from genuinely not-connected, so the UI shows wrong 'connect a repository' guidance during an outage; the broad-except aside overlaps cluster 51 but is secondary."
+    },
+    "GA21": {
+        "cluster": 8,
+        "confidence": "high",
+        "reason": "Same claim: stamphog_connected is a team-wide any-repo .exists() while the review gate is per-repository, so the switch can be enabled and silently no-op for PRs in uncovered repos."
+    },
+    "GA22": {
+        "cluster": 40,
+        "confidence": "high",
+        "reason": "Same claim and anchor (receivers.py:144): resolve_stamphog_acting_reviewer has no try/except although it is invoked from stamphog's webhook Celery path, turning a transient DB error into a retried delivery."
+    },
+    "GA23": {
+        "cluster": 4,
+        "confidence": "high",
+        "reason": "Same claim: nothing in the engine gates _attach_familiarity/_maybe_compute_familiarity or _format_familiarity on self_driving, so a familiarity band can render next to the provenance block that says familiarity carries no signal; cluster 4 names exactly this engine-side gap."
+    },
+    "GA24": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Same claim: _format_self_driving's 'It is a draft on purpose' sentence is unconditional and renders for a self-driving PR that is no longer a draft."
+    },
+    "GA25": {
+        "cluster": 16,
+        "confidence": "high",
+        "reason": "Same claim and anchor (receivers.py:222-224): the deferred queue_inbox_pr_review import sits outside _start_stamphog_review's try, so an ImportError can raise into the TaskRun save path."
+    },
+    "GA26": {
+        "cluster": 7,
+        "confidence": "high",
+        "reason": "Same claim: get_stamphog_connected performs an uncached cross-product-DB read on every ReviewUserSettings serialization, GET and PATCH alike."
+    },
+    "GA27": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same claim: the initial review dispatch is fire-and-forget, so a broker publish failure caught in _start_stamphog_review is logged once and dropped with no retry or reconciliation; runner-up 54 is the opposite concern (errors raising into the caller, not being swallowed)."
+    },
+    "GA28": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "New claim: the resolver itself emits no log distinguishing no_artefact / no_resolved_reviewer / toggle_off on the skip path; runner-up cluster 24 is about the positive relaxed-gate path leaving no trace, a different code path."
+    },
+    "GA29": {
+        "cluster": 58,
+        "confidence": "medium",
+        "reason": "Same root cause as cluster 58's 'exhaustion of the task's three retries silently drops the review', narrowed to GitHub rate-limit windows outrunning max_retries=3 with no terminal log; anchored at tasks.py:1155 instead of the dispatch site."
+    },
+    "GA30": {
+        "cluster": 9,
+        "confidence": "high",
+        "reason": "Same claim: every receiver refire enqueues process_inbox_pr_review which does a live GitHub get_pr before the head-keyed dedupe can early-exit."
+    },
+    "GA31": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "New claim: a resolver None caused by artefact/org-login resolution failure is mapped to opted_out=True and posts the public 'No reviewer currently has stamphog inbox reviews enabled' comment, a false user-facing statement; no cluster covers the None-ambiguity-to-wrong-comment path (53 covers only the 'New commits were pushed' wording, 40 the resolver raising)."
+    },
+    "GA32": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "New claim: the stamphog_connected help_text (which flows into the generated schema and MCP descriptions) says the toggle renders disabled when false, but the UI keeps an already-on switch interactive; runner-ups 8 (per-repo scope) and 27 (fail-soft copy) assert different mismatches."
+    },
+    "GA33": {
+        "cluster": 11,
+        "confidence": "medium",
+        "reason": "Same claim as cluster 11 (the webhook-leg resolver re-runs _resolve_assigned_reviewer against the latest suggested_reviewers artefact per push, so the gating identity can drift from the initial reviewer), framed as an AGENTS.md documentation gap and anchored on the contract file rather than receivers.py."
+    },
+    "GA34": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New claim: the AGENTS.md opening sentence describes only the webhook leg's facade-match identification as if it covered the receiver leg; none of the AGENTS.md clusters (30, 37, 48, 49, 71, 72) make this two-legs-identification point."
+    },
+    "GA35": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New claim: AGENTS.md's carve-out section omits the deliberate ready_for_review no-op (draft-time approval stays standing); no cluster covers this missing contract note (72 is about StamphogRepoConfig.enabled, 71 about the 'exactly two gates' wording)."
+    },
+    "GA36": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Same claim and anchor (review_local.py:316-321) as GA19 and cluster 3: truthiness coercion of self_driving_review instead of a strict `is True` check."
+    }
+}

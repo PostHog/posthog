@@ -6,20 +6,21 @@ workflows that set it. Used (e.g.) to surface which workflows reference a custom
 definition via the "Update account property" action's ``properties`` input.
 """
 
-from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
+from products.workflows.backend.facade.contracts import HogFlowReference
 from products.workflows.backend.models import HogFlow
 
-
-@dataclass(frozen=True)
-class HogFlowReference:
-    id: str
-    name: str
-    status: str
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def get_hog_flows_referencing_template_input_keys(
-    team_id: int, template_id: str, input_key: str, *, only_value_key: str | None = None
+    team_id: int,
+    template_id: str,
+    input_key: str,
+    *,
+    only_value_key: str | None = None,
 ) -> dict[str, list[HogFlowReference]]:
     """Map each key present in ``input_key``'s dict (across the team's workflows) to the workflows
     that set it.
@@ -41,6 +42,29 @@ def get_hog_flows_referencing_template_input_keys(
                 ref = HogFlowReference(id=str(flow.id), name=flow.name or str(flow.id), status=flow.status)
             references.setdefault(key, []).append(ref)
     return references
+
+
+def filter_hog_flow_references_by_access_level(
+    team_id: int,
+    references_by_key: dict[str, list[HogFlowReference]],
+    user_access_control: "UserAccessControl",
+) -> dict[str, list[HogFlowReference]]:
+    """Remove references the caller cannot view without reading workflow actions again."""
+    reference_ids = {reference.id for references in references_by_key.values() for reference in references}
+    if not reference_ids:
+        return {}
+
+    accessible_ids = {
+        str(flow_id)
+        for flow_id in user_access_control.filter_queryset_by_access_level(
+            HogFlow.objects.filter(team_id=team_id, id__in=reference_ids)
+        ).values_list("id", flat=True)
+    }
+    return {
+        key: filtered_references
+        for key, references in references_by_key.items()
+        if (filtered_references := [reference for reference in references if reference.id in accessible_ids])
+    }
 
 
 def _referenced_keys(

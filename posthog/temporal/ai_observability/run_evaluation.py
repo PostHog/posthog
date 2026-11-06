@@ -4,6 +4,7 @@ from typing import Any, NotRequired, Required, TypedDict
 
 from django.conf import settings
 
+import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
@@ -23,33 +24,45 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
     ExecuteLLMJudgeInputs,
+    backfill_retry_policy,
+    backfill_timeout,
     build_system_prompt,
     execute_llm_judge_activity,
     get_output_type_config,
 )
 from posthog.temporal.ai_observability.evaluation_sentiment import execute_sentiment_eval_activity
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import GENERATION_NOT_FOUND, EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
+    EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE,
     EmitEvaluationEventInputs,
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
+    RunLocalEvaluationInputs,
     SendEvaluationDisabledEmailInputs,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
+    run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
 )
 from posthog.temporal.ai_observability.metrics import increment_errors
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-from products.signals.backend.temporal.emit_eval_signal import (
+from products.signals.backend.facade.temporal import (
     EmitEvalSignalInputs,
     EmitEvalSignalWorkflow,
     emit_eval_signal_activity,
 )
+
+logger = structlog.get_logger(__name__)
 
 __all__ = [
     "BooleanEvalResult",
@@ -61,6 +74,7 @@ __all__ = [
     "EvaluationActivityResult",
     "RunEvaluationInputs",
     "RunEvaluationWorkflow",
+    "RunLocalEvaluationInputs",
     "SendEvaluationDisabledEmailInputs",
     "WorkflowResult",
     "build_system_prompt",
@@ -77,6 +91,7 @@ __all__ = [
     "handle_llm_judge_activity_error",
     "handle_terminal_user_error_result",
     "run_hog_eval",
+    "run_local_evaluation_activity",
     "send_evaluation_disabled_email_activity",
     "update_key_state_activity",
 ]
@@ -89,10 +104,28 @@ class WorkflowResult(TypedDict, total=False):
     evaluation_type: Required[str]
     skipped: Required[bool]
     verdict: NotRequired[bool | None]
+    score: NotRequired[float]
+    categories: NotRequired[list[str]]
     reasoning: NotRequired[str]
     is_byok: NotRequired[bool]
     skip_reason: NotRequired[str]
     message: NotRequired[str]
+
+
+def build_skipped_workflow_result(
+    *, evaluation: dict[str, Any], evaluation_type: str, skip_reason: str, message: str | None = None
+) -> WorkflowResult:
+    result: WorkflowResult = {
+        "skipped": True,
+        "skip_reason": skip_reason,
+        "evaluation_id": evaluation["id"],
+        "evaluation_type": evaluation_type,
+    }
+    if message is not None:
+        result["message"] = message
+    if evaluation.get("output_type") not in ("numeric", "categorical"):
+        result["verdict"] = None
+    return result
 
 
 async def handle_llm_judge_activity_error(
@@ -115,6 +148,7 @@ async def handle_llm_judge_activity_error(
     terminal_result = terminal_user_error_result_from_application_error(
         e.cause,
         allows_na=(evaluation.get("output_config") or {}).get("allows_na", False),
+        output_type=evaluation.get("output_type", "boolean"),
     )
     if terminal_result is not None:
         return await handle_terminal_user_error_result(
@@ -124,15 +158,9 @@ async def handle_llm_judge_activity_error(
         )
 
     if error_type == "parse_error":
-        skip_result: WorkflowResult = {
-            "verdict": None,
-            "skipped": True,
-            "skip_reason": error_type,
-            "message": e.cause.message,
-            "evaluation_id": evaluation["id"],
-            "evaluation_type": evaluation_type,
-        }
-        return skip_result
+        return build_skipped_workflow_result(
+            evaluation=evaluation, evaluation_type=evaluation_type, skip_reason=error_type, message=e.cause.message
+        )
 
     key_id = details.get("key_id")
     if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
@@ -218,21 +246,26 @@ async def handle_terminal_user_error_result(
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
         except Exception:
-            temporalio.workflow.logger.exception(
+            logger.exception(
                 "Failed to send evaluation disabled email",
                 evaluation_id=evaluation["id"],
                 team_id=evaluation["team_id"],
             )
 
-    workflow_result: WorkflowResult = {
-        "verdict": None,
-        "skipped": True,
-        "skip_reason": skip_reason,
-        "message": result["reasoning"],
-        "evaluation_id": evaluation["id"],
-        "evaluation_type": evaluation_type,
-    }
-    return workflow_result
+    return build_skipped_workflow_result(
+        evaluation=evaluation, evaluation_type=evaluation_type, skip_reason=skip_reason, message=result["reasoning"]
+    )
+
+
+def compact_backfill_result(result: WorkflowResult, backfill_id: str | None) -> WorkflowResult:
+    # A backfill waits on its children, so each result lands in the backfill's own history. Hog
+    # output has no size cap, and a page of large results can pass Temporal's history limit.
+    if backfill_id is None:
+        return result
+    compact = result.copy()
+    compact.pop("reasoning", None)
+    compact.pop("message", None)
+    return compact
 
 
 @temporalio.workflow.defn(name="run-evaluation")
@@ -242,55 +275,145 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         return RunEvaluationInputs(
             evaluation_id=inputs[0],
             event_data=json.loads(inputs[1]),
+            backfill_id=inputs[2] if len(inputs) > 2 else None,
         )
 
     @temporalio.workflow.run
     async def run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
+        return compact_backfill_result(await self._run(inputs), inputs.backfill_id)
+
+    async def _run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
         # Every #71518-era run recorded the "remove-trial-evals" patch marker; accept those
         # histories for one release, then delete this call (temporal-workflow-versioning rule).
         temporalio.workflow.deprecate_patch("remove-trial-evals")
 
         start_time = temporalio.workflow.now()
-        evaluation = await temporalio.workflow.execute_activity(
-            fetch_evaluation_activity,
-            inputs,
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+        recover_backfill = inputs.backfill_id is not None and temporalio.workflow.patched(
+            "evaluation-backfill-extended-retries"
         )
+
+        # A backfill dispatcher ships only a reference, because capture accepts an AI event up to
+        # 8 MiB while a Temporal payload is capped near 2 MiB, so a large generation cannot cross
+        # this boundary at all. Each activity that needs the body now reads it itself.
+        event_data = inputs.event_data
+
+        # One activity fetches the evaluation and, for hog and sentiment, also executes it and
+        # emits its event, so three Temporal Cloud actions become one for these local evaluation
+        # types, which are the large majority of volume.
+        # Pre-patch histories replay the separate fetch/execute/emit commands below.
+        result: EvaluationActivityResult | None = None
+        emitted_in_activity = False
+        if temporalio.workflow.patched("merge-local-eval-activities-2026-09"):
+            try:
+                outcome = await temporalio.workflow.execute_activity(
+                    run_local_evaluation_activity,
+                    RunLocalEvaluationInputs(
+                        evaluation_id=inputs.evaluation_id,
+                        event_data=event_data,
+                        start_time=start_time,
+                        backfill_id=inputs.backfill_id,
+                    ),
+                    start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+                    # Total deadline including queue wait: without it a task stuck in the queue
+                    # keeps the workflow RUNNING forever, and USE_EXISTING then blocks every later
+                    # trigger for this (evaluation, event) pair.
+                    schedule_to_close_timeout=backfill_timeout(
+                        recover_backfill, HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT
+                    ),
+                    # A hog or sentiment run is local and deterministic, so repeating it on the emit schedule is cheap.
+                    retry_policy=backfill_retry_policy(recover_backfill, EMIT_EVENT_RETRY_POLICY),
+                )
+            except temporalio.exceptions.ActivityError as e:
+                if isinstance(e.cause, ApplicationError) and e.cause.type == EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE:
+                    # Feeds llma_eval_errors, the LLMAEvalsHighErrorRate numerator — once per
+                    # workflow after retries end, matching the legacy emit path below.
+                    increment_errors("emit_evaluation_event_failed")
+                raise
+            evaluation = outcome.evaluation
+            result = outcome.result
+            emitted_in_activity = outcome.emitted
+        else:
+            evaluation = await temporalio.workflow.execute_activity(
+                fetch_evaluation_activity,
+                inputs,
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
 
-        if evaluation_type == "hog":
-            result = await temporalio.workflow.execute_activity(
-                execute_hog_eval_activity,
-                args=[evaluation, inputs.event_data],
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+        # A backfill can outlive the evaluation it runs, so it checks before the billed judge call.
+        # The skip also tells the backfill to stop the rest of its page.
+        if (
+            result is None
+            and inputs.backfill_id is not None
+            and (evaluation["deleted"] or not evaluation["enabled"])
+            and temporalio.workflow.patched("evaluation-backfill-skips-disabled-evaluation")
+        ):
+            return build_skipped_workflow_result(
+                evaluation=evaluation,
+                evaluation_type=evaluation_type,
+                skip_reason="evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
             )
-        elif evaluation_type == "sentiment":
-            result = await temporalio.workflow.execute_activity(
-                execute_sentiment_eval_activity,
-                args=[evaluation, inputs.event_data],
-                schedule_to_close_timeout=timedelta(seconds=120),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-        elif evaluation_type == "llm_judge":
-            try:
+
+        if result is None:
+            if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
-                    execute_llm_judge_activity,
-                    ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=inputs.event_data),
-                    schedule_to_close_timeout=timedelta(minutes=6),
-                    retry_policy=LLM_JUDGE_RETRY_POLICY,
+                    execute_hog_eval_activity,
+                    args=[evaluation, event_data],
+                    schedule_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-            except temporalio.exceptions.ActivityError as e:
-                handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
-                if handled is not None:
-                    return handled
-                raise
-        else:
+            elif evaluation_type == "sentiment":
+                result = await temporalio.workflow.execute_activity(
+                    execute_sentiment_eval_activity,
+                    args=[evaluation, event_data],
+                    schedule_to_close_timeout=timedelta(seconds=120),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            elif evaluation_type == "llm_judge":
+                try:
+                    result = await temporalio.workflow.execute_activity(
+                        execute_llm_judge_activity,
+                        ExecuteLLMJudgeInputs(
+                            evaluation=evaluation,
+                            event_data=event_data,
+                            backfill_id=inputs.backfill_id if recover_backfill else None,
+                        ),
+                        schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=6)),
+                        retry_policy=backfill_retry_policy(recover_backfill, LLM_JUDGE_RETRY_POLICY),
+                    )
+                except temporalio.exceptions.ActivityError as e:
+                    handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
+                    if handled is not None:
+                        return handled
+                    raise
+            else:
+                raise ApplicationError(
+                    f"Unsupported evaluation type: {evaluation_type}",
+                    non_retryable=True,
+                )
+
+        if result is None:
+            # Unreachable: every dispatch branch above assigns, returns, or raises. An assert
+            # would wedge the workflow task in an infinite retry; this fails the run instead.
             raise ApplicationError(
-                f"Unsupported evaluation type: {evaluation_type}",
+                f"No evaluation result for type: {evaluation_type}",
                 non_retryable=True,
+            )
+
+        # The generation left ai_events, so no $ai_evaluation event can describe it and the emit
+        # activity would fail to read it. The backfill counts the run as skipped, not failed.
+        # During a rolling deploy an old workflow worker can receive this result and schedule
+        # the emit, so the patch keeps those histories replaying through the emit command.
+        if result.get("skip_reason") == GENERATION_NOT_FOUND and temporalio.workflow.patched(
+            "skip-emit-for-missing-generation-2026-10"
+        ):
+            return build_skipped_workflow_result(
+                evaluation=evaluation,
+                evaluation_type=evaluation_type,
+                skip_reason=GENERATION_NOT_FOUND,
+                message=result["reasoning"],
             )
 
         if is_terminal_user_error_result(result):
@@ -300,36 +423,58 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 result=result,
             )
 
-        try:
-            await temporalio.workflow.execute_activity(
-                emit_evaluation_event_activity,
-                EmitEvaluationEventInputs(
-                    evaluation=evaluation,
-                    event_data=inputs.event_data,
-                    result=result,
-                    start_time=start_time,
-                ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-        except Exception:
-            increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
-            raise
+        if not emitted_in_activity:
+            try:
+                await temporalio.workflow.execute_activity(
+                    emit_evaluation_event_activity,
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=event_data,
+                        result=result,
+                        start_time=start_time,
+                        backfill_id=inputs.backfill_id,
+                    ),
+                    # The activity reads the generation itself when it was handed a reference, and
+                    # that event can run to several MiB, so it gets the same budget as the local
+                    # evaluation activity rather than the 30s a capture call alone would need.
+                    start_to_close_timeout=HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
+                    schedule_to_close_timeout=HYDRATING_EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    retry_policy=EMIT_EVENT_RETRY_POLICY,
+                )
+            except Exception:
+                increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
+                raise
 
         if evaluation_type == "llm_judge" and not result.get("skipped"):
-            await temporalio.workflow.execute_activity(
-                emit_internal_telemetry_activity,
-                EmitInternalTelemetryInputs(
-                    evaluation=evaluation,
+            try:
+                await temporalio.workflow.execute_activity(
+                    emit_internal_telemetry_activity,
+                    EmitInternalTelemetryInputs(
+                        evaluation=evaluation,
+                        team_id=evaluation["team_id"],
+                        result=result,
+                    ),
+                    schedule_to_close_timeout=timedelta(seconds=30),
+                )
+            except Exception:
+                # Internal telemetry must not fail a workflow whose $ai_evaluation already
+                # emitted: the workflow-level retry would re-emit it.
+                logger.exception(
+                    "Failed to emit internal telemetry",
+                    evaluation_id=evaluation["id"],
                     team_id=evaluation["team_id"],
-                    result=result,
-                ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-            )
+                )
 
-        if evaluation_type == "llm_judge" and result.get("verdict") is True and result.get("reasoning"):
-            event_uuid = inputs.event_data.get("uuid", "")
-            properties = inputs.event_data.get("properties", {})
+        # Old histories must still issue their recorded activity or child-workflow command during replay.
+        replay_legacy_eval_signal = not temporalio.workflow.patched("remove-per-evaluation-signal-2026-08")
+        if (
+            replay_legacy_eval_signal
+            and evaluation_type == "llm_judge"
+            and result.get("verdict") is True
+            and result.get("reasoning")
+        ):
+            event_uuid = event_data.get("uuid", "")
+            properties = event_data.get("properties", {})
             if isinstance(properties, str):
                 properties = json.loads(properties)
 
@@ -339,7 +484,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 evaluation_name=evaluation.get("name", "Unknown evaluation"),
                 evaluation_prompt=(evaluation.get("evaluation_config") or {}).get("prompt", ""),
                 event_uuid=event_uuid,
-                event_type=inputs.event_data.get("event", ""),
+                event_type=event_data.get("event", ""),
                 trace_id=properties.get("$ai_trace_id", ""),
                 reasoning=result.get("reasoning", ""),
                 model=result.get("model", ""),
@@ -358,7 +503,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         execution_timeout=timedelta(minutes=5),
                     )
                 except Exception:
-                    temporalio.workflow.logger.exception(
+                    logger.exception(
                         "Failed to start eval signal workflow",
                         evaluation_id=evaluation["id"],
                         team_id=evaluation["team_id"],
@@ -372,12 +517,11 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
                 except Exception:
-                    temporalio.workflow.logger.exception(
+                    logger.exception(
                         "Failed to emit eval signal",
                         evaluation_id=evaluation["id"],
                         team_id=evaluation["team_id"],
                     )
-
         workflow_result: WorkflowResult = {
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
@@ -385,6 +529,10 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             "is_byok": result.get("is_byok", False),
             "skipped": result.get("skipped", False),
         }
+        if "score" in result:
+            workflow_result["score"] = result["score"]
+        if "categories" in result:
+            workflow_result["categories"] = result["categories"]
         if "verdict" in result:
             workflow_result["verdict"] = result["verdict"]
         if result.get("skipped"):

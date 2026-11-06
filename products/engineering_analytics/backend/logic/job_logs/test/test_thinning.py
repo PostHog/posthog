@@ -1,4 +1,14 @@
+from io import StringIO
+from types import SimpleNamespace
+from typing import cast
+
+import pytest
+
+from _pytest._io import TerminalWriter
+from _pytest.terminal import TerminalReporter
 from parameterized import parameterized
+
+from posthog.conftest import _JUnitTimingsPlugin
 
 from products.engineering_analytics.backend.logic.job_logs.thinning import ThinningConfig, thin_log, thin_log_lines
 
@@ -10,15 +20,44 @@ class TestThinLog:
         text = "\n".join(f"step {i}" for i in range(_CAP))
         assert thin_log(text) == text
 
-    def test_keeps_failure_region_warning_and_summary(self):
+    def test_keeps_exception_at_end_of_long_recovered_traceback(self) -> None:
+        failure = "ValueError: example fixture is unavailable"
+        report = pytest.TestReport(
+            nodeid="test_example.py::test_retry",
+            location=("test_example.py", 1, "test_retry"),
+            keywords={},
+            outcome="failed",
+            longrepr="\n".join([f"fixture frame {i}" for i in range(100)] + [failure]),
+            when="setup",
+        )
+        output = StringIO()
+        writer = TerminalWriter(output)
+        reporter = SimpleNamespace(stats={"rerun": [report]}, hasopt=lambda _: True, write_sep=writer.sep, _tw=writer)
+        _JUnitTimingsPlugin().pytest_terminal_summary(cast(TerminalReporter, reporter))
+        noise = "\n".join(f"job output {i}" for i in range(1000))
+
+        thinned = thin_log(f"{noise}\n{output.getvalue()}\n{noise}")
+
+        assert failure in thinned
+        assert "RERUN test_example.py::test_retry (setup)" in thinned
+        assert "job output 500" not in thinned
+
+    @parameterized.expand(
+        [
+            ("failure", "FAILED tests/test_widget.py::test_render - ConnectionError: disconnected"),
+            ("retry", "RERUN tests/test_widget.py::test_render (call)"),
+            ("warning", "##[warning]GeoIP database not found, continuing without it"),
+            ("summary", "test result: FAILED. 412 passed; 1 failed"),
+            ("exit", "##[error]Process completed with exit code 1."),
+        ]
+    )
+    def test_keeps_failure_region_warning_and_summary(self, _name: str, marker: str) -> None:
         noise = [f"downloading package {i}" for i in range(2000)]
         failure = [
-            "##[warning]GeoIP database not found, continuing without it",
-            "FAILED tests/test_widget.py::test_render - AssertionError: 1 != 2",
-            "test result: FAILED. 412 passed; 1 failed",
-            "##[error]Process completed with exit code 1.",
+            marker,
+            "example_client.py:42: ConnectionError: disconnected",
         ]
-        out = thin_log("\n".join(noise + failure))
+        out = thin_log("\n".join(noise + failure + noise))
 
         content = [line for line in out.splitlines() if "lines omitted" not in line]
         assert len(content) <= _CAP

@@ -4,6 +4,7 @@ import datetime as dt
 from dataclasses import dataclass
 
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 
@@ -15,10 +16,15 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
+from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
-from products.batch_exports.backend.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
+from products.batch_exports.backend.service import (
+    BaseBatchExportInputs,
+    BatchExportEventsModel,
+    BatchExportHogQLModel,
+    BatchExportInsertInputs,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     finish_batch_export_run,
@@ -29,6 +35,7 @@ from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -156,7 +163,6 @@ class DummyExportWorkflow(PostHogWorkflow):
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=None,
             exception_to_raise=inputs.exception_to_raise,
@@ -241,7 +247,7 @@ class TestErrorHandling:
             batch_export_id=str(batch_export.id),
             interval="hour",
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
             exception_to_raise="DummyNonRetryableError",
         )
         run = await self._run_workflow(inputs, expect_workflow_failure=False)
@@ -258,12 +264,60 @@ class TestErrorHandling:
             batch_export_id=str(batch_export.id),
             interval="hour",
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
             exception_to_raise="DummyRetryableError",
         )
         run = await self._run_workflow(inputs, expect_workflow_failure=True)
         assert run.status == "FailedRetryable"
         assert run.latest_error == "DummyRetryableError: This is an unexpected internal error"
+
+    # A real per-query memory-limit failure, in the form the ClickHouse client raises it
+    _QUERY_MEMORY_ERROR = ClickHouseMemoryLimitExceededError(
+        "Code: 241. DB::Exception: Query memory limit exceeded: would use 30.01 GiB "
+        "(attempt to allocate chunk of 4.00 MiB), maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED)"
+    )
+
+    async def test_hogql_queries_fail_terminally_if_per_query_resource_limit_reached(self, batch_export):
+        """A user-supplied HogQL query that hits a per-query ClickHouse resource limit is a user
+        error, so it should fail the run but not the Temporal activity or the workflow.
+        """
+        inputs = DummyExportInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            interval="hour",
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportHogQLModel(
+                query="SELECT event AS event FROM events", user_id=1, modifiers={}
+            ),
+        )
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage._write_batch_export_record_batches_to_internal_stage",
+            new=AsyncMock(side_effect=self._QUERY_MEMORY_ERROR),
+        ):
+            run = await self._run_workflow(inputs, expect_workflow_failure=False)
+
+        assert run.status == "Failed"
+        assert run.latest_error is not None
+        assert "The batch export query needed too much memory to run" in run.latest_error
+
+    async def test_per_query_resource_limit_only_applies_to_hogql(self, batch_export):
+        """The identical ClickHouse error under a fixed model stays retryable, unchanged."""
+        inputs = DummyExportInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            interval="hour",
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportEventsModel(),
+        )
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage._write_batch_export_record_batches_to_internal_stage",
+            new=AsyncMock(side_effect=self._QUERY_MEMORY_ERROR),
+        ):
+            run = await self._run_workflow(inputs, expect_workflow_failure=True)
+
+        # In reality, we would never set the status to FailedRetryable as the activity has no retry
+        # limit; our tests run with RetryPolicy(maximum_attempts=1) however.
+        assert run.status == "FailedRetryable"
 
     async def test_successful_run(self, batch_export_by_interval, interval):
         inputs = DummyExportInputs(
@@ -271,7 +325,7 @@ class TestErrorHandling:
             batch_export_id=str(batch_export_by_interval.id),
             interval=interval,
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
         )
         run = await self._run_workflow(inputs, expect_workflow_failure=False)
         assert run.status == "Completed"
@@ -284,7 +338,7 @@ class TestErrorHandling:
             batch_export_id=str(batch_export.id),
             interval="hour",
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(name="events", schema=None),
+            batch_export_model=BatchExportEventsModel(),
             records_failed_count=5,
         )
         run = await self._run_workflow(inputs, expect_workflow_failure=False)

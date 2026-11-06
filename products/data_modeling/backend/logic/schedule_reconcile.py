@@ -12,7 +12,7 @@ the Temporal schedule API.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -35,15 +35,8 @@ from temporalio.common import RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import feature_enabled_or_false
-from posthog.temporal.common.client import async_connect, sync_connect
-from posthog.temporal.common.schedule import (
-    a_create_schedule,
-    a_delete_schedule,
-    a_update_schedule,
-    delete_schedule,
-    schedule_exists,
-)
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import (
@@ -51,7 +44,6 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     ScheduleReconcilePlan,
     Tier,
     bucket_into_cadence_tiers,
-    is_tier_schedule_id,
     plan_schedule_reconciliation,
     tier_schedule_id,
 )
@@ -60,20 +52,22 @@ from products.data_modeling.backend.logic.freshness import (
     ClampedCadence,
     InvalidTarget,
     UnsupportedFrequencyTargetError,
-    clamp_to_source_floor,
-    compute_effective_cadences,
-    find_invalid_targets,
     format_cadence,
     validate_declared_target,
+    validate_pin,
 )
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
     build_frequency_graph,
+    get_declared_pin,
+    get_declared_target,
     persist_seed_targets,
-    schedulable_nodes,
+    scheduled_cadences,
     seed_targets,
     set_declared_anchor,
+    set_declared_pin,
     set_declared_target,
+    stage_declared_target,
 )
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
@@ -84,40 +78,17 @@ from products.data_modeling.backend.schedule import (
 )
 
 if TYPE_CHECKING:
-    from posthog.models.team import Team
-
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
-TIERED_SCHEDULES_FLAG = "data-modeling-tiered-schedules"
-
-
-def tiered_schedules_enabled(team: "Team") -> bool:
-    """Whether per-node cadence tiers may drive this team's DAG schedules."""
-    return feature_enabled_or_false(
-        TIERED_SCHEDULES_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
-        },
-        send_feature_flag_events=False,
-    )
-
 
 def maybe_reconcile_dag(dag: DAG) -> None:
-    """Trigger hook for graph/target mutations: reconcile an already-tiered DAG, best-effort.
+    """Trigger hook for graph/target mutations: reconcile the DAG, best-effort.
 
     Runs after commit so the reconcile reads the mutated graph, and never raises past the
-    commit — the user's write already succeeded. Only DAGs already converted to cadence
-    tiers are touched: legacy single-schedule DAGs are converted solely by the
-    reconcile_freshness_schedules command, so a stray mutation can neither unschedule an
-    unseeded DAG nor create tiers alongside live v1 schedules on an unmigrated team.
+    commit — the user's write already succeeded.
     """
-    if not tiered_schedules_enabled(dag.team):
-        return
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
 
@@ -125,76 +96,46 @@ def _reconcile_dag_best_effort(dag: DAG) -> None:
     try:
         graph = build_frequency_graph(dag)
         _warn_on_invalid_targets(dag, graph)
-        reconcile_dag_schedules(dag, require_tiered=True, graph=graph)
+        reconcile_dag_schedules(dag, graph=graph)
     except Exception as error:
         logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
 
 
-def dag_has_live_v1_schedules(dag: DAG) -> bool:
-    """Whether any of the DAG's schedulable saved queries still has a live v1 per-query schedule.
-
-    Short-circuits on the first hit, so an unmigrated DAG — where the first query checked almost
-    always has one — costs a single Temporal call.
-    """
-    temporal = sync_connect()
-    for saved_query_id in schedulable_nodes(dag).values_list("saved_query_id", flat=True):
-        if saved_query_id is None:
-            continue
-        if schedule_exists(temporal, schedule_id=str(saved_query_id)):
-            return True
-    return False
-
-
-def dag_can_bootstrap_to_tiers(dag: DAG) -> bool:
-    """Whether this DAG can be born straight onto cadence tiers. Decides only — no side effects.
-
-    Callers reach this only once the v2 lookup has said the DAG has no `execute-dag` schedule.
-    Adding "and no live v1 schedules either" identifies a DAG that nothing has ever scheduled —
-    a new team's first materialization — where seeding tiers cannot double-schedule anything.
-    That is the one safe moment to do it: without this a fresh DAG mints a v1 per-query schedule
-    (v2 is otherwise created only by the migration commands), so every new team is born on v1 and
-    the v1 population grows on its own.
-
-    A DAG carrying live v1 schedules is deliberately left alone — tiers next to them would
-    materialize everything twice. It stays for a migration command to convert and sweep.
-    """
-    if not tiered_schedules_enabled(dag.team):
-        return False
-    return not dag_has_live_v1_schedules(dag)
-
-
-def bootstrap_dag_to_tiers(dag: DAG) -> None:
+def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery | None" = None) -> None:
     """Seed the DAG's targets and queue the reconcile that creates its first tier schedules.
 
     Everything here is a side effect, and `transaction.on_commit` runs the callback immediately
-    for callers that are not inside an atomic block — so call this only once
-    `dag_can_bootstrap_to_tiers` has said yes, and only after whatever frequency validation the
+    for callers that are not inside an atomic block — so call this only once the v2 lookup has
+    said the DAG has no `execute-dag` schedule, and only after whatever frequency validation the
     caller does, never before.
 
-    Reconciles without `require_tiered`, because this is the pass that creates the DAG's first
-    tier schedules: `maybe_reconcile_dag` cannot stand in for it, since it declines a DAG that
-    has no tier schedule yet.
+    `requested_by` is the saved query whose enable triggered this, and is marked not materialized
+    if the reconcile fails.
     """
     persist_seed_targets(dag)
-    transaction.on_commit(lambda: _bootstrap_dag_best_effort(dag))
+    transaction.on_commit(lambda: _bootstrap_dag_best_effort(dag, requested_by))
 
 
-def _bootstrap_dag_best_effort(dag: DAG) -> None:
+def _bootstrap_dag_best_effort(dag: DAG, requested_by: "DataWarehouseSavedQuery | None" = None) -> None:
     try:
         reconcile_dag_schedules(dag)
     except Exception as error:
         logger.exception("Freshness schedule bootstrap failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
+        if requested_by is not None:
+            # A bootstrap that fails creates no schedule, so nothing will ever run the query that
+            # asked for one. Retract the claim here rather than re-raise: this runs after the
+            # caller's transaction committed, so there is no longer a caller to catch it.
+            requested_by.is_materialized = False
+            requested_by.save(update_fields=["is_materialized"])
 
 
 def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> None:
     """Surface declared targets that drifted outside their bounds; never blocks the mutation."""
     if graph is None:
         graph = build_frequency_graph(dag)
-    for invalid in find_invalid_targets(
-        edges=graph.edges, declared_targets=graph.declared_targets, source_intervals=graph.source_intervals
-    ):
+    for invalid in graph.invalid_targets():
         logger.warning(
             "Declared freshness target outside its legal range",
             dag_id=str(dag.id),
@@ -206,7 +147,13 @@ def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> N
 
 
 def apply_saved_query_frequency_target(
-    saved_query: "DataWarehouseSavedQuery", target: timedelta | None, *, reconcile: bool = True
+    saved_query: "DataWarehouseSavedQuery",
+    target: timedelta | None,
+    *,
+    reconcile: bool = True,
+    visible_names: Mapping[str, str] | None = None,
+    pinned: bool | None = None,
+    keep_target: bool = False,
 ) -> int:
     """Write a frequency target through to the DAG node(s) carrying this saved query.
 
@@ -219,6 +166,19 @@ def apply_saved_query_frequency_target(
 
     Returns the number of nodes written (0 = no DAG node, so a non-None target was stored nowhere).
 
+    `visible_names` is the set of node names a refusal is allowed to use. It defaults to naming
+    nothing, because a refusal travels: `schedule_materialization` re-raises it and the endpoints
+    API returns its text verbatim, so a default of "name everything" would hand a caller the name
+    of a node they may not read. Callers holding a per-user map (the saved-query surfaces) pass it
+    and get the better message; everything left out falls back to generic prose.
+
+    `pinned` sets or clears the pin alongside the target; None leaves the stored pin as it is. A pin
+    lets the target sit slower than the node's consumers. `keep_target` ignores `target` and leaves
+    each node's stored target as it is, read after the row lock so a pin written on its own never
+    overwrites a cadence that committed in the meantime. Unpinning without changing the target is
+    not validated, because the target was legal when it was pinned and the scheduler only uses it
+    as a floor for consumer demand once unpinned.
+
     Atomic because a saved query can still carry nodes in several DAGs while duplicates are being
     consolidated away: without it, a target rejected by the third node stays written on the first
     two, and their reconciles are already queued. One node per saved query is the end state, which
@@ -226,6 +186,12 @@ def apply_saved_query_frequency_target(
     """
     written = 0
     with transaction.atomic():
+        # Validating a pin reads other nodes' targets, so two writes on different nodes of one DAG
+        # must not validate against each other's stale state: each could pass and the pair strand a
+        # consumer. Taking the DAG row first, in id order, makes them take turns.
+        dag_ids = Node.objects.filter(team=saved_query.team, saved_query=saved_query).values_list("dag_id", flat=True)
+        locked_dags = DAG.objects.select_for_update(no_key=True).filter(team_id=saved_query.team_id, pk__in=dag_ids)
+        list(locked_dags.order_by("pk").values_list("pk", flat=True))
         # target and anchor share one JSON field and each setter rewrites the whole blob, so an
         # unlocked read-modify-write racing the anchor path would silently drop the other's key
         for node in (
@@ -233,22 +199,89 @@ def apply_saved_query_frequency_target(
             .filter(team=saved_query.team, saved_query=saved_query)
             .select_related("dag", "dag__team")
         ):
-            if target is None:
+            node_target = get_declared_target(node) if keep_target else target
+            if node_target is None:
+                if keep_target and pinned:
+                    raise ValueError("a node needs a declared target before it can be pinned")
                 set_declared_target(node, None)
             else:
-                graph = build_frequency_graph(node.dag)
-                validate_declared_target(
-                    node_id=str(node.id),
-                    target=target,
-                    edges=graph.edges,
-                    declared_targets=graph.declared_targets,
-                    source_intervals=graph.source_intervals,
-                )
-                set_declared_target(node, target)
+                node_id = str(node.id)
+                pin = get_declared_pin(node) if pinned is None else pinned
+                if pinned is not False or node_target != get_declared_target(node):
+                    graph = build_frequency_graph(node.dag)
+                    validate_declared_target(
+                        node_id=node_id,
+                        target=node_target,
+                        edges=graph.edges,
+                        declared_targets=graph.declared_targets,
+                        source_intervals=graph.source_intervals,
+                        names=visible_names or {},
+                        pinned=(graph.pinned - {node_id}) | ({node_id} if pin else set()),
+                    )
+                    if pin:
+                        validate_pin(
+                            node_id=node_id,
+                            target=node_target,
+                            edges=graph.edges,
+                            declared_targets=graph.declared_targets,
+                            source_intervals=graph.source_intervals,
+                            pinned=graph.pinned,
+                            names=visible_names or {},
+                        )
+                set_declared_target(node, node_target)
+                if pinned is not None:
+                    set_declared_pin(node, pinned)
             written += 1
             if reconcile:
                 maybe_reconcile_dag(node.dag)
     return written
+
+
+def apply_managed_view_frequency_targets(team_id: int, targets: Mapping[str, timedelta | None]) -> None:
+    """Store each managed view's provider cadence on its DAG node(s), keyed by saved query id.
+
+    The provider owns these cadences, so no source floor or consumer ceiling is checked: the
+    scheduler already runs a node no finer than its sources deliver (`clamp_to_source_floor`), and
+    the stored value stays equal to what the provider declares. One atomic write, so a batch that
+    moves an upstream and a downstream view together never lands half-applied. Callers reconcile.
+    """
+    with transaction.atomic():
+        # Ordered so that concurrent syncs of the same viewset take the row locks in the same order.
+        nodes = (
+            Node.objects.select_for_update()
+            .only("id", "saved_query_id", "properties")
+            .filter(team_id=team_id, saved_query_id__in=targets)
+            .order_by("id")
+        )
+        changed = []
+        for node in nodes:
+            target = targets[str(node.saved_query_id)]
+            if get_declared_target(node) != target:
+                stage_declared_target(node, target)
+                changed.append(node)
+        Node.objects.bulk_update(changed, ["properties"])
+
+
+def check_saved_query_frequency_target(
+    saved_query: "DataWarehouseSavedQuery", target: timedelta, *, visible_names: Mapping[str, str] | None = None
+) -> None:
+    """Raise if this target cannot be honored on any of the saved query's nodes, writing nothing.
+
+    The write path validates too, but only after its caller has committed state it then has to undo
+    by hand. Callers serving a user can ask first and refuse before touching anything. See
+    `apply_saved_query_frequency_target` for `visible_names`.
+    """
+    for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
+        graph = build_frequency_graph(node.dag)
+        validate_declared_target(
+            node_id=str(node.id),
+            target=target,
+            edges=graph.edges,
+            declared_targets=graph.declared_targets,
+            source_intervals=graph.source_intervals,
+            names=visible_names or {},
+            pinned=graph.pinned,
+        )
 
 
 def apply_saved_query_frequency_anchor(
@@ -278,45 +311,30 @@ def apply_saved_query_frequency_anchor(
     return written
 
 
-def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: FrequencyGraph | None = None) -> bool:
+def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
-    Converging a covered DAG to zero schedules is refused only while it still has just legacy
-    (non-tier) schedules AND schedulable nodes — an empty tier set there almost always means
-    unseeded targets. A DAG with no schedulable nodes has nothing to seed, so its legacy schedule
-    is swept rather than left firing no-op runs. Once tier schedules exist, an empty tier set is a
-    deliberate wind-down (last target reverted/cleared) and those tiers are torn down. With
-    `require_tiered`, a DAG that has no tiered schedule yet (legacy single schedule or nothing) is
-    left untouched.
-
-    Returns whether a reconcile was applied; False means a guard skipped it.
+    An empty tier set is a deliberate wind-down (last target reverted/cleared), so the DAG's
+    schedules are torn down.
     """
     team = dag.team
     if graph is None:
         graph = build_frequency_graph(dag)
-    effective = compute_effective_cadences(
-        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
-    )
-    effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    effective, _clamped = scheduled_cadences(graph)
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
-    return _apply_reconciliation(
+    _apply_reconciliation(
         dag_id=str(dag.id),
         team_id=team.pk,
         organization_id=str(team.organization_id),
         team_timezone=team.timezone,
         desired_tiers=desired_tiers,
-        require_tiered=require_tiered,
-        has_schedulable_nodes=bool(graph.nodes),
     )
 
 
 def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:
     """Seed per-node targets from the DAG's current cadence, then reconcile it to per-cadence tier
-    schedules. The shared conversion step both entry points (the v1 migrate command and
-    reconcile_freshness_schedules) run before clearing the now-redundant saved-query intervals.
-    Also repairs nodes a table backs but the graph still calls ephemeral views: v1 runs them
-    whatever their type, so they only go dark once the conversion's sweep removes their v1
-    schedule.
+    schedules. The shared conversion step of batch_reconcile_teams and reconcile_freshness_schedules.
+    Also repairs nodes a table backs but the graph still calls ephemeral views.
 
     Returns how many targets were seeded.
     """
@@ -328,58 +346,6 @@ def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:
     seeded = persist_seed_targets(dag, default=default)
     reconcile_dag_schedules(dag)
     return seeded
-
-
-def null_saved_query_intervals(dag: DAG, *, only_saved_query_ids: Iterable[str] | None = None) -> int:
-    """Clear `sync_frequency_interval` on the DAG's schedulable saved queries — on tiered teams the
-    node target is authoritative, and a lingering interval could revive a v1 schedule. Pass
-    `only_saved_query_ids` to skip queries whose v1 delete failed, so a re-run retries them.
-    """
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-    saved_query_ids = list(schedulable_nodes(dag).values_list("saved_query_id", flat=True))
-    if only_saved_query_ids is not None:
-        allowed = {str(sq_id) for sq_id in only_saved_query_ids}
-        saved_query_ids = [sq_id for sq_id in saved_query_ids if str(sq_id) in allowed]
-    return DataWarehouseSavedQuery.objects.filter(
-        id__in=saved_query_ids, team_id=dag.team_id, sync_frequency_interval__isnull=False
-    ).update(sync_frequency_interval=None)
-
-
-def delete_v1_saved_query_schedules(
-    nodes: Iterable[Node], *, team_id: int, dag_id: str, temporal: Client | None = None
-) -> set[str]:
-    """Delete live v1 per-query Temporal schedules for the given nodes' saved queries.
-
-    NOT_FOUND is treated as already-gone, so this is a safe no-op on a team that never had v1
-    schedules — which lets the tiered conversion run on a v1 team directly instead of stacking
-    tiers on top of live v1 schedules. Returns the saved-query ids whose delete genuinely failed,
-    so the caller keeps their interval for a retry instead of orphaning a live schedule.
-    """
-    node_list = list(nodes)
-    if temporal is None:
-        temporal = sync_connect()
-    deleted = 0
-    failed: list[str] = []
-    for node in node_list:
-        saved_query = node.saved_query
-        if saved_query is None:
-            continue
-        try:
-            delete_schedule(temporal, schedule_id=str(saved_query.id))
-            deleted += 1
-        except RPCError as e:
-            if e.status == RPCStatusCode.NOT_FOUND:
-                logger.warning("v1 schedule already gone", saved_query_id=str(saved_query.id), team_id=team_id)
-            else:
-                failed.append(str(saved_query.id))
-                logger.exception("Failed to delete v1 schedule", saved_query_id=str(saved_query.id), team_id=team_id)
-    if failed:
-        logger.warning(
-            "Some v1 schedules could not be deleted", dag_id=dag_id, team_id=team_id, failed_schedule_ids=failed
-        )
-    logger.info("Swept v1 per-query schedules", dag_id=dag_id, team_id=team_id, deleted=deleted, total=len(node_list))
-    return set(failed)
 
 
 @dataclasses.dataclass
@@ -406,8 +372,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
     """
     graph = build_frequency_graph(dag)
     declared = {**seed_targets(dag), **graph.declared_targets} if seed else graph.declared_targets
-    effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared)
-    effective, clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    effective, clamped = scheduled_cadences(graph, declared_targets=declared)
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     existing_ids = list_existing_schedule_ids(str(dag.id))
     plan = plan_schedule_reconciliation(str(dag.id), desired_tiers, existing_ids)
@@ -417,9 +382,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
         plan=plan,
         best_effort_source_ids=graph.best_effort_source_ids,
         clamped=clamped,
-        invalid_targets=find_invalid_targets(
-            edges=graph.edges, declared_targets=declared, source_intervals=graph.source_intervals
-        ),
+        invalid_targets=graph.invalid_targets(declared),
         unsupported_tiers=sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS}),
         seeded=seed,
     )
@@ -431,6 +394,71 @@ async def list_existing_schedule_ids(dag_id: str) -> set[str]:
     return await _list_execute_dag_schedule_ids(temporal, dag_id)
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class DagScheduleTeardown:
+    """`ok` is False when the listing or any delete failed, so Temporal may still hold a schedule
+    for this DAG. `deleted` holds the ids that are confirmed gone.
+    """
+
+    ok: bool
+    deleted: tuple[str, ...]
+
+
+@async_to_sync
+async def delete_dag_schedules(dag_id: str) -> DagScheduleTeardown:
+    """Delete every execute-dag schedule Temporal has for a DAG, from an authoritative listing
+    (PostHogDagId search attribute) rather than an id formula, so a tier, legacy or off-scheme
+    schedule cannot survive its DAG. NOT_FOUND means a concurrent delete won the race.
+
+    Callers that own the DAG row must keep it when `ok` is False: the listing is the only way back
+    to these schedules once the row is gone.
+    """
+    try:
+        temporal = await async_connect()
+        schedule_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
+    except Exception as error:
+        logger.exception("Failed to list execute-dag schedules", dag_id=dag_id)
+        capture_exception(error)
+        return DagScheduleTeardown(ok=False, deleted=())
+
+    ok = True
+    deleted: list[str] = []
+    for schedule_id in sorted(schedule_ids):
+        try:
+            await a_delete_schedule(temporal, schedule_id=schedule_id)
+        except Exception as error:
+            if isinstance(error, RPCError) and error.status == RPCStatusCode.NOT_FOUND:
+                continue
+            ok = False
+            logger.exception("Failed to delete execute-dag schedule", schedule_id=schedule_id, dag_id=dag_id)
+            capture_exception(error)
+            continue
+        deleted.append(schedule_id)
+    return DagScheduleTeardown(ok=ok, deleted=tuple(deleted))
+
+
+class TeamScheduleTeardownError(Exception):
+    pass
+
+
+def delete_team_data_modeling_schedules(team_id: int) -> None:
+    """Tear down every Temporal schedule data modeling owns for a team, before CASCADE removes the
+    rows that name them.
+
+    Raises `TeamScheduleTeardownError` if any delete failed, so the caller can retry. What outlives
+    the retries is left to the orphan sweeps, which start from Temporal and so can still find a
+    schedule after its rows are gone.
+    """
+    failed = 0
+
+    for dag_id in DAG.objects.filter(team_id=team_id).values_list("id", flat=True):
+        if not delete_dag_schedules(str(dag_id)).ok:
+            failed += 1
+
+    if failed:
+        raise TeamScheduleTeardownError(f"Failed to delete {failed} data modeling schedules for team {team_id}")
+
+
 @async_to_sync
 async def _apply_reconciliation(
     *,
@@ -439,9 +467,7 @@ async def _apply_reconciliation(
     organization_id: str,
     team_timezone: str,
     desired_tiers: dict[Tier, set[str]],
-    require_tiered: bool = False,
-    has_schedulable_nodes: bool = True,
-) -> bool:
+) -> None:
     unsupported = sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS})
     if unsupported:
         tiers = ", ".join(format_cadence(interval) for interval in unsupported)
@@ -451,27 +477,6 @@ async def _apply_reconciliation(
 
     temporal = await async_connect()
     existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
-    if require_tiered and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
-        logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
-        return False
-    # An empty tier set on a DAG that still has only legacy (non-tier) schedules means an unseeded
-    # conversion — protect it, but only when there is anything to seed: a DAG with no schedulable
-    # nodes gets its legacy schedule swept instead of firing no-op runs forever. Once tier
-    # schedules exist, empty desired is a deliberate wind-down (last target reverted/cleared/
-    # "never"), so let the teardown sweep the stale tiers instead of leaving them firing
-    # execute-dag on node_ids that no longer materialize.
-    if (
-        not desired_tiers
-        and has_schedulable_nodes
-        and existing_ids
-        and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids)
-    ):
-        logger.warning(
-            "Refusing to unschedule an unseeded DAG with only legacy schedules",
-            dag_id=dag_id,
-            existing_schedule_ids=sorted(existing_ids),
-        )
-        return False
     plan = plan_schedule_reconciliation(dag_id, desired_tiers, existing_ids)
 
     # Includes the schedule-type tag: get_v2_scheduled_dag_ids' unscoped sweep filters on
@@ -482,23 +487,31 @@ async def _apply_reconciliation(
     # uncovered; on failure, best-effort-delete the tiers we created (already-applied updates
     # stay — a re-run converges) without letting a failed delete mask the original error.
     created: list[str] = []
+
+    async def create_or_converge(schedule_id: str, schedule: Schedule) -> None:
+        try:
+            await a_create_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+            created.append(schedule_id)
+        except ScheduleAlreadyRunningError:
+            # A concurrent reconcile of the same DAG created this tier from the same graph;
+            # converge onto it. It is deliberately NOT in `created`: it isn't ours to roll back.
+            await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+
     try:
         for schedule_id, (tier, node_ids) in plan.to_create.items():
+            await create_or_converge(schedule_id, _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids))
+        for schedule_id, (tier, node_ids) in plan.to_update.items():
             schedule = _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids)
             try:
-                await a_create_schedule(
-                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
-                )
-                created.append(schedule_id)
-            except ScheduleAlreadyRunningError:
-                # A concurrent reconcile of the same DAG created this tier from the same graph;
-                # converge onto it. It is deliberately NOT in `created`: it isn't ours to roll back.
                 await a_update_schedule(
                     temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
                 )
-        for schedule_id, (tier, node_ids) in plan.to_update.items():
-            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids)
-            await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+            except RPCError as error:
+                if error.status != RPCStatusCode.NOT_FOUND:
+                    raise
+                # The listing reads Temporal's eventually consistent visibility store, so it can
+                # still name a tier that a teardown or a concurrent reconcile just deleted.
+                await create_or_converge(schedule_id, schedule)
     except Exception:
         for schedule_id in created:
             try:
@@ -515,7 +528,6 @@ async def _apply_reconciliation(
         except Exception as error:
             logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
             capture_exception(error)
-    return True
 
 
 async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:
@@ -538,7 +550,7 @@ def _build_tier_schedule(
         ExecuteDAGInputs,
     )
 
-    inputs = ExecuteDAGInputs(team_id=team_id, dag_id=dag_id, node_ids=sorted(node_ids), duckgres_only=False)
+    inputs = ExecuteDAGInputs(team_id=team_id, dag_id=dag_id, node_ids=sorted(node_ids), managed_warehouse_only=False)
     spec = build_schedule_spec(
         entity_id=uuid.UUID(dag_id),
         interval=tier.interval,

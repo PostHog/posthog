@@ -23,8 +23,8 @@ const IS_DEV = import.meta.env.DEV;
 const POLL_INTERVAL_MS = 3_000;
 const POLL_TIMEOUT_MS = 300_000;
 
-export type GithubUserConnectState = ConnectState;
-export type GithubUserConnectError = ConnectError;
+type GithubUserConnectState = ConnectState;
+type GithubUserConnectError = ConnectError;
 
 interface Options {
   projectId: number | null;
@@ -36,8 +36,14 @@ interface Result {
   isConnecting: boolean;
   isTimedOut: boolean;
   hasError: boolean;
+  /** GitHub is waiting on an org owner to approve the install. */
+  isPending: boolean;
   connect: () => Promise<void>;
   reset: () => void;
+}
+
+interface GithubConnectResult extends Result {
+  connectUser: () => Promise<void>;
 }
 
 export function invalidateGithubQueries(
@@ -110,6 +116,12 @@ function useConnectStateMachine(
     onError: (cbError) => {
       stopPolling();
       dispatch({ type: "fail", error: cbError });
+    },
+    onPending: () => {
+      stopPolling();
+      dispatch({ type: "pending" });
+      // The install request row exists server-side now; refresh so banners pick it up.
+      invalidate(projectId);
     },
     onTimedOut: () => {
       stopPolling();
@@ -187,26 +199,32 @@ function machineToResult(
   };
 }
 
-export function useGithubUserConnect({ projectId }: Options): Result {
-  const connectService = useService<GithubConnectService>(
-    GITHUB_CONNECT_SERVICE,
-  );
-  const machine = useConnectStateMachine(projectId);
-
-  const connect = useCallback(async () => {
-    if (machine.stateRef.current === "connecting") return;
-    if (projectId === null) return;
+function useConnectGithubUser(
+  connectService: GithubConnectService,
+  projectId: number | null,
+  machine: StateMachine,
+): () => Promise<void> {
+  return useCallback(async () => {
+    if (machine.stateRef.current === "connecting" || projectId === null) return;
     machine.beginConnecting();
     try {
       await connectService.connectUser(projectId);
       machine.scheduleDevPolling();
       machine.scheduleUserFlowTimeout();
-    } catch (e) {
+    } catch (error) {
       machine.finishWithError(
-        toConnectError(e, "Failed to start GitHub connection"),
+        toConnectError(error, "Failed to start GitHub connection"),
       );
     }
-  }, [connectService, projectId, machine]);
+  }, [connectService, machine, projectId]);
+}
+
+export function useGithubUserConnect({ projectId }: Options): Result {
+  const connectService = useService<GithubConnectService>(
+    GITHUB_CONNECT_SERVICE,
+  );
+  const machine = useConnectStateMachine(projectId);
+  const connect = useConnectGithubUser(connectService, projectId, machine);
 
   return machineToResult(machine, connect);
 }
@@ -232,13 +250,14 @@ export function useGithubConnect({
   projectId,
   projectHasTeamIntegration,
   onConnected,
-}: ConnectOptions): Result {
+}: ConnectOptions): GithubConnectResult {
   const connectService = useService<GithubConnectService>(
     GITHUB_CONNECT_SERVICE,
   );
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const { isAdmin } = useIsOrgAdmin();
   const machine = useConnectStateMachine(projectId, onConnected);
+  const connectUser = useConnectGithubUser(connectService, projectId, machine);
 
   const connect = useCallback(async () => {
     if (machine.stateRef.current === "connecting") return;
@@ -269,5 +288,5 @@ export function useGithubConnect({
     machine,
   ]);
 
-  return machineToResult(machine, connect);
+  return { ...machineToResult(machine, connect), connectUser };
 }

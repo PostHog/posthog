@@ -1,36 +1,64 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block preheader %}Your materialized view failed to sync{% endblock %}
-{% block heading %}Materialized view '{{ saved_query_name }}' sync failed{% endblock %}
-{% block section %}
-<p>
-  Your materialized view <b>{{ saved_query_name }}</b> failed to sync. Please review the view in the SQL editor to see the error details and take any necessary action.
-</p>
-
-<div class="mb mt text-center">
-  <a href="{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}"
-     target="_blank"><b>Open the view</b></a>
-</div>
-
-<div class="mt">
-  <p>
-    If the button above doesn't work, paste this link into your browser:<br />
-    <a href="{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}">{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}</a>
-  </p>
-</div>
-
-<p>
-  If you can't diagnose the issue, please contact us for help.
-</p>
+{% extends "email/base.html" %}
+{% block preheader %}
+    {% if suspended %}
+        Your materialized view stopped running after repeated failures
+    {% else %}
+        Your materialized view failed to sync
+    {% endif %}
 {% endblock %}
-
+{% block heading %}
+    {% if suspended %}
+        Materialized view '{{ saved_query_name }}' was suspended
+    {% else %}
+        Materialized view '{{ saved_query_name }}' sync failed
+    {% endif %}
+{% endblock %}
+{% block section %}
+    <p>
+        {% if suspended %}
+            Your materialized view <b>{{ saved_query_name }}</b> failed several runs in a row, so we stopped running it.
+            Its data stays as it was after the last successful run.
+            Fix the query, then open the view and select Resume to start it again.
+        {% else %}
+            Your materialized view <b>{{ saved_query_name }}</b> failed to sync.
+        {% endif %}
+        {% if error %}
+            The last run reported this error:
+        {% else %}
+            Please review the view in the SQL editor to see the error details and take any necessary action.
+        {% endif %}
+    </p>
+    {% if error %}
+        <div style="background-color: #ffffff;
+                    border: 1px solid #e5e7eb;
+                    border-left: 4px solid #fd7e14;
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    margin-bottom: 12px;
+                    color: #374151;
+                    font-family: monospace;
+                    font-size: 0.85em;
+                    word-break: break-word">{{ error }}</div>
+    {% endif %}
+    <div class="mb mt text-center">
+        <a href="{{ view_url }}" target="_blank"><b>Open the view</b></a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ view_url }}">{{ view_url }}</a>
+        </p>
+    </div>
+    <p>If you can't diagnose the issue, please contact us for help.</p>
+{% endblock %}
 {% block footer %}
-Need help?
-<a href="https://posthog.com/questions?{{ utm_tags }}"
-    target="_blank"><b>Visit support</b></a>
-or
-<a href="https://posthog.com/docs/data-warehouse/views?{{ utm_tags }}"
-    target="_blank"><b>read our documentation</b></a>.<br /><br />
-
-<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
-
+    Need help?
+    <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Visit support</b></a>
+    or
+    <a href="https://posthog.com/docs/data-warehouse/views?{{ utm_tags }}"
+       target="_blank"><b>read our documentation</b></a>.
+    <br />
+    <br />
+    <a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
 {% endblock %}

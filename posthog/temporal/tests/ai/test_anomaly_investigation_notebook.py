@@ -1,10 +1,19 @@
+import pytest
 from posthog.test.base import BaseTest
 
-from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
+from markdown_it import MarkdownIt
+
+from posthog.temporal.ai.anomaly_investigation.evaluated import EvaluatedCheck
+from posthog.temporal.ai.anomaly_investigation.notebook import (
+    NotebookRenderContext,
+    _summary_content,
+    build_investigation_markdown,
+)
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationHypothesis, InvestigationReport
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestAnomalyInvestigationNotebook(BaseTest):
@@ -22,12 +31,15 @@ class TestAnomalyInvestigationNotebook(BaseTest):
             triggered_dates=["2024-06-01", "2024-06-02"],
             interval="day",
         )
-        return NotebookRenderContext(alert=alert, alert_check=alert_check, insight=insight, report=report)
+        return NotebookRenderContext(
+            alert=alert, evaluated=EvaluatedCheck.of_alert_check(alert_check), insight=insight, report=report
+        )
 
-    def test_builds_well_formed_tiptap_doc(self) -> None:
+    def test_builds_markdown_the_cell_tools_accept(self) -> None:
         report = InvestigationReport(
             verdict="true_positive",
-            summary="Traffic doubled after a marketing campaign launch.",
+            metric_meaning="Unique users who loaded a page under /pricing each day.",
+            summary="- **Traffic doubled** after the `spring_launch` campaign.\n- Check [the report](https://example.com) with _marketing_.",
             hypotheses=[
                 InvestigationHypothesis(
                     title="Marketing launch",
@@ -41,18 +53,23 @@ class TestAnomalyInvestigationNotebook(BaseTest):
             recommendations=["Confirm the spike with the marketing team.", "Hold further alerting for 24h."],
             tool_calls_used=3,
         )
-        doc = build_investigation_notebook(self._make_context(report))
+        ctx = self._make_context(report)
+        markdown = build_investigation_markdown(ctx)
 
-        assert doc["type"] == "doc"
-        headings = [node for node in doc["content"] if node.get("type") == "heading"]
-        heading_texts = [node["content"][0]["text"] for node in headings if node.get("content")]
-        assert any("Verdict" == t for t in heading_texts)
-        assert any("Hypotheses" == t for t in heading_texts)
-        assert any("Recommendations" == t for t in heading_texts)
+        assert "## Verdict" in markdown
+        assert "## What this metric measures" in markdown
+        assert "## Hypotheses" in markdown
+        assert "## Recommendations" in markdown
+        assert "### Run details" in markdown
+        assert "- Campaign ID 42 launched at 2024-06-01 08:00" in markdown
+        # The summary keeps its bullets as plain text, and its link stays text.
+        assert "- Traffic doubled after the spring_launch campaign." in markdown
+        assert "- Check the report with marketing." in markdown
+        assert "example.com" not in markdown
 
-        # The saved insight node is present and uses the insight's short_id.
-        ph_queries = [node for node in doc["content"] if node.get("type") == "ph-query"]
-        assert len(ph_queries) == 1
+        # The source insight stays live through a SavedInsightNode Query component.
+        assert '<Query title="pageviews/day"' in markdown
+        assert f'query={{{{"kind":"SavedInsightNode","shortId":"{ctx.insight.short_id}"}}}}' in markdown
 
     def test_handles_inconclusive_verdict_with_empty_sections(self) -> None:
         report = InvestigationReport(
@@ -62,13 +79,22 @@ class TestAnomalyInvestigationNotebook(BaseTest):
             recommendations=[],
             tool_calls_used=0,
         )
-        doc = build_investigation_notebook(self._make_context(report))
-        # Recommendations and Hypotheses headings should be absent when lists are empty.
-        heading_texts = [
-            node["content"][0]["text"]
-            for node in doc["content"]
-            if node.get("type") == "heading" and node.get("content")
-        ]
-        assert "Hypotheses" not in heading_texts
-        assert "Recommendations" not in heading_texts
-        assert "Verdict" in heading_texts
+        markdown = build_investigation_markdown(self._make_context(report))
+
+        assert "## Hypotheses" not in markdown
+        assert "## Recommendations" not in markdown
+        assert "## What this metric measures" not in markdown
+        assert "## Verdict" in markdown
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "See [the report](https://evil.example/collect) now.",
+        "See ``x` [click](https://evil.example/collect) `y`` now.",
+    ],
+)
+def test_summary_links_never_render_as_links(summary: str) -> None:
+    markdown = convert_notebook_content_to_markdown({"type": "doc", "content": _summary_content(summary)})
+
+    assert "<a " not in MarkdownIt("commonmark").render(markdown)

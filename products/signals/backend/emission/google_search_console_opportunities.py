@@ -31,8 +31,11 @@ import structlog
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
+from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.models import SignalEmissionRecord
 
@@ -152,12 +155,10 @@ def google_search_console_record_fetcher(
     """Fetch recent opportunity rows via HogQL and dedupe against already-emitted signals."""
     table_name: str = context["table_name"]
     extra: dict[str, Any] = context.get("extra", {})
-    # No external input here — the where clause and table name are internal constants — so f-string
-    # interpolation is safe (matches data_warehouse_record_fetcher's rationale).
     fields_sql = ", ".join(config.fields)
     query = f"""
         SELECT {fields_sql}
-        FROM {table_name}
+        FROM {escape_table_name(table_name)}
         WHERE date > now() - interval {GSC_LOOKBACK_DAYS} day AND {config.where_clause}
         ORDER BY date DESC, impressions DESC
         LIMIT {config.max_records}
@@ -177,6 +178,8 @@ def google_search_console_record_fetcher(
             team=team,
             query_type="EmitSignalsNewRecords",
             bypass_warehouse_access_control=True,
+            ch_user=ClickHouseUser.SIGNALS,
+            workload=Workload.OFFLINE,
         )
     except Exception as e:
         logger.exception(f"Error querying Google Search Console opportunities: {e}", **extra)

@@ -1,10 +1,14 @@
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import type { AnyPropertyFilter } from '~/types'
 
-import { evaluationsList, evaluationsPartialUpdate } from '../generated/api'
-import type { EvaluationApi, PatchedEvaluationApi } from '../generated/api.schemas'
+import { evaluationsList, evaluationsPartialUpdate, llmAnalyticsEvaluationReportsList } from '../generated/api'
+import type { EvaluationApi, EvaluationReportApi, PatchedEvaluationApi } from '../generated/api.schemas'
+import { listAllPages } from '../listAllPages'
 import type { EvaluationConfig, ModelConfiguration } from './types'
 
 const EVALUATIONS_PAGE_SIZE = 100
+const EVALUATION_REPORTS_PAGE_SIZE = 100
 
 function isPropertyFilter(value: unknown): value is AnyPropertyFilter {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -23,7 +27,7 @@ function modelConfigurationFromApi(evaluation: EvaluationApi): ModelConfiguratio
     }
 }
 
-export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig {
+export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig | null {
     const baseEvaluation = {
         id: evaluation.id,
         name: evaluation.name,
@@ -61,21 +65,25 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig {
 
     if (
         evaluation.evaluation_type === 'llm_judge' &&
-        evaluation.output_type === 'boolean' &&
+        (evaluation.output_type === 'boolean' ||
+            evaluation.output_type === 'numeric' ||
+            evaluation.output_type === 'categorical') &&
         evaluation.evaluation_config &&
         'prompt' in evaluation.evaluation_config
     ) {
         return {
             ...baseEvaluation,
             evaluation_type: 'llm_judge',
-            output_type: 'boolean',
+            output_type: evaluation.output_type,
             evaluation_config: { prompt: evaluation.evaluation_config.prompt },
         }
     }
 
     if (
         evaluation.evaluation_type === 'hog' &&
-        evaluation.output_type === 'boolean' &&
+        (evaluation.output_type === 'boolean' ||
+            evaluation.output_type === 'numeric' ||
+            evaluation.output_type === 'categorical') &&
         evaluation.evaluation_config &&
         'source' in evaluation.evaluation_config &&
         typeof evaluation.evaluation_config.source === 'string'
@@ -83,7 +91,7 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig {
         return {
             ...baseEvaluation,
             evaluation_type: 'hog',
-            output_type: 'boolean',
+            output_type: evaluation.output_type,
             evaluation_config: { source: evaluation.evaluation_config.source },
         }
     }
@@ -98,22 +106,29 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig {
         }
     }
 
-    throw new Error(`Evaluation ${evaluation.id} has an invalid type or configuration`)
+    return null
 }
 
 export async function listAllEvaluations(projectId: string): Promise<EvaluationConfig[]> {
-    const evaluations: EvaluationConfig[] = []
-    let offset = 0
-
-    while (true) {
-        const response = await evaluationsList(projectId, { limit: EVALUATIONS_PAGE_SIZE, offset })
-        evaluations.push(...response.results.map(evaluationFromApi))
-
-        if (!response.next || response.results.length === 0) {
-            return evaluations
-        }
-        offset += response.results.length
+    const evaluations = await listAllPages((offset) =>
+        evaluationsList(projectId, { limit: EVALUATIONS_PAGE_SIZE, offset })
+    )
+    const supportedEvaluations = evaluations.map(evaluationFromApi).filter((evaluation) => evaluation !== null)
+    if (supportedEvaluations.length !== evaluations.length) {
+        lemonToast.warning('Some evaluations could not be displayed. Refresh the page to get the latest version.', {
+            toastId: 'unsupported-evaluation-types',
+        })
     }
+    return supportedEvaluations
+}
+
+export async function listAllEvaluationReports(projectId: string): Promise<EvaluationReportApi[]> {
+    return listAllPages((offset) =>
+        llmAnalyticsEvaluationReportsList(projectId, {
+            limit: EVALUATION_REPORTS_PAGE_SIZE,
+            offset,
+        })
+    )
 }
 
 export async function patchEvaluation(
@@ -121,5 +136,9 @@ export async function patchEvaluation(
     evaluationId: string,
     update: PatchedEvaluationApi
 ): Promise<EvaluationConfig> {
-    return evaluationFromApi(await evaluationsPartialUpdate(projectId, evaluationId, update))
+    const evaluation = evaluationFromApi(await evaluationsPartialUpdate(projectId, evaluationId, update))
+    if (!evaluation) {
+        throw new Error('This evaluation is not supported by this version of PostHog. Refresh the page and try again.')
+    }
+    return evaluation
 }

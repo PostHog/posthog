@@ -1,0 +1,484 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Supermemory ingestion job repeatedly fails to embed a lecture transcript",
+  "scenario": "A self-hosted supermemory ingestion worker tries four times over about fourteen hours to chunk and embed a biology lecture transcript for a study-assistant app's memory store, failing each time with the same embedding provider timeout and retrying with backoff.",
+  "summary": {
+    "events": {
+      "$ai_span": 4,
+      "$ai_generation": 4,
+      "$ai_trace": 4
+    },
+    "traces": 4,
+    "sessions": 1,
+    "errors": 12,
+    "libs": [
+      "memory-extractor-worker"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "queue_name": "index",
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$lib": "memory-extractor-worker",
+        "$ai_parent_id": "trace_5hs6xunqpc5os9gbbt7e2v0ezxguwazad1w4p0vpvawoquiq1b7v",
+        "$ai_is_error": true,
+        "$ai_latency": 0.002,
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_trace_id": "trace_5hs6xunqpc5os9gbbt7e2v0ezxguwazad1w4p0vpvawoquiq1b7v",
+        "$ai_span_id": "span_ojhnxdglfks3s608f",
+        "$ai_span_name": "supermemory_ingest_task",
+        "task_status": "retry",
+        "retry_eligible": true,
+        "$geoip_disable": true,
+        "cluster": "us-w1",
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input_state": {
+          "session_id": "sess_8a9l3pmb11mnoy3mh",
+          "memoryId": null,
+          "orgId": "org_4wojcs76qv5ctmzfk0",
+          "title": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration",
+          "chunk_count": 15
+        },
+        "$ai_output_state": {
+          "chunks_embedded": 0,
+          "error_metadata": {}
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_name": "supermemory_ingest_task",
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "$ai_trace_id": "trace_5hs6xunqpc5os9gbbt7e2v0ezxguwazad1w4p0vpvawoquiq1b7v",
+        "session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_parent_id": "span_ojhnxdglfks3s608f",
+        "$ai_provider": "openai",
+        "chunk_count": 15,
+        "retry_eligible": true,
+        "$ai_span_id": "span_7r725s0d0qwstjrs6",
+        "$ai_latency": 0.002,
+        "queue_name": "index",
+        "$geoip_disable": true,
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_is_error": true,
+        "cluster": "us-w1",
+        "task_status": "retry",
+        "error_metadata": {},
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$lib": "memory-extractor-worker",
+        "chunks_embedded": 0,
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input": [
+          {
+            "content": "You are the supermemory ingestion worker. Split the document into semantic chunks and extract key facts as structured memories.",
+            "role": "system"
+          },
+          {
+            "content": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration\nTranscript, auto-captured from lecture recording, lightly cleaned for filler words.\n\n[00:00] Okay, let's pick up where we left off. Last time we covered the general structure of eukaryotic cells. Today we're going deep on mitochondria, since it comes up constantly on the exam.\n\n[00:41] Mitochondria are often called the powerhouse of the cell, which is a cliche at this point but it's accurate. They generate most of the cell's ATP through oxidative phosphorylation. Structurally, a mitochondrion has an outer membrane, an inner membrane folded into cristae, and a matrix.\n\n[01:55] The cristae increase surface area for the electron transport chain. This is a classic exam question: why are cristae folded? Answer: more surface area means more room for the protein complexes that do the actual electron transport.\n\n[02:40] The matrix contains enzymes for the citric acid cycle, also called the Krebs cycle. This is where acetyl-CoA gets oxidized, producing NADH and FADH2, which feed electrons into the electron transport chain.\n\n[03:30] Quick note on the endosymbiotic theory: mitochondria have their own circular DNA, separate from the nucleus, and their own ribosomes. This is strong evidence they originated as free-living bacteria that were engulfed by an ancestral eukaryotic cell and became permanent residents.\n\n[04:15] Let's walk through the four stages of cellular respiration: glycolysis in the cytoplasm, pyruvate oxidation, the citric acid cycle in the matrix, and oxidative phosphorylation across the inner membrane. Glycolysis alone nets only 2 ATP; the big payoff comes later.\n\n\n[05:00] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[06:37] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[07:14] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[08:51] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[09:28] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[10:05] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[11:42] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[12:19] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[13:56] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[14:33] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[15:10] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[16:47] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[17:24] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[18:01] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[19:38] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[20:15] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[21:52] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[22:29] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[23:06] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[24:43] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[25:20] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[26:57] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[27:34] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[28:11] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[29:48] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[30:25] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n## Chunking policy\nDocuments longer than 4000 characters are split into overlapping chunks of roughly 800 characters with a 100 character overlap, so that a fact split across a chunk boundary still appears whole in at least one chunk. Lecture transcripts are split on timestamp markers when present, since that produces more semantically coherent chunks than a fixed character window. A chunk boundary that falls mid-sentence is nudged forward to the next sentence end wherever the parser can find one within fifty characters, which keeps chunks readable on their own when a human reviews them later, and slightly improves embedding quality since most embedding models were trained on complete sentences rather than arbitrary character windows. Worth noting for the on-call runbook: this specific failure signature, a timeout on an embedding batch call partway through a document, has historically resolved itself once the embedding cluster's autoscaler catches up with a burst of ingestion traffic, usually within two or three retry cycles.\n\n## Retry policy for ingestion jobs\nAn ingestion job that fails during the embedding step retries up to six times with exponential backoff starting at twenty minutes, capping at twelve hours between attempts. If all six attempts fail, the job is marked permanently failed and an alert is raised for a human to inspect the embedding provider's health rather than retrying indefinitely. The backoff timer resets only when a job fully succeeds, not when an individual chunk succeeds, so a job that fails repeatedly on the same chunk will show the exact same input on every attempt, which is expected behavior and not a sign that the retry logic is broken. Worth noting for the on-call runbook: this specific failure signature, a timeout on an embedding batch call partway through a document, has historically resolved itself once the embedding cluster's autoscaler catches up with a burst of ingestion traffic, usually within two or three retry cycles.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": []
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_id": "trace_5hs6xunqpc5os9gbbt7e2v0ezxguwazad1w4p0vpvawoquiq1b7v",
+        "cluster": "us-w1",
+        "$geoip_disable": true,
+        "session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$lib": "memory-extractor-worker",
+        "$ai_latency": 0.002,
+        "chunk_count": 15,
+        "queue_name": "index",
+        "$ai_is_error": true,
+        "$ai_trace_name": "supermemory_ingest_task",
+        "$ai_span_name": "supermemory_ingest_task",
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "task_status": "retry",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "retry_eligible": true,
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input_state": {
+          "session_id": "sess_8a9l3pmb11mnoy3mh",
+          "memoryId": null,
+          "orgId": "org_4wojcs76qv5ctmzfk0",
+          "title": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration",
+          "chunk_count": 15
+        },
+        "$ai_output_state": {
+          "chunks_embedded": 0,
+          "error_metadata": {}
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 1289420,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "$geoip_disable": true,
+        "task_status": "retry",
+        "$ai_parent_id": "span_ft9vw8nd72fasland",
+        "$ai_provider": "openai",
+        "queue_name": "index",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_trace_id": "trace_4cicpi6rs6ttw6k3rbacy1v2b2un0xatnxzwxsq00yom0vsyrip5",
+        "$ai_is_error": true,
+        "session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_latency": 0.002,
+        "chunk_count": 15,
+        "error_metadata": {},
+        "cluster": "us-w1",
+        "$lib": "memory-extractor-worker",
+        "$ai_span_id": "span_8hgzvcvuyphxq3wof",
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$ai_span_name": "supermemory_ingest_task",
+        "retry_eligible": true,
+        "chunks_embedded": 0,
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input": [
+          {
+            "content": "You are the supermemory ingestion worker. Split the document into semantic chunks and extract key facts as structured memories.",
+            "role": "system"
+          },
+          {
+            "content": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration\nTranscript, auto-captured from lecture recording, lightly cleaned for filler words.\n\n[00:00] Okay, let's pick up where we left off. Last time we covered the general structure of eukaryotic cells. Today we're going deep on mitochondria, since it comes up constantly on the exam.\n\n[00:41] Mitochondria are often called the powerhouse of the cell, which is a cliche at this point but it's accurate. They generate most of the cell's ATP through oxidative phosphorylation. Structurally, a mitochondrion has an outer membrane, an inner membrane folded into cristae, and a matrix.\n\n[01:55] The cristae increase surface area for the electron transport chain. This is a classic exam question: why are cristae folded? Answer: more surface area means more room for the protein complexes that do the actual electron transport.\n\n[02:40] The matrix contains enzymes for the citric acid cycle, also called the Krebs cycle. This is where acetyl-CoA gets oxidized, producing NADH and FADH2, which feed electrons into the electron transport chain.\n\n[03:30] Quick note on the endosymbiotic theory: mitochondria have their own circular DNA, separate from the nucleus, and their own ribosomes. This is strong evidence they originated as free-living bacteria that were engulfed by an ancestral eukaryotic cell and became permanent residents.\n\n[04:15] Let's walk through the four stages of cellular respiration: glycolysis in the cytoplasm, pyruvate oxidation, the citric acid cycle in the matrix, and oxidative phosphorylation across the inner membrane. Glycolysis alone nets only 2 ATP; the big payoff comes later.\n\n\n[05:00] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[06:37] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[07:14] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[08:51] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[09:28] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[10:05] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[11:42] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[12:19] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[13:56] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[14:33] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[15:10] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[16:47] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[17:24] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[18:01] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[19:38] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[20:15] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[21:52] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[22:29] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[23:06] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[24:43] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[25:20] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[26:57] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[27:34] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[28:11] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[29:48] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[30:25] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n## Chunking policy\nDocuments longer than 4000 characters are split into overlapping chunks of roughly 800 characters with a 100 character overlap, so that a fact split across a chunk boundary still appears whole in at least one chunk. Lecture transcripts are split on timestamp markers when present, since that produces more semantically coherent chunks than a fixed character window. A chunk boundary that falls mid-sentence is nudged forward to the next sentence end wherever the parser can find one within fifty characters, which keeps chunks readable on their own when a human reviews them later, and slightly improves embedding quality since most embedding models were trained on complete sentences rather than arbitrary character windows. Worth noting for the on-call runbook: this specific failure signature, a timeout on an embedding batch call partway through a document, has historically resolved itself once the embedding cluster's autoscaler catches up with a burst of ingestion traffic, usually within two or three retry cycles.\n\n## Retry policy for ingestion jobs\nAn ingestion job that fails during the embedding step retries up to six times with exponential backoff starting at twenty minutes, capping at twelve hours between attempts. If all six attempts fail, the job is marked permanently failed and an alert is raised for a human to inspect the embedding provider's health rather than retrying indefinitely. The backoff timer resets only when a job fully succeeds, not when an individual chunk succeeds, so a job that fails repeatedly on the same chunk will show the exact same input on every attempt, which is expected behavior and not a sign that the retry logic is broken. Worth noting for the on-call runbook: this specific failure signature, a timeout on an embedding batch call partway through a document, has historically resolved itself once the embedding cluster's autoscaler catches up with a burst of ingestion traffic, usually within two or three retry cycles.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": []
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 1289420,
+      "distinct_id": "user-1",
+      "properties": {
+        "$geoip_disable": true,
+        "$ai_latency": 0.003,
+        "task_status": "retry",
+        "$lib": "memory-extractor-worker",
+        "$ai_is_error": true,
+        "$ai_parent_id": "trace_4cicpi6rs6ttw6k3rbacy1v2b2un0xatnxzwxsq00yom0vsyrip5",
+        "queue_name": "index",
+        "$ai_trace_id": "trace_4cicpi6rs6ttw6k3rbacy1v2b2un0xatnxzwxsq00yom0vsyrip5",
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "$ai_span_name": "supermemory_ingest_task",
+        "retry_eligible": true,
+        "cluster": "us-w1",
+        "$ai_span_id": "span_ft9vw8nd72fasland",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input_state": {
+          "session_id": "sess_8a9l3pmb11mnoy3mh",
+          "memoryId": null,
+          "orgId": "org_4wojcs76qv5ctmzfk0",
+          "title": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration",
+          "chunk_count": 15
+        },
+        "$ai_output_state": {
+          "chunks_embedded": 0,
+          "error_metadata": {}
+        }
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 1289420,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "$ai_trace_id": "trace_4cicpi6rs6ttw6k3rbacy1v2b2un0xatnxzwxsq00yom0vsyrip5",
+        "cluster": "us-w1",
+        "$geoip_disable": true,
+        "$ai_trace_name": "supermemory_ingest_task",
+        "$ai_latency": 0.003,
+        "session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_is_error": true,
+        "task_status": "retry",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "retry_eligible": true,
+        "$ai_span_name": "supermemory_ingest_task",
+        "queue_name": "index",
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$lib": "memory-extractor-worker",
+        "chunk_count": 15,
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input_state": {
+          "session_id": "sess_8a9l3pmb11mnoy3mh",
+          "memoryId": null,
+          "orgId": "org_4wojcs76qv5ctmzfk0",
+          "title": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration",
+          "chunk_count": 15
+        },
+        "$ai_output_state": {
+          "chunks_embedded": 0,
+          "error_metadata": {}
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 49420334,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_is_error": true,
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "$lib": "memory-extractor-worker",
+        "queue_name": "index",
+        "task_status": "retry",
+        "$ai_parent_id": "span_5u4z7hvdfiyrrmus5",
+        "session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_latency": 0.001,
+        "$ai_trace_id": "trace_4qdip5s7d1f8if5f53ybhhbpf8w8rrmxas1uu3xhboe5dgaubvn8",
+        "cluster": "us-w1",
+        "$geoip_disable": true,
+        "$ai_provider": "openai",
+        "$ai_span_name": "supermemory_ingest_task",
+        "retry_eligible": true,
+        "error_metadata": {},
+        "$ai_span_id": "span_e3t0elncj6nbeo4ve",
+        "chunk_count": 15,
+        "chunks_embedded": 0,
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input": [
+          {
+            "content": "You are the supermemory ingestion worker. Split the document into semantic chunks and extract key facts as structured memories.",
+            "role": "system"
+          },
+          {
+            "content": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration\nTranscript, auto-captured from lecture recording, lightly cleaned for filler words.\n\n[00:00] Okay, let's pick up where we left off. Last time we covered the general structure of eukaryotic cells. Today we're going deep on mitochondria, since it comes up constantly on the exam.\n\n[00:41] Mitochondria are often called the powerhouse of the cell, which is a cliche at this point but it's accurate. They generate most of the cell's ATP through oxidative phosphorylation. Structurally, a mitochondrion has an outer membrane, an inner membrane folded into cristae, and a matrix.\n\n[01:55] The cristae increase surface area for the electron transport chain. This is a classic exam question: why are cristae folded? Answer: more surface area means more room for the protein complexes that do the actual electron transport.\n\n[02:40] The matrix contains enzymes for the citric acid cycle, also called the Krebs cycle. This is where acetyl-CoA gets oxidized, producing NADH and FADH2, which feed electrons into the electron transport chain.\n\n[03:30] Quick note on the endosymbiotic theory: mitochondria have their own circular DNA, separate from the nucleus, and their own ribosomes. This is strong evidence they originated as free-living bacteria that were engulfed by an ancestral eukaryotic cell and became permanent residents.\n\n[04:15] Let's walk through the four stages of cellular respiration: glycolysis in the cytoplasm, pyruvate oxidation, the citric acid cycle in the matrix, and oxidative phosphorylation across the inner membrane. Glycolysis alone nets only 2 ATP; the big payoff comes later.\n\n\n[05:00] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[06:37] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[07:14] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[08:51] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[09:28] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[10:05] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[11:42] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[12:19] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[13:56] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[14:33] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[15:10] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[16:47] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[17:24] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[18:01] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[19:38] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[20:15] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[21:52] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[22:29] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[23:06] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[24:43] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[25:20] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[26:57] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[27:34] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[28:11] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[29:48] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[30:25] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n## Chunking policy\nDocuments longer than 4000 characters are split into overlapping chunks of roughly 800 characters with a 100 character overlap, so that a fact split across a chunk boundary still appears whole in at least one chunk. Lecture transcripts are split on timestamp markers when present, since that produces more semantically coherent chunks than a fixed character window. A chunk boundary that falls mid-sentence is nudged forward to the next sentence end wherever the parser can find one within fifty characters, which keeps chunks readable on their own when a human reviews them later, and slightly improves embedding quality since most embedding models were trained on complete sentences rather than arbitrary character windows. Worth noting for the on-call runbook: this specific failure signature, a timeout on an embedding batch call partway through a document, has historically resolved itself once the embedding cluster's autoscaler catches up with a burst of ingestion traffic, usually within two or three retry cycles.\n\n## Retry policy for ingestion jobs\nAn ingestion job that fails during the embedding step retries up to six times with exponential backoff starting at twenty minutes, capping at twelve hours between attempts. If all six attempts fail, the job is marked permanently failed and an alert is raised for a human to inspect the embedding provider's health rather than retrying indefinitely. The backoff timer resets only when a job fully succeeds, not when an individual chunk succeeds, so a job that fails repeatedly on the same chunk will show the exact same input on every attempt, which is expected behavior and not a sign that the retry logic is broken. Worth noting for the on-call runbook: this specific failure signature, a timeout on an embedding batch call partway through a document, has historically resolved itself once the embedding cluster's autoscaler catches up with a burst of ingestion traffic, usually within two or three retry cycles.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": []
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 49420335,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_name": "supermemory_ingest_task",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_trace_id": "trace_4qdip5s7d1f8if5f53ybhhbpf8w8rrmxas1uu3xhboe5dgaubvn8",
+        "$ai_is_error": true,
+        "chunk_count": 15,
+        "queue_name": "index",
+        "retry_eligible": true,
+        "task_status": "retry",
+        "$ai_latency": 0.002,
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$geoip_disable": true,
+        "cluster": "us-w1",
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$lib": "memory-extractor-worker",
+        "$ai_span_name": "supermemory_ingest_task",
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input_state": {
+          "session_id": "sess_8a9l3pmb11mnoy3mh",
+          "memoryId": null,
+          "orgId": "org_4wojcs76qv5ctmzfk0",
+          "title": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration",
+          "chunk_count": 15
+        },
+        "$ai_output_state": {
+          "chunks_embedded": 0,
+          "error_metadata": {}
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 49420335,
+      "distinct_id": "user-1",
+      "properties": {
+        "cluster": "us-w1",
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$ai_is_error": true,
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "retry_eligible": true,
+        "task_status": "retry",
+        "$ai_span_name": "supermemory_ingest_task",
+        "$geoip_disable": true,
+        "$ai_span_id": "span_5u4z7hvdfiyrrmus5",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_trace_id": "trace_4qdip5s7d1f8if5f53ybhhbpf8w8rrmxas1uu3xhboe5dgaubvn8",
+        "$ai_latency": 0.002,
+        "queue_name": "index",
+        "$ai_parent_id": "trace_4qdip5s7d1f8if5f53ybhhbpf8w8rrmxas1uu3xhboe5dgaubvn8",
+        "$lib": "memory-extractor-worker",
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input_state": {
+          "session_id": "sess_8a9l3pmb11mnoy3mh",
+          "memoryId": null,
+          "orgId": "org_4wojcs76qv5ctmzfk0",
+          "title": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration",
+          "chunk_count": 15
+        },
+        "$ai_output_state": {
+          "chunks_embedded": 0,
+          "error_metadata": {}
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 49890414,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_parent_id": "span_oa5kyef3lspkfujtb",
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "retry_eligible": true,
+        "chunk_count": 15,
+        "task_status": "retry",
+        "chunks_embedded": 0,
+        "$ai_trace_id": "trace_jqz5x61edkxn23o73t9hrrmnowxlndkgr1016r5nm6bd464o1q1u",
+        "$ai_latency": 0.002,
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_is_error": true,
+        "session_id": "sess_8a9l3pmb11mnoy3mh",
+        "error_metadata": {},
+        "queue_name": "index",
+        "$geoip_disable": true,
+        "cluster": "us-w1",
+        "$ai_provider": "openai",
+        "$ai_span_name": "supermemory_ingest_task",
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "$lib": "memory-extractor-worker",
+        "$ai_span_id": "span_58e72vczkaqs6cljg",
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input": [
+          {
+            "content": "You are the supermemory ingestion worker. Split the document into semantic chunks and extract key facts as structured memories.",
+            "role": "system"
+          },
+          {
+            "content": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration\nTranscript, auto-captured from lecture recording, lightly cleaned for filler words.\n\n[00:00] Okay, let's pick up where we left off. Last time we covered the general structure of eukaryotic cells. Today we're going deep on mitochondria, since it comes up constantly on the exam.\n\n[00:41] Mitochondria are often called the powerhouse of the cell, which is a cliche at this point but it's accurate. They generate most of the cell's ATP through oxidative phosphorylation. Structurally, a mitochondrion has an outer membrane, an inner membrane folded into cristae, and a matrix.\n\n[01:55] The cristae increase surface area for the electron transport chain. This is a classic exam question: why are cristae folded? Answer: more surface area means more room for the protein complexes that do the actual electron transport.\n\n[02:40] The matrix contains enzymes for the citric acid cycle, also called the Krebs cycle. This is where acetyl-CoA gets oxidized, producing NADH and FADH2, which feed electrons into the electron transport chain.\n\n[03:30] Quick note on the endosymbiotic theory: mitochondria have their own circular DNA, separate from the nucleus, and their own ribosomes. This is strong evidence they originated as free-living bacteria that were engulfed by an ancestral eukaryotic cell and became permanent residents.\n\n[04:15] Let's walk through the four stages of cellular respiration: glycolysis in the cytoplasm, pyruvate oxidation, the citric acid cycle in the matrix, and oxidative phosphorylation across the inner membrane. Glycolysis alone nets only 2 ATP; the big payoff comes later.\n\n\n[05:00] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[06:37] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[07:14] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[08:51] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[09:28] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[10:05] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[11:42] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[12:19] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[13:56] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[14:33] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[15:10] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[16:47] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[17:24] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[18:01] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[19:38] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[20:15] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[21:52] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[22:29] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[23:06] Moving on to why cyanide is lethal because it blocks complex IV of the electron transport chain. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[24:43] Moving on to the difference between aerobic and anaerobic respiration in terms of final electron acceptor. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[25:20] Moving on to how brown fat mitochondria use uncoupling proteins to generate heat instead of ATP. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[26:57] Moving on to common exam traps confusing the citric acid cycle location with glycolysis's location. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[27:34] Moving on to how mitochondrial DNA mutations relate to certain inherited metabolic disorders. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[28:11] Moving on to why muscle cells have far more mitochondria per cell than skin cells. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[29:48] Moving on to the electron transport chain and how protons are pumped across the inner membrane. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n[30:25] Moving on to ATP synthase and the chemiosmotic gradient that drives ATP production. Make sure this is in your notes before the quiz on Friday, since it's the kind of detail that shows up as a distractor on multiple choice.\n\n## Chunking policy\nDocuments longer than 4000 characters are split into overlapping chunks of roughly 800 characters with a 100 character overlap, so that a fact split across a chunk boundary still appears whole in at least one chunk. Lecture transcripts are split on timestamp markers when present, since that produces more semantically coherent chunks than a fixed character window. A chunk boundary that falls mid-sentence is nudged forward to the next sentence end wherever the parser can find one within fifty characters, which keeps chunks readable on their own when a human reviews them later, and slightly improves embedding quality since most embedding models were trained on complete sentences rather than arbitrary character windows. Worth noting for the on-call runbook: this specific failure signature, a timeout on an embedding batch call partway through a document, has historically resolved itself once the embedding cluster's autoscaler catches up with a burst of ingestion traffic, usually within two or three retry cycles.\n\n## Retry policy for ingestion jobs\nAn ingestion job that fails during the embedding step retries up to six times with exponential backoff starting at twenty minutes, capping at twelve hours between attempts. If all six attempts fail, the job is marked permanently failed and an alert is raised for a human to inspect the embedding provider's health rather than retrying indefinitely. The backoff timer resets only when a job fully succeeds, not when an individual chunk succeeds, so a job that fails repeatedly on the same chunk will show the exact same input on every attempt, which is expected behavior and not a sign that the retry logic is broken. Worth noting for the on-call runbook: this specific failure signature, a timeout on an embedding batch call partway through a document, has historically resolved itself once the embedding cluster's autoscaler catches up with a burst of ingestion traffic, usually within two or three retry cycles.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": []
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 49890414,
+      "distinct_id": "user-1",
+      "properties": {
+        "session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_span_name": "supermemory_ingest_task",
+        "cluster": "us-w1",
+        "queue_name": "index",
+        "$ai_latency": 0.002,
+        "$ai_trace_name": "supermemory_ingest_task",
+        "$geoip_disable": true,
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "task_status": "retry",
+        "chunk_count": 15,
+        "retry_eligible": true,
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "$lib": "memory-extractor-worker",
+        "$ai_is_error": true,
+        "$ai_trace_id": "trace_jqz5x61edkxn23o73t9hrrmnowxlndkgr1016r5nm6bd464o1q1u",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input_state": {
+          "session_id": "sess_8a9l3pmb11mnoy3mh",
+          "memoryId": null,
+          "orgId": "org_4wojcs76qv5ctmzfk0",
+          "title": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration",
+          "chunk_count": 15
+        },
+        "$ai_output_state": {
+          "chunks_embedded": 0,
+          "error_metadata": {}
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 49890414,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_id": "trace_jqz5x61edkxn23o73t9hrrmnowxlndkgr1016r5nm6bd464o1q1u",
+        "$geoip_disable": true,
+        "$ai_parent_id": "trace_jqz5x61edkxn23o73t9hrrmnowxlndkgr1016r5nm6bd464o1q1u",
+        "$lib": "memory-extractor-worker",
+        "$ai_session_id": "sess_8a9l3pmb11mnoy3mh",
+        "$ai_span_name": "supermemory_ingest_task",
+        "retry_eligible": true,
+        "$ai_latency": 0.002,
+        "task_status": "retry",
+        "$ai_is_error": true,
+        "$groups": {
+          "account": "org_4wojcs76qv5ctmzfk0"
+        },
+        "queue_name": "index",
+        "$ai_span_id": "span_oa5kyef3lspkfujtb",
+        "$ai_error": "EmbeddingProviderTimeoutError: request to embeddings.self-hosted.internal timed out after 30000ms while embedding chunk 3/15 of document doc_8f2a91c4; job will retry with exponential backoff.",
+        "cluster": "us-w1",
+        "$group_0": "org_4wojcs76qv5ctmzfk0",
+        "$ai_input_state": {
+          "session_id": "sess_8a9l3pmb11mnoy3mh",
+          "memoryId": null,
+          "orgId": "org_4wojcs76qv5ctmzfk0",
+          "title": "Cell Biology Lecture 7 - Mitochondria and Cellular Respiration",
+          "chunk_count": 15
+        },
+        "$ai_output_state": {
+          "chunks_embedded": 0,
+          "error_metadata": {}
+        }
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

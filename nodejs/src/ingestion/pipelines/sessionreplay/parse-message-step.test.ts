@@ -1,10 +1,18 @@
 import { Message } from 'node-rdkafka'
 import { promisify } from 'node:util'
-import { gzip } from 'zlib'
+import { gzip, gzipSync } from 'zlib'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
 
-import { ParseMessageStepInput, createParseMessageStep, decompressMessageValue } from './parse-message-step'
+import { SessionRecordingIngesterMetrics } from './metrics'
+import {
+    ParseMessageStepInput,
+    createParseMessageStep,
+    decompressMessageValue,
+    observeClockSkew,
+    splitByDecodedBytes,
+    statedDecodedBytes,
+} from './parse-message-step'
 import { SessionReplayHeaders } from './pipeline-types'
 
 const compressWithGzip = promisify(gzip)
@@ -25,6 +33,8 @@ describe('createParseMessageStep', () => {
         snapshotSource?: string
         lib?: string
         distinctId?: string
+        sentAt?: string
+        now?: string
     }): string {
         const event = {
             event: '$snapshot_items',
@@ -41,6 +51,12 @@ describe('createParseMessageStep', () => {
         }
         if (options.distinctId !== undefined) {
             rawMessage.distinct_id = options.distinctId
+        }
+        if (options.sentAt !== undefined) {
+            rawMessage.sent_at = options.sentAt
+        }
+        if (options.now !== undefined) {
+            rawMessage.now = options.now
         }
         return JSON.stringify(rawMessage)
     }
@@ -196,6 +212,110 @@ describe('createParseMessageStep', () => {
                 details: {},
             })
         }
+    })
+
+    describe('message limits', () => {
+        const limits = { maxWindowIdBytes: 8, maxEventsPerMessage: 2 }
+        const event = { type: 2, timestamp: fixedTimeMs }
+
+        beforeEach(() => {
+            jest.useFakeTimers({ now: fixedTime })
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            [
+                'the window ID',
+                'w'.repeat(9),
+                [event],
+                'message_window_id_too_long',
+                { sessionId: 'session-1', windowIdBytes: 9, events: 1 },
+            ],
+            [
+                'the window ID in bytes',
+                'é'.repeat(5),
+                [event],
+                'message_window_id_too_long',
+                { sessionId: 'session-1', windowIdBytes: 10, events: 1 },
+            ],
+            [
+                'the event count',
+                'w',
+                [event, event, event],
+                'message_too_many_events',
+                { sessionId: 'session-1', windowIdBytes: 1, events: 3 },
+            ],
+        ] as const)(
+            'drops a message past the limit on %s when enforced',
+            async (_, windowId, items, reason, details) => {
+                const payload = createSnapshotPayload({
+                    sessionId: 'session-1',
+                    distinctId: 'user-123',
+                    windowId,
+                    snapshotItems: [...items],
+                })
+
+                const result = await createParseMessageStep({ ...limits, enforce: true })(createInput(0, 1, payload))
+
+                expect(result).toMatchObject({
+                    type: PipelineResultType.DROP,
+                    reason,
+                    warnings: [{ type: reason, details }],
+                })
+            }
+        )
+
+        it.each([
+            ['past a limit, not enforced', 'w'.repeat(9), false, ['message_window_id_too_long']],
+            ['at the limits, enforced', 'w'.repeat(8), true, []],
+        ])('keeps a message %s', async (_, windowId, enforce, counted) => {
+            const overLimitSpy = jest
+                .spyOn(SessionRecordingIngesterMetrics, 'incrementMessagesOverLimit')
+                .mockImplementation()
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                distinctId: 'user-123',
+                windowId,
+                snapshotItems: [event, event],
+            })
+
+            const result = await createParseMessageStep({ ...limits, enforce })(createInput(0, 1, payload))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(overLimitSpy.mock.calls.map(([limit]) => limit)).toEqual(counted)
+        })
+    })
+
+    describe('splitByDecodedBytes', () => {
+        const raw = (bytes: number): Message => ({ value: Buffer.alloc(bytes) }) as Message
+        const lz4Stating = (bytes: number): Message => {
+            const value = Buffer.alloc(8)
+            value.writeUInt32LE(bytes, 0)
+            return { value, headers: [{ 'content-encoding': 'lz4' }] } as unknown as Message
+        }
+
+        it.each([
+            ['keeps one part when off', [raw(10), raw(10)], 0, [2]],
+            ['keeps messages that fit together', [raw(10), raw(10)], 20, [2]],
+            ['starts a new part past the limit', [raw(10), raw(10), raw(1)], 15, [1, 2]],
+            ['gives a message over the limit its own part', [raw(1), raw(30), raw(1)], 10, [1, 1, 1]],
+            ['counts the stated lz4 size', [lz4Stating(1000), lz4Stating(1000)], 1500, [1, 1]],
+            ['counts the bytes when a stated size is past the cap', [lz4Stating(2 ** 31), raw(4)], 20, [2]],
+        ] as const)('%s', (_, messages, maxBytes, sizes) => {
+            const parts = splitByDecodedBytes([...messages], maxBytes)
+
+            expect(parts.map((part) => part.length)).toEqual(sizes)
+            expect(parts.flat()).toEqual(messages)
+        })
+
+        it('counts the stated gzip size', () => {
+            const gzipped = gzipSync(Buffer.alloc(1000))
+
+            expect(statedDecodedBytes({ value: gzipped } as Message)).toBe(1000)
+        })
     })
 
     it('should handle gzipped messages', async () => {
@@ -592,6 +712,161 @@ describe('createParseMessageStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.parsedMessage.session_id).toBe(expectedSessionId)
         }
+    })
+
+    describe('clock skew', () => {
+        const HOUR_MS = 60 * 60 * 1000
+        const serverNow = '2023-01-01T00:00:00.000Z'
+        let observeSpy: jest.SpyInstance
+        let unmeasuredSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            observeSpy = jest.spyOn(SessionRecordingIngesterMetrics, 'observeMessageClockSkew').mockImplementation()
+            unmeasuredSpy = jest
+                .spyOn(SessionRecordingIngesterMetrics, 'incrementMessageClockSkewUnmeasured')
+                .mockImplementation()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            ['reads 1h ahead of the server', '2023-01-01T01:00:00.000Z', 'device_ahead', 3600],
+            ['reads 1h behind the server', '2022-12-31T23:00:00.000Z', 'device_behind', 3600],
+            ['agrees with the server', serverNow, 'device_ahead', 0],
+        ])('records the offset when the device clock %s', (_desc, sentAt, direction, seconds) => {
+            observeClockSkew(sentAt, serverNow)
+
+            expect(observeSpy).toHaveBeenCalledWith(direction, seconds)
+            expect(unmeasuredSpy).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['capture recorded no sent_at', undefined, serverNow],
+            ['sent_at is unparseable', 'not-a-date', serverNow],
+            ['capture recorded no now', '2023-01-01T01:00:00.000Z', undefined],
+        ])('counts the message as unmeasured when %s', (_desc, sentAt, now) => {
+            observeClockSkew(sentAt, now)
+
+            expect(observeSpy).not.toHaveBeenCalled()
+            expect(unmeasuredSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('reports no offset for a buffered upload from a correctly clocked device', async () => {
+            const step = createParseMessageStep()
+            const now = Date.now()
+            const uploadedAt = new Date(now).toISOString()
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                // Buffering, not a wrong clock: the Kafka message time would read this as an hour of skew.
+                snapshotItems: [{ type: 2, timestamp: now - HOUR_MS }],
+                distinctId: 'user-123',
+                sentAt: uploadedAt,
+                now: uploadedAt,
+            })
+            const input = createInput(0, 1, payload, undefined, { timestamp: now })
+
+            const result = await step(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings).toHaveLength(0)
+            expect(observeSpy).toHaveBeenCalledWith('device_ahead', 0)
+        })
+    })
+
+    describe('clock skew correction', () => {
+        const SEVEN_HOURS_MS = 7 * 60 * 60 * 1000
+
+        function skewedInput(options: {
+            baseMs: number
+            deviceOffsetMs?: number
+            latencyMs?: number
+            sentAt?: string | null
+            now?: string | null
+        }): ParseMessageStepInput {
+            const { baseMs, deviceOffsetMs = 0, latencyMs = 0 } = options
+            const now = options.now === undefined ? new Date(baseMs + latencyMs).toISOString() : options.now
+            const sentAt =
+                options.sentAt === undefined ? new Date(baseMs + deviceOffsetMs).toISOString() : options.sentAt
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                snapshotItems: [
+                    { type: 2, timestamp: baseMs + deviceOffsetMs },
+                    { type: 3, timestamp: baseMs + deviceOffsetMs + 1000 },
+                ],
+                distinctId: 'user-123',
+                ...(now !== null && { now }),
+                ...(sentAt !== null && { sentAt }),
+            })
+            return createInput(0, 1, payload)
+        }
+
+        async function startMsOf(input: ParseMessageStepInput): Promise<number> {
+            const result = await createParseMessageStep()(input)
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type !== PipelineResultType.OK) {
+                throw new Error('expected an ok result')
+            }
+            return result.value.parsedMessage.eventsRange.start.toMillis()
+        }
+
+        it.each([
+            ['ahead', SEVEN_HOURS_MS],
+            ['behind', -SEVEN_HOURS_MS],
+        ])('shifts rrweb timestamps to server time when the device clock is %s', async (_name, deviceOffsetMs) => {
+            const baseMs = Date.now()
+            const step = createParseMessageStep()
+
+            const result = await step(skewedInput({ baseMs, deviceOffsetMs }))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                const { parsedMessage } = result.value
+                expect(parsedMessage.eventsRange.start.toMillis()).toBe(baseMs)
+                expect(parsedMessage.eventsRange.end.toMillis()).toBe(baseMs + 1000)
+                expect(parsedMessage.eventsByWindowId['window-1'].map((e) => e.timestamp)).toEqual([
+                    baseMs,
+                    baseMs + 1000,
+                ])
+            }
+        })
+
+        it('corrects two messages of one session identically despite different latencies', async () => {
+            const baseMs = Date.now()
+
+            const fast = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, latencyMs: 50 }))
+            const slow = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, latencyMs: 2500 }))
+
+            expect(fast).toBe(slow)
+        })
+
+        it('leaves a well-behaved clock untouched, so latency cannot reorder its events', async () => {
+            const baseMs = Date.now()
+
+            const startMs = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: 400, latencyMs: 900 }))
+
+            expect(startMs).toBe(baseMs + 400)
+        })
+
+        const validIso = '2023-01-01T00:00:00.000Z'
+        it.each([
+            ['sent_at is missing', { sentAt: null }],
+            ['now is missing', { now: null }],
+            ['sent_at is unparseable', { sentAt: 'not-a-date' }],
+            ['now is unparseable', { now: 'not-a-date' }],
+        ])(
+            'leaves timestamps unchanged when %s',
+            async (_name, overrides: { now?: string | null; sentAt?: string | null }) => {
+                const baseMs = Date.now()
+
+                const startMs = await startMsOf(
+                    skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, now: validIso, ...overrides })
+                )
+
+                expect(startMs).toBe(baseMs + SEVEN_HOURS_MS)
+            }
+        )
     })
 
     describe('decompressMessageValue lz4 hardening', () => {

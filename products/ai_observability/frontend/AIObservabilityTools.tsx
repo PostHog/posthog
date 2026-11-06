@@ -10,11 +10,13 @@ import { escapeRegex } from 'lib/utils/actions'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { AIObservabilityInstrumentationCheckEnumApi } from './generated/api.schemas'
+import { useInstrumentationEmptyState } from './hooks/useInstrumentationEmptyState'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { aiObservabilityToolsLogic } from './tabs/aiObservabilityToolsLogic'
 
@@ -32,6 +34,10 @@ export function AIObservabilityTools(): JSX.Element {
         buildToolHeatmapQuery,
     } = useValues(aiObservabilityToolsLogic)
     const { searchParams } = useValues(router)
+    const instrumentationEmptyState = useInstrumentationEmptyState(
+        AIObservabilityInstrumentationCheckEnumApi.ToolCalls,
+        'Tool calls are missing from your AI events'
+    )
 
     const { renderSortableColumnTitle } = useSortableColumns(toolsSort, setToolsSort)
 
@@ -60,6 +66,7 @@ export function AIObservabilityTools(): JSX.Element {
                 )
             }}
             context={{
+                ...instrumentationEmptyState,
                 customActions: [
                     <Tooltip title="View tool usage trends over time" key="trends">
                         <LemonButton

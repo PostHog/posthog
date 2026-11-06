@@ -11,7 +11,7 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
     Track cohort calculation statistics for performance monitoring and debugging.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.CASCADE)
 
     # Calculation metadata

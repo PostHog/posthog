@@ -5,12 +5,13 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { urls } from 'scenes/urls'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductTab } from './common'
+import { webAnalyticsDateMapping } from './constants'
+import { getNewInsightUrlForQuery } from './insightsUtils'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
@@ -43,7 +44,12 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
             <div className="WebAnalyticsModal deprecated-space-y-4">
                 <div className="flex flex-row flex-wrap gap-2">
                     {productTab !== ProductTab.MARKETING && <WebPropertyFilters />}
-                    <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                    <DateFilter
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={setDates}
+                        dateOptions={webAnalyticsDateMapping}
+                    />
                     <div className="ml-auto">
                         <WebAnalyticsExport query={modal.query} insightProps={modal.insightProps} />
                     </div>
@@ -63,7 +69,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                 <div className="flex flex-row justify-end">
                     {modal.canOpenInsight ? (
                         <LemonButton
-                            to={urls.insightNew({ query: modal.query, sceneSource: 'web-analytics' })}
+                            to={getNewInsightUrlForQuery(modal.query)}
                             icon={<IconOpenInNew />}
                             size="small"
                             type="secondary"

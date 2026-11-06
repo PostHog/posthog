@@ -4,12 +4,20 @@ name: Desktop Warm Caches
 # and the desktop PR workflows are restore-only. This job seeds every cache
 # they restore. Saves are allowed here because the triggers are
 # default-branch-scoped (push to master + manual dispatch).
+#
+# Turbo artifacts are not seeded here. Depot runners preset TURBO_API, which
+# points turbo at Depot Cache as its remote cache. Turbo runs fetch and store
+# task outputs there on their own.
 
 on:
     push:
         branches: [master]
+        # Every cache key in this workflow hashes pnpm-lock.yaml alone, so no other file
+        # can invalidate one. A wider filter would spend a macOS runner from a fixed,
+        # shared pool on install steps that no-op when all three caches hit. Use
+        # workflow_dispatch to reseed by hand if a cache is evicted.
         paths:
-            - 'products/desktop/**'
+            - 'products/desktop/pnpm-lock.yaml'
             - '.github/workflows/desktop-warm-caches.yml'
     workflow_dispatch:
 
@@ -19,9 +27,14 @@ concurrency:
     # the older run's, so cancelling that run loses nothing.
     cancel-in-progress: true
 
+env:
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
 jobs:
     linux:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 15
         permissions:
             contents: read
@@ -30,51 +43,63 @@ jobs:
                 working-directory: products/desktop
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/setup-node@v6.4.0
               with:
-                  node-version: 22
+                  node-version-file: products/desktop/.node-version
 
             - name: Get pnpm store path
               id: pnpm-store
               run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
             - name: Cache pnpm store
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache@v6.1.0
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # No restore-keys: a fresh save per commit keeps the cache from growing
-            # forever, at the cost of a cold build on every master push.
-            - name: Cache turbo artifacts
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+            # Same keys as desktop-test.yml's electron-test job.
+            - name: Cache Electron binary
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache@v6.1.0
               with:
-                  path: products/desktop/.turbo/cache
-                  key: desktop-turbo-${{ github.sha }}
+                  path: ~/.cache/electron
+                  key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
 
+            - name: Cache Playwright browsers
+              id: playwright-cache
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache@v6.1.0
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+
+            # Electron's own postinstall fills ~/.cache/electron.
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
               env:
                   SKIP_ELECTRON_REBUILD: '1'
 
-            - name: Seed turbo cache (build + typecheck)
-              run: |
-                  pnpm run build:deps
-                  pnpm run typecheck
+            - name: Install Playwright Chromium
+              if: steps.playwright-cache.outputs.cache-hit != 'true'
+              run: pnpm --filter code exec playwright install chromium
 
     macos:
-        runs-on: macos-latest
+        runs-on: depot-macos-26
         timeout-minutes: 30
         permissions:
             contents: read
@@ -83,19 +108,22 @@ jobs:
                 working-directory: products/desktop
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/setup-node@v6.4.0
               with:
-                  node-version: 22
+                  node-version-file: products/desktop/.node-version
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -103,23 +131,26 @@ jobs:
 
             - name: Cache pnpm store
               id: pnpm-cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache@v6.1.0
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # Same keys as desktop-test.yml's integration-test job.
+            # Same keys as desktop-update-e2e.yml, the remaining macOS consumer.
             - name: Cache Electron binary
               id: electron-cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache@v6.1.0
               with:
                   path: ~/Library/Caches/electron
                   key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
 
             - name: Cache Playwright browsers
               id: playwright-cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache@v6.1.0
               with:
                   path: ~/Library/Caches/ms-playwright
                   key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}

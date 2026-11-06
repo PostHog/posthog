@@ -7,6 +7,44 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface MCPCustomHarnessApi {
+    readonly id: string
+    /**
+     * Name to show for calls from this harness.
+     * @maxLength 100
+     * @pattern ^[\w .+&()/-]+$
+     */
+    name: string
+    /**
+     * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+     * @maxLength 100
+     */
+    match_pattern: string
+    /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+    icon?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedMCPCustomHarnessApi {
+    readonly id?: string
+    /**
+     * Name to show for calls from this harness.
+     * @maxLength 100
+     * @pattern ^[\w .+&()/-]+$
+     */
+    name?: string
+    /**
+     * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+     * @maxLength 100
+     */
+    match_pattern?: string
+    /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+    icon?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 /**
  * * `feedback` - Feedback
  * * `missing_capability` - Missing capability
@@ -74,10 +112,10 @@ export interface PaginatedMCPAnalyticsSubmissionListApi {
  * * `docs` - Docs
  * * `other` - Other
  */
-export type MCPFeedbackCreateCategoryEnumApi =
-    (typeof MCPFeedbackCreateCategoryEnumApi)[keyof typeof MCPFeedbackCreateCategoryEnumApi]
+export type MCPAnalyticsSubmissionFeedbackCategoryEnumApi =
+    (typeof MCPAnalyticsSubmissionFeedbackCategoryEnumApi)[keyof typeof MCPAnalyticsSubmissionFeedbackCategoryEnumApi]
 
-export const MCPFeedbackCreateCategoryEnumApi = {
+export const MCPAnalyticsSubmissionFeedbackCategoryEnumApi = {
     Results: 'results',
     Usability: 'usability',
     Bug: 'bug',
@@ -138,7 +176,7 @@ export interface MCPFeedbackCreateApi {
      * * `bug` - Bug
      * * `docs` - Docs
      * * `other` - Other */
-    category?: MCPFeedbackCreateCategoryEnumApi
+    category?: MCPAnalyticsSubmissionFeedbackCategoryEnumApi
 }
 
 /**
@@ -172,9 +210,10 @@ export interface MCPIntentClusterToolEntryApi {
  * * `completed` - Completed
  * * `error` - Error
  */
-export type OutcomeEnumApi = (typeof OutcomeEnumApi)[keyof typeof OutcomeEnumApi]
+export type MCPIntentClusterJourneyPathOutcomeEnumApi =
+    (typeof MCPIntentClusterJourneyPathOutcomeEnumApi)[keyof typeof MCPIntentClusterJourneyPathOutcomeEnumApi]
 
-export const OutcomeEnumApi = {
+export const MCPIntentClusterJourneyPathOutcomeEnumApi = {
     Completed: 'completed',
     Error: 'error',
 } as const
@@ -186,7 +225,7 @@ export interface MCPIntentClusterJourneyPathApi {
      *
      * * `completed` - Completed
      * * `error` - Error */
-    readonly outcome: OutcomeEnumApi
+    readonly outcome: MCPIntentClusterJourneyPathOutcomeEnumApi
     /** Number of sessions in this cluster that followed this exact path. */
     readonly count: number
 }
@@ -476,6 +515,8 @@ export interface MCPSessionApi {
     readonly session_id: string
     /** Total number of $mcp_tool_call events in the session. */
     readonly tool_calls: number
+    /** Number of the session's $mcp_tool_call events with $mcp_is_error true, counted over the same properties / filter_test_accounts matches as tool_calls. */
+    readonly error_calls: number
     /** Timestamp of the first $mcp_tool_call event in the session. */
     readonly session_start: string
     /** Timestamp of the most recent $mcp_tool_call event in the session. */
@@ -497,6 +538,16 @@ export interface MCPSessionApi {
 }
 
 export interface PaginatedMCPSessionListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
     results: MCPSessionApi[]
     /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
     has_next: boolean
@@ -530,6 +581,16 @@ export interface MCPToolCallApi {
 }
 
 export interface PaginatedMCPToolCallListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
     results: MCPToolCallApi[]
     /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
     has_next: boolean
@@ -636,6 +697,7 @@ export interface MCPIntentDigestApi {
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -654,6 +716,7 @@ export type McpAnalyticsIntentClustersRetrieveParams = {
 export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -672,6 +735,15 @@ export type McpAnalyticsSessionsListParams = {
      */
     date_to?: string
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean
+    /**
+     * Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.
+     * @nullable
+     */
+    has_errors?: boolean | null
+    /**
      * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
      * @minimum 1
      * @maximum 500
@@ -686,6 +758,10 @@ export type McpAnalyticsSessionsListParams = {
      * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
      */
     order_by?: string
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string
     /**
      * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
      */
@@ -705,6 +781,10 @@ export type McpAnalyticsSessionsToolCallsParams = {
      */
     date_from?: string
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean
+    /**
      * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
      * @minimum 1
      * @maximum 500
@@ -715,4 +795,23 @@ export type McpAnalyticsSessionsToolCallsParams = {
      * @minimum 0
      */
     offset?: number
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string
+}
+
+export type McpAnalyticsSessionsActivityOverviewParams = {
+    /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string
+    /**
+     * Compute the overview again instead of serving the cached result, at most once every 5 seconds. The fresh result replaces the cached one.
+     */
+    refresh?: boolean
 }

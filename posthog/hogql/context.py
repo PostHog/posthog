@@ -1,11 +1,16 @@
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.workload import Workload
+from posthog.week_start_day import WeekStartDay
 
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
@@ -14,12 +19,14 @@ if TYPE_CHECKING:
     from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.property_metadata import PropertyMetadata
+    from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FlagCallPropertyMetadata
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.models import Team, User
-    from posthog.rbac.user_access_control import UserAccessControl
     from posthog.scopes import APIScopeObject
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -30,7 +37,7 @@ def _default_modifiers() -> "HogQLQueryModifiers":
     return HogQLQueryModifiers()
 
 
-@dataclass
+@dataclass(frozen=False)
 class HogQLFieldAccess:
     input: list[str]
     type: Optional[Literal["event", "event.properties", "person", "person.properties"]]
@@ -38,7 +45,9 @@ class HogQLFieldAccess:
     sql: str
 
 
-@dataclass
+# Mutable by design, because the resolver and the printers accumulate into it as they walk a query:
+# bound values, notices, warnings, and the lazily-resolved retention floors below.
+@dataclass(frozen=False)
 class HogQLContext:
     """Context given to a HogQL expression printer"""
 
@@ -58,10 +67,19 @@ class HogQLContext:
     # Every call site that sets this MUST include an inline comment explaining why.
     bypass_warehouse_access_control: bool = False
 
+    # Lets the lazy database build reuse recently fetched per-team sources (TTL-bounded staleness).
+    # Set ONLY by editor-assist paths (autocomplete, metadata); query execution must build fresh.
+    use_cached_sources: bool = False
+
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
     # Metadata discovered for a direct Postgres connection, if one is selected
     direct_postgres_connection_metadata: dict[str, Any] | None = None
+    # Query-scoped mappings preserve resolved logical tables through Trino lowering.
+    trino_table_locators: Mapping[str, tuple[str, str, str]] = field(default_factory=dict)
+    # Detached printer stages snapshot these values so they do not retain the schema database.
+    timezone: Optional[str] = None
+    week_start_day: Optional[WeekStartDay] = None
     # Set when the query executes against an external direct-SQL connection instead of PostHog's own cluster
     is_direct_query: bool = False
     # If set, will save string constants to this dict. Inlines strings into the query if None.
@@ -81,8 +99,13 @@ class HogQLContext:
     limit_context: Optional[LimitContext] = None
     # Apply a FORMAT clause to output data in given format.
     output_format: str | None = None
+    emit_top_level_settings: bool = True
+    top_level_settings: dict[str, object] = field(default_factory=dict)
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
+    # Standard-library names the bytecode compiler accepts for a direct call. The Python and Node
+    # standard libraries differ, so a caller whose bytecode runs elsewhere names what it can execute.
+    allowed_functions: Optional[dict[str, tuple[int, Optional[int]]]] = None
     property_type_overrides: Optional[dict[str, str]] = None
     # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
     # merged into a table via UNION ALL in error tracking).
@@ -98,6 +121,10 @@ class HogQLContext:
     # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+    referenced_saved_query_ids: set[str] = field(default_factory=set)
+    referenced_warehouse_table_ids: set[str] = field(default_factory=set)
+    directly_read_ids: set[str] = field(default_factory=set)
+    view_body_depth: int = 0
 
     # Resources with object-level access restrictions referenced by the query, collected while printing
     # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
@@ -130,10 +157,10 @@ class HogQLContext:
     # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
     # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
-    # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
+    # Property-level access control: (property_name, PropertyDefinition.Type, group_type_index) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
-    restricted_properties: Optional[set[tuple[str, int]]] = None
+    restricted_properties: Optional[set[RestrictedProperty]] = None
 
     # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
     # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.
@@ -146,6 +173,27 @@ class HogQLContext:
     # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
+    # Backend-only switch for transforms/flag_calls_from_flag_evaluations.py. The data-deletion path sets it False, so a
+    # flag-call subquery in a deletion predicate keeps reading `events` whatever the organization's mode.
+    rewrite_flag_calls_to_flag_evaluations: bool = True
+    # Per-query event property definitions that transform loads. The transform runs once for the query and once for
+    # each saved view the query inlines, so this loads each property's definition once per query.
+    flag_call_property_metadata: Optional["FlagCallPropertyMetadata"] = field(default=None, compare=False, repr=False)
+    # The (start, end) of each `$feature_flag_called` literal in the query text that the flag-call union reads.
+    # `_resolve_with_swaps` in transforms/flag_calls_from_flag_evaluations.py fills it when the swap succeeds, and the
+    # SQL editor's notices read it.
+    flag_called_union_spans: set[tuple[int, int]] = field(default_factory=set)
+
+    # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
+    # the filter is selective, so set it only for a query shape that was measured to be faster with it.
+    order_events_reads_by_sort_key: bool = False
+
+    # Entitlement-derived floors for federated tables that declare a `retention_field`, keyed by
+    # Postgres table name so two such tables can never share one window. Resolved lazily by the
+    # ClickHouse printer the first time each table is printed, so a query that reads none of them
+    # never pays the organization load. A stored None means "resolved, no restriction", which is why
+    # membership rather than truthiness decides whether the lookup already ran.
+    postgres_retention_starts: dict[str, Optional[datetime]] = field(default_factory=dict, compare=False, repr=False)
 
     def __post_init__(self):
         if self.team:
@@ -157,7 +205,7 @@ class HogQLContext:
             from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
 
             # Pin per context so an instance-setting flip can't mix schemas within one query.
-            self.use_new_events_schema = use_new_events_schema(self.team_id)
+            self.use_new_events_schema = use_new_events_schema(self.team_id, self.modifiers)
         return self.use_new_events_schema
 
     def add_value(self, value: Any) -> str:
@@ -205,6 +253,28 @@ class HogQLContext:
             from posthog.schema import HogQLNotice  # noqa: PLC0415
 
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
+
+    def clear_reads(self) -> None:
+        self.referenced_saved_query_ids.clear()
+        self.referenced_warehouse_table_ids.clear()
+        self.directly_read_ids.clear()
+
+    def read_tags(self) -> dict[str, list[str] | None]:
+        reads_warehouse_object = bool(self.referenced_saved_query_ids or self.referenced_warehouse_table_ids)
+        return {
+            "saved_query_ids": sorted(self.referenced_saved_query_ids) or None,
+            "warehouse_table_ids": sorted(self.referenced_warehouse_table_ids) or None,
+            "directly_read_ids": (sorted(self.directly_read_ids) or None) if reads_warehouse_object else None,
+        }
+
+    @contextmanager
+    def entering_select(self, view_name: str | None) -> Iterator[None]:
+        step = 0 if view_name is None else 1
+        self.view_body_depth += step
+        try:
+            yield
+        finally:
+            self.view_body_depth -= step
 
     def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
         self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning

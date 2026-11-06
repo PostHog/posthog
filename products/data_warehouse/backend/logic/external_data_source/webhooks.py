@@ -7,6 +7,7 @@ from posthog.models import Team
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.source_management import (
     Config,
@@ -32,14 +33,6 @@ class WebhookSetupResult:
     webhook_url: str = ""
     error: str | None = None
     pending_inputs: list[str] = dataclasses.field(default_factory=list)
-
-
-@dataclasses.dataclass
-class WebhookHogFunctionCreateResult:
-    hog_function: HogFunction | None = None
-    webhook_url: str = ""
-    error: str | None = None
-    hog_function_created: bool = False
 
 
 def get_or_create_webhook_hog_function(
@@ -130,8 +123,22 @@ def get_or_create_webhook_hog_function(
     webhook_url = get_webhook_url(hog_function.id)
 
     return WebhookHogFunctionCreateResult(
-        hog_function=hog_function, webhook_url=webhook_url, hog_function_created=created
+        hog_function_id=str(hog_function.id), webhook_url=webhook_url, hog_function_created=created
     )
+
+
+def store_webhook_extra_inputs(hog_function_id: str, team_id: int, extra_inputs: dict[str, Any]) -> None:
+    """Write provider-returned webhook inputs (the signing secret) onto the receiving HogFunction.
+
+    The values a provider hands back on create are unrecoverable, so every caller has to persist
+    them the same way. `save` re-splits the secret inputs into `encrypted_inputs`.
+    """
+    hog_function = HogFunction.objects.get(id=hog_function_id, team_id=team_id)
+    hog_function.inputs = {
+        **(hog_function.inputs or {}),
+        **{key: {"value": value} for key, value in extra_inputs.items()},
+    }
+    hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
 
 def create_and_register_webhook(
@@ -142,20 +149,14 @@ def create_and_register_webhook(
     api_version: str | None = None,
 ) -> WebhookSetupResult:
     """Create the external webhook and save any extra inputs (e.g. signing secret) onto the HogFunction."""
-    assert hog_fn_result.hog_function is not None
+    assert hog_fn_result.hog_function_id is not None
 
     result: WebhookCreationResult = source.create_webhook(
         config, hog_fn_result.webhook_url, team_id, api_version=api_version
     )
 
     if result.success and result.extra_inputs:
-        hog_function = hog_fn_result.hog_function
-        assert hog_function.inputs is not None
-        hog_function.inputs = {
-            **hog_function.inputs,
-            **{key: {"value": value} for key, value in result.extra_inputs.items()},
-        }
-        hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+        store_webhook_extra_inputs(hog_fn_result.hog_function_id, team_id, result.extra_inputs)
 
     return WebhookSetupResult(
         success=result.success,

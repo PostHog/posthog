@@ -1,9 +1,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+import httpx
 import openai
 
+from products.ai_observability.backend.llm.errors import QuotaExceededError
 from products.ai_observability.backend.llm.providers.fireworks import FIREWORKS_BASE_URL, FireworksAdapter
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
 
 
 class TestFireworksValidateKey:
@@ -119,3 +122,27 @@ class TestFireworksDefaultKey:
 
         with pytest.raises(ValueError, match="BYOKEY-only"):
             adapter._get_default_api_key()
+
+
+class TestFireworksErrorMapping:
+    def test_billing_suspension_412_is_mapped_to_quota_exceeded(self):
+        message = "Account example-account is suspended."
+        response = httpx.Response(
+            status_code=412,
+            request=httpx.Request("POST", f"{FIREWORKS_BASE_URL}/chat/completions"),
+            json={"error": {"message": message}},
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = openai.APIStatusError(
+            message, response=response, body={"error": {"message": message}}
+        )
+        request = CompletionRequest(
+            model="accounts/fireworks/models/llama-v3p3-70b-instruct",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="fireworks",
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(QuotaExceededError, match="suspended"):
+                FireworksAdapter().complete(request, api_key="fw-test-key", analytics=AnalyticsContext(capture=False))

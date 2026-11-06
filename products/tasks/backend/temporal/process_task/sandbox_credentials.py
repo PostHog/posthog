@@ -3,7 +3,7 @@
 import shlex
 import logging
 import contextlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
@@ -11,11 +11,12 @@ from django.db import transaction
 
 import redis
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
 
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxExecutionError
 from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
 from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
 from products.tasks.backend.models import Task, TaskRun
@@ -30,7 +31,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_caller_token_run,
     is_slack_interaction_state,
     resolve_user_github_integration_for_task,
-    sandbox_identity_scope,
 )
 
 if TYPE_CHECKING:
@@ -50,6 +50,7 @@ _GITHUB_REFRESH_INTERVAL_BY_PREFIX: dict[str, float] = {
     "ghu_": 2 * 60 * 60,
 }
 DEFAULT_REFRESH_INTERVAL_SECONDS: float = 20 * 60
+CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS = 15
 
 
 def github_refresh_interval_seconds(token: str) -> float:
@@ -73,7 +74,7 @@ def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: 
         f"git remote set-url origin {shlex.quote(remote_url)}; "
         f"fi"
     )
-    result = sandbox.execute(update_remote, timeout_seconds=30)
+    result = sandbox.execute(update_remote, timeout_seconds=CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS)
     if result.exit_code != 0:
         logger.warning(
             "Failed to refresh git remote URL",
@@ -85,15 +86,26 @@ def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: 
 
 def _write_sandbox_credential_file(sandbox: "SandboxBase", path: str, payload: bytes) -> bool:
     """Atomically replace one credential domain without a cross-key read-modify-write."""
-    write = sandbox.write_file(path, payload)
+    write = sandbox.write_file(path, payload, timeout_seconds=CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS)
     if write.exit_code != 0:
+        if write.error in {"exec_write", "atomic_move"}:
+            raise SandboxExecutionError(
+                "Failed to write sandbox credential file",
+                {
+                    "sandbox_id": sandbox.id,
+                    "path": path,
+                    "write_stage": write.error,
+                    "exit_code": write.exit_code,
+                },
+                cause=RuntimeError(f"Sandbox credential write exited with code {write.exit_code}"),
+            )
         logger.warning(
             "Failed to refresh sandbox credential file",
             extra={"sandbox_id": sandbox.id, "credential_file": path, "stderr": write.stderr},
         )
         return False
 
-    chmod = sandbox.execute(f"chmod 600 {shlex.quote(path)}", timeout_seconds=30)
+    chmod = sandbox.execute(f"chmod 600 {shlex.quote(path)}", timeout_seconds=CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS)
     if chmod.exit_code != 0:
         logger.warning(
             "Failed to restrict sandbox credential file permissions",
@@ -115,35 +127,37 @@ def replace_sandbox_credentials(
     return github_updated and oauth_updated
 
 
-def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repository: str | None, github_token: str) -> bool:
+def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repositories: Sequence[str], github_token: str) -> bool:
     """Re-inject a GitHub token into both places a running sandbox reads it from.
 
+    Every clone embeds the token in its own ``origin``, so each of ``repositories`` is rewritten;
+    a run that cloned several and refreshed only one keeps an expired token in the others.
     Returns ``True`` only when every applicable write succeeded. A caller enforcing per-actor
     identity must treat a partial write as an unconfirmed rebind: leaving one location on the
     previous actor's token would let a follow-up actor act as them.
     """
-    remote_applied = set_git_remote_token(sandbox, repository, github_token) if repository else True
+    # A list, not a generator: every remote gets rewritten even after one fails, so a partial
+    # failure never leaves a later checkout on the old token.
+    remote_results = [set_git_remote_token(sandbox, repository, github_token) for repository in repositories]
+    remote_applied = all(remote_results)
     github_payload = b"".join(f"{key}={github_token}\x00".encode() for key in GITHUB_ENV_KEYS)
     env_applied = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, github_payload)
     return remote_applied and env_applied
 
 
-def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repository: str | None) -> bool:
-    """Log the sandbox out of GitHub: strip the token from the git remote and blank the GitHub
+def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: Sequence[str]) -> bool:
+    """Log the sandbox out of GitHub: strip the token from every git remote and blank the GitHub
     credential file, so a follow-up actor who lacks access can't reuse the previous actor's token.
-    Returns ``True`` only when both were cleared.
+    Returns ``True`` only when all were cleared.
     """
-    remote_cleared = set_git_remote_token(sandbox, repository, None) if repository else True
+    remote_results = [set_git_remote_token(sandbox, repository, None) for repository in repositories]
+    remote_cleared = all(remote_results)
     env_cleared = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, b"")
     return remote_cleared and env_cleared
 
 
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
-    """Post-resolution eligibility gate for every path that injects a GitHub token into a LOOP
-    sandbox, mirroring `get_sandbox_github_token`: a loop run alive during or after its owner's
-    deactivation or team-access revocation must not receive a fresh token, whichever refresh path
-    resolved it (user-integration refresh, installation fallback, read-only re-mint, or sibling
-    propagation). Non-loop runs are unaffected."""
+    """Whether a persisted legacy loop run's owner may still receive credentials."""
     if (state or {}).get("loop_id") is None:
         return False
     with transaction.atomic():
@@ -156,22 +170,22 @@ def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
     return not eligible
 
 
-def _actor_rebound_away_from_owner(run_id: str, state: dict | None, owner_id: int | None) -> int | None:
+def _actor_rebound_away_from(sandbox_id: str, permitted_session_user_id: int | None) -> int | None:
     """The actor a per-message transition rebound (or logged out) this sandbox to, when that differs
-    from the run owner (else ``None``). Owner-scoped refresh paths (scheduled refresh, sibling
-    propagation) carry the owner's token, so re-applying it would resurrect the owner's identity
-    over the current actor's session — callers skip when this returns a value. Distinct from
-    `_loop_owner_credentials_revoked`, which gates on owner *eligibility* rather than session rebind."""
-    bound_actor = get_sandbox_github_identity_user(sandbox_identity_scope(run_id, state))
-    return bound_actor if bound_actor is not None and bound_actor != owner_id else None
+    from the identity the caller may write for (else ``None``). Writing a token over a session
+    bound to someone else would resurrect that identity for the current actor — callers skip when
+    this returns a value. Distinct from `_loop_owner_credentials_revoked`, which gates on owner
+    *eligibility* rather than session rebind."""
+    bound_actor = get_sandbox_github_identity_user(sandbox_id)
+    return bound_actor if bound_actor is not None and bound_actor != permitted_session_user_id else None
 
 
 # TTL derivation: the lock must outlive the whole critical section, or the lease can expire mid-write
 # and let a concurrent refresh acquire and interleave (a regression we hit before). Each managed
-# write is a chain of in-sandbox execs, each bounded by a 30s timeout — set_git_remote_token (1 exec)
-# and _write_sandbox_credential_file (a file write + a chmod exec). The per-message gate can run two
+# write is a chain of in-sandbox execs, each bounded by a 15s timeout — set_git_remote_token (1 exec)
+# and _write_sandbox_credential_file (a write, move, and chmod). The per-message gate can run two
 # such chains back-to-back in one lock hold (apply the new token, then, if that fails, log out), so
-# the worst case is ~4 × 30s ≈ 2 min. A 5 min TTL clears that with margin; recompute if those exec
+# the worst case is ~8 × 15s ≈ 2 min. A 5 min TTL clears that with margin; recompute if those exec
 # timeouts change. The wait stays under the refresh activity's 2 min timeout, so a contender that
 # can't acquire skips (fail-safe) rather than blocking the activity.
 _CREDENTIAL_LOCK_TTL_SECONDS = 5 * 60
@@ -212,29 +226,35 @@ def sandbox_credential_lock(sandbox_id: str) -> Iterator[bool]:
         yield acquired
 
 
-def _apply_owner_token_locked(
-    sandbox: "SandboxBase", repository: str | None, token: str, run_id: str, state: dict | None, owner_id: int | None
+def _apply_token_locked(
+    sandbox: "SandboxBase",
+    repositories: Sequence[str],
+    token: str,
+    run_id: str,
+    permitted_session_user_id: int | None,
 ) -> bool:
-    """Apply an owner-scoped token only while the sandbox is still bound to the owner.
+    """Apply a token only while the sandbox's session still belongs to the permitted identity.
 
-    Owner-scoped writers resolve the token from startup context, which can take seconds against
-    GitHub's API. Serializing the re-check and the write under the per-sandbox lock closes the window
-    where a per-message transition rebinds the sandbox between the caller's earlier check and this
-    write. Returns ``True`` only when the token was actually applied."""
+    Resolving a token can take seconds against GitHub's API. Serializing the re-check and the write
+    under the per-sandbox lock closes the window where a per-message transition rebinds the sandbox
+    between the caller's earlier check and this write. Returns ``True`` only when the token was
+    actually applied."""
     with sandbox_credential_lock(sandbox.id) as acquired:
         if not acquired:
-            logger.warning(
-                "owner_token_apply_skipped_lock_unavailable", extra={"run_id": run_id, "sandbox_id": sandbox.id}
-            )
+            logger.warning("token_apply_skipped_lock_unavailable", extra={"run_id": run_id, "sandbox_id": sandbox.id})
             return False
-        rebound_actor = _actor_rebound_away_from_owner(run_id, state, owner_id)
+        rebound_actor = _actor_rebound_away_from(sandbox.id, permitted_session_user_id)
         if rebound_actor is not None:
             logger.info(
-                "owner_token_apply_skipped_actor_transition",
-                extra={"run_id": run_id, "bound_actor": rebound_actor, "owner": owner_id},
+                "token_apply_skipped_actor_transition",
+                extra={
+                    "run_id": run_id,
+                    "bound_actor": rebound_actor,
+                    "permitted_session_user": permitted_session_user_id,
+                },
             )
             return False
-        return apply_github_credentials_to_sandbox(sandbox, repository, token)
+        return apply_github_credentials_to_sandbox(sandbox, repositories, token)
 
 
 USER_TOKEN_REFRESH_INTERVAL_SECONDS: float = _GITHUB_REFRESH_INTERVAL_BY_PREFIX["ghu_"]
@@ -248,13 +268,12 @@ def _rotation_lock_key(user_integration_id: int) -> str:
 
 
 class LiveSandbox(NamedTuple):
-    """A live sandbox eligible for owner-token propagation, with the fields the per-sandbox
-    actor-rebind re-check needs (``state`` and ``owner_id``) carried alongside."""
+    """A live sandbox eligible for owner-token propagation, with the ``owner_id`` the
+    per-sandbox actor-rebind re-check needs carried alongside."""
 
     run_id: str
     sandbox_id: str
     repository: str | None
-    state: dict | None
     owner_id: int | None
 
 
@@ -279,23 +298,23 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
             continue
         # This loop carries the owner's token; skip a sandbox a per-message transition rebound to
         # a different actor, or re-applying it would resurrect the owner's identity for that actor.
-        if _actor_rebound_away_from_owner(str(run.id), run.state, run.task.created_by_id) is not None:
+        if _actor_rebound_away_from(sandbox_id, run.task.created_by_id) is not None:
             continue
-        rows.append(LiveSandbox(str(run.id), sandbox_id, run.task.repository, run.state, run.task.created_by_id))
+        rows.append(LiveSandbox(str(run.id), sandbox_id, run.task.repository, run.task.created_by_id))
     return rows
 
 
 def _propagate_user_token(user_integration_id: int, token: str) -> int:
-    from products.tasks.backend.logic.services.sandbox import Sandbox  # noqa: PLC0415
+    from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id  # noqa: PLC0415
 
     applied = 0
     for live in _live_sandboxes_for_user_integration(user_integration_id):
         try:
-            sandbox = Sandbox.get_by_id(live.sandbox_id)
+            sandbox = get_sandbox_class_for_sandbox_id(live.sandbox_id).get_by_id(live.sandbox_id)
             # Re-check the actor binding under the per-sandbox lock: the filter above is not atomic
             # with this write, so a transition could have rebound the sandbox in between.
-            if sandbox.is_running() and _apply_owner_token_locked(
-                sandbox, live.repository, token, live.run_id, live.state, live.owner_id
+            if sandbox.is_running() and _apply_token_locked(
+                sandbox, [live.repository] if live.repository else [], token, live.run_id, live.owner_id
             ):
                 applied += 1
         except Exception:
@@ -324,10 +343,12 @@ def resolve_coordinated_user_token(integration: UserGitHubIntegration) -> str | 
         if not acquired:
             # Waited out the budget — read the current token without minting; the holder's propagation self-heals.
             integration.integration.refresh_from_db()
-            return UserGitHubIntegration(integration.integration).user_access_token
+            return UserGitHubIntegration(
+                integration.integration, source="tasks_sandbox", priority=Priority.CRITICAL
+            ).user_access_token
 
         integration.integration.refresh_from_db()
-        current = UserGitHubIntegration(integration.integration)
+        current = UserGitHubIntegration(integration.integration, source="tasks_sandbox", priority=Priority.CRITICAL)
         was_expired = current.user_access_token_expired()
         # Mints only if still expired; a prior holder's fresh token is returned without rotating.
         token = current.get_usable_user_access_token()
@@ -359,23 +380,31 @@ class SandboxCredential(Protocol):
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome: ...
 
 
-@dataclass
+# Mutable on purpose: the `SandboxCredential` Protocol below declares `kind` as a settable
+# variable, which a frozen dataclass cannot satisfy.
+@dataclass(frozen=False)
 class GitHubSandboxCredential:
     """Refreshes the GitHub token (user *or* installation, per authorship)."""
 
     kind: str = "github"
 
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
-        # A repo-less read-only run must stay read-only for its whole lifetime: without this
-        # guard the periodic refresh would resolve the full credential path (the team integration
-        # is attached to every task) and silently swap the downscoped token for the write-capable
-        # one mid-run. Re-mint the same read-only grant instead; best-effort like the original.
-        if ctx.github_read_access and ctx.repository is None:
-            token = get_readonly_github_token(ctx.team_id)
+        # A read-only run must stay read-only for its whole lifetime: without this guard the
+        # periodic refresh would resolve the full credential path (the team integration is
+        # attached to every task) and silently swap the downscoped token for the write-capable
+        # one mid-run. This holds for a run that cloned repositories too, because the pinned
+        # repositories decide what the sandbox can read, never what it can write. Re-mint the same
+        # read-only grant instead; best-effort like the original.
+        if ctx.github_read_access:
+            token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories)
             if token and _loop_owner_credentials_revoked(task, ctx.state):
                 token = None
             if token:
-                apply_github_credentials_to_sandbox(sandbox, None, token)
+                # Pass the run's repositories so that every cloned checkout's `origin` is
+                # rewritten with the fresh token, not just the credential file. A repo-less run has
+                # no remote to rewrite, but a repo-backed one keeps the expired token in
+                # `.git/config` without this, which fails every later `git fetch`.
+                apply_github_credentials_to_sandbox(sandbox, ctx.repositories, token)
             return CredentialRefreshOutcome(
                 self.kind,
                 refreshed=bool(token),
@@ -388,20 +417,26 @@ class GitHubSandboxCredential:
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
-        # This scheduled refresh resolves the actor from startup context (ctx.state), so it carries
-        # the owner's token; skip when a per-message transition rebound the sandbox and leave that
-        # binding intact — the per-message gate keeps the current actor's token fresh.
-        rebound_actor = _actor_rebound_away_from_owner(ctx.run_id, ctx.state, task.created_by_id)
+        # Gate on the session this refresh may land a token in, not the run owner: on a thread
+        # that passed to someone else they are not the same person. A sandbox that already
+        # belongs to a third party is left alone before any unresolved actor is reported, since
+        # nothing would be minted for it either way.
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        permitted_session_user_id = actor_user.id if actor_user is not None else None
+        rebound_actor = _actor_rebound_away_from(sandbox.id, permitted_session_user_id)
         if rebound_actor is not None:
             logger.info(
                 "github_refresh_skipped_actor_transition",
-                extra={"run_id": ctx.run_id, "bound_actor": rebound_actor, "owner": task.created_by_id},
+                extra={
+                    "run_id": ctx.run_id,
+                    "bound_actor": rebound_actor,
+                    "permitted_session_user": permitted_session_user_id,
+                },
             )
             return CredentialRefreshOutcome(
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
-        actor_user = get_task_run_credential_user(task, ctx.state)
         if is_slack_interaction_state(ctx.state) and actor_user is None:
             raise ReauthorizationRequired("Slack run requires an acting user before refreshing GitHub credentials.")
 
@@ -417,7 +452,7 @@ class GitHubSandboxCredential:
             )
 
         if integration is not None:
-            return self._refresh_shared_user_integration(sandbox, ctx, task, integration)
+            return self._refresh_shared_user_integration(sandbox, ctx, task, integration, permitted_session_user_id)
 
         github_integration_id = task.github_integration_id
         github_user_integration_id = (
@@ -450,6 +485,18 @@ class GitHubSandboxCredential:
                 cause=e,
             )
         except ReauthorizationRequired as e:
+            # On a Slack run the failure belongs to the current actor, not to the run. The next
+            # message can come from an actor who has access, and the per-message rebind then
+            # applies their token. An orphaned kind stays excluded until the sandbox goes, so
+            # skip this refresh and keep the loop alive to refresh that token later.
+            if is_slack_interaction_state(ctx.state):
+                logger.info(
+                    "github_refresh_skipped_actor_without_access",
+                    extra={"run_id": ctx.run_id, "actor": permitted_session_user_id},
+                )
+                return CredentialRefreshOutcome(
+                    self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+                )
             raise CredentialUnavailableError(
                 "GitHub user integration for this run requires reauthorization",
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},
@@ -460,13 +507,18 @@ class GitHubSandboxCredential:
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
-        applied = _apply_owner_token_locked(sandbox, ctx.repository, token, ctx.run_id, ctx.state, task.created_by_id)
+        applied = _apply_token_locked(sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id)
         return CredentialRefreshOutcome(
             self.kind, refreshed=applied, next_refresh_seconds=github_refresh_interval_seconds(token)
         )
 
     def _refresh_shared_user_integration(
-        self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task, integration: UserGitHubIntegration
+        self,
+        sandbox: "SandboxBase",
+        ctx: "TaskProcessingContext",
+        task: Task,
+        integration: UserGitHubIntegration,
+        permitted_session_user_id: int | None,
     ) -> CredentialRefreshOutcome:
         try:
             token = resolve_coordinated_user_token(integration)
@@ -478,16 +530,16 @@ class GitHubSandboxCredential:
                 return CredentialRefreshOutcome(
                     self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
                 )
-            applied = _apply_owner_token_locked(
-                sandbox, ctx.repository, fallback, ctx.run_id, ctx.state, task.created_by_id
-            )
+            # An installation token is the team's, not a person's, so it may only land in the
+            # owner's own session, never in that of someone whose personal token just failed.
+            applied = _apply_token_locked(sandbox, ctx.repositories, fallback, ctx.run_id, task.created_by_id)
             return CredentialRefreshOutcome(
                 self.kind, refreshed=applied, next_refresh_seconds=github_refresh_interval_seconds(fallback)
             )
         if token and _loop_owner_credentials_revoked(task, ctx.state):
             token = None
         applied = (
-            _apply_owner_token_locked(sandbox, ctx.repository, token, ctx.run_id, ctx.state, task.created_by_id)
+            _apply_token_locked(sandbox, ctx.repositories, token, ctx.run_id, permitted_session_user_id)
             if token
             else False
         )
@@ -503,7 +555,7 @@ class GitHubSandboxCredential:
                 cause=cause,
             )
         try:
-            return get_github_token(task.github_integration_id)
+            return get_github_token(task.github_integration_id, repositories=ctx.github_access_repositories)
         except Integration.DoesNotExist as e:
             raise CredentialUnavailableError(
                 "GitHub integration for this run no longer exists",

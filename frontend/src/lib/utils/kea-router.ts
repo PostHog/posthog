@@ -1,12 +1,13 @@
 import { TeamType } from '~/types'
 
-import { getCurrentTeamId } from './getAppContext'
+import { getAppContext, getCurrentTeamId } from './getAppContext'
 
 const pathsWithoutProjectId = [
     'api',
     'me',
     'instance',
     'organization',
+    'billing',
     'preflight',
     'login',
     'signup',
@@ -17,17 +18,36 @@ const pathsWithoutProjectId = [
     'embedded',
     'interview',
     'cli',
+    'device',
     'render_query',
 ]
 
 // Instance-level pages that live under a product's own path prefix rather than
 // under `/instance/*`, so they need an exact (rather than first-segment) exemption.
 // The startsWith(exactPath + '/') check below also exempts nested staff tools from
-// other products, e.g. the cohorts staff tools at /feature_flags/staff/cohorts —
+// other products, e.g. the cohorts staff tools at /feature-flags/staff/cohorts —
 // renaming this path affects them too.
-const exactPathsWithoutProjectId = ['/feature_flags/staff']
+const exactPathsWithoutProjectId = ['/feature-flags/staff', '/experiments/staff']
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
+
+// `/project` and `/project/` carry no id, so the regex above does not see a project prefix there.
+// Without this, the path survives the strip pass, matches no route, and renders the 404 scene,
+// while `addProjectIdUnlessPresent` prefixes the current team onto it and rewrites the address bar
+// to `/project/<team id>/project`. That rewritten URL reduces to the same bare form once its id is
+// stripped, so bookmarks of it land home too. The lookahead keeps real routes like `/project/new`
+// and `/project/settings` out, because they have their own entries in the redirects map.
+const projectRootWithoutIdentifierInUrlRegex = /^\/project\/?(?=$|[?#])/
+
+// A refused project keeps in the address whatever identifier the link carried, which can be a
+// legacy project token that the pattern above does not know.
+function hasProjectIdentifier(path: string): boolean {
+    if (path.match(projectIdentifierInUrlRegex)) {
+        return true
+    }
+    const refusedProject = getAppContext()?.project_access_denied
+    return !!refusedProject && getProjectIdentifierInPath(path) === refusedProject
+}
 
 function isPathWithoutProjectId(path: string): boolean {
     const pathname = path.split(/[?#]/)[0]
@@ -46,13 +66,15 @@ function normalizeRelativePath(path: string): string {
 }
 
 function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): string {
-    if (path.match(projectIdentifierInUrlRegex)) {
+    if (hasProjectIdentifier(path)) {
         return path
     }
 
     if (path.startsWith('../') || path.startsWith('./')) {
         path = normalizeRelativePath(path)
     }
+
+    path = path.replace(projectRootWithoutIdentifierInUrlRegex, '/')
 
     let prefix = ''
     try {
@@ -69,11 +91,15 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
     return `${prefix}/${path.startsWith('/') ? path.slice(1) : path}`
 }
 
+/** The project id or project token a path names, exactly as it appears there. */
+export function getProjectIdentifierInPath(path: string): string | null {
+    const match = path.split(/[?#]/)[0].match(/^\/project\/([^/]+)(?:\/|$)/)
+    return match ? match[1] : null
+}
+
 export function removeProjectIdIfPresent(path: string): string {
-    if (path.match(projectIdentifierInUrlRegex)) {
-        return '/' + path.split('/').splice(3).join('/')
-    }
-    return path
+    const withoutProjectId = hasProjectIdentifier(path) ? '/' + path.split('/').splice(3).join('/') : path
+    return withoutProjectId.replace(projectRootWithoutIdentifierInUrlRegex, '/')
 }
 
 /**
@@ -99,9 +125,31 @@ export function stripTrailingSlash(path: string): string {
     return path
 }
 
+export const urlPatternOptions = {
+    // :TRICKY: What chars to allow in named segment values i.e. ":key"
+    // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
+    segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
+}
+
+export function pathFromWindowToRoutes(path: string): string {
+    return stripTrailingSlash(removeProjectIdIfPresent(path))
+}
+
+/**
+ * Strips the trailing slash of the path only, so a query string or hash that ends in a slash
+ * (e.g. `?next=/oauth/authorize/`) survives. Safe on a full URL as well as a bare path.
+ */
+export function stripTrailingSlashFromUrl(url: string): string {
+    const separator = url.search(/[?#]/)
+    if (separator === -1) {
+        return stripTrailingSlash(url)
+    }
+    return stripTrailingSlash(url.slice(0, separator)) + url.slice(separator)
+}
+
 export function removeFlagIdIfPresent(path: string): string {
-    if (path.match(/^\/feature_flags\/\d+/)) {
-        return path.replace(/(feature_flags).*$/, '$1/')
+    if (path.match(/^\/feature-flags\/\d+/)) {
+        return path.replace(/(feature-flags).*$/, '$1/')
     }
     return path
 }
@@ -151,4 +199,9 @@ export function getProjectSwitchTargetUrl(
 
     // Default: keep the same route structure but with new project ID
     return `/project/${newTeamId}${route}`
+}
+
+/** True for `root` itself and for any path below it. Takes paths without the project prefix. */
+export function isUnderPath(path: string, root: string): boolean {
+    return path === root || path.startsWith(`${root}/`)
 }

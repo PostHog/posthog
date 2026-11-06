@@ -35,6 +35,8 @@ const createRecord = (overrides: Partial<LogRecord> = {}): LogRecord => ({
     ...overrides,
 })
 
+const NON_BINDING_TIMEOUT_MS = 5_000
+
 const run = async (
     code: string,
     record: LogRecord,
@@ -42,7 +44,7 @@ const run = async (
 ): Promise<{ outcome: LogTransformationOutcome; record: LogRecord }> => {
     const bytecode = await compileHog(code)
     const globals = buildLogRecordGlobals(record, PROJECT, inputs)
-    const outcome = executeLogTransformation(bytecode, record, globals, {})
+    const outcome = executeLogTransformation(bytecode, record, globals, { timeoutMs: NON_BINDING_TIMEOUT_MS })
     return { outcome, record }
 }
 
@@ -50,45 +52,44 @@ describe('transformation_log templates', () => {
     describe('default', () => {
         it('returns the record unchanged', async () => {
             const { outcome, record } = await run(logDefaultTemplate.code, createRecord())
-            expect(outcome.status).toEqual('mutated')
+            expect(outcome).toMatchObject({ status: 'mutated' })
             expect(record.body).toEqual('user jane@example.com logged in')
         })
     })
 
     describe('pii-scrub', () => {
-        it('redacts emails, API keys, and bearer tokens from the body', async () => {
-            const body = 'login jane@example.com key sk_live_abcdef123456 auth Bearer abcdef012345 done'
-            const { outcome, record } = await run(logPiiScrubTemplate.code, createRecord({ body }), {
+        test.each([
+            {
+                name: 'redacts emails, API keys, and bearer tokens from the body',
+                body: 'login jane@example.com key sk_live_abcdef123456 auth Bearer abcdef012345 done',
                 replacement: '[REDACTED]',
-            })
-            expect(outcome.status).toEqual('mutated')
-            expect(record.body).toEqual('login [REDACTED] key [REDACTED] auth [REDACTED] done')
-        })
-
-        it('redacts a base64 bearer token, whose alphabet includes + / and =', async () => {
-            // Standard base64 credentials are the common case and were surviving: the
-            // token pattern stopped at the first character outside its class, leaving too
-            // few characters to meet the length floor, so nothing matched at all.
-            const body = 'auth Bearer YWJjZGVm+Z2hpamts/bW5vcHFy== done'
-            const { record } = await run(logPiiScrubTemplate.code, createRecord({ body }), {
+                expected: 'login [REDACTED] key [REDACTED] auth [REDACTED] done',
+            },
+            {
+                // Standard base64 credentials are the common case and were surviving: the
+                // token pattern stopped at the first character outside its class, leaving too
+                // few characters to meet the length floor, so nothing matched at all.
+                name: 'redacts a base64 bearer token, whose alphabet includes + / and =',
+                body: 'auth Bearer YWJjZGVm+Z2hpamts/bW5vcHFy== done',
                 replacement: '[REDACTED]',
-            })
-            expect(record.body).toEqual('auth [REDACTED] done')
-        })
-
-        it('honors a custom replacement value', async () => {
-            const { record } = await run(logPiiScrubTemplate.code, createRecord({ body: 'x jane@example.com y' }), {
+                expected: 'auth [REDACTED] done',
+            },
+            {
+                name: 'honors a custom replacement value',
+                body: 'x jane@example.com y',
                 replacement: '***',
-            })
-            expect(record.body).toEqual('x *** y')
-        })
-
-        it('leaves a null body untouched', async () => {
-            const { outcome, record } = await run(logPiiScrubTemplate.code, createRecord({ body: null }), {
+                expected: 'x *** y',
+            },
+            {
+                name: 'leaves a null body untouched',
+                body: null,
                 replacement: '[REDACTED]',
-            })
-            expect(outcome.status).toEqual('mutated')
-            expect(record.body).toBeNull()
+                expected: null,
+            },
+        ])('$name', async ({ body, replacement, expected }) => {
+            const { outcome, record } = await run(logPiiScrubTemplate.code, createRecord({ body }), { replacement })
+            expect(outcome).toMatchObject({ status: 'mutated' })
+            expect(record.body).toEqual(expected)
         })
     })
 
@@ -97,21 +98,21 @@ describe('transformation_log templates', () => {
             const { outcome } = await run(logDropBySeverityTemplate.code, createRecord({ severity_text: 'debug' }), {
                 severitiesToDrop: 'debug,trace',
             })
-            expect(outcome.status).toEqual('dropped')
+            expect(outcome).toMatchObject({ status: 'dropped' })
         })
 
         it('keeps severities not in the list', async () => {
             const { outcome } = await run(logDropBySeverityTemplate.code, createRecord({ severity_text: 'error' }), {
                 severitiesToDrop: 'debug,trace',
             })
-            expect(outcome.status).toEqual('mutated')
+            expect(outcome).toMatchObject({ status: 'mutated' })
         })
 
         it('matches case-insensitively against the lowercased severity', async () => {
             const { outcome } = await run(logDropBySeverityTemplate.code, createRecord({ severity_text: 'debug' }), {
                 severitiesToDrop: 'DEBUG',
             })
-            expect(outcome.status).toEqual('dropped')
+            expect(outcome).toMatchObject({ status: 'dropped' })
         })
     })
 
@@ -122,7 +123,7 @@ describe('transformation_log templates', () => {
                 createRecord({ attributes: { user_email: '"jane@example.com"', keep: '"me"' } }),
                 { attributeKeys: 'user_email' }
             )
-            expect(outcome.status).toEqual('mutated')
+            expect(outcome).toMatchObject({ status: 'mutated' })
             const attributes = record.attributes ?? {}
             expect(parseJSON(attributes.user_email)).toMatch(/^[a-f0-9]{64}$/)
             expect(attributes.keep).toEqual('"me"')
@@ -134,7 +135,7 @@ describe('transformation_log templates', () => {
                 createRecord({ attributes: { keep: '"me"' } }),
                 { attributeKeys: 'user_email,user.id' }
             )
-            expect(outcome.status).toEqual('mutated')
+            expect(outcome).toMatchObject({ status: 'mutated' })
             expect(record.attributes).toEqual({ keep: '"me"' })
         })
     })

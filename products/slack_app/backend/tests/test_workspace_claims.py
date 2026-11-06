@@ -4,9 +4,10 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 import requests
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.integration import Integration, validate_slack_request
@@ -45,6 +46,27 @@ class TestSlackWorkspaceClaimsView(TestCase):
         response = self.client.get("/slack/workspace/claims/")
         assert response.status_code == 405
 
+    @parameterized.expand([("owns_thread", "T_PRESENT", True), ("other_workspace", "T_OTHER", False)])
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_report_thread_claim_is_workspace_scoped(self, _name, workspace, expected, mock_config):
+        from products.signals.backend.models import SignalReport, SignalReportSlackThread
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_PRESENT")
+        Integration.objects.create(team=self.team, kind="slack", integration_id="T_OTHER")
+        report = SignalReport.objects.create(team=self.team, title="Report", summary="Summary")
+        SignalReportSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            integration=integration,
+            slack_workspace_id="T_PRESENT",
+            channel="C1",
+            thread_ts="123.1",
+        )
+        response = self._post({"slack_team_id": workspace, "kinds": ["slack"], "channel": "C1", "thread_ts": "123.1"})
+        assert response.status_code == 200
+        assert response.json() == {"claimed": True, "thread_claimed": expected}
+
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_existing_integration_returns_claimed(self, mock_config):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
@@ -57,22 +79,6 @@ class TestSlackWorkspaceClaimsView(TestCase):
         response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["slack"]})
         assert response.status_code == 200
         assert response.json() == {"claimed": True}
-
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_team_id_limits_claim_to_that_project(self, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_PRESENT",
-            sensitive_config={"access_token": "xoxb"},
-        )
-        other_team = Team.objects.create(organization=self.organization, name="Other")
-
-        response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["slack"], "team_id": other_team.id})
-
-        assert response.status_code == 200
-        assert response.json() == {"claimed": False}
 
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_any_of_kinds_match_returns_claimed(self, mock_config):
@@ -130,7 +136,7 @@ class TestSlackWorkspaceClaimsView(TestCase):
 
 
 @override_settings(DEBUG=False)
-class TestDoesOtherRegionClaimWorkspace(TestCase):
+class TestDoesOtherRegionClaimWorkspace(SimpleTestCase):
     """The caller-side helper. Constructs and signs the request, parses the response, and
     deliberately returns None on any transport / format failure so the caller falls back to
     local handling instead of silently dropping the event.
@@ -167,6 +173,17 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
         else:
             response.json.return_value = body
         return response
+
+    @parameterized.expand(
+        [
+            ("thread", {"claimed": True, "thread_claimed": True}, True),
+            ("workspace_only", {"claimed": True, "thread_claimed": False}, False),
+            ("old_peer", {"claimed": True}, None),
+        ]
+    )
+    def test_thread_probe_does_not_use_workspace_claims(self, _name, response, expected):
+        assert self._call(self._response(200, {"claimed": True})) is True
+        assert self._call(self._response(200, response), channel="C1", thread_ts="123.1") is expected
 
     def test_returns_true_when_other_region_claims(self):
         result = self._call(self._response(200, {"claimed": True}))
@@ -291,23 +308,6 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
             does_other_region_claim_workspace(slack_team_id="T_KIND", kinds=["slack"], incoming_host="eu.posthog.com")
             assert mock_post.call_count == 1
 
-    def test_cache_is_keyed_by_team_id(self):
-        from products.slack_app.backend.api import does_other_region_claim_workspace
-
-        with (
-            patch("products.slack_app.backend.api.SlackIntegration.slack_config") as mock_config,
-            patch("products.slack_app.backend.api.requests.post") as mock_post,
-        ):
-            mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-            mock_post.return_value = self._response(200, {"claimed": True})
-            does_other_region_claim_workspace(
-                slack_team_id="T_TEAM", kinds=["slack"], incoming_host="eu.posthog.com", team_id=1
-            )
-            does_other_region_claim_workspace(
-                slack_team_id="T_TEAM", kinds=["slack"], incoming_host="eu.posthog.com", team_id=2
-            )
-            assert mock_post.call_count == 2
-
     def test_signed_request_is_accepted_by_validator(self):
         # End-to-end roundtrip: the sent headers + body, fed into the receiver's verifier, must
         # validate cleanly. This is the actual contract we care about — the matched constant-time
@@ -326,3 +326,41 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
         # Loop header is included so even if the endpoint URL were ever swapped to the event
         # callback by mistake, the receiver would not re-enter the cross-region machinery.
         assert sent_headers["X-PostHog-Region-Proxied"] == "1"
+
+
+@override_settings(CLOUD_DEPLOYMENT="EU", DEBUG=False)
+class TestThreadRegionRouting(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("local_report", "eu.posthog.com", True, True, None),
+            ("remote_report_from_us", "us.posthog.com", False, True, "proxied"),
+            ("remote_report_from_eu", "eu.posthog.com", False, True, "proxied"),
+            ("unknown_owner", "us.posthog.com", False, None, "proxy_failed"),
+            ("no_report", "us.posthog.com", False, False, None),
+        ]
+    )
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route", return_value="proxied")
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace")
+    def test_thread_owner_precedes_workspace_region(
+        self, _name, host, local_thread, remote_thread, expected, probe, proxy
+    ):
+        from products.slack_app.backend.api import resolve_region_or_terminal_route
+
+        probe.return_value = remote_thread
+        result = resolve_region_or_terminal_route(
+            RequestFactory().post("/slack/events/"),
+            "T_PRESENT",
+            candidates_present=True,
+            kinds=["slack"],
+            proxied=False,
+            incoming_host=host,
+            other_domain="peer.posthog.com",
+            can_defer=host == "eu.posthog.com",
+            channel="C1",
+            thread_ts="123.1",
+            local_thread=local_thread,
+        )
+        assert result == expected
+        assert proxy.call_count == int(expected == "proxied")
+        if local_thread:
+            probe.assert_not_called()

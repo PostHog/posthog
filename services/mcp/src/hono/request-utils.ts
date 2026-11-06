@@ -1,6 +1,12 @@
+import { getUiCapability, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 import { z } from 'zod'
 
-import { classifyAuthFailure, mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
+import {
+    classifyAuthFailure,
+    isStepUpChallengeError,
+    mapErrorToAuthResponse,
+    validateBearerToken,
+} from '@/lib/auth-errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
@@ -9,11 +15,13 @@ import {
     type Transport,
 } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
-import { parseRequestProtocolMeta } from '@/lib/stateless-protocol'
+import { META_CLIENT_CAPABILITIES, parseRequestProtocolMeta } from '@/lib/stateless-protocol'
 import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
 import { trackAuthFailure } from './analytics'
-import { authFailuresTotal } from './metrics'
+import { resolveClientIp } from './client-ip'
+import { getEdgeClientIpSigningKeys } from './constants'
+import { authFailuresTotal, clientIpResolutionsTotal } from './metrics'
 import type { HonoCtx } from './types'
 
 const InitializeParamsSchema = z.object({
@@ -24,12 +32,25 @@ const InitializeParamsSchema = z.object({
         })
         .optional(),
     protocolVersion: z.string().optional(),
+    capabilities: z.unknown().optional(),
 })
 
 const JsonRpcMessageSchema = z.object({
     method: z.string(),
     params: z.unknown().optional(),
 })
+
+function parseUiCapabilities(capabilities: unknown): Pick<ClientInfo, 'uiSupported'> {
+    const parsed = z
+        .object({ extensions: z.record(z.string(), z.record(z.string(), z.unknown())).optional() })
+        .safeParse(capabilities)
+    const uiCapability = getUiCapability(parsed.success ? parsed.data : undefined)
+    if (uiCapability === undefined) {
+        return { uiSupported: undefined }
+    }
+    const ui = z.object({ mimeTypes: z.array(z.string()).optional() }).safeParse(uiCapability)
+    return { uiSupported: ui.success && ui.data.mimeTypes?.includes(RESOURCE_MIME_TYPE) === true }
+}
 
 function parseClientInfo(bodyText: string): ClientInfo {
     try {
@@ -53,15 +74,25 @@ function parseClientInfo(bodyText: string): ClientInfo {
                     clientName: sanitizeHeaderValue(params.data.clientInfo?.name),
                     clientVersion: sanitizeHeaderValue(params.data.clientInfo?.version),
                     protocolVersion: sanitizeHeaderValue(params.data.protocolVersion),
+                    elicitationUrlSupported: z
+                        .object({ elicitation: z.object({ url: z.object({}) }) })
+                        .safeParse(params.data.capabilities).success,
+                    ...parseUiCapabilities(params.data.capabilities),
                 }
             }
             if (!metaFallback) {
                 const meta = parseRequestProtocolMeta(rpc.data.params)
                 if (meta.protocolVersion || meta.clientName) {
+                    const params = z
+                        .object({ _meta: z.record(z.string(), z.unknown()).optional() })
+                        .safeParse(rpc.data.params)
                     metaFallback = {
                         clientName: sanitizeHeaderValue(meta.clientName),
                         clientVersion: sanitizeHeaderValue(meta.clientVersion),
                         protocolVersion: sanitizeHeaderValue(meta.protocolVersion),
+                        ...parseUiCapabilities(
+                            params.success ? params.data._meta?.[META_CLIENT_CAPABILITIES] : undefined
+                        ),
                     }
                 }
             }
@@ -104,6 +135,9 @@ export async function authenticateAndParse(
     props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
     props.mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
     props.region = props.region || getRegionFromRequest(c.req.raw) || undefined
+    const clientIp = await resolveClientIp(c.req.raw.headers, getEdgeClientIpSigningKeys())
+    clientIpResolutionsTotal.inc({ source: clientIp.source, edge_outcome: clientIp.edgeOutcome })
+    props.clientIp = clientIp.ip
     if (new URL(c.req.url).searchParams.get('_deprecated') === 'sse') {
         props.viaSseRedirect = true
     }
@@ -112,7 +146,9 @@ export async function authenticateAndParse(
 }
 
 export function handleCatchError(error: unknown, props: RequestProperties): Response {
-    console.error('[handleCatchError]', error)
+    if (!isStepUpChallengeError(error)) {
+        console.error('[handleCatchError]', error)
+    }
     const authResponse = mapErrorToAuthResponse(error)
     if (authResponse) {
         const reason = authResponse.status === 403 ? 'insufficient_scope' : 'invalid_token'
@@ -126,6 +162,7 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
                 team: 'posthog_ai',
                 source: 'mcp_hono_request',
                 mcp_transport: props.transport,
+                suppress_analytics: props.suppressAnalytics === true,
             })
         }
     } catch {}

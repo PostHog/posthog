@@ -1,7 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
+import { useEffect, useState } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import type { ReportPlanApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     makeReport,
@@ -16,10 +22,14 @@ import {
     reportTabReports,
     runReportsMany,
 } from '../../__mocks__/inboxMocks'
-import { SignalReportStatus } from '../../types'
+import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
-import { PullRequestDetail } from './PullRequestDetail'
+import { ArtefactLogList } from './ArtefactLogList'
 import { ReportDetail } from './ReportDetail'
+import { ReportNotesSection } from './ReportNotesSection'
+import { ReportStatusSection } from './ReportStatusSection'
 
 const mixedPrChecks = {
     checks: [
@@ -83,9 +93,49 @@ const successfulPrChecks = {
 
 const detailMocks = mswDecorator({
     get: {
-        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => [
+        '/api/projects/:id/signals/reports/:reportId/feedback_state/': { sentiment: null, note: '' },
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const reportId = req.params.reportId as string
+            return [200, mockArtefacts(reportId)]
+        },
+        '/api/projects/:id/signals/reports/:reportId/checks/': (req) => [
             200,
-            mockArtefacts(req.params.reportId as string),
+            {
+                count: req.params.reportId === reportTabReports[0].id ? 1 : 0,
+                results:
+                    req.params.reportId === reportTabReports[0].id
+                        ? [
+                              {
+                                  id: 'expected-outcome-check',
+                                  title: 'API key validation errors fall to at most 50 in 14 days',
+                                  rationale: 'The form should show users why their key could not be created.',
+                                  kind: 'metric_threshold',
+                                  status: 'pending',
+                                  config: {
+                                      metric_id: reportMetricsFixture[0].metric_id,
+                                      query: reportMetricsFixture[0].query,
+                                      metric_kind: reportMetricsFixture[0].kind,
+                                      value_format: reportMetricsFixture[0].value_format,
+                                      unit: reportMetricsFixture[0].unit,
+                                      comparison: { operator: 'lte', value: 50 },
+                                      baseline_value: 80,
+                                  },
+                                  approved_at: null,
+                                  next_run_at: '2026-09-12T00:00:00Z',
+                                  soak_minutes: 20160,
+                                  run_interval_minutes: null,
+                                  runs_remaining: 1,
+                                  expires_at: '2026-10-12T00:00:00Z',
+                                  last_run_at: null,
+                                  last_outcome: null,
+                                  dispatched_at: null,
+                                  consecutive_errors: 0,
+                                  created_at: '2026-08-29T00:00:00Z',
+                                  updated_at: '2026-08-29T00:00:00Z',
+                              },
+                          ]
+                        : [],
+            },
         ],
         '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/diff/': () => [200, mockBranchDiff()],
         '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
@@ -104,13 +154,39 @@ const detailMocks = mswDecorator({
             200,
             mockTaskRun(req.params.taskId as string, req.params.runId as string),
         ],
-        '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
+        '/api/projects/:id/tasks/:taskId/runs/:runId/log_entries': () => new HttpResponse(mockRunLog()),
+    },
+    post: {
+        '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
+    },
+})
+
+const readyToImplementMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const artefacts = mockArtefacts(req.params.reportId as string)
+            return [
+                200,
+                {
+                    ...artefacts,
+                    results: artefacts.results.filter((artefact) => artefact.type !== 'task_run'),
+                },
+            ]
+        },
     },
 })
 
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Detail',
-    parameters: { layout: 'fullscreen', viewMode: 'story', mockDate: '2026-06-11' },
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+        mockDate: '2026-06-11',
+        featureFlags: {
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+        },
+    },
     decorators: [detailMocks],
 }
 export default meta
@@ -121,10 +197,321 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="bg-primary min-h-screen py-4">{children}</div>
 }
 
+export const StatusBlock: Story = {
+    render: function RenderStatusBlock() {
+        const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority,
+            actionability: 'immediately_actionable',
+            implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
+            implementation_pr_state: 'open',
+            pull_requests: [
+                {
+                    id: '019e64b8-0000-7000-8000-000000000101',
+                    url: 'https://github.com/PostHog/posthog/pull/12002',
+                    state: 'open',
+                    merged: false,
+                    review_decision: 'approved',
+                    merged_at: null,
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                },
+                {
+                    id: '019e64b8-0000-7000-8000-000000000102',
+                    url: 'https://github.com/PostHog/posthog-js/pull/12003',
+                    state: 'merged',
+                    merged: true,
+                    review_decision: 'approved',
+                    merged_at: '2026-06-11T10:00:00Z',
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                },
+            ],
+            assignee: {
+                claim_id: '019e64b8-0000-7000-8000-000000000099',
+                kind: 'agent',
+                user: null,
+                task_id: null,
+                agent: 'Build agent',
+                claimed_at: '2026-06-11T10:00:00Z',
+                responsible_user: null,
+            },
+        })
+        return (
+            <Frame>
+                <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                    <ReportStatusSection report={report} onPriorityChange={setPriority} />
+                </div>
+            </Frame>
+        )
+    },
+}
+
 export const Report: Story = {
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} tab="reports" />
+            <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportReadyToImplement: Story = {
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportWithoutCodeAccess: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SELF_DRIVING_GITHUB_OPTIONAL]: true },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/integrations/': { results: [], next: null, count: 0 },
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: null,
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+                '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+                    const results = mockArtefacts(req.params.reportId as string).results.filter(
+                        (artefact) => !['commit', 'suggested_reviewers', 'task_run'].includes(artefact.type)
+                    )
+                    return [200, { results, count: results.length }]
+                },
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    research_context: { mode: 'data_only', repository_status: 'no_integration' },
+                }}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportClaimedByTeammate: Story = {
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    assignee: {
+                        claim_id: '019e64b8-0000-7000-8000-000000000098',
+                        kind: 'user',
+                        user: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+                        task_id: null,
+                        agent: null,
+                        claimed_at: '2026-06-10T10:00:00Z',
+                        responsible_user: {
+                            id: 1,
+                            uuid: 'u-1',
+                            email: 'octo@example.com',
+                            first_name: 'Octo',
+                            last_name: 'Cat',
+                        },
+                    },
+                }}
+            />
+        </Frame>
+    ),
+}
+
+const NOTES_REPORT_ID = reportTabReports[0].id
+
+// The active note is still listed; the retired one is gone from the list, so its entry reads inactive.
+const reportNotesMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/scout/notes/': () => [
+            200,
+            [
+                {
+                    id: 'note-active',
+                    skill_name: 'signals-scout-checkout',
+                    content: `Note on inbox report \`${NOTES_REPORT_ID}\`:\n\nThe checkout flow is being rebuilt next month.`,
+                    created_at: '2026-06-10T09:00:00Z',
+                    expires_at: null,
+                    created_by_name: 'Octo Cat',
+                    origin: 'human',
+                },
+            ],
+        ],
+        '/api/projects/:id/signals/scout/configs/': () => [
+            200,
+            [{ id: 'config-checkout', skill_name: 'signals-scout-checkout', display_name: 'Checkout watcher' }],
+        ],
+    },
+})
+
+const NOTE_AUTHOR = { id: 1, uuid: 'u-1', distinct_id: 'u-1', email: 'octo@example.com', first_name: 'Octo' }
+
+const noteArtefacts: SignalReportArtefact[] = [
+    {
+        id: 'artefact-scout-note-active',
+        type: 'scout_note_left',
+        content: {
+            note: 'The checkout flow is being rebuilt next month. Focus on the new flow instead.',
+            skill_name: 'signals-scout-checkout',
+            scout_note_id: 'note-active',
+        },
+        created_at: '2026-06-10T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-scout-note-retired',
+        type: 'scout_note_left',
+        content: { note: 'Anything under /legacy is out of scope.', skill_name: '', scout_note_id: 'note-retired' },
+        created_at: '2026-06-09T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-note',
+        type: 'note',
+        content: { note: 'Support confirmed two more customers hit this on Monday.' },
+        created_at: '2026-06-08T09:00:00Z',
+        created_by: NOTE_AUTHOR,
+        actor_kind: 'user',
+    },
+    {
+        id: 'artefact-agent-note',
+        type: 'note',
+        content: { note: 'Confirmed the validation gap reproduces on an empty recipient row.' },
+        created_at: '2026-06-07T09:00:00Z',
+        task_id: 'task-research',
+        actor_kind: 'task',
+    },
+]
+
+// The notes under the report body. The agent's note stays out of the list, and the retired note reads inactive.
+export const ReportNotes: Story = {
+    decorators: [
+        reportNotesMocks,
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/:reportId/artefacts': () => [
+                    200,
+                    { results: noteArtefacts, count: noteArtefacts.length },
+                ],
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <div className="w-full max-w-[44rem] border border-primary bg-surface-primary p-5">
+                <ReportNotesSection report={{ ...reportTabReports[0], scout_name: 'signals-scout-checkout' }} />
+            </div>
+        </Frame>
+    ),
+}
+
+// The activity log alone at rail width: in the full detail it sits collapsed below the snapshot's fold.
+export const ActivityNotes: Story = {
+    decorators: [reportNotesMocks],
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTES]: true },
+    },
+    render: () => (
+        <Frame>
+            <div className="w-[26rem] border border-primary bg-surface-primary p-5">
+                <ArtefactLogList reportId={NOTES_REPORT_ID} artefacts={noteArtefacts} />
+            </div>
+        </Frame>
+    ),
+}
+
+export const ReportWithMetrics: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    summary: [
+                        'The Create key button swallows its own validation error, so people click it repeatedly and leave settings without a key.',
+                        '## Problem',
+                        'When the new API key form fails validation, the click handler returns early before the error state reaches the form. The button stays enabled and nothing renders.',
+                        '## Impact',
+                        'People creating keys are usually mid-setup, wiring an SDK or a CI job, so a silent failure here stalls an integration without leaving an error event behind.',
+                        '## Solution',
+                        'Set the form errors before the early return so the existing error rendering works again, and give the button a disabled reason while the request is in flight.',
+                    ].join('\n\n'),
+                    metrics: reportMetricsFixture,
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportWithFollowUpMetric: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        featureFlags: {
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+        },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    summary: [
+                        'People cannot finish setup when the API key form hides validation errors.',
+                        '## Problem',
+                        'The form does not show the error after the Create key button is clicked.',
+                        '## Expected impact',
+                        'After the fix, fewer people should click Create key without getting a response.',
+                        '## Solution',
+                        'Show the validation error in the form.',
+                    ].join('\n\n'),
+                    metrics: reportMetricsFixture.slice(0, 1),
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportWithFollowUpMetricHidden: Story = {
+    ...ReportWithFollowUpMetric,
+    parameters: {
+        mockDate: '2026-08-29',
+        featureFlags: {
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false,
+        },
+    },
+}
+
+export const ReportFollowUpPending: Story = {
+    parameters: {
+        featureFlags: {},
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    status: SignalReportStatus.IN_PROGRESS,
+                    summary: null,
+                    metrics: [],
+                })}
+            />
         </Frame>
     ),
 }
@@ -139,7 +526,81 @@ export const ReportMinimal: Story = {
                     status: SignalReportStatus.CANDIDATE,
                     signal_count: 1,
                 })}
-                tab="reports"
+            />
+        </Frame>
+    ),
+}
+
+const exportsPlan: ReportPlanApi = {
+    id: '019e64b8-0000-7000-8000-000000000201',
+    title: 'feat(exports): Make large exports reliable',
+    status: 'ready',
+    steps: [
+        {
+            id: '019e64b8-0000-7000-8000-000000000211',
+            title: 'feat(exports): Split large exports into chunks',
+            status: 'resolved',
+            depends_on: [],
+            implementation_pr_url: 'https://github.com/example/app/pull/41',
+            implementation_pr_state: 'merged',
+            suppression_source: null,
+        },
+        {
+            id: '019e64b8-0000-7000-8000-000000000212',
+            title: 'feat(exports): Retry failed chunks with backoff',
+            status: 'ready',
+            depends_on: ['019e64b8-0000-7000-8000-000000000211'],
+            implementation_pr_url: 'https://github.com/example/app/pull/42',
+            implementation_pr_state: 'open',
+            suppression_source: null,
+        },
+        {
+            id: '019e64b8-0000-7000-8000-000000000213',
+            title: 'feat(exports): Show export progress while it runs',
+            status: 'ready',
+            depends_on: ['019e64b8-0000-7000-8000-000000000212'],
+            implementation_pr_url: null,
+            implementation_pr_state: null,
+            suppression_source: null,
+        },
+    ],
+}
+
+export const ReportPlanStep: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    id: exportsPlan.steps[1].id,
+                    title: exportsPlan.steps[1].title,
+                    summary:
+                        'Retry a failed chunk up to three times with exponential backoff before the export fails. ' +
+                        'Keep the chunks that already succeeded.\n\n## Plan\n\n' +
+                        `This is layer 2 of 3 of the plan '${exportsPlan.title}'.`,
+                    priority: 'P2',
+                    actionability: 'immediately_actionable',
+                    plan: exportsPlan,
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportPlan: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    id: exportsPlan.id,
+                    title: exportsPlan.title,
+                    summary:
+                        'Large exports time out and leave people without their data.\n\n## Problem\n\n' +
+                        'An export runs as one job, so one slow query fails the whole export.\n\n## Solution\n\n' +
+                        'Split exports into chunks, retry the chunks that fail, and show progress while it runs.',
+                    priority: 'P2',
+                    actionability: 'immediately_actionable',
+                    plan: exportsPlan,
+                })}
             />
         </Frame>
     ),
@@ -148,7 +609,30 @@ export const ReportMinimal: Story = {
 export const PullRequest: Story = {
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[0]} />
+            <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+export const PullRequestStack: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...pullRequestReports[0],
+                    pull_requests: [1, 2].map((number) => ({
+                        id: `019e64b8-0000-7000-8000-00000000000${number}`,
+                        url: `https://github.com/example/app/pull/${number}`,
+                        state: number === 1 ? 'merged' : 'open',
+                        merged: number === 1,
+                        review_decision: number === 1 ? 'approved' : 'review_required',
+                        merged_at: number === 1 ? '2026-06-11T10:00:00Z' : null,
+                        claim_id: null,
+                        attached_at: null,
+                        attached_by: null,
+                    })),
+                })}
+            />
         </Frame>
     ),
 }
@@ -156,7 +640,22 @@ export const PullRequest: Story = {
 export const PullRequestChecksPassing: Story = {
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[1]} />
+            <ReportDetail report={pullRequestReports[1]} />
+        </Frame>
+    ),
+}
+
+// Opens the "Files changed" tab: the file tree beside the branch diff from `mockBranchDiff()`.
+function FilesChangedTab({ report }: { report: SignalReport }): JSX.Element {
+    const { setDetailTab } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+    useEffect(() => setDetailTab('files'), [setDetailTab])
+    return <ReportDetail report={report} />
+}
+
+export const PullRequestFilesChanged: Story = {
+    render: () => (
+        <Frame>
+            <FilesChangedTab report={pullRequestReports[0]} />
         </Frame>
     ),
 }
@@ -262,7 +761,7 @@ export const PullRequestInlineReview: Story = {
     decorators: [inlineReviewMocks],
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[0]} />
+            <ReportDetail report={pullRequestReports[0]} />
         </Frame>
     ),
 }

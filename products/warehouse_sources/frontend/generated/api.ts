@@ -9,20 +9,39 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AddSourcesRequestApi,
+    AddSourcesResponseApi,
+    CdcEnableResponseApi,
+    CdcPrerequisitesResponseApi,
+    CdcStatusApi,
+    CreateWebhookResponseApi,
+    CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
+    DeleteWebhookResponseApi,
+    DestinationConnectCompleteRequestApi,
+    DestinationConnectLinkApi,
+    DestinationConnectStatusApi,
+    DestinationConnectionTestResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
+    ExternalDataDestinationApi,
+    ExternalDataDestinationsConnectLinkRetrieveParams,
+    ExternalDataDestinationsConnectLinkStatusRetrieveParams,
+    ExternalDataDestinationsListParams,
+    ExternalDataJobSerializersApi,
     ExternalDataSchemaApi,
+    ExternalDataSchemasCancelCreate200,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
+    ExternalDataSourceBulkUpdateSchemasApi,
     ExternalDataSourceConnectionOptionApi,
     ExternalDataSourceCreateApi,
     ExternalDataSourceCreateResponseApi,
+    ExternalDataSourceExistsApi,
     ExternalDataSourceSerializersApi,
-    ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
-    ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectLinkRetrieveParams,
+    ExternalDataSourcesJobsListParams,
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
@@ -30,18 +49,31 @@ import type {
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
     IntegrationAccountsResponseApi,
+    PaginatedExternalDataDestinationListApi,
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceSerializersListApi,
+    PaginatedWarehouseColumnStatisticsListApi,
+    PatchedDestinationLinkApi,
+    PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
-    PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
+    SchemaDestinationsApi,
+    SourceConfigMapResponseApi,
     SourceConnectLinkApi,
     SourceCredentialApi,
     SourceCredentialCreateApi,
+    SourceDestinationsApi,
     SourcePreviewRequestApi,
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    UpdateWebhookInputsResponseApi,
+    WarehouseAlertCreateDestinationApi,
+    WarehouseAlertDeleteDestinationApi,
+    WarehouseAlertDestinationApi,
+    WarehouseColumnStatisticsApi,
+    WarehouseColumnStatisticsListParams,
+    WebhookInfoResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -60,6 +92,295 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getExternalDataDestinationsListUrl = (projectId: string, params?: ExternalDataDestinationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_destinations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_destinations/`
+}
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsList = async (
+    projectId: string,
+    params?: ExternalDataDestinationsListParams,
+    options?: RequestInit
+): Promise<PaginatedExternalDataDestinationListApi> => {
+    return apiMutator<PaginatedExternalDataDestinationListApi>(getExternalDataDestinationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataDestinationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/`
+}
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsCreate = async (
+    projectId: string,
+    externalDataDestinationApi: NonReadonly<ExternalDataDestinationApi>,
+    options?: RequestInit
+): Promise<ExternalDataDestinationApi> => {
+    return apiMutator<ExternalDataDestinationApi>(getExternalDataDestinationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataDestinationApi),
+    })
+}
+
+export const getExternalDataDestinationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/`
+}
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExternalDataDestinationApi> => {
+    return apiMutator<ExternalDataDestinationApi>(getExternalDataDestinationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataDestinationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/`
+}
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsUpdate = async (
+    projectId: string,
+    id: string,
+    externalDataDestinationApi: NonReadonly<ExternalDataDestinationApi>,
+    options?: RequestInit
+): Promise<ExternalDataDestinationApi> => {
+    return apiMutator<ExternalDataDestinationApi>(getExternalDataDestinationsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataDestinationApi),
+    })
+}
+
+export const getExternalDataDestinationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/`
+}
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedExternalDataDestinationApi?: NonReadonly<PatchedExternalDataDestinationApi>,
+    options?: RequestInit
+): Promise<ExternalDataDestinationApi> => {
+    return apiMutator<ExternalDataDestinationApi>(getExternalDataDestinationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedExternalDataDestinationApi),
+    })
+}
+
+export const getExternalDataDestinationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/`
+}
+
+/**
+ * Soft-delete, and detach it from everything that syncs to it.
+ *
+ * Runs already in flight keep their own snapshot of the destination, so deleting one
+ * never strands a run part-way through. The next run of each affected table resolves
+ * without it.
+ */
+export const externalDataDestinationsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataDestinationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getExternalDataDestinationsAddSourcesCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/add_sources/`
+}
+
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsAddSourcesCreate = async (
+    projectId: string,
+    id: string,
+    addSourcesRequestApi: AddSourcesRequestApi,
+    options?: RequestInit
+): Promise<AddSourcesResponseApi> => {
+    return apiMutator<AddSourcesResponseApi>(getExternalDataDestinationsAddSourcesCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addSourcesRequestApi),
+    })
+}
+
+export const getExternalDataDestinationsTestConnectionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/test_connection/`
+}
+
+/**
+ * Test the credentials and target of an existing destination, and return the result of each step.
+ */
+export const externalDataDestinationsTestConnectionCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DestinationConnectionTestResponseApi> => {
+    return apiMutator<DestinationConnectionTestResponseApi>(
+        getExternalDataDestinationsTestConnectionCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getExternalDataDestinationsConnectLinkRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_destinations/connect_link/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_destinations/connect_link/`
+}
+
+/**
+ * Return a secure browser link where the user connects the credentials for a destination.
+ *
+ * The page saves an integration and does not create the destination, so secrets never pass
+ * through the agent. The link carries a connect token. The agent reads the saved integration's id
+ * with the token from the connect link status endpoint, then creates the destination with it.
+ */
+export const externalDataDestinationsConnectLinkRetrieve = async (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkRetrieveParams,
+    options?: RequestInit
+): Promise<DestinationConnectLinkApi> => {
+    return apiMutator<DestinationConnectLinkApi>(getExternalDataDestinationsConnectLinkRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataDestinationsConnectLinkCompleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/connect_link_complete/`
+}
+
+/**
+ * Report the integration the user saved on the connect page, so the agent that sent them can read it.
+ *
+ * The connect page calls this. Repeating the call with the same integration is safe.
+ */
+export const externalDataDestinationsConnectLinkCompleteCreate = async (
+    projectId: string,
+    destinationConnectCompleteRequestApi: DestinationConnectCompleteRequestApi,
+    options?: RequestInit
+): Promise<DestinationConnectStatusApi> => {
+    return apiMutator<DestinationConnectStatusApi>(getExternalDataDestinationsConnectLinkCompleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(destinationConnectCompleteRequestApi),
+    })
+}
+
+export const getExternalDataDestinationsConnectLinkStatusRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_destinations/connect_link_status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_destinations/connect_link_status/`
+}
+
+/**
+ * Return whether the user saved a connection through a connect link, and which integration it is.
+ *
+ * Never returns credentials or integration config.
+ */
+export const externalDataDestinationsConnectLinkStatusRetrieve = async (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkStatusRetrieveParams,
+    options?: RequestInit
+): Promise<DestinationConnectStatusApi> => {
+    return apiMutator<DestinationConnectStatusApi>(
+        getExternalDataDestinationsConnectLinkStatusRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
 
 export const getExternalDataSchemasListUrl = (projectId: string, params?: ExternalDataSchemasListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -162,8 +483,8 @@ export const externalDataSchemasCancelCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
+): Promise<ExternalDataSchemasCancelCreate200> => {
+    return apiMutator<ExternalDataSchemasCancelCreate200>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -184,6 +505,49 @@ export const externalDataSchemasDeleteDataDestroy = async (
     })
 }
 
+export const getExternalDataSchemasDestinationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/destinations/`
+}
+
+/**
+ * Read or replace this table's destination override.
+ *
+ * Send `destination_ids: null` to clear the override so the table follows its source again.
+ */
+export const externalDataSchemasDestinationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SchemaDestinationsApi> => {
+    return apiMutator<SchemaDestinationsApi>(getExternalDataSchemasDestinationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataSchemasDestinationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/destinations/`
+}
+
+/**
+ * Read or replace this table's destination override.
+ *
+ * Send `destination_ids: null` to clear the override so the table follows its source again.
+ */
+export const externalDataSchemasDestinationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDestinationLinkApi?: PatchedDestinationLinkApi,
+    options?: RequestInit
+): Promise<SchemaDestinationsApi> => {
+    return apiMutator<SchemaDestinationsApi>(getExternalDataSchemasDestinationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDestinationLinkApi),
+    })
+}
+
 export const getExternalDataSchemasIncrementalFieldsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_schemas/${id}/incremental_fields/`
 }
@@ -191,14 +555,11 @@ export const getExternalDataSchemasIncrementalFieldsCreateUrl = (projectId: stri
 export const externalDataSchemasIncrementalFieldsCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasIncrementalFieldsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -238,17 +599,17 @@ export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/external_data_schemas/${id}/reload/`
 }
 
+/**
+ * Trigger a sync for the schema using its configured sync method. Most methods keep the existing warehouse table and add or merge new rows, but a full-refresh schema rebuilds the whole table on every run. To force a rebuild from the source, use resync.
+ */
 export const externalDataSchemasReloadCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasReloadCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -256,17 +617,17 @@ export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/external_data_schemas/${id}/resync/`
 }
 
+/**
+ * Request a full resync of the schema. For sources that can backfill, this drops the warehouse table and re-imports every row from the source, so existing data is deleted first. A webhook-only schema cannot backfill, so it keeps its existing table and resumes ingestion instead. To sync without requesting a rebuild, use reload.
+ */
 export const externalDataSchemasResyncCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasResyncCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -398,24 +759,8 @@ export const externalDataSourcesDestroy = async (
     })
 }
 
-export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (
-    projectId: string,
-    id: string,
-    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/`
+export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/`
 }
 
 /**
@@ -424,19 +769,15 @@ export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (
 export const externalDataSourcesBulkUpdateSchemasPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceBulkUpdateSchemasApi?: PatchedExternalDataSourceBulkUpdateSchemasApi,
-    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
+    externalDataSourceBulkUpdateSchemasApi: ExternalDataSourceBulkUpdateSchemasApi,
     options?: RequestInit
-): Promise<PaginatedExternalDataSchemaListApi> => {
-    return apiMutator<PaginatedExternalDataSchemaListApi>(
-        getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedExternalDataSourceBulkUpdateSchemasApi),
-        }
-    )
+): Promise<ExternalDataSchemaApi[]> => {
+    return apiMutator<ExternalDataSchemaApi[]>(getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceBulkUpdateSchemasApi),
+    })
 }
 
 export const getExternalDataSourcesCdcStatusRetrieveUrl = (projectId: string, id: string) => {
@@ -455,8 +796,8 @@ export const externalDataSourcesCdcStatusRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCdcStatusRetrieveUrl(projectId, id), {
+): Promise<CdcStatusApi> => {
+    return apiMutator<CdcStatusApi>(getExternalDataSourcesCdcStatusRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -504,8 +845,8 @@ export const externalDataSourcesCreateWebhookCreate = async (
     id: string,
     externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
+): Promise<CreateWebhookResponseApi> => {
+    return apiMutator<CreateWebhookResponseApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -525,12 +866,55 @@ export const externalDataSourcesDeleteWebhookCreate = async (
     id: string,
     externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
+): Promise<DeleteWebhookResponseApi> => {
+    return apiMutator<DeleteWebhookResponseApi>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+export const getExternalDataSourcesDestinationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/destinations/`
+}
+
+/**
+ * Read or replace the destinations every table on this source syncs to.
+ *
+ * A table with its own override ignores this set until the override is cleared.
+ */
+export const externalDataSourcesDestinationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SourceDestinationsApi> => {
+    return apiMutator<SourceDestinationsApi>(getExternalDataSourcesDestinationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesDestinationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/destinations/`
+}
+
+/**
+ * Read or replace the destinations every table on this source syncs to.
+ *
+ * A table with its own override ignores this set until the override is cleared.
+ */
+export const externalDataSourcesDestinationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDestinationLinkApi?: PatchedDestinationLinkApi,
+    options?: RequestInit
+): Promise<SourceDestinationsApi> => {
+    return apiMutator<SourceDestinationsApi>(getExternalDataSourcesDestinationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDestinationLinkApi),
     })
 }
 
@@ -585,8 +969,8 @@ export const externalDataSourcesEnableCdcCreate = async (
     id: string,
     externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesEnableCdcCreateUrl(projectId, id), {
+): Promise<CdcEnableResponseApi> => {
+    return apiMutator<CdcEnableResponseApi>(getExternalDataSourcesEnableCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -594,19 +978,36 @@ export const externalDataSourcesEnableCdcCreate = async (
     })
 }
 
-export const getExternalDataSourcesJobsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
+export const getExternalDataSourcesJobsListUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSourcesJobsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/${id}/jobs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
 }
 
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const externalDataSourcesJobsRetrieve = async (
+export const externalDataSourcesJobsList = async (
     projectId: string,
     id: string,
+    params?: ExternalDataSourcesJobsListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesJobsRetrieveUrl(projectId, id), {
+): Promise<ExternalDataJobSerializersApi[]> => {
+    return apiMutator<ExternalDataJobSerializersApi[]>(getExternalDataSourcesJobsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -766,13 +1167,16 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
     id: string,
     externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesUpdateWebhookInputsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
+): Promise<UpdateWebhookInputsResponseApi> => {
+    return apiMutator<UpdateWebhookInputsResponseApi>(
+        getExternalDataSourcesUpdateWebhookInputsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(externalDataSourceSerializersApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesWebhookInfoRetrieveUrl = (projectId: string, id: string) => {
@@ -786,8 +1190,8 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
+): Promise<WebhookInfoResponseApi> => {
+    return apiMutator<WebhookInfoResponseApi>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -806,14 +1210,11 @@ export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: 
 export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
     projectId: string,
     options?: RequestInit
-): Promise<ExternalDataSourcesCheckCdcPrerequisitesCreate200> => {
-    return apiMutator<ExternalDataSourcesCheckCdcPrerequisitesCreate200>(
-        getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
+): Promise<CdcPrerequisitesResponseApi> => {
+    return apiMutator<CdcPrerequisitesResponseApi>(getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getExternalDataSourcesConnectLinkRetrieveUrl = (
@@ -868,6 +1269,32 @@ export const externalDataSourcesConnectionsList = async (
     return apiMutator<ExternalDataSourceConnectionOptionApi[]>(getExternalDataSourcesConnectionsListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesCredentialAccountsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/credential_accounts/`
+}
+
+/**
+ * List the accounts a source's typed-in credentials can reach, in the shared
+ * IntegrationAccount shape.
+ *
+ * The OAuth twin takes an integration id because the token already lives on the server. Here
+ * the credentials are still in the form, so they arrive in the body — POST, not GET, to keep a
+ * private key out of the URL and out of anything that logs one. Nothing is cached for the same
+ * reason: the cache key would have to include the credentials.
+ */
+export const externalDataSourcesCredentialAccountsCreate = async (
+    projectId: string,
+    credentialAccountsRequestApi: CredentialAccountsRequestApi,
+    options?: RequestInit
+): Promise<IntegrationAccountsResponseApi> => {
+    return apiMutator<IntegrationAccountsResponseApi>(getExternalDataSourcesCredentialAccountsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(credentialAccountsRequestApi),
     })
 }
 
@@ -936,6 +1363,23 @@ export const externalDataSourcesDraftCustomManifestCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(draftCustomManifestRequestApi),
+    })
+}
+
+export const getExternalDataSourcesExistsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/exists/`
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const externalDataSourcesExistsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourceExistsApi> => {
+    return apiMutator<ExternalDataSourceExistsApi>(getExternalDataSourcesExistsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1142,8 +1586,130 @@ export const externalDataSourcesWizardRetrieve = async (
     projectId: string,
     params?: ExternalDataSourcesWizardRetrieveParams,
     options?: RequestInit
+): Promise<SourceConfigMapResponseApi> => {
+    return apiMutator<SourceConfigMapResponseApi>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseAlertsDestinationsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_alerts/${id}/destinations/`
+}
+
+/**
+ * List the notification destinations of a warehouse alert.
+ */
+export const warehouseAlertsDestinationsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseAlertDestinationApi[]> => {
+    return apiMutator<WarehouseAlertDestinationApi[]>(getWarehouseAlertsDestinationsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_alerts/${id}/destinations/`
+}
+
+/**
+ * Add a notification destination to a warehouse alert.
+ */
+export const warehouseAlertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    warehouseAlertCreateDestinationApi: WarehouseAlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<WarehouseAlertDestinationApi> => {
+    return apiMutator<WarehouseAlertDestinationApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseAlertCreateDestinationApi),
+    })
+}
+
+export const getWarehouseAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_alerts/${id}/destinations/delete/`
+}
+
+/**
+ * Delete notification destinations of a warehouse alert.
+ */
+export const warehouseAlertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    warehouseAlertDeleteDestinationApi: WarehouseAlertDeleteDestinationApi,
+    options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
+    return apiMutator<void>(getWarehouseAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseAlertDeleteDestinationApi),
+    })
+}
+
+export const getWarehouseColumnStatisticsListUrl = (
+    projectId: string,
+    params?: WarehouseColumnStatisticsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_column_statistics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_column_statistics/`
+}
+
+/**
+ * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
+ *
+ * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
+ * better queries. They are system-owned and read-only here. List can be filtered to one table with
+ * `?table_id=<uuid>`.
+ */
+export const warehouseColumnStatisticsList = async (
+    projectId: string,
+    params?: WarehouseColumnStatisticsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseColumnStatisticsListApi> => {
+    return apiMutator<PaginatedWarehouseColumnStatisticsListApi>(
+        getWarehouseColumnStatisticsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseColumnStatisticsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_statistics/${id}/`
+}
+
+/**
+ * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
+ *
+ * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
+ * better queries. They are system-owned and read-only here. List can be filtered to one table with
+ * `?table_id=<uuid>`.
+ */
+export const warehouseColumnStatisticsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseColumnStatisticsApi> => {
+    return apiMutator<WarehouseColumnStatisticsApi>(getWarehouseColumnStatisticsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

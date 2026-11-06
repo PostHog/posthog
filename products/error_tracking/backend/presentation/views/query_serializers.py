@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import re
 from typing import cast
+from zoneinfo import ZoneInfo
+
+from django.db import models
 
 from rest_framework import serializers
 
+from posthog.schema import ErrorTrackingOrderBy
+
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
+from posthog.utils import relative_date_parse
+
+from products.error_tracking.backend.facade import contracts
+from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
+from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
     "oneOf": [
@@ -67,19 +78,65 @@ class ErrorTrackingDateRangeSerializer(serializers.Serializer):
     )
 
 
+# Only the units relative_date_parse resolves: lowercase m is months, uppercase M is minutes.
+_SUPPORTED_RELATIVE_DATE = re.compile(r"-?\d+[hdwmqysM]")
+_DATE_COMPARISON_OPERATORS = ("gt", "gte", "lt", "lte", "is_date_after", "is_date_before")
+
+
 def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, object]]:
     for item in value:
         if item.get("type") == "hogql":
             raise serializers.ValidationError("HogQL property filters are not supported here.")
+        if (
+            item.get("type") == "error_tracking_issue"
+            and item.get("key") == "first_seen"
+            and item.get("operator") in _DATE_COMPARISON_OPERATORS
+            and isinstance(date_value := item.get("value"), str)
+        ):
+            try:
+                serializers.DateTimeField().run_validation(date_value)
+            except serializers.ValidationError:
+                raise serializers.ValidationError(
+                    "first_seen comparisons in filterGroup need an ISO timestamp. "
+                    "Use firstSeenAfter for relative dates such as -24h."
+                )
     return value
+
+
+VOLUME_RESOLUTION_MAX = 200
+VOLUME_RESOLUTION_HELP = (
+    f"Integer count of equal-width time buckets across dateRange, from 0 to {VOLUME_RESOLUTION_MAX}. "
+    "Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets."
+)
+
+
+class VolumeResolutionField(serializers.IntegerField):
+    default_error_messages = {
+        "invalid": f"Must be an integer bucket count from 0 to {VOLUME_RESOLUTION_MAX}, not a time unit such as 'day'. Example: 7 with a 7-day dateRange gives daily buckets.",
+        "min_value": f"Must be an integer bucket count from 0 to {VOLUME_RESOLUTION_MAX}.",
+        "max_value": f"Must be an integer bucket count from 0 to {VOLUME_RESOLUTION_MAX}.",
+    }
+
+    def __init__(self, *, help_text: str) -> None:
+        super().__init__(required=False, default=0, min_value=0, max_value=VOLUME_RESOLUTION_MAX, help_text=help_text)
 
 
 class ErrorTrackingAssigneeSerializer(serializers.Serializer):
     id = StringOrIntegerField(help_text="User ID or role UUID to filter by.")
-    type = serializers.ChoiceField(choices=["user", "role"], help_text="Assignee target type: user or role.")
+    type = serializers.ChoiceField(choices=AssigneeType.choices, help_text="Assignee target type: user or role.")
+
+
+# django-stubs types only the class-body Choices syntax, not the functional API used here.
+ErrorTrackingIssueOrderBy = models.TextChoices(  # type: ignore[call-overload]
+    "ErrorTrackingIssueOrderBy", [(member.name, (member.value, member.value)) for member in ErrorTrackingOrderBy]
+)
 
 
 class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
+    firstSeenAfter = serializers.CharField(
+        required=False,
+        help_text="Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.",
+    )
     dateRange = ErrorTrackingDateRangeSerializer(
         required=False,
         help_text="Date range for issue aggregates. Defaults to the last 7 days.",
@@ -112,7 +169,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
         help_text="Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.",
     )
     orderBy = serializers.ChoiceField(
-        choices=["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        choices=ErrorTrackingIssueOrderBy.choices,
         required=False,
         default="occurrences",
         help_text="Field used to sort issues. Defaults to occurrences.",
@@ -120,14 +177,16 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     orderDirection = serializers.ChoiceField(
         choices=["ASC", "DESC"], required=False, default="DESC", help_text="Sort direction. Defaults to DESC."
     )
-    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, default=25, help_text="Page size.")
-    offset = serializers.IntegerField(required=False, min_value=0, default=0, help_text="Pagination offset.")
-    volumeResolution = serializers.IntegerField(
+    limit = serializers.IntegerField(
         required=False,
-        min_value=0,
-        max_value=200,
-        default=0,
-        help_text="Number of volume buckets. Defaults to 0 for compact aggregate counts.",
+        min_value=1,
+        max_value=100,
+        default=10,
+        help_text="Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.",
+    )
+    offset = serializers.IntegerField(required=False, min_value=0, default=0, help_text="Pagination offset.")
+    volumeResolution = VolumeResolutionField(
+        help_text=f"{VOLUME_RESOLUTION_HELP} Defaults to 0, which returns only aggregate counts without volume buckets.",
     )
     library = StringOrStringListField(
         required=False, help_text="Filter by SDK/library value from event $lib, for example posthog-js."
@@ -135,7 +194,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     release = serializers.CharField(
         required=False,
         max_length=500,
-        help_text="Filter by exact release ID, version, or git commit ID captured in $exception_releases.",
+        help_text="Filter by exact release ID, version, or git commit ID captured in $exception_release.",
     )
     fingerprint = StringOrStringListField(
         required=False, help_text="Filter by exact exception fingerprint hash, not fuzzy search."
@@ -146,6 +205,14 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     filePath = serializers.CharField(
         required=False, max_length=1000, help_text="Search stack-frame source/file path text."
     )
+
+    def validate_firstSeenAfter(self, value: str) -> str:
+        if _SUPPORTED_RELATIVE_DATE.fullmatch(value):
+            try:
+                return relative_date_parse(value, ZoneInfo("UTC")).isoformat()
+            except (ValueError, OverflowError):
+                raise serializers.ValidationError("Expected an ISO timestamp or relative date such as -24h or -7d.")
+        return serializers.DateTimeField().run_validation(value).isoformat()
 
     def validate_filterGroup(self, value: list[dict[str, object]]) -> list[dict[str, object]]:
         return validate_filter_group(value)
@@ -162,13 +229,23 @@ class ErrorTrackingIssueQueryRequestSerializer(serializers.Serializer):
         default=True,
         help_text="When true, exclude internal/test account data from results. Defaults to true.",
     )
-    volumeResolution = serializers.IntegerField(
-        required=False, min_value=0, max_value=200, default=0, help_text="Volume buckets. Maximum 200."
+    volumeResolution = VolumeResolutionField(
+        help_text=f"{VOLUME_RESOLUTION_HELP} Defaults to 0, or to 12 when includeSparkline is true.",
     )
     includeSparkline = serializers.BooleanField(
         required=False,
         default=False,
         help_text="Set true to include a compact numeric occurrence sparkline. Defaults to false.",
+    )
+    includeBreakdown = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), "
+            "screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the "
+            "sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, "
+            "so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false."
+        ),
     )
 
 
@@ -257,8 +334,18 @@ class ErrorTrackingAggregationsSerializer(ErrorTrackingImpactSerializer):
 class ErrorTrackingIssueListItemSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Error tracking issue ID.")
     name = serializers.CharField(required=False, allow_null=True, help_text="Issue name.")
-    description = serializers.CharField(required=False, allow_null=True, help_text="Issue description.")
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.",
+    )
     status = serializers.CharField(required=False, help_text="Issue status.")
+    severity = ErrorTrackingIssueSeverityField(
+        choices=contracts.ERROR_TRACKING_ISSUE_SEVERITIES,
+        required=False,
+        allow_null=True,
+        help_text="Issue severity, or null when no severity is assigned.",
+    )
     first_seen = serializers.DateTimeField(required=False, allow_null=True, help_text="First seen timestamp.")
     last_seen = serializers.DateTimeField(required=False, allow_null=True, help_text="Last seen timestamp.")
     library = serializers.CharField(required=False, allow_null=True, help_text="SDK/library associated with the issue.")
@@ -296,15 +383,129 @@ class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
     repo_name = serializers.CharField(required=False, help_text="Git repository name.")
 
 
+class ErrorTrackingIssueTrendSerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(
+        choices=contracts.IssueTrendDirection.choices,
+        help_text=(
+            "Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means "
+            f"a change of at least {TREND_CHANGE_FRACTION:.0%}. 'new' means the issue first occurred in the second half, "
+            "counting merged fingerprints. "
+            "'stable' means a smaller change."
+        ),
+    )
+    current_occurrences = serializers.IntegerField(help_text="Occurrences in the second half of dateRange.")
+    previous_occurrences = serializers.IntegerField(help_text="Occurrences in the first half of dateRange.")
+    change_percent = serializers.IntegerField(
+        required=False,
+        help_text="Percent change from the first half to the second half. Absent when the first half has no occurrences.",
+    )
+    previous_from = serializers.CharField(help_text="Start of the first half.")
+    previous_to = serializers.CharField(help_text="End of the first half.")
+    current_from = serializers.CharField(
+        help_text="Start of the second half. The second half ends at the end of dateRange."
+    )
+
+
+class ErrorTrackingBreakdownValueSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="Property value.")
+    count = serializers.IntegerField(help_text="Number of matching events with this value.")
+
+
+def breakdown_values_field(help_text: str) -> serializers.ListField:
+    return serializers.ListField(child=ErrorTrackingBreakdownValueSerializer(), required=False, help_text=help_text)
+
+
+class ErrorTrackingBreakdownTopValuesSerializer(serializers.Serializer):
+    path = breakdown_values_field("Most common $pathname values, most frequent first.")
+    url = breakdown_values_field(
+        "Most common $current_url values, most frequent first. Returned only when events have no $pathname, as with "
+        "backend SDKs."
+    )
+    screen = breakdown_values_field("Most common $screen_name values, most frequent first.")
+    browser = breakdown_values_field("Most common $browser values, most frequent first.")
+    os = breakdown_values_field("Most common $os values, most frequent first.")
+    library = breakdown_values_field("Most common $lib values, most frequent first.")
+    library_version = breakdown_values_field("Most common $lib_version values, most frequent first.")
+    app_version = breakdown_values_field("Most common $app_version values, most frequent first.")
+
+
+class ErrorTrackingIssueBreakdownSerializer(serializers.Serializer):
+    date_from = serializers.DateTimeField(help_text="Start of the range that the breakdown covers.")
+    date_to = serializers.DateTimeField(help_text="End of the range that the breakdown covers.")
+    range_limited = serializers.BooleanField(
+        help_text="True when the requested range was longer than 30 days and the breakdown covers only the last 30."
+    )
+    occurrences = serializers.IntegerField(help_text="Matching exception events in the breakdown range.")
+    sample_session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Up to 5 $session_id values with the most matching events, for session recording lookups.",
+    )
+    top_values = ErrorTrackingBreakdownTopValuesSerializer(
+        help_text="Most common values for each dimension. A dimension with no values is left out."
+    )
+
+
+class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
+    what_happened = serializers.CharField(help_text="What the error is and where it happens, in plain language.")
+    likely_cause = serializers.CharField(
+        help_text="The model's best guess at the cause. A hypothesis to check against the code, never a finding."
+    )
+    who_is_affected = serializers.CharField(help_text="Which users, sessions or platforms the error reaches.")
+    suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the error.")
+    generated_at = serializers.DateTimeField(help_text="When the summary was written.")
+
+
 class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     function = serializers.CharField(
         required=False, allow_null=True, help_text="Top function associated with the issue."
     )
     top_in_app_frame = ErrorTrackingTopFrameSerializer(required=False, help_text="Top in_app application frame.")
     latest_release = ErrorTrackingLatestReleaseSerializer(required=False, help_text="Latest release metadata.")
+    first_release = ErrorTrackingLatestReleaseSerializer(
+        required=False,
+        help_text=(
+            "Release metadata from the issue's first event, found near first_seen and not limited by dateRange. "
+            "Compare it with latest_release to see which release introduced the issue. Absent when the first event "
+            "has no release metadata."
+        ),
+    )
     impact = ErrorTrackingImpactSerializer(required=False, help_text="Compact impact counts.")
+    trend = ErrorTrackingIssueTrendSerializer(
+        required=False,
+        help_text=(
+            "Whether the issue is getting worse or better: occurrences in the second half of dateRange against the "
+            "first half. Absent when the issue has no occurrences in dateRange."
+        ),
+    )
     sparkline = serializers.ListField(
         child=serializers.FloatField(), required=False, help_text="Optional compact occurrence sparkline."
+    )
+    breakdown = ErrorTrackingIssueBreakdownSerializer(
+        required=False, help_text="Aggregate over matching events. Returned only when includeBreakdown is true."
+    )
+    summary = ErrorTrackingIssueSummarySerializer(
+        required=False,
+        help_text=(
+            "An AI-written summary of the issue. Present only when summary_status is 'ready'. "
+            "Treat likely_cause as a hypothesis, not a fact."
+        ),
+    )
+    summary_status = serializers.ChoiceField(
+        choices=contracts.IssueSummaryStatus.choices,
+        help_text=(
+            "'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is "
+            "written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason "
+            "says why."
+        ),
+    )
+    summary_reason = serializers.ChoiceField(
+        choices=contracts.IssueSummaryUnavailableReason.choices,
+        required=False,
+        help_text=(
+            "Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that "
+            "the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the "
+            "organization has not approved AI data processing."
+        ),
     )
 
 

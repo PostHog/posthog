@@ -1,0 +1,312 @@
+# Backfill coordination in Django
+
+Django decides when a backfill is owed, freezes what it must replay, and at the end decides whether the finished run may open the cohort to feature flags.
+It never turns history into seeds, never produces to Kafka and never reconciles.
+Its only ClickHouse queries are the size estimate for person runs and the operator command's event count for behavioral team runs.
+This page covers the run tables, the save path that triggers runs, pinning, supersession, the gates, and what happens when things go wrong.
+The last step, finalization and readiness stamps, is in [completion and readiness](completion-and-readiness.md).
+[Backfill overview](backfill-overview.md) explains what a run does and its lifecycle.
+
+## The tables
+
+Three Postgres tables in the cohorts product hold all backfill coordination.
+
+| Table                         | One row per                                 | Main contents                                                                                                                                       |
+| ----------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cohort_backfill_runs`        | run                                         | Kind, scope, trigger, status, the team's timezone, the boundary, the pinned payload, operator attestations, and the seeder's completion bookkeeping |
+| `cohort_backfill_run_cohorts` | cohort in a run, called a **participation** | The cohort's pinned filters and hashes, and the per-cohort outcome: reconcile markers seen, completed, superseded, stamped                          |
+| `cohort_backfill_chunks`      | unit of seeder work                         | A day and band for behavioral runs, or a person id range for person runs, plus claim, lease and progress columns                                    |
+
+Django creates runs and participations, and writes their final outcomes: supersession, cancellation, stamps, and `completed` or `superseded`.
+The seeder writes the in-flight run columns and the participations' reconcile outcomes, and it alone writes chunks.
+
+A cohort-scoped run has one participation.
+A team-scoped run has one participation for each eligible cohort of the team, or of the subset an operator names.
+
+A run in `awaiting_boundary`, `blocked`, `seeding` or `reconciling` is **active**.
+A participation is **open** until it is superseded.
+Two partial unique indexes enforce the basic exclusivity:
+
+- at most one active cohort-scoped run per cohort and kind,
+- at most one active team-scoped run per team and kind.
+
+A cohort can sit in a team-scoped run and a cohort-scoped run of the same kind at once.
+So the creators also check, under a row lock on the cohort, that the cohort has no open participation of that kind in any active run.
+The readiness stamp must come from exactly one backfill of the current definition.
+
+## When a run is owed
+
+A run is owed when the cohort's current definition has state or downstream rows that no backfill has built yet.
+
+| Trigger             | Created by                                                                       | Scope  |
+| ------------------- | -------------------------------------------------------------------------------- | ------ |
+| `cohort_created`    | Saving a new realtime cohort                                                     | Cohort |
+| `cohort_edited`     | An edit that invalidates a kind, see below                                       | Cohort |
+| `team_enablement`   | An operator command, to backfill every eligible cohort of a team, or chosen ones | Team   |
+| `disaster_recovery` | An operator command after a store loss                                           | Team   |
+
+A disaster-recovery run needs the operator to pass the boundary where live coverage restarted.
+The command does not require it, and without it the run waits in `awaiting_boundary` forever while holding the team's slot.
+Nothing checks that the boundary is in the past.
+
+### Which edits invalidate which kind
+
+Each kind of run is tied to one shape hash on the cohort row.
+[Definitions and eligibility](definitions-and-eligibility.md#shape-hashes) describes them.
+
+- The **behavioral** kind is invalidated when the behavioral shape hash moves: a behavioral leaf was added, removed, or changed its matcher, window, operator or threshold.
+- The **person** kind is invalidated when the person shape hash moves: a person condition was added, removed or changed.
+
+Composition edits move neither hash.
+Switching AND and OR, flipping a leaf's negation, or adding a cohort reference keeps every leaf.
+But the live path recomposes a person only when one of their leaves flips, so persons whose leaf answers stay the same keep the old composition.
+A run is still owed.
+
+So on every save that moves the whole-definition fingerprint, Django adds repair runs to whatever the kind hashes already invalidated:
+
+- **Behavioral**, when the cohort has a behavioral leaf and neither kind's own hash moved.
+  Behavioral leaf state survives a composition change, so the run only has to reconcile again.
+  Clearing the events stamp is also what takes the cohort out of flag routing until the run completes.
+- **Person**, when the cohort has a person leaf and no `person_metadata` leaf, the person hash did not move, and either the **person view** of the tree moved, or no behavioral run re-walks the tree.
+
+The person view is the tree with its person leaves and their negation kept, and every other leaf replaced by one anonymous placeholder.
+Depending on a seeder setting, person runs may emit seeds only for persons whose person-leaf values can change some cohort's answer, and that pruning is computed against the pinned tree.
+When the tree around the person leaves changes, the earlier pruning no longer holds, so the person seeds must be recomputed.
+
+Two examples:
+
+- `AND[person P, in cohort C]`, with the reference's negation flipped: the person view does not move, but no behavioral run exists to re-walk the tree, so a person run is owed.
+- `AND[behavioral B over 7 days, person P]` edited to `OR[B over 14 days, P]`: the behavioral hash moves, and the person view moves too, so both kinds are owed.
+
+## The save path
+
+Everything starts inside `Cohort.save()` and its `post_save` receivers.
+
+```mermaid
+sequenceDiagram
+    participant API as Cohort API
+    participant Save as Cohort.save()
+    participant DB as Postgres
+    participant Recv as post_save receivers
+    participant Redis
+    participant Task as Celery task (5 min later)
+    API->>Save: validated filters, cohort_type
+    Save->>Save: compute hashes,<br/>decide invalidated kinds
+    Save->>DB: UPDATE filters, hashes,<br/>clear invalidated stamps
+    Save->>Recv: post_save
+    Recv->>DB: on commit: supersede active runs<br/>of invalidated kinds
+    opt team trigger-allowlisted, cohort created or kind invalidated
+        Recv->>Redis: on commit: SET pending key NX EX 300
+        Recv->>Task: apply_async(countdown=300)
+    end
+    Task->>DB: lock cohort, re-check, pin definition,<br/>insert run + participation
+```
+
+1. **Hashes and stamps.**
+   For a realtime, non-static, non-deleted cohort on a realtime-allowlisted team, on a save that includes `filters`, `save()` computes the new fingerprints and compares them with the stored ones.
+   For each invalidated kind, it clears that kind's readiness stamp, and the legacy `last_realtime_cohort_calculation_at`, in the same `UPDATE` that stores the new definition.
+   While the cohort stays realtime and this maintenance succeeds, no committed state pairs a new definition with a stamp of a kind the edit invalidated.
+   A stamp of a kind the edit did not invalidate stays, because it still vouches for that kind's unchanged leaves.
+   Maintenance is best effort: an error is logged and the save goes ahead.
+2. **Supersede, on commit.**
+   Active cohort-scoped runs of an invalidated kind move to `superseded`.
+   In a team-scoped run, only this cohort's participation is superseded, and the team run carries on for the other cohorts.
+3. **Debounce, on commit.**
+   For a team in both the realtime and the trigger allowlists, when the save created the cohort or invalidated a kind, and the cohort has leaves of that kind to backfill, Django sets a Redis key per cohort and kind with `SET NX` and a 5-minute expiry, and schedules a Celery task 5 minutes out.
+   If the key already exists, a task is already pending, and this save adds nothing.
+   Saves within five minutes of the first one produce one run, pinned to the definition current when the task fires.
+4. **Create, 5 minutes later.**
+   The task re-checks the trigger allowlist and the [attestations](#gates), then calls the run creator.
+   The creator locks the cohort row, re-checks eligibility and exclusivity, pins the current definition, and inserts the run in `awaiting_boundary` with its participation.
+   A person creator first estimates the run's size against ClickHouse without holding the lock, and under the lock refuses if the person conditions changed in the meantime.
+
+From there the seeder takes over.
+[The seeder](seeder.md) describes the rest.
+
+## Pinning
+
+A run's seeds replay a frozen definition and never switch to the live one.
+Reconcile is different.
+The processor walks the cohort with its own current catalog and checks only the shape hash of the run's kind, as [seed apply and reconcile](seed-apply-and-reconcile.md#the-walk) explains.
+
+The creator pins:
+
+- on each participation: the cohort's full `filters` JSON, its definition hash, and the shape hash of the run's kind,
+- on a behavioral run: every behavioral condition to replay, with its condition hash, window fields, operator, threshold, window in days and event name, plus the union of event names to scan and `flag_calls_table`, the table the seeder reads `$feature_flag_called` from,
+- on a person run: every person condition hash to evaluate, and a **horizon**: only persons whose record changed within the last N days are scanned.
+
+The seeder builds its catalog from these pinned filters with the same `cohort-core` code the processor uses.
+The finalizer later compares the pinned hash, and the pinned filters, with the cohort's current ones.
+
+`flag_calls_table` is `events` or `flag_evaluations`, and `schema_version` stays 1.
+The seeder reads a missing key as `events` and fails the run on any other value, so both behavioral creators write the key on every run.
+The creator pins `flag_evaluations` only when every cohort in the run that has a `$feature_flag_called` condition meets both rules:
+
+- The batch calculation reads every flag call of that cohort from `flag_evaluations`. The creator compiles the cohort's batch query to check this, so the seeder and the batch calculation read the same table.
+- Every `$feature_flag_called` window in that cohort is relative and has no end date, so it moves with the run's boundary. `flag_evaluations` drops rows after 90 days. When the seeder scans a day that a relative window still covers, the table still holds that day. The first day of a fixed date range can leave the table before the seeder scans it, while `events` still holds it. This rule does not apply to an organization whose flag calls are only in `flag_evaluations`, because `events` holds none of its new flag calls.
+
+A cohort without a `$feature_flag_called` condition does not affect the choice.
+When a cohort's batch query does not compile, the creator refuses the run.
+The save path refuses with reason `flag_calls_table_unresolved`, and the team creator raises an error that names the cohort.
+In an organization whose flag calls are only in `flag_evaluations`, a run that pinned `events` would give the cohort an empty flag-call history that still counts as backfilled.
+The pin does not change after the creator writes it, so every chunk and every retry reads the same table even if the organization's flag evaluations mode changes during the run.
+
+An edit that invalidates the run's kind supersedes it.
+A cohort-scoped run then stops at the seeder's next lease renewal.
+In a team-scoped run, the seeder drops the edited cohort's conditions and carries on for the rest.
+
+Supersession lives in Postgres, and the processor and the membership consumer never read it.
+Reconcile requests already on the seed topic still run unless the edit moved the shape hash of their kind, and they still produce markers.
+The seeder ignores a marker for a superseded participation, so it can never complete or stamp it.
+The membership consumer does count those markers toward its sweep, see [membership output and readers](membership-output-and-readers.md#mark-and-sweep).
+
+## Gates
+
+Several independent gates decide whether anything happens.
+Missing one of them fails quietly, so they are worth knowing.
+
+| Gate                                     | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REALTIME_COHORT_TEAM_ALLOWLIST`         | Teams whose cohorts get hash maintenance, stamp invalidation, supersession and any run at all. Unset means no teams in Django, but the shuffler, processor and seeder default to team 2, so set it explicitly on every service. Set but empty means **all** teams. Django puts a listed team at the `serving` level, and adds the teams that have a team access row. The shufflers, the processor and the seeder add those teams too, the seeder 120 seconds after the grant. Never list a team granted `processing` here, because that makes it `serving`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Team access rows                         | `cohort_realtime_team_access`, written only by `realtime_cohort_team_access enable\|grant\|revoke`. Django, the shufflers, the processor and the seeder read it as a union with their `REALTIME_COHORT_TEAM_ALLOWLIST`. Node ingestion does not read the table, and emits person merges only for the teams in its `PERSON_MERGE_EVENTS_TEAM_ALLOWLIST`. Set that list to `*`, because the processor drops the merges of teams it does not process. The seeder works on a granted team's runs only once `processing_since` is 120 seconds old. After a revoke the seeder stops working on the team's runs, unless its own env list names the team, and each run keeps its cohort's run slot. The processor drops a revoked team from its catalog, and stage 2 GC then deletes the team's state without emitting `left`, so the team's `cohort_membership` rows stay `in_cohort=true`. A shuffler whose env list does not name the team stops forwarding its events. A row at `processing` gets the Django behavior above, but the team's users see no realtime state: no readiness, no realtime batch audience, and no backfilled cohort in flags or workflows, even one stamped before the grant, so a workflow that already uses one fails its next save. A row at `serving` also shows them, and the flags service routes the team's cohorts to the membership table once its team metadata cache carries the level. `revoke` sets `off`, which hides the stamps the same way, and a revoked team cannot be granted again. `grant` and `revoke` refuse a team on the env list, and their `--purpose` does not take `beta`. `enable` is how a beta team gets realtime cohorts, and the only way to a beta row. Before it writes anything, it leaves a team already at `serving` as it is. It refuses what `grant` refuses, every team while an operator attestation is missing, and a team with no row whose cohorts carry readiness stamps, because those stamps come from a time the env list named the team, and the pipeline no longer maintains that membership. Then it resaves the team's cohorts, fills their shape hashes, grants `processing` with `save_triggers_backfill`, and creates one team run per kind. It grants `serving` only when neither run was refused, so a refused team stays at `processing`. Running `enable` again after resolving the refusal keeps each team run created since the grant that is waiting to seed, seeding, or has stamped readiness, and creates only the missing one |
+| `COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST` | Teams whose saves create runs automatically. Unset or empty means **no** teams. A granted row with `save_triggers_backfill` adds its team, so `resave_cohorts --no-backfill-triggers`, not this setting, is what stops a resave from queueing runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Operator attestations                    | Settings an operator sets to declare that prerequisites hold. They are declarations, not live checks. Behavioral runs need `BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED` and `BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED`. Person runs also need the person TTL and sizing attestations and a positive seed-bytes budget                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Person sizing budget                     | A cohort-scoped person run is refused when the team's active person-run estimates plus its own would exceed the budget. The check reads the active estimates before the run exists and reserves nothing, so two cohorts sized at the same time can together exceed the budget. A team run checks only its own estimate. Hitting the size estimate's scan cap, or the cap on pinned conditions, also refuses                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Behavioral scan limit                    | `create_cohort_backfill_run` and `realtime_cohort_team_access enable` refuse a behavioral team run when its pinned event names had more events than `BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY` on the busiest of the last 7 complete UTC days. `--max-scan-events-per-day` overrides it for one `create_cohort_backfill_run` invocation, and 0 skips the count and the check. `create_team_backfill_run` itself and the save path do not check it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+
+The Rust services have their own switches, and Django cannot see them.
+The processor must hold a team before the seeder works on the team's runs.
+The processor holds a team that its own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` names, or about 15 seconds after a team access row grants it.
+For a team access grant, the seeder waits until the row's `processing_since` is 120 seconds old.
+That covers a processor that reads team access and loads the catalog within that time, but nothing checks that every pod did.
+For env lists, the processor's copy must name a team before the seeder's copy does.
+A processor that does not hold the team withholds every reconcile request of its runs with `team_absent`, and the seeder supersedes those participations.
+No new run is owed afterwards, so the team never becomes ready until an operator creates one.
+`seeder_reconcile_cohorts_withheld_total{reason="team_absent"}` shows that this happened.
+The processor also drops the team's person seeds, which skip the apply fence, and counts them in `cohort_person_seeds_dropped_total{reason="team_absent"}`.
+The membership of each dropped person stays missing until a live event for that person arrives.
+The run can still complete and be stamped ready over that missing membership.
+After a grant, check that counter and each processor pod's `posthog_cohort_team_access_last_success_timestamp_seconds`.
+Two of the switches gate person runs, and they must open in order.
+The processor's `COHORT_SEED_PERSON_APPLY_ENABLED` must be on everywhere before the seeder's `SEEDER_PERSON_SEEDS_ENABLED`, or the processor skips and commits the seeds.
+The seeder's switch must be on before a team with person-leaf cohorts joins the trigger allowlist.
+Until it is, the seeder never discovers person runs, so each one waits in `awaiting_boundary`, holding its cohort's run slot.
+[Completion and readiness](completion-and-readiness.md#gates) lists the switches that completion needs.
+
+The difference between the two allowlists matters.
+On a team that is realtime-allowlisted but not trigger-allowlisted, an edit clears the readiness stamp and supersedes the run, but nothing creates a replacement.
+The cohort stays unavailable to flags until an operator runs a team backfill.
+
+A run created while an attestation is missing is recorded as `blocked`, and nothing ever moves a run out of `blocked` except an edit, for a cohort-scoped run, or cancellation.
+So the save path and the operator command both refuse when an attestation is missing, instead of creating one.
+Only a direct call to a creator function, for example from a shell, writes a `blocked` run.
+
+## Operator tools
+
+Two management commands cover operator work.
+
+- `create_cohort_backfill_run` creates team-scoped runs, behavioral or person, including disaster-recovery runs with a pinned boundary.
+  It can narrow the run to chosen cohorts, which is how an operator re-drives one cohort whose trigger was lost.
+  It refuses when an attestation is missing or when a target cohort already has an open participation, and it supports a dry run.
+  For a behavioral run it first counts the team's events on the pinned event names over the last 7 complete UTC days, through the `events` primary key on the offline cluster.
+  When the run will pin `flag_evaluations`, it counts `$feature_flag_called` from `flag_evaluations` instead.
+  It prints the busiest day and its largest events, refuses above the behavioral scan limit, and records the count in the run's `preconditions`.
+  The count is a recent sample, not a bound: an older day, or a day in the run's timezone, can hold more events.
+  The seeder reads fewer rows when every condition on an event name filters on event property values.
+  The person size estimate also runs on the offline cluster, and aggregates in primary-key order so its memory does not grow with the team.
+- `manage_cohort_backfill_runs inventory` lists and classifies active runs.
+  `manage_cohort_backfill_runs terminalize` cancels chosen runs.
+  It is a dry run unless told otherwise, and it never cancels a run that already stamped.
+
+## When things go wrong
+
+Run creation is at most once per save.
+The task retries exceptions a few times, but nothing re-drives:
+
+- a lost enqueue, because Redis or the Celery broker was down at save time,
+- a skipped attestation,
+- a refusal: a run slot occupied, a budget or cap exceeded, or an ineligible cohort.
+
+Each case is counted, and the save itself always succeeds.
+There is no periodic sweep that finds eligible cohorts without a stamp and without a run.
+A cohort created before its team was trigger-allowlisted also gets no run on its own.
+
+Other cases to know:
+
+- **A run never ends.**
+  A run stuck in `awaiting_boundary`, `seeding` or `reconciling` holds its slot, and its unfinished cohorts stay unstamped.
+  Examples: a disaster-recovery run without a boundary, a person run while the seeder's person switch is off, a run whose cohort has no condition the seeder can replay, or a run parked in `reconciling` by a shortfall or a disabled finalizer.
+  Nothing times these out.
+  An edit clears a cohort-scoped one.
+  A run held by a retryable shortfall needs reconcile dispatched again, after which the finalizer can finish it.
+  `terminalize` cancels other stuck team-scoped runs, but it refuses any run with a stamped participation.
+  A team run held by one short cohort can already have stamped its other cohorts, because the finalizer stamps each complete participation before it holds the run.
+- **Supersession fails.**
+  A failed supersession is only logged.
+  The replacement task then finds the stale run's participation still open and refuses, and the stale run later fails its stamp check, so the cohort ends up with neither run nor stamp.
+- **An edit races the finalizer.**
+  The cohort row lock serializes them.
+  If an edit that invalidates the run's kind commits first, the stamp's hash or composition check fails and the run is superseded.
+  If the stamp commits first, the edit clears it.
+  Either way no stamp of an invalidated kind survives over the new definition.
+  An edit that invalidates only the other kind leaves this run and its stamp valid.
+- **An edit is reverted.**
+  Editing A to B and back to A restores the old hashes, but the participation superseded during B can never stamp.
+  The state it seeded went stale while B was live.
+  The revert's own save schedules a fresh run.
+- **A cohort leaves the realtime set mid-run.**
+  A soft delete, a switch to static, or losing realtime support skips hash maintenance, so Django does not supersede the run, and the finalizer does not re-check `deleted` or `cohort_type`.
+  At its next catalog refresh the processor drops a cohort that is deleted or no longer `realtime`.
+  It then withholds each of the cohort's reconcile requests with a `reconcile_withheld` marker, once a catalog refresh that began after the request arrived has run.
+  So the run stamps only if every completion marker landed first.
+  Otherwise the seeder supersedes the participation when it reads a withheld marker, and the run finishes without the cohort.
+- **A cohort re-enters the realtime set without a leaf change.**
+  An undelete, a static-to-dynamic switch, or regained realtime support leaves the hashes as they were, so no run is owed, and the cohort keeps whatever stamps it had.
+- **A save from a stale copy of the row.**
+  The API saves the whole row, so a rename that read the cohort before the finalizer stamped can write the empty stamp back.
+  The cohort loses readiness until the next invalidating edit or an operator run.
+- **A seeder-side failure.**
+  A run the seeder fails keeps its stamp empty and frees its slot.
+  Nothing re-creates it.
+
+## Worked example
+
+Team 7 is in both allowlists and every attestation is set.
+Cohort 42 has one behavioral leaf, "performed `$pageview` in the last 30 days", and a stamped, completed earlier run.
+No active feature flag uses cohort 42, since the API would refuse the edit otherwise.
+
+**10:00, the user changes the window to 7 days.**
+
+1. `save()` sees the behavioral shape hash move, because the window is part of the leaf's identity.
+   The condition hash does not change, because the matcher is the same.
+2. The same `UPDATE` stores the new filters and hashes and clears `last_backfill_events_at`.
+   Cohort 42 stops being flag-compatible, so the flag editor refuses it until a new run stamps.
+3. On commit, supersession finds no active run.
+   Redis `SET NX` succeeds and a task is scheduled for 10:05.
+4. At 10:05 the task creates run R1 pinned to the 7-day window.
+
+**Variant: a second edit at 10:03**, from 7 days to 14.
+The hashes move again and the stamp stays cleared.
+The Redis key from 10:00 still exists, so no second task is scheduled.
+The 10:05 task pins the 14-day definition.
+One run.
+
+**Variant: a second edit at 10:12, while R1 is seeding.**
+On commit, R1 is superseded.
+The 10:00 key expired at 10:05, so a new task is scheduled for 10:17.
+The seeder notices at its next lease renewal that R1 is no longer `seeding` and stops its chunks.
+Tiles R1 already produced still apply harmlessly.
+Tiles are keyed by condition hash, which the window edit did not change, so they max-merge into the 14-day leaf.
+They hold absolute counts for days that R2 re-seeds anyway.
+A tile whose condition hash no longer maps to any leaf would be dropped.
+At 10:17 the task creates R2 for the 14-day window, and R2 seeds all 14 days.
+
+## Things that surprise people
+
+- A save that does not change the definition, such as a rename, triggers nothing.
+- Readiness stamps are written with a queryset update that bypasses model signals, so the finalizer invalidates the flags cache explicitly after it stamps.
+- A `PATCH` that leaves any behavioral leaf in a cohort used by an active feature flag, directly or through a nested cohort, is refused.
+  That covers every filter edit of a behavioral or mixed cohort, not only behavioral edits, and it keeps a live flag out of the window where the stamp is cleared.
+  Only `PATCH` is checked.
+- Copying a cohort to another project drops its stamps.
+  The copy gets a run on its own only if the target team is trigger-allowlisted.

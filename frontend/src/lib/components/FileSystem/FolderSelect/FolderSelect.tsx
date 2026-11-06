@@ -12,7 +12,7 @@ import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/Dropdow
 import { cn } from 'lib/utils/css-classes'
 
 import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from '~/lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export interface FolderSelectProps {
@@ -28,6 +28,7 @@ export interface FolderSelectProps {
     includeProtocol?: boolean
     /** Include root item in the tree as a selectable item */
     includeRoot?: boolean
+    isActiveInPanel?: boolean
 }
 
 /** Input component for selecting a folder */
@@ -40,9 +41,10 @@ export function FolderSelect({
     className,
     includeProtocol,
     includeRoot,
+    isActiveInPanel,
 }: FolderSelectProps): JSX.Element {
     const [key] = useState(() => `folder-select-${counter++}`)
-    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root, includeRoot }
+    const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root, includeRoot, isActiveInPanel }
     const inputRef = useRef<HTMLInputElement>(null)
 
     const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, editingItemId } = useValues(

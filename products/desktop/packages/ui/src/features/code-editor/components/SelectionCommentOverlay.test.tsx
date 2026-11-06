@@ -2,6 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@posthog/di/react", () => ({
+  useServiceOptional: () => undefined,
+}));
 vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
   MentionComposer: ({
     value,
@@ -150,5 +153,56 @@ describe("SelectionCommentOverlay", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     expect(editor).toHaveValue("Keep this draft");
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("resets the card for a new selection on the same lines, but not when the selection moves", () => {
+    const props = {
+      open: true,
+      filePath: "report.md",
+      onSubmit: vi.fn(),
+      onDismiss: vi.fn(),
+      initiallyExpanded: true,
+      members: [],
+    };
+    const { rerender } = render(
+      <SelectionCommentOverlay
+        {...props}
+        selection={{
+          text: "first",
+          fromLine: 1,
+          toLine: 1,
+          anchor: { top: 20, endX: 20, bottom: 38 },
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Comment draft"), {
+      target: { value: "Draft" },
+    });
+
+    rerender(
+      <SelectionCommentOverlay
+        {...props}
+        selection={{
+          text: "first",
+          fromLine: 1,
+          toLine: 1,
+          anchor: { top: 60, endX: 20, bottom: 78 },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText("Comment draft")).toHaveValue("Draft");
+
+    rerender(
+      <SelectionCommentOverlay
+        {...props}
+        selection={{
+          text: "second",
+          fromLine: 1,
+          toLine: 1,
+          anchor: { top: 60, endX: 20, bottom: 78 },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText("Comment draft")).toHaveValue("");
   });
 });

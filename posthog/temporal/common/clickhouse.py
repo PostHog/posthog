@@ -10,20 +10,27 @@ import asyncio
 import datetime as dt
 import contextlib
 import collections.abc
-from string import Formatter
 from urllib.parse import urljoin
 
 from django.conf import settings
 
 import aiohttp
 import pyarrow as pa
+from clickhouse_driver.errors import ServerException
 from structlog import get_logger
 from temporalio import activity
 
+from posthog.hogql.escape_sql import backquote_clickhouse_identifier
+
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.security.outbound_proxy import internal_requests_session
+
+if typing.TYPE_CHECKING:
+    from posthog.clickhouse.client.execute import ClickHouseExternalTable
 
 LOGGER = get_logger(__name__)
 
@@ -93,6 +100,42 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return f"{quote_char}{str_data}{quote_char}".encode()
 
 
+def _encode_external_value(value: typing.Any) -> typing.Any:
+    # Epoch strings parse into DateTime and DateTime64 columns in any timezone; a formatted
+    # datetime would be read in the column's timezone instead of the value's.
+    if isinstance(value, dt.datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=dt.UTC)
+        return f"{value.timestamp():.6f}"
+    if isinstance(value, dt.date):
+        return value.isoformat()
+    return str(value)
+
+
+def _external_tables_form(
+    query: str, external_tables: collections.abc.Sequence["ClickHouseExternalTable"]
+) -> aiohttp.FormData:
+    """Build the multipart body that carries query-scoped tables over the HTTP interface.
+
+    The query goes in the form rather than the URL, so its length is not bound by URL limits.
+    """
+    form = aiohttp.FormData()
+    form.add_field("query", query)
+    for table in external_tables:
+        name = table["name"]
+        form.add_field(
+            f"{name}_structure",
+            ", ".join(
+                f"{backquote_clickhouse_identifier(column)} {clickhouse_type}"
+                for column, clickhouse_type in table["structure"]
+            ),
+        )
+        form.add_field(f"{name}_format", "JSONEachRow")
+        rows = b"\n".join(json.dumps(row, default=_encode_external_value).encode() for row in table["data"])
+        form.add_field(name, rows, filename=name, content_type="application/octet-stream")
+    return form
+
+
 class ClickHouseQueryStatus(enum.StrEnum):
     FINISHED = "Finished"
     RUNNING = "Running"
@@ -128,12 +171,32 @@ class ClickHouseClientNotConnected(Exception):
         super().__init__("ClickHouseClient is not connected. Are you running in a context manager?")
 
 
+_CLICKHOUSE_ERROR_CODE_PATTERN = re.compile(r"\bCode:\s*(\d+)\b")
+_CLICKHOUSE_ERROR_START = re.compile(r"(?:(?:std::exception|Poco::Exception)\. )?Code: \d+[.,] ")
+# ClickHouse 25+ wraps the error in "__exception__" lines and closes it with "<size> <tag>".
+_CLICKHOUSE_ERROR_TRAILER = re.compile(r"(\r?\n\d+ \w+)?\r?\n__exception__\s*$")
+
+QUERY_LOG_LOOKUP_ATTEMPTS = 5
+QUERY_LOG_LOOKUP_INTERVAL_SECONDS = 3
+
+
+def extract_clickhouse_error(payload: bytes) -> str | None:
+    """Find a ClickHouse error message in bytes that ClickHouse appended to a response."""
+    text = payload.decode("utf-8", errors="replace")
+    match = _CLICKHOUSE_ERROR_START.search(text)
+    if match is None:
+        return None
+    return _CLICKHOUSE_ERROR_TRAILER.sub("", text[match.start() :]).strip()
+
+
 class ClickHouseError(Exception):
     """Base Exception representing anything going wrong with ClickHouse."""
 
-    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+    def __init__(self, error_message: str, query: str | None = None, query_id: str | None = None):
         self.query = query
         self.query_id = query_id
+        code_match = _CLICKHOUSE_ERROR_CODE_PATTERN.search(error_message)
+        self.code = int(code_match.group(1)) if code_match else None
         super().__init__(error_message)
 
 
@@ -200,11 +263,27 @@ class ClickHouseTooManySimultaneousQueriesError(ClickHouseError):
         super().__init__(error_message, query, query_id)
 
 
+class ClickHouseQueryPlanningError(ClickHouseError):
+    """Exception raised when a DESCRIBE probe cannot plan a rewritten query."""
+
+
+class ClickHouseUserQueryError(ClickHouseError):
+    """Exception raised when ClickHouse rejects a permanently invalid user query."""
+
+
 class ClickHouseCheckQueryStatusError(ClickHouseError):
     """Exception raised when checking the status of a query fails."""
 
     def __init__(self, error_message: str, query_id: str | None = None):
         super().__init__(error_message, query_id=query_id)
+
+
+class ClickHouseUnknownTableError(ClickHouseError):
+    """Exception raised when a table does not exist.
+
+    This should only happen in HogQL batch exports, when users try to select tables that
+    batch exports cannot reach.
+    """
 
 
 def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
@@ -254,23 +333,6 @@ def add_log_comment_param(params: dict[str, typing.Any], query_tags: typing.Opti
     params[param_name] = query_tags.to_json()
 
 
-class KeywordOnlyFormatter(Formatter):
-    """Formatter supporting only keyword arguments.
-
-    Positional arguments are unchanged, missing keys are also left unchanged.
-    """
-
-    def get_value(self, key, args, kwargs):
-        if isinstance(key, int):
-            # Returns '{n}' unchanged, where n is a numerical index.
-            return f"{{{key}}}"
-        try:
-            return kwargs[key]
-        except KeyError:
-            # Returns '{key}' unchanged
-            return f"{{{key}}}"
-
-
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -290,10 +352,11 @@ class ClickHouseClient:
         database: str = "default",
         timeout: None | aiohttp.ClientTimeout = None,
         ssl: ssl.SSLContext | bool = True,
+        password_file: str | None = None,
         **kwargs,
     ):
         self.url = url
-        self.headers = {}
+        self.headers: dict[str, str] = {}
         self.params = {}
         self.timeout = timeout
         self.ssl = ssl
@@ -301,16 +364,26 @@ class ClickHouseClient:
         self.session: None | aiohttp.ClientSession = None
         self.logger = LOGGER.bind(url=url, database=database, user=user)
 
-        if user:
-            self.headers["X-ClickHouse-User"] = user
-        if password:
-            self.headers["X-ClickHouse-Key"] = password
+        # Build auth per request from the credential, which may read a rotating token file. A long
+        # batch export holds one session for hours, longer than a short-lived token lives, so the
+        # auth header cannot be stamped once at construction.
+        self._credentials = ClickHouseCredentials(user=user, password=password, password_file=password_file)
+
         if database:
             self.params["database"] = database
 
-        self.params["max_query_size"] = "1048576"  # 1MB
+        self.params["max_query_size"] = str(MAX_QUERY_SIZE_BYTES)
 
         self.params.update(kwargs)
+
+    def _request_headers(self) -> dict[str, str]:
+        headers = dict(self.headers)
+        if self._credentials.user:
+            headers["X-ClickHouse-User"] = self._credentials.user
+        key = self._credentials.read_password()
+        if key:
+            headers["X-ClickHouse-Key"] = key
+        return headers
 
     @classmethod
     def from_posthog_settings(cls, settings, **kwargs):
@@ -319,6 +392,7 @@ class ClickHouseClient:
             url=settings.CLICKHOUSE_URL,
             user=settings.CLICKHOUSE_USER,
             password=settings.CLICKHOUSE_PASSWORD,
+            password_file=settings.CLICKHOUSE_PASSWORD_FILE,
             database=settings.CLICKHOUSE_DATABASE,
             **kwargs,
         )
@@ -337,7 +411,7 @@ class ClickHouseClient:
         try:
             await self.session.get(
                 url=ping_url,
-                headers=self.headers,
+                headers=self._request_headers(),
                 raise_for_status=True,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             )
@@ -358,20 +432,11 @@ class ClickHouseClient:
         if not query_parameters:
             return query
 
-        has_format_placeholders = re.search(r"(?<!{){[^{}]*}(?!})|{{[^{}]*}}", query)
-
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
-
-        if has_format_placeholders:
-            # Escape any curly brackets `{` or `}` in the format parameters so they are not parsed
-            # as format placeholders
-            escaped_parameters = {k: v.replace("{", "{{").replace("}", "}}") for k, v in format_parameters.items()}
-            query = query % escaped_parameters
-            query = KeywordOnlyFormatter().format(query, **format_parameters)
-        else:
-            query = query % format_parameters
-
-        return query
+        # HogQL reserves percent placeholders for values and rejects percent signs in identifiers.
+        # Braces can occur in authorized identifiers, so interpreting them here would change the
+        # query after authorization. Leave typed ClickHouse parameters and all other braces intact.
+        return query % format_parameters
 
     def prepare_request_data(self, data: collections.abc.Sequence[typing.Any]) -> bytes | None:
         """Prepare the request data sent by encoding it.
@@ -386,7 +451,9 @@ class ClickHouseClient:
         return request_data
 
     @staticmethod
-    def raise_clickhouse_error(error_message: str, query: str | None = None) -> typing.NoReturn:
+    def raise_clickhouse_error(
+        error_message: str, query: str | None = None, query_id: str | None = None
+    ) -> typing.NoReturn:
         """Raise the appropriate ClickHouseError subclass based on the error message."""
         ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
             "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
@@ -395,11 +462,55 @@ class ClickHouseClient:
             "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
             "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
+            "UNKNOWN_TABLE": ClickHouseUnknownTableError,
         }
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:
-                raise exc_class(error_message, query=query)
-        raise ClickHouseError(error_message, query=query)
+                raise exc_class(error_message, query=query, query_id=query_id)
+
+        code_match = _CLICKHOUSE_ERROR_CODE_PATTERN.search(error_message)
+        if code_match:
+            code = int(code_match.group(1))
+            server_error = ServerException(error_message, code=code)
+            if classify_query_error(server_error) == QueryErrorCategory.USER_ERROR:
+                raise ClickHouseUserQueryError(error_message, query=query, query_id=query_id)
+        raise ClickHouseError(error_message, query=query, query_id=query_id)
+
+    @classmethod
+    def raise_stream_error(
+        cls, error: asyncpa.InvalidMessageFormat, query: str | None = None, query_id: str | None = None
+    ) -> typing.NoReturn:
+        """Raise the ClickHouse error in the unparsed tail of an Arrow stream, or the original error.
+
+        ClickHouse sends the 200 status before the query ends. When the query fails after that,
+        ClickHouse appends the error text to the stream that it already sent.
+        """
+        error_message = extract_clickhouse_error(error.unparsed)
+        if error_message is None:
+            raise error
+        try:
+            cls.raise_clickhouse_error(error_message, query=query, query_id=query_id)
+        except ClickHouseError as clickhouse_error:
+            raise clickhouse_error from error
+
+    async def araise_cut_stream_error(
+        self, error: aiohttp.ClientPayloadError, query: str | None, query_id: str
+    ) -> typing.NoReturn:
+        """Raise the query's error from the query log when the response ended early, or the original error."""
+        for attempt in range(QUERY_LOG_LOOKUP_ATTEMPTS):
+            if attempt:
+                await asyncio.sleep(QUERY_LOG_LOOKUP_INTERVAL_SECONDS)
+            try:
+                status = await self.acheck_query_in_query_log(query_id)
+            except ClickHouseQueryNotFound:
+                continue
+            except ClickHouseCheckQueryStatusError:
+                break
+            except ClickHouseError as clickhouse_error:
+                raise clickhouse_error from error
+            if status != ClickHouseQueryStatus.RUNNING:
+                break
+        raise error
 
     async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse."""
@@ -452,7 +563,7 @@ class ClickHouseClient:
 
         add_log_comment_param(params)
 
-        async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
+        async with self.session.get(url=self.url, headers=self._request_headers(), params=params) as response:
             await self.acheck_response(response, query)
             yield response
 
@@ -465,6 +576,7 @@ class ClickHouseClient:
         query_id,
         timeout: float | None = None,
         settings: dict[str, str] | None = None,
+        external_tables: collections.abc.Sequence["ClickHouseExternalTable"] | None = None,
     ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
         """POST a query to the ClickHouse HTTP interface.
 
@@ -479,14 +591,20 @@ class ClickHouseClient:
             query_parameters: Parameters to be formatted in the query.
             query_id: A query ID to pass to ClickHouse.
             settings: Extra ClickHouse HTTP-interface settings to include as query-string parameters.
+            external_tables: Query-scoped tables the query reads, sent in the request body.
 
         Returns:
             The response received from the ClickHouse HTTP interface.
         """
         if self.session is None:
             raise ClickHouseClientNotConnected()
+        if external_tables and data:
+            raise ValueError("A query cannot send both external tables and request data.")
 
         params = {**self.params}
+        if external_tables:
+            # Named tuples, such as a jev choice, are encoded as JSON arrays.
+            params["input_format_json_named_tuples_as_objects"] = "0"
         if settings is not None:
             params.update(settings)
         if query_id is not None:
@@ -510,12 +628,15 @@ class ClickHouseClient:
                     params[f"param_{key}"] = str(value)
         add_log_comment_param(params)
 
-        request_data = self.prepare_request_data(data)
-
-        if request_data:
-            params["query"] = query
+        request_data: bytes | aiohttp.FormData | None
+        if external_tables:
+            request_data = _external_tables_form(query, external_tables)
         else:
-            request_data = query.encode("utf-8")
+            request_data = self.prepare_request_data(data)
+            if request_data:
+                params["query"] = query
+            else:
+                request_data = query.encode("utf-8")
 
         if timeout:
             client_timeout = aiohttp.ClientTimeout(total=timeout)
@@ -524,7 +645,7 @@ class ClickHouseClient:
 
         try:
             async with self.session.post(
-                url=self.url, params=params, headers=self.headers, data=request_data, timeout=client_timeout
+                url=self.url, params=params, headers=self._request_headers(), data=request_data, timeout=client_timeout
             ) as response:
                 await self.acheck_response(response, query)
                 yield response
@@ -586,7 +707,7 @@ class ClickHouseClient:
             response = s.post(
                 url=self.url,
                 params=params,
-                headers=self.headers,
+                headers=self._request_headers(),
                 data=request_data,
                 stream=True,
                 verify=False,
@@ -720,8 +841,8 @@ class ClickHouseClient:
         """
         query = """
                 SELECT type, exception
-                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
-                WHERE query_id = {{query_id:String}}
+                FROM clusterAllReplicas({cluster_name:String}, system.query_log)
+                WHERE query_id = {query_id:String}
                     AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
                 FORMAT JSONEachRow
                 """
@@ -764,8 +885,11 @@ class ClickHouseClient:
         elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
             if raise_on_error:
                 error_message = error or f"Unknown query error in query with ID: {query_id}"
-                # we don't have the original query here so just use the query id
-                raise ClickHouseError(error_message, query_id=query_id)
+                # The query log's `exception` column holds the same text ClickHouse returns over
+                # HTTP, so classify it the same way for consistency. Otherwise, the exception a
+                # caller sees for a query result we fetch from the query log would differ from that
+                # they would get running the query and waiting for the result.
+                self.raise_clickhouse_error(error_message, query_id=query_id)
 
             return ClickHouseQueryStatus.ERROR
         elif "QueryStart" in events:
@@ -782,8 +906,8 @@ class ClickHouseClient:
         """
         query = """
                 SELECT written_rows
-                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
-                WHERE query_id = {{query_id:String}}
+                FROM clusterAllReplicas({cluster_name:String}, system.query_log)
+                WHERE query_id = {query_id:String}
                     AND type = 'QueryFinish'
                     AND is_initial_query = 1
                     AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
@@ -823,8 +947,8 @@ class ClickHouseClient:
         """
         query = """
                 SELECT 1
-                FROM clusterAllReplicas({{cluster_name:String}}, system.processes)
-                WHERE query_id = {{query_id:String}}
+                FROM clusterAllReplicas({cluster_name:String}, system.processes)
+                WHERE query_id = {query_id:String}
                     AND NOT is_cancelled
                 LIMIT 1
                 """
@@ -851,7 +975,7 @@ class ClickHouseClient:
         Arguments:
             query_id: The ID of the query to cancel.
         """
-        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{{{query_id:String}}}}"
+        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{query_id:String}}"
 
         await self.execute_query(
             query,
@@ -908,17 +1032,26 @@ class ClickHouseClient:
         query_parameters=None,
         query_id: str | None = None,
         on_schema: collections.abc.Callable[[pa.Schema], None] | None = None,
+        external_tables: collections.abc.Sequence["ClickHouseExternalTable"] | None = None,
     ) -> typing.AsyncGenerator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
         """
-        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        query_id = query_id or str(uuid.uuid4())
+        async with self.apost_query(
+            query, *data, query_parameters=query_parameters, query_id=query_id, external_tables=external_tables
+        ) as response:
             reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
-            if on_schema is not None:
-                on_schema(await reader.get_schema())
-            async for batch in reader:
-                yield batch
+            try:
+                if on_schema is not None:
+                    on_schema(await reader.get_schema())
+                async for batch in reader:
+                    yield batch
+            except asyncpa.InvalidMessageFormat as error:
+                self.raise_stream_error(error, query=query, query_id=query_id)
+            except aiohttp.ClientPayloadError as error:
+                await self.araise_cut_stream_error(error, query=query, query_id=query_id)
 
     async def aproduce_query_as_arrow_record_batches(
         self,
@@ -934,9 +1067,15 @@ class ClickHouseClient:
         This method is intended to be ran as a background task, producing record batches continuously, while other
         downstream consumer tasks process them from the queue.
         """
+        query_id = query_id or str(uuid.uuid4())
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchProducer(ChunkBytesAsyncStreamIterator(response.content))
-            await reader.produce(queue=queue)
+            try:
+                await reader.produce(queue=queue)
+            except asyncpa.InvalidMessageFormat as error:
+                self.raise_stream_error(error, query=query, query_id=query_id)
+            except aiohttp.ClientPayloadError as error:
+                await self.araise_cut_stream_error(error, query=query, query_id=query_id)
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
@@ -1038,6 +1177,7 @@ async def get_client(
         url=url,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
+        password_file=settings.CLICKHOUSE_PASSWORD_FILE,
         database=settings.CLICKHOUSE_DATABASE,
         timeout=timeout,
         ssl=False,

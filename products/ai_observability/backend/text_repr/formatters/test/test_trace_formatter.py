@@ -6,7 +6,14 @@ Tests cover tree structure rendering, expandable nodes, ASCII art, and options h
 
 from typing import Any
 
-from ..message_formatter import truncate_content
+import pytest
+
+from parameterized import parameterized
+
+from posthog.schema import LLMTrace, LLMTraceEvent
+
+from ..constants import MAX_TREE_DEPTH
+from ..message_formatter import FormatterOptions, RenderBudgetExceeded, truncate_content
 from ..trace_formatter import (
     _format_cost,
     _format_latency,
@@ -14,6 +21,8 @@ from ..trace_formatter import (
     _get_event_summary,
     _render_tree,
     format_trace_text_repr,
+    format_trace_text_repr_with_line_owners,
+    llm_trace_to_formatter_format,
 )
 
 
@@ -31,6 +40,13 @@ class TestFormatHelpers:
         assert _format_cost(0.0023) == "$0.0023"
         assert _format_cost(1.23456) == "$1.2346"
         assert _format_cost(0) == "$0.0000"
+
+    def test_coerces_string_valued_metrics(self):
+        """A string latency or cost must not raise `Unknown format code 'f'`."""
+        assert _format_latency("1.5") == "1.50s"
+        assert _format_cost("0.02") == "$0.0200"
+        # Non-numeric strings fall back to the raw value rather than crashing.
+        assert _format_latency("n/a") == "n/a"
 
 
 class TestGetEventSummary:
@@ -107,6 +123,16 @@ class TestGetEventSummary:
         summary = _get_event_summary(event)
         assert "ERROR" in summary
 
+    @pytest.mark.parametrize(
+        "output_type,score", [("numeric", 0), ("numeric", 7.25), ("categorical", []), ("categorical", ["resolved"])]
+    )
+    def test_typed_evaluation_summary(self, output_type: str, score: float | list[str]) -> None:
+        event = {
+            "event": "$ai_evaluation",
+            "properties": {"$ai_evaluation_result_type": output_type, f"$ai_evaluation_{output_type}_result": score},
+        }
+        assert _get_event_summary(event) == f"evaluation ({score})"
+
     def test_evaluation_summary_pass(self):
         event = {
             "event": "$ai_evaluation",
@@ -116,8 +142,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Factual accuracy" in summary
-        assert "PASS" in summary
+        assert "Factual accuracy (true)" in summary
 
     def test_evaluation_summary_fail(self):
         event = {
@@ -128,8 +153,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Relevance" in summary
-        assert "FAIL" in summary
+        assert "Relevance (false)" in summary
 
     def test_evaluation_summary_na(self):
         event = {
@@ -161,9 +185,7 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Length check" in summary
-        assert "hog" in summary
-        assert "PASS" in summary
+        assert "Length check (hog, true)" in summary
 
     def test_evaluation_summary_includes_llm_judge_runtime(self):
         event = {
@@ -175,9 +197,26 @@ class TestGetEventSummary:
             },
         }
         summary = _get_event_summary(event)
-        assert "Factual accuracy" in summary
-        assert "llm_judge" in summary
-        assert "FAIL" in summary
+        assert "Factual accuracy (llm_judge, false)" in summary
+
+    @parameterized.expand(
+        [
+            ("generation", "$ai_generation", {"$ai_span_name": 42, "$ai_model": 4}, "42 (4)"),
+            ("generation_model_fallback", "$ai_generation", {"$ai_model": 4}, "4 (4)"),
+            ("span", "$ai_span", {"$ai_span_name": 42, "$ai_is_error": True}, "42 (ERROR)"),
+            ("embedding", "$ai_embedding", {"$ai_span_name": 42, "$ai_model": 4}, "42 (4)"),
+            (
+                "evaluation",
+                "$ai_evaluation",
+                {"$ai_evaluation_name": 42, "$ai_evaluation_runtime": 1, "$ai_evaluation_result": True},
+                "42 (1, true)",
+            ),
+        ]
+    )
+    def test_non_string_names_are_coerced(
+        self, _name: str, event_type: str, properties: dict[str, Any], expected: str
+    ) -> None:
+        assert _get_event_summary({"event": event_type, "properties": properties}) == expected
 
     def test_unknown_event_type(self):
         """Should return event type for unknown events."""
@@ -500,6 +539,28 @@ class TestFormatTraceTextRepr:
         assert "[GEN]" in result
         assert "generation" in result
 
+    @pytest.mark.parametrize("budget_delta", [-1, 0])
+    @pytest.mark.parametrize("event_type", [None, "$ai_generation", "$ai_span"])
+    def test_render_budget_counts_headers_and_line_numbers(self, event_type: str | None, budget_delta: int) -> None:
+        messages = [{"role": "user", "content": "line\n" * 20 + "\ud83d\ude00"} for _ in range(3)]
+        properties = {"$ai_input": messages, "$ai_input_state": messages}
+        trace = {"properties": properties}
+        hierarchy = [{"event": {"event": event_type, "properties": properties}}] if event_type else []
+        options: FormatterOptions = {
+            "include_markers": False,
+            "truncated": False,
+            "include_line_numbers": True,
+            "max_length": None,
+        }
+        expected, _ = format_trace_text_repr(trace, hierarchy, options)
+        options["max_render_length"] = len(expected) + budget_delta
+
+        if budget_delta < 0:
+            with pytest.raises(RenderBudgetExceeded):
+                format_trace_text_repr(trace, hierarchy, options)
+        else:
+            assert format_trace_text_repr(trace, hierarchy, options) == (expected, False)
+
     def test_format_trace_with_aggregated_metrics(self):
         """Should format trace with cost and token data."""
         trace = {
@@ -647,3 +708,269 @@ class TestEdgeCases:
         assert "TRACE ERROR:" in result
         # Should serialize error object
         assert "message" in result or "error" in result
+
+
+class TestLLMTraceToFormatterFormat:
+    TRACE_ID = "trace-1"
+
+    def _trace(self, *events: LLMTraceEvent) -> LLMTrace:
+        return LLMTrace(
+            id=self.TRACE_ID,
+            createdAt="2026-08-06T12:00:00Z",
+            distinctId="user-1",
+            events=list(events),
+        )
+
+    def _event(
+        self,
+        event_id: str,
+        properties: dict[str, Any],
+        event: str = "$ai_span",
+        created_at: str = "2026-08-06T12:00:00Z",
+    ) -> LLMTraceEvent:
+        return LLMTraceEvent(id=event_id, event=event, createdAt=created_at, properties=properties)
+
+    def test_defaults_to_a_flat_hierarchy(self):
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("gen-1", {"$ai_parent_id": "span-1"}, event="$ai_generation"),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-1", "gen-1"]
+        assert all(node["children"] == [] for node in hierarchy)
+
+    def test_nests_children_under_their_parent(self):
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event(
+                "gen-1",
+                {"$ai_generation_id": "gen-1", "$ai_parent_id": "span-1"},
+                event="$ai_generation",
+            ),
+            self._event("span-2", {"$ai_span_id": "span-2", "$ai_parent_id": "gen-1"}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-1"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"]] == ["gen-1"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"][0]["children"]] == ["span-2"]
+
+    def test_promotes_events_whose_parent_is_missing_to_roots(self):
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("gen-1", {"$ai_parent_id": "span-never-ingested"}, event="$ai_generation"),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert sorted(node["event"]["id"] for node in hierarchy) == ["gen-1", "span-1"]
+
+    @parameterized.expand(
+        [
+            ("generation_list", "$ai_generation_id", ["invalid"]),
+            ("span_object", "$ai_span_id", {"invalid": "id"}),
+            ("parent_list", "$ai_parent_id", ["invalid"]),
+            ("trace_object", "$ai_trace_id", {"invalid": "id"}),
+        ]
+    )
+    def test_ignores_non_scalar_hierarchy_ids(
+        self, _case_name: str, property_name: str, malformed_id: list[str] | dict[str, str]
+    ) -> None:
+        properties: dict[str, Any] = {property_name: malformed_id}
+        if property_name in {"$ai_generation_id", "$ai_span_id"}:
+            properties["$ai_trace_id"] = self.TRACE_ID
+        else:
+            properties["$ai_span_id"] = "span-1"
+        trace = self._trace(self._event("event-1", properties))
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["event-1"]
+
+    @parameterized.expand([("integer", 1, "1"), ("boolean", True, "true")])
+    def test_normalizes_scalar_hierarchy_ids(
+        self, _case_name: str, parent_id: int | bool, child_parent_id: str
+    ) -> None:
+        trace = self._trace(
+            self._event("parent", {"$ai_span_id": parent_id, "$ai_trace_id": self.TRACE_ID}),
+            self._event("child", {"$ai_span_id": "child", "$ai_parent_id": child_parent_id}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["parent"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"]] == ["child"]
+
+    def test_excludes_feedback_and_metric_events(self):
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("feedback-1", {"$ai_trace_id": self.TRACE_ID}, event="$ai_feedback"),
+            self._event("metric-1", {"$ai_trace_id": self.TRACE_ID}, event="$ai_metric"),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-1"]
+
+    def test_preserves_events_in_a_parent_cycle(self) -> None:
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_parent_id": "span-2"}),
+            self._event("span-2", {"$ai_span_id": "span-2", "$ai_parent_id": "span-1"}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-1"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"]] == ["span-2"]
+
+    def test_emits_duplicate_node_ids_once_under_the_retained_parent(self) -> None:
+        trace = self._trace(
+            self._event("root-1", {"$ai_span_id": "root-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("root-2", {"$ai_span_id": "root-2", "$ai_trace_id": self.TRACE_ID}),
+            self._event("shared-old", {"$ai_span_id": "shared", "$ai_parent_id": "root-1"}),
+            self._event("shared-duplicate", {"$ai_span_id": "shared", "$ai_parent_id": "root-2"}),
+            self._event("shared-retained", {"$ai_span_id": "shared", "$ai_parent_id": "root-2"}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["root-1", "root-2"]
+        assert hierarchy[0]["children"] == []
+        assert [node["event"]["id"] for node in hierarchy[1]["children"]] == ["shared-retained"]
+
+    def test_splits_overdeep_branches_into_additional_roots(self) -> None:
+        events = [self._event("span-0", {"$ai_span_id": "span-0", "$ai_trace_id": self.TRACE_ID})]
+        events.extend(
+            self._event(
+                f"span-{index}",
+                {"$ai_span_id": f"span-{index}", "$ai_parent_id": f"span-{index - 1}"},
+            )
+            for index in range(1, MAX_TREE_DEPTH + 3)
+        )
+        trace = self._trace(*events)
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-0", f"span-{MAX_TREE_DEPTH + 1}"]
+        assert [node["event"]["id"] for node in hierarchy[1]["children"]] == [f"span-{MAX_TREE_DEPTH + 2}"]
+
+    def test_orders_siblings_by_when_their_operation_began(self):
+        # Captured on completion, so the event that finished first is not the one that started first.
+        trace = self._trace(
+            self._event(
+                "slow-start-first",
+                {"$ai_span_id": "slow-start-first", "$ai_trace_id": self.TRACE_ID, "$ai_latency": 2},
+                created_at="2026-08-06T12:00:02Z",
+            ),
+            self._event(
+                "quick-start-second",
+                {"$ai_span_id": "quick-start-second", "$ai_trace_id": self.TRACE_ID, "$ai_latency": 0},
+                created_at="2026-08-06T12:00:01Z",
+            ),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["slow-start-first", "quick-start-second"]
+
+
+class TestSurrogateSafety:
+    """Test that a trace holding half an emoji still yields encodable text."""
+
+    def test_trace_text_repr_encodes_as_utf8(self):
+        """Should repair content captured with an unpaired surrogate."""
+        trace = {"properties": {"$ai_span_name": "broken \ud83c"}}
+        hierarchy = [
+            {
+                "event": {
+                    "event": "$ai_generation",
+                    "properties": {"$ai_input": [{"role": "user", "content": "hello \ud83c"}]},
+                },
+                "children": [],
+            }
+        ]
+
+        text, _ = format_trace_text_repr(trace=trace, hierarchy=hierarchy)
+
+        assert text.encode("utf-8")
+        assert "\ud83c" not in text
+
+
+PLAIN_NUMBERED: FormatterOptions = {
+    "include_markers": False,
+    "truncated": False,
+    "collapsed": False,
+    "include_line_numbers": True,
+}
+NESTED_TRACE = {"properties": {"$ai_span_name": "support-bot", "$ai_error": {"message": "boom", "code": 7}}}
+NESTED_HIERARCHY = [
+    {
+        "event": {"id": "span-1", "event": "$ai_span", "properties": {"$ai_span_name": "retrieve"}},
+        "children": [
+            {
+                "event": {
+                    "id": "gen-1",
+                    "event": "$ai_generation",
+                    "properties": {
+                        "$ai_model": "gpt-4.1-mini",
+                        "$ai_input": [{"role": "user", "content": "Where is my parcel?\nIt was due Monday."}],
+                        "$ai_output_choices": [{"role": "assistant", "content": "It ships tomorrow."}],
+                    },
+                },
+                "children": [],
+            }
+        ],
+    }
+]
+STATE_ONLY_TRACE = {"properties": {"$ai_span_name": "lookup", "$ai_input_state": {"order": 12}}}
+
+
+class TestLineOwners:
+    @parameterized.expand(
+        [
+            ("nested plain numbered", NESTED_TRACE, NESTED_HIERARCHY, PLAIN_NUMBERED),
+            ("nested with markers", NESTED_TRACE, NESTED_HIERARCHY, {"include_markers": True}),
+            ("collapsed", NESTED_TRACE, NESTED_HIERARCHY, {"collapsed": True}),
+            ("state only", STATE_ONLY_TRACE, [], PLAIN_NUMBERED),
+            ("default options", NESTED_TRACE, NESTED_HIERARCHY, None),
+        ]
+    )
+    def test_line_owner_variant_renders_the_same_text(
+        self, _name: str, trace: dict[str, Any], hierarchy: list[dict[str, Any]], options: FormatterOptions | None
+    ) -> None:
+        rendered = format_trace_text_repr_with_line_owners(trace, hierarchy, options)
+
+        assert (rendered.text, rendered.was_sampled) == format_trace_text_repr(trace, hierarchy, options)
+
+    def test_line_owners_follow_each_step_through_nesting_and_multiline_entries(self) -> None:
+        rendered = format_trace_text_repr_with_line_owners(NESTED_TRACE, NESTED_HIERARCHY, PLAIN_NUMBERED)
+        lines = rendered.text.split("\n")
+
+        def owners_of(marker: str) -> set[str | None]:
+            return {owner for line, owner in zip(lines, rendered.line_owners) if marker in line}
+
+        assert len(rendered.line_owners) == len(lines)
+        assert owners_of("[GEN]") == {"gen-1"}
+        assert owners_of("[SPAN]") == {"span-1"}
+        assert owners_of("It was due Monday.") == {"gen-1"}
+        assert owners_of('"code": 7') == {None}
+        assert rendered.line_owners[0] is None
+
+    def test_line_owners_survive_sampling(self) -> None:
+        hierarchy = [
+            {"event": {"id": f"gen-{index}", "event": "$ai_generation", "properties": {"$ai_model": "m"}}}
+            for index in range(200)
+        ]
+        full = format_trace_text_repr_with_line_owners(NESTED_TRACE, hierarchy, PLAIN_NUMBERED)
+        sampled = format_trace_text_repr_with_line_owners(
+            NESTED_TRACE, hierarchy, {**PLAIN_NUMBERED, "max_length": len(full.text) // 3}
+        )
+        kept = [line for line in sampled.text.split("\n") if line.startswith("L") and ":" in line]
+
+        assert sampled.was_sampled and sampled.line_owners == full.line_owners
+        for line in kept:
+            number = int(line[1 : line.index(":")])
+            assert full.text.split("\n")[number - 1] == line

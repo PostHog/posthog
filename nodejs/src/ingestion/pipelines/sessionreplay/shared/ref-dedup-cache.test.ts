@@ -1,6 +1,6 @@
 import { Counter, register } from 'prom-client'
 
-import { RefDedupCache } from './ref-dedup-cache'
+import { RefDedupCache, registerNativeRefDedupCache } from './ref-dedup-cache'
 
 describe('RefDedupCache', () => {
     async function probe(cache: string, verdict: 'would_hit' | 'would_miss'): Promise<number> {
@@ -56,6 +56,20 @@ describe('RefDedupCache', () => {
         // lru-cache throws on these too, but names neither the cache nor the knob, so the lane
         // crash-loops on a message an operator cannot act on.
         expect(() => new RefDedupCache('test_validation', max)).toThrow(/test_validation ref cache max/)
+    })
+
+    it('reports the running totals of a native cache once, however often it is scraped', async () => {
+        // The addon keeps running totals, and the counter is fed what grew since the last scrape. A
+        // counter fed the whole total on every scrape would grow with the scrape count instead.
+        const name = 'test_native_totals'
+        const stats = { entries: 3, evictions: 0, wouldHit: 1, wouldMiss: 2 }
+        registerNativeRefDedupCache(name, 10, () => stats)
+
+        expect(await probe(name, 'would_hit')).toBe(1)
+        expect(await probe(name, 'would_miss')).toBe(2)
+        stats.wouldMiss = 5
+        expect(await probe(name, 'would_hit')).toBe(1)
+        expect(await probe(name, 'would_miss')).toBe(5)
     })
 
     it('does not probe while the cache still has room, so an unfilled cache reads as sized correctly', async () => {

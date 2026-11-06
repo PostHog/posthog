@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 pub use error::{StorageError, StorageResult};
-pub use types::{DistinctIdMapping, Person, PersonStub, StubOutcome};
+pub use types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
 
 pub const DB_QUERY_DURATION: &str = "personhog_identity_db_query_duration_ms";
 
@@ -18,10 +18,17 @@ pub const DB_QUERY_DURATION: &str = "personhog_identity_db_query_duration_ms";
 pub trait IdentityStorage: Send + Sync {
     /// Batch-resolve (team_id, distinct_id) keys to persons on the primary.
     /// Returns a map keyed by (team_id, distinct_id); unresolved keys are absent.
+    /// Persons carry identity only (no properties): the leader owns those.
     async fn resolve_distinct_ids(
         &self,
         keys: &[(i64, String)],
     ) -> StorageResult<HashMap<(i64, String), Person>>;
+
+    /// Person ids from live distinct id rows, without reading the person table.
+    async fn resolve_person_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> StorageResult<HashMap<(i64, String), i64>>;
 
     /// Expand person ids to their live distinct id rows on the primary.
     /// With a per-person limit, identified ids survive the cut and the
@@ -42,4 +49,14 @@ pub trait IdentityStorage: Send + Sync {
     /// Callers must dedupe stubs by (team_id, distinct_id); duplicate keys in
     /// one call have unspecified per-row outcomes. Outcomes are in stub order.
     async fn create_person_stubs(&self, stubs: &[PersonStub]) -> StorageResult<Vec<StubOutcome>>;
+
+    /// Attach personless distinct ids to a live person with plain mapping
+    /// inserts. Live mappings are never repointed (`AlreadyMapped`); an id
+    /// absent from the result attached nothing. Callers dedupe.
+    async fn attach_distinct_ids(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<HashMap<String, AttachOutcome>>;
 }

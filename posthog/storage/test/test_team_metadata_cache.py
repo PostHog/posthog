@@ -8,13 +8,15 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 import posthog.storage.team_access_cache_signal_handlers  # noqa: F401 — registers PSAK delete handler
 from posthog.models.team.team import Team
+from posthog.storage.cache_expiry_manager import select_expiring_teams
 from posthog.storage.team_metadata_cache import (
+    TEAM_HYPERCACHE_MANAGEMENT_CONFIG,
     TEAM_METADATA_FIELDS,
     _serialize_team_field,
     clear_team_metadata_cache,
@@ -25,6 +27,12 @@ from posthog.storage.team_metadata_cache import (
 )
 from posthog.tasks.team_metadata import update_team_metadata_cache_task
 
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
+from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 
 
@@ -126,8 +134,8 @@ class TestTeamMetadataCacheTasks(BaseTest):
 class TestTeamMetadataCacheSignals(BaseTest):
     """Test Django signals for cache updates."""
 
-    @patch("posthog.tasks.team_metadata.transaction")
-    @patch("posthog.tasks.team_metadata.settings")
+    @patch("posthog.storage.team_metadata_signal_handlers.transaction")
+    @patch("posthog.storage.team_metadata_signal_handlers.settings")
     @patch("posthog.tasks.team_metadata.update_team_metadata_cache_task.delay")
     def test_team_save_triggers_update(self, mock_task, mock_settings, mock_transaction):
         """Test that saving a team schedules a cache update when FLAGS_REDIS_URL is set."""
@@ -142,8 +150,8 @@ class TestTeamMetadataCacheSignals(BaseTest):
         # Task should be called with the team ID
         mock_task.assert_called_with(self.team.id)
 
-    @patch("posthog.tasks.team_metadata.settings")
-    @patch("posthog.tasks.team_metadata.clear_team_metadata_cache")
+    @patch("posthog.storage.team_metadata_signal_handlers.settings")
+    @patch("posthog.storage.team_metadata_signal_handlers.clear_team_metadata_cache")
     def test_team_delete_clears_cache(self, mock_clear, mock_settings):
         """Test that deleting a team clears its cache when FLAGS_REDIS_URL is set."""
         mock_settings.FLAGS_REDIS_URL = "redis://localhost"
@@ -159,8 +167,8 @@ class TestTeamMetadataCacheSignals(BaseTest):
         # Cache should be cleared
         mock_clear.assert_called_once()
 
-    @patch("posthog.tasks.team_metadata.transaction")
-    @patch("posthog.tasks.team_metadata.settings")
+    @patch("posthog.storage.team_metadata_signal_handlers.transaction")
+    @patch("posthog.storage.team_metadata_signal_handlers.settings")
     @patch("posthog.tasks.team_metadata.update_team_metadata_cache_task.delay")
     def test_team_save_noop_without_flags_redis_url(self, mock_task, mock_settings, mock_transaction):
         """Test that signal is no-op when FLAGS_REDIS_URL is not set."""
@@ -175,8 +183,8 @@ class TestTeamMetadataCacheSignals(BaseTest):
         # Task should NOT be called
         mock_task.assert_not_called()
 
-    @patch("posthog.tasks.team_metadata.settings")
-    @patch("posthog.tasks.team_metadata.clear_team_metadata_cache")
+    @patch("posthog.storage.team_metadata_signal_handlers.settings")
+    @patch("posthog.storage.team_metadata_signal_handlers.clear_team_metadata_cache")
     def test_team_delete_noop_without_flags_redis_url(self, mock_clear, mock_settings):
         """Test that signal is no-op when FLAGS_REDIS_URL is not set."""
         mock_settings.FLAGS_REDIS_URL = None
@@ -360,6 +368,31 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         self.assertEqual(len(result), 0)
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_a_full_range_reports_the_limit_even_when_an_identifier_is_stale(self, mock_get_client: MagicMock) -> None:
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        # The range comes back full, but one identifier belongs to a team that no longer
+        # exists, which is the steady state of a sorted set the cleanup task has not reached.
+        mock_redis.zrangebyscore.return_value = [self.team.api_token.encode(), b"phc_deleted_team"]
+
+        selection = select_expiring_teams(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours=24, limit=2)
+
+        self.assertEqual(len(selection.teams), 1)
+        # Reading the limit from the resolved teams would report this run as having room
+        # to spare, while Redis still holds work it did not take.
+        self.assertTrue(selection.limit_reached)
+
+    @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_an_unreadable_range_reports_the_limit_as_unknown(self, mock_get_client: MagicMock) -> None:
+        mock_get_client.side_effect = RuntimeError("redis unreachable")
+
+        selection = select_expiring_teams(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours=24)
+
+        # Reporting False here pushes a 0 that Pushgateway keeps serving, which states the
+        # queue was drained by a run that never read it.
+        self.assertIsNone(selection.limit_reached)
+
+    @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_narrows_selected_columns_to_refresh_fields(self, mock_get_client):
         """The refresh SELECT is narrowed via .only(), so a Team column the read replica
         hasn't migrated yet can't turn the whole batch into an UndefinedColumn error.
@@ -418,9 +451,12 @@ class TestVerifyTeamMetadata(BaseTest):
     @parameterized.expand(
         [
             ("name", "Wrong Name"),
-            # minimal_flag_called_events isn't in TEAM_METADATA_FIELDS — it's added to
-            # fields_to_check separately, so it needs its own mismatch case.
+            # TeamFeatureFlagsConfig fields are tracked separately from TEAM_METADATA_FIELDS.
             ("minimal_flag_called_events", True),
+            ("property_matching_version", 2),
+            ("flags_blocked_hosts", ["example.com"]),
+            ("flags_blocked_ips", ["203.0.113.7"]),
+            ("realtime_cohort_level", "serving"),
         ]
     )
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
@@ -439,6 +475,34 @@ class TestVerifyTeamMetadata(BaseTest):
         self.assertEqual(result["issue"], "DATA_MISMATCH")
         self.assertIn(field, result["diff_fields"])
 
+    @parameterized.expand(
+        [
+            ("team_without_values", False, []),
+            ("team_with_values", True, ["flags_blocked_hosts", "flags_blocked_ips", "realtime_cohort_level"]),
+        ]
+    )
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_reads_missing_keys_as_their_defaults(
+        self, _name: str, team_has_values: bool, expected_diff_fields: list[str], mock_get_metadata: MagicMock
+    ) -> None:
+        from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
+
+        if team_has_values:
+            TeamFeatureFlagPolicyConfig.objects.create(
+                team=self.team, blocked_hosts=["example.com"], blocked_ips=["203.0.113.7"]
+            )
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.PILOT
+            )
+        cached_data = _serialize_team_to_metadata(self.team)
+        for key in ("flags_blocked_hosts", "flags_blocked_ips", "realtime_cohort_level"):
+            del cached_data[key]
+        mock_get_metadata.return_value = cached_data
+
+        result = verify_team_metadata(self.team)
+
+        self.assertEqual(result.get("diff_fields", []), expected_diff_fields)
+
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
     def test_verify_returns_miss_when_no_cached_data(self, mock_get_metadata):
         """Verify returns cache miss when no data is cached."""
@@ -450,13 +514,8 @@ class TestVerifyTeamMetadata(BaseTest):
         self.assertEqual(result["issue"], "CACHE_MISS")
 
 
-class TestMinimalFlagCalledEventsInMetadata(BaseTest):
-    """
-    minimal_flag_called_events lives on TeamFeatureFlagsConfig, not on Team, so it's
-    derived rather than pulled from TEAM_METADATA_FIELDS. Guards against the derivation
-    defaulting to the wrong value or the batch path (used by cache warming) drifting
-    from the single-team path (used by cache miss lookups).
-    """
+class TestFeatureFlagsConfigInMetadata(BaseTest):
+    """TeamFeatureFlagsConfig values are derived separately from TEAM_METADATA_FIELDS."""
 
     def test_defaults_to_false_for_ungated_team(self):
         from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
@@ -464,24 +523,44 @@ class TestMinimalFlagCalledEventsInMetadata(BaseTest):
         metadata = _serialize_team_to_metadata(self.team)
 
         self.assertIs(metadata["minimal_flag_called_events"], False)
+        self.assertEqual(metadata["property_matching_version"], 1)
+        self.assertEqual(metadata["flags_blocked_hosts"], [])
+        self.assertEqual(metadata["flags_blocked_ips"], [])
 
     def test_reflects_gated_config_row(self):
         from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
 
-        TeamFeatureFlagsConfig.objects.update_or_create(team=self.team, defaults={"minimal_flag_called_events": True})
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+        )
 
         metadata = _serialize_team_to_metadata(self.team)
 
         self.assertIs(metadata["minimal_flag_called_events"], True)
+        self.assertEqual(metadata["property_matching_version"], 2)
 
     def test_batch_load_matches_single_team_load(self):
         from posthog.storage.team_metadata_cache import _batch_load_team_metadata, _serialize_team_to_metadata
 
         gated_team = self.organization.teams.create(name="Gated team")
-        TeamFeatureFlagsConfig.objects.update_or_create(team=gated_team, defaults={"minimal_flag_called_events": True})
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=gated_team,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+        )
+        TeamFeatureFlagPolicyConfig.objects.create(
+            team=gated_team, blocked_hosts=["example.com"], blocked_ips=["203.0.113.0/24"]
+        )
+        RealtimeCohortTeamAccess.objects.create(
+            team=gated_team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.PILOT
+        )
         ungated_team = self.organization.teams.create(name="Ungated team")
+        teams = list(
+            Team.objects.select_related("organization", "project").filter(id__in=[gated_team.id, ungated_team.id])
+        )
 
-        batch_result = _batch_load_team_metadata([gated_team, ungated_team])
+        with self.assertNumQueries(3):
+            batch_result = _batch_load_team_metadata(teams)
 
         self.assertEqual(
             batch_result[gated_team.id]["minimal_flag_called_events"],
@@ -492,7 +571,18 @@ class TestMinimalFlagCalledEventsInMetadata(BaseTest):
             _serialize_team_to_metadata(ungated_team)["minimal_flag_called_events"],
         )
         self.assertIs(batch_result[gated_team.id]["minimal_flag_called_events"], True)
+        self.assertEqual(batch_result[gated_team.id]["property_matching_version"], 2)
         self.assertIs(batch_result[ungated_team.id]["minimal_flag_called_events"], False)
+        self.assertEqual(batch_result[ungated_team.id]["property_matching_version"], 1)
+        for team in (gated_team, ungated_team):
+            single_result = _serialize_team_to_metadata(team)
+            for field in ("flags_blocked_hosts", "flags_blocked_ips", "realtime_cohort_level"):
+                self.assertEqual(batch_result[team.id][field], single_result[field])
+        self.assertEqual(batch_result[gated_team.id]["flags_blocked_hosts"], ["example.com"])
+        self.assertEqual(batch_result[gated_team.id]["flags_blocked_ips"], ["203.0.113.0/24"])
+        self.assertEqual(batch_result[ungated_team.id]["flags_blocked_hosts"], [])
+        self.assertEqual(batch_result[gated_team.id]["realtime_cohort_level"], "serving")
+        self.assertEqual(batch_result[ungated_team.id]["realtime_cohort_level"], "off")
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
@@ -662,7 +752,7 @@ class TestSampleRateSerializationForRustCompatibility(BaseTest):
 # test_team_llm_gateway_policy_cache.py); we explicitly assert the field is NOT
 # in the shared team_metadata blob so the flags-pipeline consumers stay
 # unaffected by llm-gateway changes.
-class TestLLMGatewayFieldsNotInSharedProjection(BaseTest):
+class TestLLMGatewayFieldsNotInSharedProjection(SimpleTestCase):
     def test_llm_gateway_fields_excluded_from_shared_metadata(self):
         self.assertNotIn("llm_gateway_enabled_at", TEAM_METADATA_FIELDS)
         self.assertNotIn("llm_gateway_revoked_at", TEAM_METADATA_FIELDS)

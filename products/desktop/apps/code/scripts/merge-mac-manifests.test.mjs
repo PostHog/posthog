@@ -1,23 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { mergeManifests } from "./merge-mac-manifests.mjs";
+import { parse } from "yaml";
+import { mergeManifests, stringifyManifest } from "./merge-mac-manifests.mjs";
 
 const arm64Manifest = () => ({
   version: "1.2.3",
   releaseDate: "2026-06-20T00:00:00.000Z",
-  path: "PostHog-Code-1.2.3-arm64-mac.zip",
+  path: "PostHog-Desktop-1.2.3-arm64-mac.zip",
   sha512: "arm64-sha",
   files: [
-    { url: "PostHog-Code-1.2.3-arm64-mac.zip", sha512: "arm64-sha", size: 1 },
+    {
+      url: "PostHog-Desktop-1.2.3-arm64-mac.zip",
+      sha512: "arm64-sha",
+      size: 1,
+    },
   ],
 });
 
 const x64Manifest = () => ({
   version: "1.2.3",
   releaseDate: "2026-06-20T00:00:01.000Z",
-  path: "PostHog-Code-1.2.3-x64-mac.zip",
+  path: "PostHog-Desktop-1.2.3-x64-mac.zip",
   sha512: "x64-sha",
   files: [
-    { url: "PostHog-Code-1.2.3-x64-mac.zip", sha512: "x64-sha", size: 2 },
+    { url: "PostHog-Desktop-1.2.3-x64-mac.zip", sha512: "x64-sha", size: 2 },
   ],
 });
 
@@ -26,8 +31,8 @@ describe("mergeManifests", () => {
     const merged = mergeManifests(arm64Manifest(), x64Manifest());
 
     expect(merged.files.map((f) => f.url)).toEqual([
-      "PostHog-Code-1.2.3-arm64-mac.zip",
-      "PostHog-Code-1.2.3-x64-mac.zip",
+      "PostHog-Desktop-1.2.3-arm64-mac.zip",
+      "PostHog-Desktop-1.2.3-x64-mac.zip",
     ]);
   });
 
@@ -71,7 +76,7 @@ describe("mergeManifests", () => {
     const merged = mergeManifests(arm64, x64Manifest());
 
     expect(merged.files.map((f) => f.url)).toEqual([
-      "PostHog-Code-1.2.3-x64-mac.zip",
+      "PostHog-Desktop-1.2.3-x64-mac.zip",
     ]);
   });
 
@@ -80,5 +85,21 @@ describe("mergeManifests", () => {
     const x64 = { ...x64Manifest(), files: [] };
 
     expect(mergeManifests(arm64, x64).files).toEqual([]);
+  });
+});
+
+describe("stringifyManifest", () => {
+  it("quotes releaseDate so a YAML 1.1 reader keeps it a string", () => {
+    const yaml = stringifyManifest({
+      ...mergeManifests(arm64Manifest(), x64Manifest()),
+      releaseNotes: "## What's Changed\n* one\n* two",
+    });
+
+    expect(yaml).toContain('releaseDate: "2026-06-20T00:00:00.000Z"');
+    // The 1.1 schema resolves timestamps; a quoted scalar must stay a string.
+    expect(parse(yaml, { schema: "yaml-1.1" }).releaseDate).toBe(
+      "2026-06-20T00:00:00.000Z",
+    );
+    expect(yaml).toContain("releaseNotes: |-");
   });
 });

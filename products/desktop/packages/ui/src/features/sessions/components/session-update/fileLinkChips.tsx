@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 import { Tooltip } from "../../../../primitives/Tooltip";
 import { usePendingScrollStore } from "../../../code-editor/pendingScrollStore";
@@ -42,6 +42,7 @@ export function InlineFileLink({
   const { filePath: rawPath, lineSuffix } = parseFilePath(text);
   const filePath = resolvedPath ?? rawPath;
   const filename = rawPath.split("/").pop() ?? rawPath;
+  const directory = rawPath.slice(0, rawPath.length - filename.length);
   const taskId = useSessionTaskId();
   const repoPath = useCwd(taskId ?? "");
   const openFileInSplit = usePanelLayoutStore((s) => s.openFileInSplit);
@@ -65,17 +66,31 @@ export function InlineFileLink({
 
   const tooltipText = resolvedPath ?? text;
 
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLSpanElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        handleClick();
+      }
+    },
+    [handleClick],
+  );
+
   return (
     <Tooltip content={tooltipText}>
-      <button
-        type="button"
+      {/* biome-ignore lint/a11y/useSemanticElements: a <button> is not selectable in Chromium, which breaks copy of selected chat text */}
+      <span
+        role="button"
+        tabIndex={taskId ? 0 : undefined}
         onClick={taskId ? handleClick : undefined}
-        disabled={!taskId}
-        className={`m-0 inline border-0 bg-transparent p-0 font-[inherit] text-(--accent-11) text-[length:inherit] ${taskId ? "cursor-pointer underline decoration-(--accent-a8) underline-offset-2 hover:decoration-(--accent-11)" : ""}`}
+        onKeyDown={taskId ? handleKeyDown : undefined}
+        aria-disabled={taskId ? undefined : true}
+        className={`m-0 inline border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] text-foreground outline-none focus-visible:underline ${taskId ? "cursor-pointer underline underline-offset-2" : ""}`}
       >
+        {directory && <span className="sr-only">{directory}</span>}
         {filename}
         {lineSuffix ? `:${lineSuffix}` : ""}
-      </button>
+      </span>
     </Tooltip>
   );
 }

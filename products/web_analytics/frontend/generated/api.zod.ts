@@ -10,13 +10,198 @@
 import * as zod from 'zod'
 
 /**
+ * Turns a prompt on or off, changes its topic, archives or restores it, or changes its text. A text change adds the next version and makes it current, and current_version moves back to an earlier one. The prompt keeps its id, and past checks are always kept.
+ * @summary Update an AEO prompt
+ */
+export const aeoPromptsPartialUpdateBodyTopicMax = 200
+
+export const aeoPromptsPartialUpdateBodyPromptMax = 2000
+
+export const aeoPromptsPartialUpdateBodyVersionDescriptionMax = 400
+
+export const AeoPromptsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    active: zod.boolean().nullish().describe('Turn the prompt on or off for future runs.'),
+    topic: zod
+        .string()
+        .max(aeoPromptsPartialUpdateBodyTopicMax)
+        .optional()
+        .describe(
+            'New topic for the prompt. An empty string removes the topic. Past checks keep the topic they ran with.'
+        ),
+    prompt: zod
+        .string()
+        .max(aeoPromptsPartialUpdateBodyPromptMax)
+        .optional()
+        .describe(
+            'New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id and its check history, and each check records the version that ran. A change of case or whitespace only adds no version. Fails with 409 when another prompt in the set already has the text.'
+        ),
+    version_description: zod
+        .string()
+        .max(aeoPromptsPartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe("Optional note on what the text change does, stored on the new version. Send it with 'prompt'."),
+    current_version: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe(
+            'Make an existing version current again, for example to roll back a text change. Adds no version. Fails with 400 when the version does not exist, and with 409 when another prompt has its text.'
+        ),
+    archived: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "True archives the prompt: it is turned off, never runs again, and keeps its check history. Send it without other fields. False restores an archived prompt. A restored prompt stays off unless 'active' is true in the same request. An archived prompt accepts no other change until it is restored."
+        ),
+})
+
+/**
+ * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.
+ * @summary Import AEO prompts
+ */
+export const aeoPromptsBulkImportBodyPromptsItemPromptMax = 10000
+
+export const aeoPromptsBulkImportBodyPromptsItemTopicMax = 200
+
+export const aeoPromptsBulkImportBodyPromptsItemExternalVisibilityMin = 0
+export const aeoPromptsBulkImportBodyPromptsItemExternalVisibilityMax = 100
+
+export const aeoPromptsBulkImportBodyPromptsMax = 2000
+
+export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
+    prompts: zod
+        .array(
+            zod.object({
+                prompt: zod
+                    .string()
+                    .max(aeoPromptsBulkImportBodyPromptsItemPromptMax)
+                    .describe(
+                        'The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.'
+                    ),
+                topic: zod
+                    .string()
+                    .max(aeoPromptsBulkImportBodyPromptsItemTopicMax)
+                    .optional()
+                    .describe('Theme the prompt belongs to. The runner alternates between topics on each run.'),
+                external_visibility: zod
+                    .number()
+                    .min(aeoPromptsBulkImportBodyPromptsItemExternalVisibilityMin)
+                    .max(aeoPromptsBulkImportBodyPromptsItemExternalVisibilityMax)
+                    .nullish()
+                    .describe(
+                        'Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate.'
+                    ),
+                origin: zod
+                    .enum(['api', 'suggestion'])
+                    .describe('\* `api` - Api\n\* `suggestion` - Suggestion')
+                    .optional()
+                    .describe(
+                        "Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts\/suggest). Stored in the prompt's evidence so suggested prompts can be audited later.\n\n\* `api` - Api\n\* `suggestion` - Suggestion"
+                    ),
+            })
+        )
+        .min(1)
+        .max(aeoPromptsBulkImportBodyPromptsMax)
+        .describe('Prompts to add or update, at most 2000 per request.'),
+})
+
+/**
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO prompts
+ */
+export const aeoPromptsSuggestBodyDomainMax = 200
+
+export const aeoPromptsSuggestBodyBrandMax = 200
+
+export const aeoPromptsSuggestBodyDescriptionMax = 1000
+
+export const aeoPromptsSuggestBodyCompetitorsItemMax = 200
+
+export const aeoPromptsSuggestBodyCompetitorsMax = 20
+
+export const aeoPromptsSuggestBodyTopicsItemMax = 200
+
+export const aeoPromptsSuggestBodyTopicsMax = 20
+
+export const aeoPromptsSuggestBodyCountDefault = 20
+export const aeoPromptsSuggestBodyCountMax = 50
+
+export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoPromptsSuggestBodyDomainMax)
+        .describe('The site to suggest prompts for, for example posthog.com. The model reads it with web search.'),
+    brand: zod
+        .string()
+        .max(aeoPromptsSuggestBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty.'),
+    description: zod
+        .string()
+        .max(aeoPromptsSuggestBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    competitors: zod
+        .array(zod.string().max(aeoPromptsSuggestBodyCompetitorsItemMax))
+        .max(aeoPromptsSuggestBodyCompetitorsMax)
+        .optional()
+        .describe('Competitor names or domains. The model picks the main ones when empty.'),
+    topics: zod
+        .array(zod.string().max(aeoPromptsSuggestBodyTopicsItemMax))
+        .max(aeoPromptsSuggestBodyTopicsMax)
+        .optional()
+        .describe('Topics to spread the prompts across. The model picks 3 to 6 when empty.'),
+    count: zod
+        .number()
+        .min(1)
+        .max(aeoPromptsSuggestBodyCountMax)
+        .default(aeoPromptsSuggestBodyCountDefault)
+        .describe('How many prompts to suggest, at most 50.'),
+})
+
+export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
+
+export const heatmapCaptureSettingsUpdateBodyUrlAllowlistMax = 100
+
+export const HeatmapCaptureSettingsUpdateBody = /* @__PURE__ */ zod.object({
+    capture_mode: zod
+        .enum(['all', 'url_allowlist'])
+        .describe('\* `all` - All URLs\n\* `url_allowlist` - Only listed URLs')
+        .optional()
+        .describe(
+            "Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').\n\n\* `all` - All URLs\n\* `url_allowlist` - Only listed URLs"
+        ),
+    url_allowlist: zod
+        .array(zod.string().max(heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax))
+        .max(heatmapCaptureSettingsUpdateBodyUrlAllowlistMax)
+        .optional()
+        .describe('Full http(s) URLs that may send heatmap data. Use \* to match any characters.'),
+})
+
+export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesItemMax = 253
+
+export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesMax = 100
+
+export const HeatmapScreenshotSettingsUpdateBody = /* @__PURE__ */ zod.object({
+    allowed_hostnames: zod
+        .array(zod.string().max(heatmapScreenshotSettingsUpdateBodyAllowedHostnamesItemMax))
+        .max(heatmapScreenshotSettingsUpdateBodyAllowedHostnamesMax)
+        .optional()
+        .describe(
+            'Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.'
+        ),
+})
+
+/**
  * Create a saved heatmap for a page URL. For type 'screenshot' (the default) this enqueues a headless render of the page at each target width; poll the saved heatmap or its content endpoint until status is 'completed'. Provide 'widths' to control which viewport widths are rendered.
  */
 export const savedCreateBodyNameMax = 400
 
 export const savedCreateBodyUrlMax = 2000
 
-export const savedCreateBodyDataUrlMax = 2000
+export const savedCreateBodyDataUrlOneMax = 2000
+
+export const savedCreateBodyDataUrlTwoMax = 0
 
 export const savedCreateBodyWidthsItemMin = 100
 export const savedCreateBodyWidthsItemMax = 3000
@@ -32,9 +217,8 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
         .max(savedCreateBodyUrlMax)
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedCreateBodyDataUrlMax)
-        .nullish()
+        .union([zod.url().max(savedCreateBodyDataUrlOneMax).nullable(), zod.string().max(savedCreateBodyDataUrlTwoMax)])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedCreateBodyWidthsItemMin).max(savedCreateBodyWidthsItemMax))
@@ -66,7 +250,9 @@ export const savedPartialUpdateBodyNameMax = 400
 
 export const savedPartialUpdateBodyUrlMax = 2000
 
-export const savedPartialUpdateBodyDataUrlMax = 2000
+export const savedPartialUpdateBodyDataUrlOneMax = 2000
+
+export const savedPartialUpdateBodyDataUrlTwoMax = 0
 
 export const savedPartialUpdateBodyWidthsItemMin = 100
 export const savedPartialUpdateBodyWidthsItemMax = 3000
@@ -87,9 +273,11 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedPartialUpdateBodyDataUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(savedPartialUpdateBodyDataUrlOneMax).nullable(),
+            zod.string().max(savedPartialUpdateBodyDataUrlTwoMax),
+        ])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedPartialUpdateBodyWidthsItemMin).max(savedPartialUpdateBodyWidthsItemMax))
@@ -112,6 +300,72 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When true, ask the headless browser to dismiss cookie\/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
         ),
+})
+
+/**
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The optional data URL selects which pages supply the overlay data and defaults to the captured URL.
+ */
+export const savedCaptureCreateBodyWidthMin = 100
+export const savedCaptureCreateBodyWidthMax = 3000
+
+export const savedCaptureCreateBodyImagesMax = 16
+
+export const savedCaptureCreateBodyWidthsItemMin = 100
+export const savedCaptureCreateBodyWidthsItemMax = 3000
+
+export const savedCaptureCreateBodyWidthsMax = 16
+
+export const savedCaptureCreateBodyUrlMax = 2000
+
+export const savedCaptureCreateBodyDataUrlOneMax = 2000
+
+export const savedCaptureCreateBodyDataUrlTwoMax = 0
+
+export const savedCaptureCreateBodyNameMax = 400
+
+export const SavedCaptureCreateBody = /* @__PURE__ */ zod.object({
+    image: zod
+        .url()
+        .nullish()
+        .describe(
+            "Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'\/'widths' instead to save several viewport widths on one heatmap."
+        ),
+    width: zod
+        .number()
+        .min(savedCaptureCreateBodyWidthMin)
+        .max(savedCaptureCreateBodyWidthMax)
+        .optional()
+        .describe("Viewport width (CSS pixels) the single 'image' was captured at."),
+    images: zod
+        .array(zod.url())
+        .max(savedCaptureCreateBodyImagesMax)
+        .optional()
+        .describe(
+            "One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single toolbar capture cover the same viewport widths the server renders. At most 16 widths."
+        ),
+    widths: zod
+        .array(zod.number().min(savedCaptureCreateBodyWidthsItemMin).max(savedCaptureCreateBodyWidthsItemMax))
+        .max(savedCaptureCreateBodyWidthsMax)
+        .optional()
+        .describe("Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'."),
+    url: zod
+        .string()
+        .max(savedCaptureCreateBodyUrlMax)
+        .describe('Exact page URL the screenshot was captured on. Wildcards are not allowed.'),
+    data_url: zod
+        .union([
+            zod.url().max(savedCaptureCreateBodyDataUrlOneMax),
+            zod.string().max(savedCaptureCreateBodyDataUrlTwoMax),
+        ])
+        .optional()
+        .describe(
+            'URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. Defaults to the captured page URL when omitted or empty.'
+        ),
+    name: zod
+        .string()
+        .max(savedCaptureCreateBodyNameMax)
+        .optional()
+        .describe('Human-readable label for the saved heatmap. Defaults to the URL when omitted.'),
 })
 
 /**
@@ -141,6 +395,19 @@ export const SavedPrewarmCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, ask the headless browser to dismiss cookie\/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused.'
         ),
+})
+
+/**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxtBodyUrlMax = 2048
+
+export const WebAnalyticsFetchLlmsTxtBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .url()
+        .max(webAnalyticsFetchLlmsTxtBodyUrlMax)
+        .describe('Public HTTP or HTTPS URL of the llms.txt file to load.'),
 })
 
 /**
@@ -181,6 +448,188 @@ export const WebAnalyticsAchievementsRecordInteractionBody = /* @__PURE__ */ zod
         .describe(
             "Which interaction counter to increment: 'data' (slicing\/filtering the dashboard) or 'recording' (opening a session recording).\n\n\* `data` - data\n\* `recording` - recording"
         ),
+})
+
+/**
+ * Add one bot rule to the project. A rule combines one or more single-property conditions with AND or OR. A pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
+ * @summary Create a custom bot rule
+ */
+export const webAnalyticsBotRulesCreateBodyCombinerDefault = `AND`
+export const webAnalyticsBotRulesCreateBodyItemsItemIdMax = 100
+
+export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .describe(
+            'Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know.'
+        ),
+    category: zod
+        .string()
+        .optional()
+        .describe(
+            "Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too."
+        ),
+    combiner: zod
+        .string()
+        .default(webAnalyticsBotRulesCreateBodyCombinerDefault)
+        .describe(
+            "How the conditions combine: 'AND' flags an event only when every condition matches, 'OR' when any one of them does."
+        ),
+    items: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(webAnalyticsBotRulesCreateBodyItemsItemIdMax)
+                    .optional()
+                    .describe('Stable id for the condition. Generated when omitted.'),
+                key: zod
+                    .string()
+                    .describe(
+                        'Event property the condition reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain.'
+                    ),
+                matcher: zod
+                    .string()
+                    .describe(
+                        "How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property)."
+                    ),
+                pattern: zod
+                    .string()
+                    .describe(
+                        "Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0\/24."
+                    ),
+            })
+        )
+        .describe('The conditions of this rule. Each one reads a single event property.'),
+})
+
+/**
+ * Starts a run that researches and drafts content for the selected opportunities.
+ * @summary Draft content for opportunities
+ */
+export const webAnalyticsContentAutopilotOpportunitiesDraftBodyOpportunityIdsMax = 5
+
+export const WebAnalyticsContentAutopilotOpportunitiesDraftBody = /* @__PURE__ */ zod.object({
+    profile_id: zod.uuid().describe('Site profile the opportunities belong to.'),
+    opportunity_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(webAnalyticsContentAutopilotOpportunitiesDraftBodyOpportunityIdsMax)
+        .describe('Opportunities to draft, up to 5 at a time.'),
+})
+
+/**
+ * Re-reads AI citation checks and updates the site's content opportunities. Makes no model calls.
+ * @summary Refresh content opportunities
+ */
+export const WebAnalyticsContentAutopilotOpportunitiesRefreshBody = /* @__PURE__ */ zod.object({
+    profile_id: zod.uuid().describe('Site profile to refresh opportunities for.'),
+})
+
+export const webAnalyticsContentAutopilotProfilesCreateBodyNameMax = 255
+
+export const webAnalyticsContentAutopilotProfilesCreateBodyDomainMax = 2048
+
+export const WebAnalyticsContentAutopilotProfilesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesCreateBodyNameMax)
+        .optional()
+        .describe('Name used to identify this site in the workspace.'),
+    domain: zod
+        .url()
+        .max(webAnalyticsContentAutopilotProfilesCreateBodyDomainMax)
+        .describe('Authorized site origin for this profile.'),
+    source_urls: zod
+        .array(zod.url())
+        .describe('Public sitemap and factual source URLs used to build the site profile.'),
+    content_boundaries: zod.array(zod.string()).describe('Same-origin URL path prefixes allowed for research.'),
+    brand_rules: zod.array(zod.string()).describe('Brand, terminology, and editorial rules applied to every proposal.'),
+    search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
+})
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyNameMax = 255
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyDomainMax = 2048
+
+export const WebAnalyticsContentAutopilotProfilesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Name used to identify this site in the workspace.'),
+    domain: zod
+        .url()
+        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyDomainMax)
+        .optional()
+        .describe('Authorized site origin for this profile.'),
+    source_urls: zod
+        .array(zod.url())
+        .optional()
+        .describe('Public sitemap and factual source URLs used to build the site profile.'),
+    content_boundaries: zod
+        .array(zod.string())
+        .optional()
+        .describe('Same-origin URL path prefixes allowed for research.'),
+    brand_rules: zod
+        .array(zod.string())
+        .optional()
+        .describe('Brand, terminology, and editorial rules applied to every proposal.'),
+    search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
+})
+
+/**
+ * Inspects a public site for its canonical origin, name, and sitemap URLs.
+ * @summary Discover content autopilot site settings
+ */
+export const WebAnalyticsContentAutopilotProfilesDiscoverBody = /* @__PURE__ */ zod.object({
+    domain: zod.url().describe('Public site URL to inspect for onboarding defaults.'),
+})
+
+/**
+ * Saves reviewed Markdown and its structured package without publishing it.
+ * @summary Edit a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsEditBodyProposedMarkdownMax = 500000
+
+export const WebAnalyticsContentAutopilotProposalsEditBody = /* @__PURE__ */ zod.object({
+    proposed_markdown: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProposalsEditBodyProposedMarkdownMax)
+        .describe('Edited Markdown to save for review.'),
+    content_package: zod
+        .object({
+            file_path: zod.string().describe('Repository-relative Markdown or MDX file path.'),
+            title: zod.string().describe('Content title.'),
+            description: zod.string().describe('Search description or summary.'),
+            slug: zod.string().describe('URL slug.'),
+            frontmatter: zod
+                .array(
+                    zod.object({
+                        key: zod.string().describe('Frontmatter field name.'),
+                        value: zod.string().describe('Serialized frontmatter value.'),
+                    })
+                )
+                .describe('Ordered frontmatter entries.'),
+            internal_links: zod
+                .array(zod.url())
+                .describe('Validated same-origin internal links included in the content.'),
+            source_notes: zod.array(zod.string()).describe('Portable source notes included with the export.'),
+            json_ld: zod
+                .string()
+                .optional()
+                .describe('JSON-LD structured data to embed in the page, such as an FAQPage document.'),
+            llms_txt_line: zod.string().optional().describe('Suggested llms.txt entry for the page.'),
+        })
+        .describe('Updated structured package to save with the proposal.'),
+})
+
+/**
+ * Captures the current profile and creates one pending on-demand content research run.
+ * @summary Start a content autopilot run
+ */
+export const WebAnalyticsContentAutopilotRunsStartBody = /* @__PURE__ */ zod.object({
+    profile_id: zod.uuid().describe('Site profile to research.'),
 })
 
 export const webAnalyticsFilterPresetsCreateBodyNameMax = 400

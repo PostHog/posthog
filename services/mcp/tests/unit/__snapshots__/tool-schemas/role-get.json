@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "A UUID string identifying this role.",
+            "description": "Required. The role id from roles-list.",
             "type": "string"
         }
     },

@@ -1,21 +1,25 @@
 import dataclasses
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Collection, Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
+from uuid import UUID
 
 from django.db import models
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
-from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -25,27 +29,80 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     """Set tags on a taggable object, creating/deleting TaggedItems as needed.
 
     This is the core tag-setting logic extracted for reuse across serializers
-    and bulk operations.
+    and bulk operations. It leaves orphaned tags in place; use ``replace_tags_on_object``
+    to also remove them.
     """
-    deduped_tags = list({tagify(t) for t in tags})
+    tagged_item_objects, _ = _set_tags_on_object(tags, obj)
+    return tagged_item_objects
+
+
+def replace_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
+    """Set tags on an object, then delete the removed tags that no other object uses."""
+    tagged_item_objects, removed_tag_ids = _set_tags_on_object(tags, obj)
+    cleanup_orphan_tags(obj.team_id, removed_tag_ids)
+    return tagged_item_objects
+
+
+def _set_tags_on_object(tags: list[str], obj: Any) -> tuple[list[TaggedItem], set[int]]:
+    """Set tags on an object and return its tagged items and the ids of the tags it lost."""
+    # Concurrent transactions must insert shared tags in the same order to avoid deadlocks.
+    deduped_tags = sorted({tagify(t) for t in tags})
     tagged_item_objects = []
 
     for tag in deduped_tags:
         tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
-        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag_id=tag_instance.id)
+        # The instance, not the id, so TaggedItem.save() reads the team without re-fetching.
+        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag=tag_instance)
         tagged_item_objects.append(tagged_item_instance)
 
     # Delete tags that are missing (use individual deletes to trigger activity logging)
-    tagged_items_to_delete = obj.tagged_items.exclude(tag__name__in=deduped_tags)
+    removed_tag_ids: set[int] = set()
+    # Activity logging reads each deleted item's tag, its team and the tagged object.
+    tagged_items_to_delete = (
+        obj.tagged_items.exclude(tag__name__in=deduped_tags)
+        .select_related("tag__team")
+        .prefetch_related("integer_object", "uuid_object")
+    )
     for tagged_item in tagged_items_to_delete:
+        removed_tag_ids.add(tagged_item.tag_id)
         tagged_item.delete()
 
-    return tagged_item_objects
+    return tagged_item_objects, removed_tag_ids
 
 
-def cleanup_orphan_tags(team_id: int) -> None:
-    """Remove tags that are no longer referenced by any TaggedItem."""
-    Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
+def cleanup_orphan_tags(team_id: int, tag_ids: Collection[int]) -> None:
+    """Delete the given tags if no TaggedItem references them any more.
+
+    Only a removed TaggedItem can orphan a tag, so callers pass the ids of the tags they detached.
+    A scan of every tag of the team is slow on teams with many tags.
+    """
+    if not tag_ids:
+        return
+    Tag.objects.filter(Q(team_id=team_id) & Q(id__in=tag_ids) & Q(tagged_items__isnull=True)).delete()
+
+
+def normalize_tag_names(tags: Iterable[str]) -> set[str]:
+    """The tag names a request's raw strings resolve to, minus the blanks.
+
+    ``tagify`` strips whitespace, so a payload of ``[""]`` or ``["  "]`` would otherwise reach
+    ``Tag.objects.get_or_create`` and leave an empty tag that renders as nothing.
+    """
+    return {name for name in (tagify(tag) for tag in tags) if name}
+
+
+def current_tag_names(obj: Any) -> set[str]:
+    """The object's tags, preferring a ``prefetched_tags`` attribute over a fresh query."""
+    tagged_items = obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag")
+    return {tagged_item.tag.name for tagged_item in tagged_items}
+
+
+def resolve_bulk_tags(current_tags: set[str], tag_action: str, normalized_tags: set[str]) -> set[str]:
+    """The tags an object ends up with after an add/remove/set bulk mutation."""
+    if tag_action == "add":
+        return current_tags | normalized_tags
+    if tag_action == "remove":
+        return current_tags - normalized_tags
+    return set(normalized_tags)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -83,28 +140,17 @@ def apply_bulk_tag_changes(
     recorded for every object whose tags actually change, mirroring the single-object update path
     so the bulk endpoint leaves the same audit trail.
     """
-    normalized_tags = {tagify(t) for t in tags}
+    normalized_tags = normalize_tag_names(tags)
     updated: list[dict[str, Any]] = []
-    team_ids: set[int] = set()
+    removed_tag_ids_by_team: defaultdict[int, set[int]] = defaultdict(set)
     activity_entries: list[LogActivityEntry] = []
 
     for obj in objects:
-        team_ids.add(obj.team_id)
-        current_tags = {
-            ti.tag.name
-            for ti in (
-                obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag").all()
-            )
-        }
+        current_tags = current_tag_names(obj)
+        new_tags = resolve_bulk_tags(current_tags, tag_action, normalized_tags)
 
-        if tag_action == "add":
-            new_tags = current_tags | normalized_tags
-        elif tag_action == "remove":
-            new_tags = current_tags - normalized_tags
-        else:  # set
-            new_tags = set(normalized_tags)
-
-        set_tags_on_object(list(new_tags), obj)
+        _, removed_tag_ids = _set_tags_on_object(list(new_tags), obj)
+        removed_tag_ids_by_team[obj.team_id] |= removed_tag_ids
         updated.append({"id": obj.id, "tags": sorted(new_tags)})
 
         if activity_context is not None and current_tags != new_tags:
@@ -112,8 +158,8 @@ def apply_bulk_tag_changes(
                 _bulk_tag_activity_entry(obj, sorted(current_tags), sorted(new_tags), activity_context)
             )
 
-    for team_id in team_ids:
-        cleanup_orphan_tags(team_id)
+    for team_id, removed_tag_ids in removed_tag_ids_by_team.items():
+        cleanup_orphan_tags(team_id, removed_tag_ids)
 
     if activity_entries:
         bulk_log_activity(activity_entries)
@@ -158,8 +204,7 @@ class TaggedItemSerializerMixin(serializers.Serializer):
             # If the object hasn't been created yet, this method will be called again on the create method.
             return
 
-        obj.prefetched_tags = set_tags_on_object(tags, obj)
-        cleanup_orphan_tags(obj.team_id)
+        obj.prefetched_tags = replace_tags_on_object(tags, obj)
 
     def to_representation(self, obj):
         ret = super().to_representation(obj)
@@ -184,6 +229,21 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 
 
 BULK_UPDATE_TAGS_MAX_IDS = 500
+BULK_UPDATE_TAGS_MAX_TAGS = 100
+TAG_NAME_MAX_LENGTH = 255  # Mirrors Tag.name's max_length
+# One reason for both missing and inaccessible objects, so callers can't probe which
+# restricted IDs exist by comparing skipped reasons.
+BULK_UPDATE_TAGS_SKIPPED_REASON = "Not found or no edit access"
+# Tags are written with a get_or_create per (object, tag), so ids × distinct tags is the unit of
+# database work a single request can demand; bound the product, not just each list, or 500 ids
+# with 100 tags each still turns one request into 50k writes.
+BULK_UPDATE_TAGS_MAX_OPERATIONS = 10_000
+
+
+class BulkUpdateTagsAction(models.TextChoices):
+    ADD = "add", "add"
+    REMOVE = "remove", "remove"
+    SET = "set", "set"
 
 
 class BulkUpdateTagsRequestSerializer(serializers.Serializer):
@@ -194,17 +254,25 @@ class BulkUpdateTagsRequestSerializer(serializers.Serializer):
         help_text="List of object IDs to update tags on.",
     )
     action = serializers.ChoiceField(
-        choices=["add", "remove", "set"],
+        choices=BulkUpdateTagsAction.choices,
         help_text="'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.",
     )
     tags = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Tag names to add, remove, or set.",
+        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
+        max_length=BULK_UPDATE_TAGS_MAX_TAGS,
+        help_text="Tag names to add, remove, or set (up to 100 per request, 255 characters each).",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs["action"] in ("add", "remove") and not attrs.get("tags"):
             raise serializers.ValidationError({"tags": f"tags must not be empty for action '{attrs['action']}'."})
+        distinct_tags = {tagify(tag) for tag in attrs.get("tags", [])}
+        if len(attrs["ids"]) * len(distinct_tags) > BULK_UPDATE_TAGS_MAX_OPERATIONS:
+            raise serializers.ValidationError(
+                {
+                    "tags": f"Too many changes in one request: ids × distinct tags must not exceed {BULK_UPDATE_TAGS_MAX_OPERATIONS}."
+                }
+            )
         return attrs
 
 
@@ -244,7 +312,7 @@ class BulkUpdateTagsUUIDItemSerializer(serializers.Serializer):
 
 class BulkUpdateTagsUUIDErrorSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="UUID of the object that was skipped.")
-    reason = serializers.CharField(help_text="Why the object was skipped, e.g. 'Not found'.")
+    reason = serializers.CharField(help_text="Why the object was skipped, e.g. 'Not found or no edit access'.")
 
 
 class BulkUpdateTagsUUIDResponseSerializer(serializers.Serializer):
@@ -282,6 +350,10 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
     # bulk tag edits, which leaves their behavior unchanged.
     bulk_tag_activity_scope: Optional[str] = None
 
+    # Request serializer for ``bulk_update_tags``. UUID-PK resources set the UUID variant and must
+    # also override the action's OpenAPI schema via ``@extend_schema_view`` on the viewset class.
+    bulk_update_tags_request_serializer_class: type[BulkUpdateTagsRequestSerializer] = BulkUpdateTagsRequestSerializer
+
     def _bulk_tag_activity_context(self) -> Optional[BulkTagActivityContext]:
         if not self.bulk_tag_activity_scope:
             return None
@@ -292,6 +364,17 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             # Flags, insights, and dashboards log single-object updates under the "updated" verb.
             activity="updated",
         )
+
+    def validate_bulk_tag_changes(self, objects: Sequence, tag_action: str, tags: list[str]) -> None:
+        """Hook for resources whose tags carry a rule the bulk path must honor.
+
+        Raise ``serializers.ValidationError`` to reject the whole request. Rejecting beats skipping
+        here: the bulk-tag form reports skipped objects as permission failures, so a rule-based skip
+        would reach the user as the wrong reason.
+
+        A viewset that reimplements ``bulk_update_tags`` must call this itself before
+        ``apply_bulk_tag_changes``, or its resource silently opts out of its own rule.
+        """
 
     def prefetch_tagged_items_if_available(self, queryset: QuerySet | models.query.RawQuerySet) -> QuerySet:
         if isinstance(queryset, models.query.RawQuerySet):
@@ -339,11 +422,11 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         - "remove": Remove specific tags from each object
         - "set": Replace all tags on each object with the provided list
         """
-        serializer = BulkUpdateTagsRequestSerializer(data=request.data)
+        serializer = self.bulk_update_tags_request_serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
 
-        validated_ids: list[int] = validated["ids"]
+        validated_ids: list[int | UUID] = validated["ids"]
         tag_action: str = validated["action"]
         tags: list[str] = validated["tags"]
 
@@ -371,13 +454,15 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             if user_access_level and access_level_satisfied_for_resource(scope_object, user_access_level, "editor"):
                 editable_objects.append(obj)
             else:
-                errors.append({"id": obj.id, "reason": "Permission denied"})
+                errors.append({"id": obj.id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON})
 
         # Track missing IDs
         found_ids = {obj.id for obj in objects}
         for obj_id in validated_ids:
             if obj_id not in found_ids:
-                errors.append({"id": obj_id, "reason": "Not found"})
+                errors.append({"id": obj_id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON})
+
+        self.validate_bulk_tag_changes(editable_objects, tag_action, tags)
 
         updated = apply_bulk_tag_changes(
             editable_objects, tag_action, tags, activity_context=self._bulk_tag_activity_context()
@@ -397,7 +482,25 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     serializer_class = TaggedItemSerializer
     queryset = Tag.objects.none()
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("search", OpenApiTypes.STR, required=False),
+            OpenApiParameter("limit", OpenApiTypes.INT, required=False),
+            OpenApiParameter("offset", OpenApiTypes.INT, required=False),
+        ]
+    )
     def list(self, request, *args, **kwargs) -> response.Response:
-        return response.Response(
-            Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
-        )
+        tags = Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
+        search = request.query_params.get("search")
+
+        if search is None:
+            return response.Response(tags)
+
+        if search:
+            tags = tags.filter(name__icontains=search)
+
+        paginator = BoundedLimitOffsetPagination()
+        paginator.default_limit = 100
+        paginator.max_limit = 100
+        page = paginator.paginate_queryset(tags, request, view=self)
+        return paginator.get_paginated_response(page)

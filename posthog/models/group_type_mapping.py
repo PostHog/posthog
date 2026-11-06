@@ -16,9 +16,11 @@ from django.utils import timezone
 import structlog
 from prometheus_client import Counter
 
+import posthog.personhog_client.client as personhog_client
 from posthog.models.utils import RootTeamMixin
 from posthog.personhog_client import ReadConsistency, consistency_to_read_options
 from posthog.personhog_client.client import personhog_call, require_personhog_client
+from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 from posthog.rbac.decorators import field_access_control
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.utils import capture_exception_throttled, get_safe_cache, safe_cache_delete, safe_cache_set
@@ -123,7 +125,12 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
     # DO_NOTHING + db_constraint=False: Dashboard deletion handled manually, may be cross-database
     detail_dashboard = field_access_control(
         models.ForeignKey(
-            "dashboards.Dashboard", on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True
+            "dashboards.Dashboard",
+            on_delete=models.DO_NOTHING,
+            db_constraint=False,
+            null=True,
+            blank=True,
+            related_name="+",
         ),
         "project",
         "admin",
@@ -719,6 +726,28 @@ def delete_group_type_mapping(instance: GroupTypeMapping, *, caller_tag: str | N
     )
 
 
+def get_group_type_mapping_dashboard_ids(project_id: int) -> set[int] | None:
+    client = personhog_client.get_personhog_client()
+    if client is None:
+        return None
+
+    def _fetch() -> set[int]:
+        response = client.get_group_type_mappings_by_project_id(
+            GetGroupTypeMappingsByProjectIdRequest(
+                project_id=project_id,
+                read_options=consistency_to_read_options("strong"),
+            )
+        )
+        return {mapping.detail_dashboard_id for mapping in response.mappings if mapping.HasField("detail_dashboard_id")}
+
+    return personhog_call(
+        "get_group_type_mapping_dashboard_ids",
+        _fetch,
+        caller_tag="group_type_mapping/dashboard_bulk_delete",
+        reraise_as=DatabaseError,
+    )
+
+
 def clear_dashboard_from_group_type_mapping(
     team_id: int, dashboard_id: int, project_id: int | None = None, *, caller_tag: str | None = None
 ) -> None:
@@ -728,7 +757,14 @@ def clear_dashboard_from_group_type_mapping(
     """
     from posthog.personhog_client.proto import GetGroupTypeMappingByDashboardIdRequest, UpdateGroupTypeMappingRequest
 
-    client = require_personhog_client()
+    client = personhog_client.get_personhog_client()
+    if client is None:
+        # personhog is the only group type mapping store, so without a client there is
+        # no mapping that can reference this dashboard. Invalidate any cached mapping
+        # before letting the delete proceed.
+        if project_id is not None:
+            invalidate_group_types_cache(project_id)
+        return
 
     def _fn() -> None:
         resp = client.get_group_type_mapping_by_dashboard_id(

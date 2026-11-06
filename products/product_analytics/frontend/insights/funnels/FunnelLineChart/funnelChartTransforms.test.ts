@@ -6,13 +6,11 @@ const makeStep = (overrides: Partial<IndexedFunnelStep> = {}): IndexedFunnelStep
     ({
         id: 0,
         seriesIndex: 0,
-        action_id: 'pageview',
         average_conversion_time: null,
         median_conversion_time: null,
         count: 100,
         name: 'Step 1',
         order: 0,
-        type: 'events',
         converted_people_url: '',
         dropped_people_url: null,
         data: [10, 20, 30, 40, 50],
@@ -54,6 +52,19 @@ describe('funnelChartTransforms', () => {
 
             expect(series[0].meta).toMatchObject({ breakdown_value: 'Spike', compare_label: 'current' })
             expect(series[1].meta).toMatchObject({ breakdown_value: 'Spike', compare_label: 'previous' })
+        })
+
+        it('carries the per-period conversion counts into series meta', () => {
+            const step = makeStep({
+                reached_from_step_count: [200, 200, 200, 200, 200],
+                reached_to_step_count: [20, 40, 60, 80, 100],
+            })
+            const series = buildFunnelLineSeries([step], { getColor: () => RED })
+
+            expect(series[0].meta).toMatchObject({
+                reached_from_step_count: [200, 200, 200, 200, 200],
+                reached_to_step_count: [20, 40, 60, 80, 100],
+            })
         })
 
         it('normalises missing data to an empty array so the trends transform accepts it', () => {

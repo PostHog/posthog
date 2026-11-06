@@ -55,6 +55,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     activity_environment, ateam, monkeypatch
 ):
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        id=uuid.UUID("22345678-1234-5678-1234-567812345678"),
         team=ateam,
         name="ducklake_model",
         query={"query": "SELECT 1", "kind": "HogQLQuery"},
@@ -132,6 +133,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
         },
     }
     monkeypatch.setattr(verification_config, "_load_verification_yaml", lambda filename: override_config)
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: [])
     verification_config._get_data_modeling_verification_config.cache_clear()
     request.addfinalizer(verification_config._get_data_modeling_verification_config.cache_clear)
 
@@ -181,6 +183,8 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
         "default_row_check",
         "inherited_extra_check",
     ]
+    assert override_metadata.table_name == "override_only_model"
+    assert inherit_metadata.table_name == "inherits_defaults_model"
 
 
 def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch):

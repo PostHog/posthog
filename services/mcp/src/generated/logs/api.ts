@@ -3,12 +3,12 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const LogsAlertsListParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,13 +16,13 @@ export const LogsAlertsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsAlertsListQueryParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsListQueryParams = () => zod.object({
     created_by: zod.string().optional().describe('Only return log alerts created by the user with this UUID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const LogsAlertsCreateParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -58,6 +58,13 @@ export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwo
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
 export const logsAlertsCreateBodyThresholdCountDefault = 100
 export const logsAlertsCreateBodyThresholdCountMin = 0
 
@@ -72,7 +79,12 @@ export const logsAlertsCreateBodyDatapointsToAlarmMax = 10
 export const logsAlertsCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsCreateBodyCooldownMinutesMin = 0
 
-export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
+export const logsAlertsCreateBodyGroupingOneMaxInstancesDefault = 100
+export const logsAlertsCreateBodyGroupingOneMaxInstancesMax = 100
+
+export const logsAlertsCreateBodyGroupingOneOnOverflowDefault = `degrade_visible`
+
+export const LogsAlertsCreateBody = () => zod.object({
     name: zod
         .string()
         .max(logsAlertsCreateBodyNameMax)
@@ -126,6 +138,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -190,6 +203,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -249,6 +263,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -310,6 +325,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -368,6 +384,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -426,6 +443,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -455,6 +473,18 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            cohort_deleted: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
@@ -491,6 +521,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -549,6 +580,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -607,6 +639,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -669,6 +702,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -727,6 +761,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -832,6 +867,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -890,6 +926,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -948,6 +985,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1006,6 +1044,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1060,6 +1099,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1118,6 +1158,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1172,6 +1213,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1230,6 +1272,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1291,6 +1334,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1318,6 +1362,403 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.null(),
                                                 ])
                                                 .optional(),
+                                        }),
+                                        zod.object({
+                                            event_filters: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'is_cleaned_path_not_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('person')
+                                                                    .default(
+                                                                        logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
+                                                                    )
+                                                                    .describe('Person properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('element')
+                                                                    .default(
+                                                                        logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('feature')
+                                                                    .default(
+                                                                        logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
+                                                                    )
+                                                                    .describe(
+                                                                        'Event property with \"$feature\/\" prepended'
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                type: zod
+                                                                    .literal('hogql')
+                                                                    .default(
+                                                                        logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                        ])
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral\/cohort filters and groups'
+                                                ),
+                                            event_type: zod.enum(['events', 'actions']),
+                                            explicit_datetime: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Absolute or relative (e.g. -30d) lower date bound — alternative to time_value\/time_interval'
+                                                ),
+                                            explicit_datetime_to: zod.union([zod.string(), zod.null()]).optional(),
+                                            key: zod
+                                                .string()
+                                                .describe("Event name, or action id when event_type is 'actions'"),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                            negation: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
+                                                ),
+                                            operator: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'between',
+                                                        'not_between',
+                                                        'min',
+                                                        'max',
+                                                        'in',
+                                                        'not_in',
+                                                        'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
+                                                        'flag_evaluates_to',
+                                                        'semver_eq',
+                                                        'semver_neq',
+                                                        'semver_gt',
+                                                        'semver_gte',
+                                                        'semver_lt',
+                                                        'semver_lte',
+                                                        'semver_tilde',
+                                                        'semver_caret',
+                                                        'semver_wildcard',
+                                                        'icontains_multi',
+                                                        'not_icontains_multi',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Count comparison for performed_event_multiple, defaults to exact'
+                                                ),
+                                            operator_value: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Count threshold for performed_event_multiple'),
+                                            time_interval: zod
+                                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                .optional(),
+                                            time_value: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Relative time window size, paired with time_interval'),
+                                            type: zod
+                                                .literal('behavioral')
+                                                .default(
+                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
+                                                )
+                                                .describe(
+                                                    "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
+                                                ),
+                                            value: zod.enum(['performed_event', 'performed_event_multiple']),
                                         }),
                                     ])
                                 ),
@@ -1370,14 +1811,79 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsCreateBodyCooldownMinutesMin)
         .default(logsAlertsCreateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.'
+        ),
     snooze_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+    grouping: zod
+        .object({
+            mode: zod
+                .enum(['single', 'by_result_labels'])
+                .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                .describe(
+                    'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                ),
+            keys: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                ),
+            max_instances: zod
+                .number()
+                .min(1)
+                .max(logsAlertsCreateBodyGroupingOneMaxInstancesMax)
+                .default(logsAlertsCreateBodyGroupingOneMaxInstancesDefault)
+                .describe(
+                    'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                ),
+            on_overflow: zod
+                .enum(['degrade_visible'])
+                .describe('\* `degrade_visible` - Degrade visible')
+                .default(logsAlertsCreateBodyGroupingOneOnOverflowDefault)
+                .describe(
+                    'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                ),
+        })
+        .describe('How a logs alert splits its results into instances.')
+        .optional()
+        .describe(
+            'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
 })
 
-export const LogsAlertsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
     project_id: zod
         .string()
@@ -1386,7 +1892,7 @@ export const LogsAlertsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsAlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
     project_id: zod
         .string()
@@ -1422,6 +1928,13 @@ export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValues
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
 export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
@@ -1430,7 +1943,12 @@ export const logsAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
 
 export const logsAlertsPartialUpdateBodyCooldownMinutesMin = 0
 
-export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const logsAlertsPartialUpdateBodyGroupingOneMaxInstancesDefault = 100
+export const logsAlertsPartialUpdateBodyGroupingOneMaxInstancesMax = 100
+
+export const logsAlertsPartialUpdateBodyGroupingOneOnOverflowDefault = `degrade_visible`
+
+export const LogsAlertsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(logsAlertsPartialUpdateBodyNameMax)
@@ -1484,6 +2002,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -1548,6 +2067,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1607,6 +2127,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1668,6 +2189,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1726,6 +2248,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1784,6 +2307,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1813,6 +2337,18 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            cohort_deleted: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
@@ -1849,6 +2385,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -1907,6 +2444,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1965,6 +2503,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2027,6 +2566,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2085,6 +2625,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2190,6 +2731,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2248,6 +2790,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2306,6 +2849,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2364,6 +2908,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2418,6 +2963,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2476,6 +3022,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2530,6 +3077,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2588,6 +3136,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2649,6 +3198,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2676,6 +3226,403 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.null(),
                                                 ])
                                                 .optional(),
+                                        }),
+                                        zod.object({
+                                            event_filters: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'is_cleaned_path_not_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('person')
+                                                                    .default(
+                                                                        logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
+                                                                    )
+                                                                    .describe('Person properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('element')
+                                                                    .default(
+                                                                        logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('feature')
+                                                                    .default(
+                                                                        logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
+                                                                    )
+                                                                    .describe(
+                                                                        'Event property with \"$feature\/\" prepended'
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                type: zod
+                                                                    .literal('hogql')
+                                                                    .default(
+                                                                        logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                        ])
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral\/cohort filters and groups'
+                                                ),
+                                            event_type: zod.enum(['events', 'actions']),
+                                            explicit_datetime: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Absolute or relative (e.g. -30d) lower date bound — alternative to time_value\/time_interval'
+                                                ),
+                                            explicit_datetime_to: zod.union([zod.string(), zod.null()]).optional(),
+                                            key: zod
+                                                .string()
+                                                .describe("Event name, or action id when event_type is 'actions'"),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                            negation: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
+                                                ),
+                                            operator: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'between',
+                                                        'not_between',
+                                                        'min',
+                                                        'max',
+                                                        'in',
+                                                        'not_in',
+                                                        'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
+                                                        'flag_evaluates_to',
+                                                        'semver_eq',
+                                                        'semver_neq',
+                                                        'semver_gt',
+                                                        'semver_gte',
+                                                        'semver_lt',
+                                                        'semver_lte',
+                                                        'semver_tilde',
+                                                        'semver_caret',
+                                                        'semver_wildcard',
+                                                        'icontains_multi',
+                                                        'not_icontains_multi',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Count comparison for performed_event_multiple, defaults to exact'
+                                                ),
+                                            operator_value: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Count threshold for performed_event_multiple'),
+                                            time_interval: zod
+                                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                .optional(),
+                                            time_value: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Relative time window size, paired with time_interval'),
+                                            type: zod
+                                                .literal('behavioral')
+                                                .default(
+                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
+                                                )
+                                                .describe(
+                                                    "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
+                                                ),
+                                            value: zod.enum(['performed_event', 'performed_event_multiple']),
                                         }),
                                     ])
                                 ),
@@ -2728,14 +3675,79 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsPartialUpdateBodyCooldownMinutesMin)
         .optional()
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.'
+        ),
     snooze_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+    grouping: zod
+        .object({
+            mode: zod
+                .enum(['single', 'by_result_labels'])
+                .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                .describe(
+                    'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                ),
+            keys: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                ),
+            max_instances: zod
+                .number()
+                .min(1)
+                .max(logsAlertsPartialUpdateBodyGroupingOneMaxInstancesMax)
+                .default(logsAlertsPartialUpdateBodyGroupingOneMaxInstancesDefault)
+                .describe(
+                    'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                ),
+            on_overflow: zod
+                .enum(['degrade_visible'])
+                .describe('\* `degrade_visible` - Degrade visible')
+                .default(logsAlertsPartialUpdateBodyGroupingOneOnOverflowDefault)
+                .describe(
+                    'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                ),
+        })
+        .describe('How a logs alert splits its results into instances.')
+        .optional()
+        .describe(
+            'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
 })
 
-export const LogsAlertsDestroyParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
     project_id: zod
         .string()
@@ -2745,9 +3757,9 @@ export const LogsAlertsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.
  */
-export const LogsAlertsDestinationsCreateParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsDestinationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
     project_id: zod
         .string()
@@ -2756,11 +3768,16 @@ export const LogsAlertsDestinationsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+export const logsAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
+export const logsAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
+
+export const LogsAlertsDestinationsCreateBody = () => zod.object({
     type: zod
-        .enum(['slack', 'webhook', 'teams'])
-        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
-        .describe('Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'),
+        .enum(['slack', 'webhook', 'teams', 'pagerduty'])
+        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty')
+        .describe(
+            'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `pagerduty` - pagerduty'
+        ),
     slack_workspace_id: zod
         .number()
         .optional()
@@ -2768,12 +3785,28 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
     webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
+    pagerduty_routing_key: zod
+        .string()
+        .optional()
+        .describe('Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.'),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .default(logsAlertsDestinationsCreateBodyPagerdutySeverityDefault)
+        .describe(
+            'Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .default(logsAlertsDestinationsCreateBodyPagerdutyRegionDefault)
+        .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
 })
 
 /**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
-export const LogsAlertsDestinationsDeleteCreateParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsDestinationsDeleteCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
     project_id: zod
         .string()
@@ -2782,20 +3815,17 @@ export const LogsAlertsDestinationsDeleteCreateParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
-
-export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+export const LogsAlertsDestinationsDeleteCreateBody = () => zod.object({
     hog_function_ids: zod
         .array(zod.string())
         .min(1)
-        .max(logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
 
 /**
- * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind.
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history.
  */
-export const LogsAlertsEventsListParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsEventsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
     project_id: zod
         .string()
@@ -2804,7 +3834,7 @@ export const LogsAlertsEventsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsAlertsEventsListQueryParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsEventsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -2812,7 +3842,7 @@ export const LogsAlertsEventsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
-export const LogsAlertsSimulateCreateParams = /* @__PURE__ */ zod.object({
+export const LogsAlertsSimulateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2845,6 +3875,13 @@ export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValue
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault = `exact`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault = `event`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault = `person`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault = `element`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
 export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
 
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
@@ -2859,7 +3896,7 @@ export const logsAlertsSimulateCreateBodyDatapointsToAlarmMax = 10
 export const logsAlertsSimulateCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsSimulateCreateBodyCooldownMinutesMin = 0
 
-export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
+export const LogsAlertsSimulateCreateBody = () => zod.object({
     filters: zod
         .object({
             filterGroup: zod
@@ -2904,6 +3941,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -2968,6 +4006,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3027,6 +4066,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3088,6 +4128,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3146,6 +4187,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3204,6 +4246,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3233,6 +4276,18 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            cohort_deleted: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
@@ -3269,6 +4324,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -3327,6 +4383,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3385,6 +4442,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3447,6 +4505,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3505,6 +4564,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3610,6 +4670,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3668,6 +4729,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3726,6 +4788,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3784,6 +4847,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3838,6 +4902,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3896,6 +4961,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3950,6 +5016,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4008,6 +5075,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4069,6 +5137,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4096,6 +5165,403 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.null(),
                                                 ])
                                                 .optional(),
+                                        }),
+                                        zod.object({
+                                            event_filters: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'is_cleaned_path_not_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemOneTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('person')
+                                                                    .default(
+                                                                        logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemTwoTypeDefault
+                                                                    )
+                                                                    .describe('Person properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('element')
+                                                                    .default(
+                                                                        logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemThreeTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('feature')
+                                                                    .default(
+                                                                        logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault
+                                                                    )
+                                                                    .describe(
+                                                                        'Event property with \"$feature\/\" prepended'
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                type: zod
+                                                                    .literal('hogql')
+                                                                    .default(
+                                                                        logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            }),
+                                                        ])
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral\/cohort filters and groups'
+                                                ),
+                                            event_type: zod.enum(['events', 'actions']),
+                                            explicit_datetime: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Absolute or relative (e.g. -30d) lower date bound — alternative to time_value\/time_interval'
+                                                ),
+                                            explicit_datetime_to: zod.union([zod.string(), zod.null()]).optional(),
+                                            key: zod
+                                                .string()
+                                                .describe("Event name, or action id when event_type is 'actions'"),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                            negation: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
+                                                ),
+                                            operator: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'between',
+                                                        'not_between',
+                                                        'min',
+                                                        'max',
+                                                        'in',
+                                                        'not_in',
+                                                        'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
+                                                        'flag_evaluates_to',
+                                                        'semver_eq',
+                                                        'semver_neq',
+                                                        'semver_gt',
+                                                        'semver_gte',
+                                                        'semver_lt',
+                                                        'semver_lte',
+                                                        'semver_tilde',
+                                                        'semver_caret',
+                                                        'semver_wildcard',
+                                                        'icontains_multi',
+                                                        'not_icontains_multi',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Count comparison for performed_event_multiple, defaults to exact'
+                                                ),
+                                            operator_value: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Count threshold for performed_event_multiple'),
+                                            time_interval: zod
+                                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                .optional(),
+                                            time_value: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Relative time window size, paired with time_interval'),
+                                            type: zod
+                                                .literal('behavioral')
+                                                .default(
+                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveTypeDefault
+                                                )
+                                                .describe(
+                                                    "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
+                                                ),
+                                            value: zod.enum(['performed_event', 'performed_event_multiple']),
                                         }),
                                     ])
                                 ),
@@ -4144,7 +5610,9 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsSimulateCreateBodyCooldownMinutesMin)
         .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
-        .describe('Minutes to wait after firing before sending another notification.'),
+        .describe(
+            'Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.'
+        ),
     date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
 })
 
@@ -4152,7 +5620,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
  * Runs anomaly detection on demand over one service's log volume for the given window. Learns per severity baselines from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
  * @summary Scan a service's logs for volume anomalies
  */
-export const LogsAnomaliesScanCreateParams = /* @__PURE__ */ zod.object({
+export const LogsAnomaliesScanCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4160,7 +5628,7 @@ export const LogsAnomaliesScanCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsAnomaliesScanCreateBody = /* @__PURE__ */ zod.object({
+export const LogsAnomaliesScanCreateBody = () => zod.object({
     serviceName: zod
         .string()
         .describe(
@@ -4180,7 +5648,51 @@ export const LogsAnomaliesScanCreateBody = /* @__PURE__ */ zod.object({
         .describe('Evaluation window to scan for anomalies. May span at most 7 days.'),
 })
 
-export const LogsAttributesRetrieveParams = /* @__PURE__ */ zod.object({
+/**
+ * Returns log volume over the requested window for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. The window defaults to the last 7 days and may span at most 7 days. Synchronous and read only.
+ * @summary Per-series log volume with expected bands
+ */
+export const LogsAnomaliesSeriesBandsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LogsAnomaliesSeriesBandsCreateBody = () => zod.object({
+    serviceName: zod.string().describe("Service whose per-series volume to chart (the log record's service_name)."),
+    dateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the window. Same format as date_from. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe(
+            'Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches.'
+        ),
+    intervalMinutes: zod
+        .union([
+            zod
+                .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
+                .describe('\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.\n\n\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60"
+        ),
+})
+
+export const LogsAttributesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4196,7 +5708,7 @@ export const logsAttributesRetrieveQueryOffsetMin = 0
 export const logsAttributesRetrieveQuerySearchValuesDefault = false
 export const logsAttributesRetrieveQueryServiceNamesDefault = []
 
-export const LogsAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const LogsAttributesRetrieveQueryParams = () => zod.object({
     attribute_type: zod
         .enum(['log', 'resource'])
         .optional()
@@ -4218,13 +5730,23 @@ export const LogsAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Date range to search within. Defaults to last hour.'),
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Start of the range as a top-level parameter. The endpoint ignores it when you send dateRange.'),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('End of the range as a top-level parameter. The endpoint ignores it when you send dateRange.'),
     filterGroup: zod
         .array(
             zod.object({
                 key: zod
                     .string()
                     .describe(
-                        'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                        'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                     ),
                 type: zod
                     .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4270,6 +5792,13 @@ export const LogsAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
         )
         .default(logsAttributesRetrieveQueryFilterGroupDefault)
         .describe('Property filters to narrow which logs are scanned for attributes.'),
+    keys: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.'
+        ),
     limit: zod
         .number()
         .min(1)
@@ -4294,7 +5823,7 @@ export const LogsAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe('Filter attributes to those appearing in logs from these services.'),
 })
 
-export const LogsCountCreateParams = /* @__PURE__ */ zod.object({
+export const LogsCountCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4302,7 +5831,7 @@ export const LogsCountCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
+export const LogsCountCreateBody = () => zod.object({
     query: zod
         .object({
             dateRange: zod
@@ -4338,7 +5867,7 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4388,7 +5917,7 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
         .describe('The count query to execute.'),
 })
 
-export const LogsCountRangesCreateParams = /* @__PURE__ */ zod.object({
+export const LogsCountRangesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4399,7 +5928,7 @@ export const LogsCountRangesCreateParams = /* @__PURE__ */ zod.object({
 export const logsCountRangesCreateBodyQueryOneTargetBucketsDefault = 10
 export const logsCountRangesCreateBodyQueryOneTargetBucketsMax = 100
 
-export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
+export const LogsCountRangesCreateBody = () => zod.object({
     query: zod
         .object({
             dateRange: zod
@@ -4451,7 +5980,7 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4501,7 +6030,7 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The bucketed-count query to execute.'),
 })
 
-export const LogsFacetValuesCreateParams = /* @__PURE__ */ zod.object({
+export const LogsFacetValuesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4509,7 +6038,7 @@ export const LogsFacetValuesCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
+export const LogsFacetValuesCreateBody = () => zod.object({
     query: zod
         .object({
             facetField: zod
@@ -4521,7 +6050,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    "Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this facet's own filter.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name"
                 ),
             facetResourceAttribute: zod
                 .string()
@@ -4577,7 +6106,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4629,11 +6158,17 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
                 ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
         })
         .describe('The facet values query to execute.'),
 })
 
-export const LogsPatternsCreateParams = /* @__PURE__ */ zod.object({
+export const LogsGroupByCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4641,7 +6176,264 @@ export const LogsPatternsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
+export const logsGroupByCreateBodyQueryOneGroupBySourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysMax = 4
+
+export const logsGroupByCreateBodyQueryOneOrderGroupsByDefault = `log_count`
+export const logsGroupByCreateBodyQueryOneLimitDefault = 100
+export const logsGroupByCreateBodyQueryOneLimitMax = 500
+
+export const LogsGroupByCreateBody = () => zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range to aggregate over. Defaults to last hour.'),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Filter by log severity levels before grouping.'),
+            serviceNames: zod.array(zod.string()).optional().describe('Restrict grouping to these service names.'),
+            searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies before grouping.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                            ),
+                        type: zod
+                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                            .describe(
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            )
+                            .describe(
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Property filters applied before grouping. Same shape as the query-logs endpoint.'),
+            groupBy: zod
+                .string()
+                .optional()
+                .describe(
+                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\". Ignored when groupBys is provided.'
+                ),
+            groupBySource: zod
+                .enum(['log', 'resource', 'column'])
+                .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                .default(logsGroupByCreateBodyQueryOneGroupBySourceDefault)
+                .describe(
+                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                ),
+            groupBys: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template).'
+                            ),
+                        source: zod
+                            .enum(['log', 'resource', 'column'])
+                            .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                            .default(logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault)
+                            .describe(
+                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                            ),
+                    })
+                )
+                .min(1)
+                .max(logsGroupByCreateBodyQueryOneGroupBysMax)
+                .optional()
+                .describe(
+                    'Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy\/groupBySource; one of the two must be provided.'
+                ),
+            orderGroupsBy: zod
+                .enum(['log_count', 'error_count', 'last_seen'])
+                .describe('\* `log_count` - log_count\n\* `error_count` - error_count\n\* `last_seen` - last_seen')
+                .default(logsGroupByCreateBodyQueryOneOrderGroupsByDefault)
+                .describe(
+                    'Aggregate to rank groups by (descending): \"log_count\" for the noisiest groups, \"error_count\" for the most failing, \"last_seen\" for the most recent.\n\n\* `log_count` - log_count\n\* `error_count` - error_count\n\* `last_seen` - last_seen'
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsGroupByCreateBodyQueryOneLimitMax)
+                .default(logsGroupByCreateBodyQueryOneLimitDefault)
+                .describe('Maximum number of groups to return (top-N by orderGroupsBy). Defaults to 100.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope grouping to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope grouping to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
+        })
+        .describe('The group-by query to execute.'),
+})
+
+export const LogsImpactCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LogsImpactCreateBody = () => zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range for the count. Defaults to last hour.'),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Filter by log severity levels.'),
+            serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
+            searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                            ),
+                        type: zod
+                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                            .describe(
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            )
+                            .describe(
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Property filters for the query.'),
+        })
+        .describe('The impact query to execute. Takes the same filters as the count query.'),
+})
+
+export const LogsPatternsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LogsPatternsCreateBody = () => zod.object({
     query: zod
         .object({
             dateRange: zod
@@ -4677,7 +6469,7 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4723,11 +6515,23 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters applied before mining. Same shape as the query-logs endpoint.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
         })
         .describe('The patterns query to execute.'),
 })
 
-export const LogsPatternsDiffCreateParams = /* @__PURE__ */ zod.object({
+export const LogsPatternsDiffCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4735,7 +6539,9 @@ export const LogsPatternsDiffCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
+export const logsPatternsDiffCreateBodyQueryOneLimitMax = 500
+
+export const LogsPatternsDiffCreateBody = () => zod.object({
     query: zod
         .object({
             dateRange: zod
@@ -4771,7 +6577,7 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4817,6 +6623,24 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters applied before mining. Same shape as the query-logs endpoint.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsPatternsDiffCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe('Return at most this many entries, most interesting first. Omit for all. Sets `truncated`.'),
         })
         .describe(
             'The patterns query for the current (foreground) window: date range plus any severity\/service\/search\/property filters. The same filters are applied to the baseline window.'
@@ -4840,7 +6664,7 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsQueryCreateParams = /* @__PURE__ */ zod.object({
+export const LogsQueryCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4850,12 +6674,12 @@ export const LogsQueryCreateParams = /* @__PURE__ */ zod.object({
 
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
-export const logsQueryCreateBodyQueryOneFilterGroupDefault = []
 export const logsQueryCreateBodyQueryOneLimitDefault = 100
+
 export const logsQueryCreateBodyQueryOneExcludeAttributesDefault = false
 export const logsQueryCreateBodyQueryOneCustomColumnsDefault = []
 
-export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
+export const LogsQueryCreateBody = () => zod.object({
     query: zod
         .object({
             dateRange: zod
@@ -4894,58 +6718,133 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Order results by timestamp.\n\n\* `latest` - latest\n\* `earliest` - earliest'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
             filterGroup: zod
-                .array(
+                .union([
+                    zod.array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                ),
+                            type: zod
+                                .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                .describe(
+                                    '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                )
+                                .describe(
+                                    '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                ),
+                            operator: zod
+                                .enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'lt',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'is_set',
+                                    'is_not_set',
+                                ])
+                                .describe(
+                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                )
+                                .describe(
+                                    'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                ),
+                            value: zod
+                                .unknown()
+                                .optional()
+                                .describe(
+                                    'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                ),
+                        })
+                    ),
                     zod.object({
-                        key: zod
-                            .string()
-                            .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
-                            ),
                         type: zod
-                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
-                            .describe(
-                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            .enum(['AND', 'OR'])
+                            .describe('How to combine the groups in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'),
+                        values: zod
+                            .array(
+                                zod.object({
+                                    type: zod
+                                        .enum(['AND', 'OR'])
+                                        .describe(
+                                            'How to combine the filters in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'
+                                        ),
+                                    values: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                                    ),
+                                                type: zod
+                                                    .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                                    .describe(
+                                                        '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    )
+                                                    .describe(
+                                                        '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    ),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'lt',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                    ])
+                                                    .describe(
+                                                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    )
+                                                    .describe(
+                                                        'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    ),
+                                                value: zod
+                                                    .unknown()
+                                                    .optional()
+                                                    .describe(
+                                                        'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                                    ),
+                                            })
+                                        )
+                                        .describe('Property filters in this group.'),
+                                })
                             )
-                            .describe(
-                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
-                            ),
-                        operator: zod
-                            .enum([
-                                'exact',
-                                'is_not',
-                                'icontains',
-                                'not_icontains',
-                                'starts_with',
-                                'not_starts_with',
-                                'ends_with',
-                                'not_ends_with',
-                                'regex',
-                                'not_regex',
-                                'gt',
-                                'lt',
-                                'is_date_exact',
-                                'is_date_before',
-                                'is_date_after',
-                                'is_set',
-                                'is_not_set',
-                            ])
-                            .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            )
-                            .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            ),
-                        value: zod
-                            .unknown()
-                            .optional()
-                            .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
-                            ),
-                    })
-                )
-                .default(logsQueryCreateBodyQueryOneFilterGroupDefault)
-                .describe('Property filters for the query.'),
-            limit: zod.number().default(logsQueryCreateBodyQueryOneLimitDefault).describe('Max results (1-1000).'),
+                            .describe('Groups of property filters.'),
+                    }),
+                ])
+                .optional()
+                .describe(
+                    'Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND\/OR groups.'
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .default(logsQueryCreateBodyQueryOneLimitDefault)
+                .describe('Max results. Values above 2000 are capped at 2000.'),
             after: zod.string().optional().describe('Pagination cursor from previous response.'),
             excludeAttributes: zod
                 .boolean()
@@ -4965,11 +6864,17 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
                 ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
         })
         .describe('The logs query to execute.'),
 })
 
-export const LogsServicesCreateParams = /* @__PURE__ */ zod.object({
+export const LogsServicesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -4977,7 +6882,13 @@ export const LogsServicesCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
+export const logsServicesCreateBodyQueryOneServiceNameSearchMax = 200
+
+export const logsServicesCreateBodyQueryOneEnvironmentMax = 200
+
+export const logsServicesCreateBodyQueryOneCompareDefault = `none`
+
+export const LogsServicesCreateBody = () => zod.object({
     query: zod
         .object({
             dateRange: zod
@@ -5010,13 +6921,20 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Restrict the aggregation to these service names.'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            serviceNameSearch: zod
+                .string()
+                .max(logsServicesCreateBodyQueryOneServiceNameSearchMax)
+                .optional()
+                .describe(
+                    'Case-insensitive substring match on service name, applied before aggregation. Use to reach services beyond the response cap.'
+                ),
             filterGroup: zod
                 .array(
                     zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -5062,11 +6980,42 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters for the query.'),
+            environment: zod
+                .string()
+                .max(logsServicesCreateBodyQueryOneEnvironmentMax)
+                .optional()
+                .describe(
+                    'Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. \"(none)\" matches logs without one.'
+                ),
+            compare: zod
+                .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
+                .describe(
+                    '\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
+                )
+                .default(logsServicesCreateBodyQueryOneCompareDefault)
+                .describe(
+                    'Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
+                ),
         })
         .describe('The services aggregation query to execute.'),
+    baselineDateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe('Explicit baseline window. Takes precedence over `query.compare`.'),
 })
 
-export const LogsSparklineCreateParams = /* @__PURE__ */ zod.object({
+export const LogsSparklineCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -5076,9 +7025,8 @@ export const LogsSparklineCreateParams = /* @__PURE__ */ zod.object({
 
 export const logsSparklineCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsSparklineCreateBodyQueryOneServiceNamesDefault = []
-export const logsSparklineCreateBodyQueryOneFilterGroupDefault = []
 
-export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
+export const LogsSparklineCreateBody = () => zod.object({
     query: zod
         .object({
             dateRange: zod
@@ -5112,57 +7060,128 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Filter by service names.'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
             filterGroup: zod
-                .array(
+                .union([
+                    zod.array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                ),
+                            type: zod
+                                .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                .describe(
+                                    '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                )
+                                .describe(
+                                    '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                ),
+                            operator: zod
+                                .enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'lt',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'is_set',
+                                    'is_not_set',
+                                ])
+                                .describe(
+                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                )
+                                .describe(
+                                    'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                ),
+                            value: zod
+                                .unknown()
+                                .optional()
+                                .describe(
+                                    'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                ),
+                        })
+                    ),
                     zod.object({
-                        key: zod
-                            .string()
-                            .describe(
-                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
-                            ),
                         type: zod
-                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
-                            .describe(
-                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            .enum(['AND', 'OR'])
+                            .describe('How to combine the groups in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'),
+                        values: zod
+                            .array(
+                                zod.object({
+                                    type: zod
+                                        .enum(['AND', 'OR'])
+                                        .describe(
+                                            'How to combine the filters in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'
+                                        ),
+                                    values: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                                    ),
+                                                type: zod
+                                                    .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                                    .describe(
+                                                        '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    )
+                                                    .describe(
+                                                        '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    ),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'lt',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                    ])
+                                                    .describe(
+                                                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    )
+                                                    .describe(
+                                                        'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    ),
+                                                value: zod
+                                                    .unknown()
+                                                    .optional()
+                                                    .describe(
+                                                        'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                                    ),
+                                            })
+                                        )
+                                        .describe('Property filters in this group.'),
+                                })
                             )
-                            .describe(
-                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
-                            ),
-                        operator: zod
-                            .enum([
-                                'exact',
-                                'is_not',
-                                'icontains',
-                                'not_icontains',
-                                'starts_with',
-                                'not_starts_with',
-                                'ends_with',
-                                'not_ends_with',
-                                'regex',
-                                'not_regex',
-                                'gt',
-                                'lt',
-                                'is_date_exact',
-                                'is_date_before',
-                                'is_date_after',
-                                'is_set',
-                                'is_not_set',
-                            ])
-                            .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            )
-                            .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            ),
-                        value: zod
-                            .unknown()
-                            .optional()
-                            .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
-                            ),
-                    })
-                )
-                .default(logsSparklineCreateBodyQueryOneFilterGroupDefault)
-                .describe('Property filters for the query.'),
+                            .describe('Groups of property filters.'),
+                    }),
+                ])
+                .optional()
+                .describe(
+                    'Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND\/OR groups.'
+                ),
             sparklineBreakdownBy: zod
                 .enum(['severity', 'service'])
                 .describe('\* `severity` - severity\n\* `service` - service')
@@ -5183,11 +7202,17 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
                 ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
         })
         .describe('The sparkline query to execute.'),
 })
 
-export const LogsValuesRetrieveParams = /* @__PURE__ */ zod.object({
+export const LogsValuesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -5198,7 +7223,7 @@ export const LogsValuesRetrieveParams = /* @__PURE__ */ zod.object({
 export const logsValuesRetrieveQueryFilterGroupDefault = []
 export const logsValuesRetrieveQueryServiceNamesDefault = []
 
-export const LogsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const LogsValuesRetrieveQueryParams = () => zod.object({
     attribute_type: zod
         .enum(['log', 'resource'])
         .optional()
@@ -5226,7 +7251,7 @@ export const LogsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
                 key: zod
                     .string()
                     .describe(
-                        'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                        'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
                     ),
                 type: zod
                     .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -5277,5 +7302,8 @@ export const LogsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .default(logsValuesRetrieveQueryServiceNamesDefault)
         .describe('Filter values to those appearing in logs from these services.'),
-    value: zod.string().min(1).optional().describe('Search filter for attribute values'),
+    value: zod
+        .string()
+        .optional()
+        .describe('Search filter for attribute values. Omit it or pass an empty string to list all values.'),
 })

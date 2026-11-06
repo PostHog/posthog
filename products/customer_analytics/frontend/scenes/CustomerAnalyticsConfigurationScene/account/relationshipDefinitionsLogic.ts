@@ -50,6 +50,7 @@ const handleNameConflict = (error: unknown, setManualErrors: (errors: { name: st
 export interface relationshipDefinitionsLogicValues {
     currentProjectId: number | null // projectLogic
     definitions: AccountRelationshipDefinitionApi[]
+    definitionsLoadFailed: boolean
     definitionsLoading: boolean
     editingDefinition: AccountRelationshipDefinitionApi | null
     isRelationshipDefinitionFormSubmitting: boolean
@@ -175,6 +176,14 @@ export const relationshipDefinitionsLogic = kea<relationshipDefinitionsLogicType
         closeModal: true,
     }),
     reducers({
+        definitionsLoadFailed: [
+            false,
+            {
+                loadDefinitions: () => false,
+                loadDefinitionsSuccess: () => false,
+                loadDefinitionsFailure: () => true,
+            },
+        ],
         modalVisible: [
             false,
             {
@@ -197,8 +206,18 @@ export const relationshipDefinitionsLogic = kea<relationshipDefinitionsLogicType
             [] as AccountRelationshipDefinitionApi[],
             {
                 loadDefinitions: async (): Promise<AccountRelationshipDefinitionApi[]> => {
-                    const response = await accountRelationshipDefinitionsList(String(values.currentProjectId))
-                    return response.results
+                    const projectId = String(values.currentProjectId)
+                    const definitions: AccountRelationshipDefinitionApi[] = []
+                    let response = await accountRelationshipDefinitionsList(projectId)
+                    definitions.push(...response.results)
+                    while (response.next) {
+                        if (response.results.length === 0) {
+                            throw new Error('Relationship definitions page is empty despite a next page')
+                        }
+                        response = await accountRelationshipDefinitionsList(projectId, { offset: definitions.length })
+                        definitions.push(...response.results)
+                    }
+                    return definitions
                 },
                 deleteDefinition: async ({ id }: { id: string }): Promise<AccountRelationshipDefinitionApi[]> => {
                     await accountRelationshipDefinitionsDestroy(String(values.currentProjectId), id)

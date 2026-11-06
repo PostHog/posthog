@@ -1,19 +1,23 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
-import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+
+import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
 import { sourceConnectSceneLogic } from './sourceConnectSceneLogic'
 
-const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
+const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
     Postgres: {
         name: 'Postgres',
         iconPath: '',
         caption: '',
         fields: [{ type: 'text', name: 'host', label: 'Host', required: true, placeholder: '' }],
-    } as unknown as SourceConfig,
+    } as unknown as SourceConfigResponseApi,
     Hubspot: {
         name: 'Hubspot',
         iconPath: '',
@@ -27,7 +31,7 @@ const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
                 kind: 'hubspot',
             },
         ],
-    } as unknown as SourceConfig,
+    } as unknown as SourceConfigResponseApi,
     Stripe: {
         name: 'Stripe',
         iconPath: '',
@@ -69,7 +73,7 @@ const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
                 ],
             },
         ],
-    } as unknown as SourceConfig,
+    } as unknown as SourceConfigResponseApi,
 }
 
 describe('sourceConnectSceneLogic', () => {
@@ -80,6 +84,12 @@ describe('sourceConnectSceneLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard/': AVAILABLE_SOURCES,
+            },
+            post: {
+                '/api/projects/:team_id/external_data_sources/store_credentials/': () => [
+                    400,
+                    { message: 'Could not connect to the database. Check the host, then try again.' },
+                ],
             },
         })
         initKeaTests()
@@ -123,5 +133,19 @@ describe('sourceConnectSceneLogic', () => {
         expect(sourceConnectSceneLogic.values.storedCredential?.credential_id).toEqual(
             'ba07775f-8eaf-4d09-aa6f-50e37f17f243'
         )
+    })
+
+    it('shows the rejection message when the credentials fail validation', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        router.actions.push('/data-warehouse/connect?kind=Postgres')
+        sourceConnectSceneLogic.actions.setCredentialsFormValue('payload', { host: 'db.example.com' })
+
+        await expectLogic(sourceConnectSceneLogic, () => {
+            sourceConnectSceneLogic.actions.submitCredentialsForm()
+        }).toFinishAllListeners()
+
+        expect(errorToast).toHaveBeenCalledWith('Could not connect to the database. Check the host, then try again.')
+        expect(sourceConnectSceneLogic.values.storedCredential).toBeNull()
+        errorToast.mockRestore()
     })
 })

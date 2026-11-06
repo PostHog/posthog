@@ -2,10 +2,8 @@ from uuid import uuid4
 
 from posthog.test.base import BaseTest
 
-from posthog.clickhouse.client import sync_execute
 from posthog.models.event.util import create_event
-from posthog.models.person.util import delete_person
-from posthog.test.persons import add_distinct_id, create_person
+from posthog.test.persons import create_person
 
 
 def _create_event(**kwargs):
@@ -20,31 +18,3 @@ class TestPerson(BaseTest):
         person_anonymous = create_person(team=self.team)
         self.assertEqual(person_identified.is_identified, True)
         self.assertEqual(person_anonymous.is_identified, False)
-
-    def test_delete_person(self):
-        person = create_person(
-            team=self.team, version=15
-        )  # version be > 0 to check that we don't just assume 0 in deletes
-        delete_person(person)
-        ch_persons = sync_execute(
-            "SELECT toString(id), version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
-            {"team_id": self.team.pk, "uuid": person.uuid},
-        )
-        self.assertEqual(ch_persons, [(str(person.uuid), 115, 1, "{}")])
-
-    def test_delete_ch_distinct_ids(self):
-        person = create_person(team=self.team)
-        add_distinct_id(person=person, distinct_id="distinct_id1", version=15)
-
-        ch_distinct_ids = sync_execute(
-            "SELECT is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
-            {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
-        )
-        self.assertEqual(ch_distinct_ids, [(0,)])
-
-        delete_person(person)
-        ch_distinct_ids = sync_execute(
-            "SELECT toString(person_id), version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
-            {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
-        )
-        self.assertEqual(ch_distinct_ids, [(str(person.uuid), 115, 1)])

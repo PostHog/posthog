@@ -6,30 +6,37 @@ import { IconGear, IconPlus } from '@posthog/icons'
 
 import api, { ApiError } from 'lib/api'
 import { getProductPushDisplay } from 'lib/components/NavPanelAdvertisement/navPanelProductPushDisplay'
+import { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
-import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { billingLogic, BillingAlertConfig } from 'lib/logic/billing/billingLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inviteLogic } from 'lib/logic/inviteLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
-import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { ProxyRecord } from 'scenes/settings/environment/proxyLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { brandingForProduct } from 'scenes/welcome/productBranding'
 
+import { membersLogic } from '~/models/membersLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey, UserType } from '~/types'
+import { OnboardingStepKey, TeamPublicType, TeamType, UserType } from '~/types'
+
+import { EventIngestionRestrictionDetails } from './EventIngestionRestrictionDetails'
+import { OrganizationMemberNoticeMessage } from './OrganizationMemberNoticeMessage'
 
 export type ProjectNoticeVariant =
     | 'billing_alert'
@@ -41,6 +48,7 @@ export type ProjectNoticeVariant =
     | 'internet_connection_issue'
     | 'event_ingestion_restriction'
     | 'missing_reverse_proxy'
+    | 'organization_member_notice'
 
 export interface ProjectNoticeBlueprint {
     message: JSX.Element | string
@@ -69,6 +77,9 @@ function ProvisionedProductStrip(): JSX.Element {
             {FLAGSHIP_PRODUCT_KEYS.map((productKey) => {
                 const { Hoggie } = getProductPushDisplay(productKey)
                 const meta = brandingForProduct(productKey)
+                if (!Hoggie) {
+                    return null
+                }
                 return (
                     <Link
                         key={productKey}
@@ -126,29 +137,75 @@ function shouldFetchProxyRecords(user: UserType | null, currentOrganizationId: s
     return !!user && !!currentOrganizationId && new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
 }
 
+function buildBillingAlertAction(
+    billingAlert: BillingAlertConfig,
+    canAccessBilling: boolean
+): LemonBannerProps['action'] | undefined {
+    if (billingAlert.action) {
+        return billingAlert.action
+    }
+
+    if (billingAlert.contactSupport) {
+        return {
+            to: 'mailto:sales@posthog.com',
+            children: billingAlert.buttonCTA || 'Contact support',
+            onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+        }
+    }
+
+    if (!canAccessBilling) {
+        return undefined
+    }
+
+    return {
+        to: getBillingAlertBillingUrl(billingAlert),
+        children: 'Manage billing',
+        onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+    }
+}
+
+function getBillingAlertBillingUrl(billingAlert: BillingAlertConfig): string {
+    return urls.organizationBilling(billingAlert.productKey ? [billingAlert.productKey] : undefined)
+}
+
+function isBillingPathname(pathname: string): boolean {
+    const billingPathname = urls.organizationBilling()
+
+    return pathname === billingPathname || pathname.startsWith(`${billingPathname}/`)
+}
+
+function isCurrentBillingAlertBillingUrl(
+    billingAlert: BillingAlertConfig,
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
+): boolean {
+    if (!isBillingPathname(currentLocation.pathname)) {
+        return false
+    }
+
+    if (!billingAlert.productKey) {
+        return true
+    }
+
+    const productsParam = currentLocation.searchParams.products
+    const productKeys = Array.isArray(productsParam)
+        ? productsParam
+        : typeof productsParam === 'string'
+          ? productsParam.split(',')
+          : []
+
+    return productKeys.includes(billingAlert.productKey)
+}
+
 function buildBillingAlertNotice(
     billingAlert: BillingAlertConfig,
     canAccessBilling: boolean,
-    currentPathname: string
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
 ): ProjectNoticeBlueprint {
     const showButton =
-        billingAlert.action || billingAlert.contactSupport || currentPathname !== urls.organizationBilling()
-
-    const action = billingAlert.action
-        ? billingAlert.action
-        : billingAlert.contactSupport
-          ? {
-                to: 'mailto:sales@posthog.com',
-                children: billingAlert.buttonCTA || 'Contact support',
-                onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-            }
-          : canAccessBilling
-            ? {
-                  to: urls.organizationBilling(),
-                  children: 'Manage billing',
-                  onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-              }
-            : undefined
+        billingAlert.action ||
+        billingAlert.contactSupport ||
+        !isCurrentBillingAlertBillingUrl(billingAlert, currentLocation)
+    const action = buildBillingAlertAction(billingAlert, canAccessBilling)
 
     return {
         message: (
@@ -166,12 +223,18 @@ function buildBillingAlertNotice(
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface projectNoticeLogicValues {
+    effectiveBillingAlert: BillingAlertConfig | null // billingLogic
     memberCount: number // membersLogic
     currentOrganizationId: string // organizationLogic
     hasReverseProxy: boolean | null // reverseProxyCheckerLogic
+    warehouseSetupStatus: ProductSetupStatus // sampleDataStateLogic
     user: UserType | null // userLogic
-    effectiveBillingAlert: BillingAlertConfig | null
     noticeDismissedThisSession: boolean
+    postHogNoticeVariant: ProjectNoticeVariant | null
+    projectData: {
+        currentTeam: TeamPublicType | TeamType | null
+        warehouseSetupStatus: ProductSetupStatus
+    }
     projectNotice: ProjectNoticeBlueprint | null
     projectNoticeDismissKey: string | null
     projectNoticeVariant: ProjectNoticeVariant | null
@@ -187,7 +250,7 @@ export interface projectNoticeLogicActions {
     reportProjectNoticeShown: (variant: string) => {
         variant: string
     } // eventUsageLogic
-    requestVerificationLink: (uuid: string) => {
+    requestVerificationCode: (uuid: string) => {
         uuid: string
     } // verifyEmailLogic
     dismissProjectNotice: (dismissKey: string | null) => {
@@ -211,25 +274,34 @@ export interface projectNoticeLogicActions {
     reportNoticeShown: () => {
         value: true
     }
+    showEventIngestionRestrictionDetails: () => {
+        value: true
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface projectNoticeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        effectiveBillingAlert: (
-            billingAlert: BillingAlertConfig | null,
-            fakeBillingAlert: import('lib/components/Superpowers/superpowersLogic').FakeBillingAlert
-        ) => BillingAlertConfig | null
-        projectNoticeVariant: (
+        projectData: (
+            currentTeam: TeamPublicType | TeamType | null,
+            warehouseSetupStatus: ProductSetupStatus
+        ) => {
+            currentTeam: TeamPublicType | TeamType | null
+            warehouseSetupStatus: ProductSetupStatus
+        }
+        postHogNoticeVariant: (
             currentOrganization: null | import('~/types').OrganizationType,
-            currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+            projectData: {
+                currentTeam: TeamPublicType | TeamType | null
+                warehouseSetupStatus: ProductSetupStatus
+            },
             preflight: null | import('~/types').PreflightStatus,
             isCloudOrDev: boolean | undefined,
             user: UserType | null,
             memberCount: number,
             internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
-            proxyRecords: ProxyRecord[] | null,
+            proxyRecords: import('products/platform_features/frontend/generated/api.schemas').ProxyRecordApi[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             currentLocation: {
                 hash: string
@@ -244,6 +316,11 @@ export interface projectNoticeLogicMeta {
             arg: number,
             hasReverseProxy: boolean | null,
             isProvisionedUser: boolean
+        ) => ProjectNoticeVariant | null
+        projectNoticeVariant: (
+            postHogNoticeVariant: ProjectNoticeVariant | null,
+            arg: boolean,
+            arg2: boolean
         ) => ProjectNoticeVariant | null
         projectNoticeDismissKey: (
             projectNoticeVariant: ProjectNoticeVariant | null,
@@ -279,7 +356,7 @@ export type projectNoticeLogicType = MakeLogicType<
 export const projectNoticeLogic = kea<projectNoticeLogicType>([
     path(['layout', 'navigation', 'projectNoticeLogic']),
     connect(() => ({
-        logic: [verifyEmailLogic],
+        logic: [verifyEmailLogic, billingLogic],
         values: [
             membersLogic,
             ['memberCount'],
@@ -287,6 +364,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             ['currentOrganizationId'],
             userLogic,
             ['user'],
+            billingLogic,
+            ['effectiveBillingAlert'],
             // Connecting reverseProxyCheckerLogic mounts it and exposes hasReverseProxy reactively.
             // A self-managed (DIY) reverse proxy never appears in proxy_records, but it does stamp
             // $lib_custom_api_host on events, which the checker detects — this keeps the "set up a
@@ -294,25 +373,29 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             // complete on the same signal. The checker throttles its own detection query internally.
             reverseProxyCheckerLogic,
             ['hasReverseProxy'],
+            sampleDataStateLogic,
+            ['warehouseSetupStatus'],
         ],
         actions: [
             eventUsageLogic,
             ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
-            // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
+            // Mount verifyEmailLogic so the "Verify email" banner CTA's loader fires.
             // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
             verifyEmailLogic,
-            ['requestVerificationLink'],
+            ['requestVerificationCode'],
         ],
     })),
     actions({
         dismissProjectNotice: (dismissKey: string | null) => ({ dismissKey }),
         reportNoticeShown: true,
+        showEventIngestionRestrictionDetails: true,
     }),
     loaders(({ values }) => ({
         proxyRecords: {
             __default: null as null | ProxyRecord[],
             loadRecords: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use proxyRecordsList() from 'products/platform_features/frontend/generated/api' instead.
                     const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                     return response.results
                 } catch (error) {
@@ -332,26 +415,20 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         noticeDismissedThisSession: [false, { dismissProjectNotice: () => true }],
     }),
     selectors({
-        effectiveBillingAlert: [
-            () => [billingLogic.selectors.billingAlert, superpowersLogic.selectors.fakeBillingAlert],
+        projectData: [
+            (s) => [teamLogic.selectors.currentTeam, s.warehouseSetupStatus],
             (
-                billingAlert: BillingAlertConfig | null,
-                fakeBillingAlert: import('lib/components/Superpowers/superpowersLogic').FakeBillingAlert
-            ): BillingAlertConfig | null => {
-                if (fakeBillingAlert !== 'none') {
-                    return {
-                        status: fakeBillingAlert,
-                        title: `Fake ${fakeBillingAlert} billing alert`,
-                        message: 'This is a fake billing alert triggered via Superpowers for testing purposes.',
-                    }
-                }
-                return billingAlert
-            },
+                currentTeam: TeamPublicType | TeamType | null,
+                warehouseSetupStatus: ProductSetupStatus
+            ): { currentTeam: TeamPublicType | TeamType | null; warehouseSetupStatus: ProductSetupStatus } => ({
+                currentTeam,
+                warehouseSetupStatus,
+            }),
         ],
-        projectNoticeVariant: [
+        postHogNoticeVariant: [
             (s) => [
                 organizationLogic.selectors.currentOrganization,
-                teamLogic.selectors.currentTeam,
+                s.projectData,
                 preflightLogic.selectors.preflight,
                 preflightLogic.selectors.isCloudOrDev,
                 userLogic.selectors.user,
@@ -370,7 +447,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             ],
             (
                 organization: null | import('~/types').OrganizationType,
-                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+                { currentTeam, warehouseSetupStatus }: projectNoticeLogicValues['projectData'],
                 preflight: null | import('~/types').PreflightStatus,
                 isCloudOrDev: boolean | undefined,
                 user: UserType | null,
@@ -427,6 +504,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     !isNoticeDismissed('real_project_with_no_events') &&
                     currentTeam &&
                     !currentTeam.ingested_event &&
+                    warehouseSetupStatus === 'needs-setup' &&
                     // Belt-and-braces: never claim "no events" while the live activity feed is
                     // actively rendering events on the same screen — `currentTeam.ingested_event`
                     // can lag behind the live SSE stream during the first ingestion window.
@@ -453,6 +531,24 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 }
 
                 return null
+            },
+        ],
+        projectNoticeVariant: [
+            (s) => [
+                s.postHogNoticeVariant,
+                (state) => !!organizationLogic.selectors.currentOrganization(state)?.member_notice?.message,
+                (state) => !!featureFlagLogic.selectors.featureFlags(state)[FEATURE_FLAGS.UX_HIDE_PROJECT_NOTICE],
+            ],
+            (
+                postHogNoticeVariant: ProjectNoticeVariant | null,
+                hasMemberNotice: boolean,
+                hidePostHogNotices: boolean
+            ): ProjectNoticeVariant | null => {
+                // The member notice comes last. Members can't dismiss it, and the flag only hides PostHog's notices.
+                if (postHogNoticeVariant && !hidePostHogNotices) {
+                    return postHogNoticeVariant
+                }
+                return hasMemberNotice ? 'organization_member_notice' : null
             },
         ],
         projectNoticeDismissKey: [
@@ -514,11 +610,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         if (!effectiveBillingAlert) {
                             return null
                         }
-                        const notice = buildBillingAlertNotice(
-                            effectiveBillingAlert,
-                            canAccessBilling,
-                            currentLocation.pathname
-                        )
+                        const notice = buildBillingAlertNotice(effectiveBillingAlert, canAccessBilling, currentLocation)
                         const canClose = dismiss || notice.onClose
                         return {
                             ...notice,
@@ -613,8 +705,17 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message: 'Please verify your email address.',
                             action: {
                                 'data-attr': 'unverified-email-cta',
-                                onClick: () => user && verifyEmailLogic.actions.requestVerificationLink(user.uuid),
-                                children: 'Send verification email',
+                                onClick: () => {
+                                    if (!user) {
+                                        return
+                                    }
+                                    verifyEmailLogic.actions.requestVerificationCode(user.uuid)
+                                    // The email carries a 6-digit code, and only the verify-email scene has the
+                                    // entry form. `next` returns the user to this page once the code is accepted.
+                                    const { pathname, search, hash } = router.values.location
+                                    router.actions.push(urls.verifyEmail(user.uuid), { next: pathname + search + hash })
+                                },
+                                children: 'Verify email',
                             },
                             type: 'warning',
                         }
@@ -634,6 +735,11 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message:
                                 'Event ingestion restrictions have been applied to a token in this project. Please contact support.',
                             type: 'warning',
+                            action: {
+                                onClick: () => projectNoticeLogic.actions.showEventIngestionRestrictionDetails(),
+                                'data-attr': 'event-ingestion-restriction-details_link',
+                                children: 'See details',
+                            },
                         }
                     case 'missing_reverse_proxy':
                         return {
@@ -648,6 +754,24 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             },
                             onClose: dismiss,
                         }
+                    case 'organization_member_notice': {
+                        const memberNotice = currentOrganization?.member_notice
+                        if (!memberNotice) {
+                            return null
+                        }
+                        return {
+                            message: <OrganizationMemberNoticeMessage html={memberNotice.message} />,
+                            type: 'info',
+                            action: memberNotice.action
+                                ? {
+                                      to: memberNotice.action.url,
+                                      targetBlank: true,
+                                      children: memberNotice.action.label,
+                                      'data-attr': 'organization-member-notice-action',
+                                  }
+                                : undefined,
+                        }
+                    }
                     default:
                         return null
                 }
@@ -655,6 +779,18 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        showEventIngestionRestrictionDetails: () => {
+            LemonDialog.open({
+                title: 'Event ingestion restrictions',
+                content: (
+                    <EventIngestionRestrictionDetails
+                        restrictions={eventIngestionRestrictionLogic.values.eventIngestionRestrictions}
+                    />
+                ),
+                primaryButton: { children: 'Close' },
+                width: 560,
+            })
+        },
         dismissProjectNotice: ({ dismissKey }) => {
             if (dismissKey) {
                 storeNoticeDismissal(dismissKey)

@@ -1,14 +1,27 @@
 import hashlib
-from typing import Literal
+import contextlib
+from datetime import timedelta
+from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 
+# Retry envelope for the Node rasterize activity (scheduled in workflow._run). Shared so the relayed
+# recording-api token's TTL (rasterize.py) is derived from the same numbers and can't silently drift.
+RASTERIZE_RENDER_TIMEOUT = timedelta(minutes=30)
+RASTERIZE_RENDER_MAX_ATTEMPTS = 2
 
-class RasterizeRecordingInputs(BaseModel, frozen=True):
-    """Input to the RasterizeRecordingWorkflow."""
+# Envelope for the whole workflow: the render's retry budget plus room for the prep and finalize
+# activities and queue wait. The exports API uses this both as the workflow's execution_timeout and
+# as the age at which it reports an export stuck, so the two can't drift and start calling a render
+# that is still legitimately working a failure. A tighter caller timeout silently converts the second
+# render attempt into an untyped WorkflowExecutionTimeout, bypassing error-code-based failure
+# classification downstream.
+RASTERIZE_WORKFLOW_TIMEOUT = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(minutes=15)
 
-    exported_asset_id: int
-    product: Literal["session_replay", "replay_vision"] = "session_replay"
+# execution_timeout that funds exactly one render attempt plus prep/finalize headroom, for callers
+# with their own phase budget (the replay_vision sweep and evaluation). It still exceeds the render
+# start-to-close, so a fast first failure leaves room to schedule a retry that fits the budget.
+RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT = RASTERIZE_RENDER_TIMEOUT + timedelta(minutes=10)
 
 
 class RasterizationActivityInput(BaseModel, frozen=True):
@@ -20,6 +33,13 @@ class RasterizationActivityInput(BaseModel, frozen=True):
 
     session_id: str
     team_id: int
+    # Team-scoped read token the rasterizer relays to recording-api (it cannot mint its own).
+    # Defaults to "" so a workflow that recorded build_rasterization_input's result under an older
+    # release (before this field existed) still deserializes on replay instead of failing validation.
+    recording_api_token: str = ""
+    # Renders this JSONL object instead of the team's recording. Internal callers only: build_rasterization_input
+    # never reads it from export_context, which users can write through the exports API.
+    source_s3_uri: str | None = None
     s3_bucket: str
     s3_key_prefix: str
     playback_speed: float = 4
@@ -36,12 +56,47 @@ class RasterizationActivityInput(BaseModel, frozen=True):
     mouse_tail: bool = True
 
 
+class RasterizeRecordingInputs(BaseModel, frozen=True):
+    """Input to the RasterizeRecordingWorkflow: an ExportedAsset to render, or a render with none behind it."""
+
+    exported_asset_id: int | None = None
+    # A render the caller built itself, for recordings with no ExportedAsset (the Replay Vision labeling
+    # benchmark). The workflow then skips the asset steps: preparing, finalizing and recording failures.
+    render_input: RasterizationActivityInput | None = None
+    product: Literal["session_replay", "replay_vision", "replay_vision_benchmark"] = "session_replay"
+
+    @model_validator(mode="after")
+    def _one_render_target(self) -> "RasterizeRecordingInputs":
+        if (self.exported_asset_id is None) == (self.render_input is None):
+            raise ValueError("pass exactly one of exported_asset_id and render_input")
+        return self
+
+
 class InactivityPeriod(BaseModel, frozen=True):
     ts_from_s: float
     ts_to_s: float | None = None
     active: bool = True
     recording_ts_from_s: float | None = None
     recording_ts_to_s: float | None = None
+
+
+class NavigationChange(BaseModel, frozen=True):
+    video_s: float
+    session_s: float
+    # The recording's own window id, the same `$window_id` its analytics events carry.
+    window_id: str
+    # The number the footer shows for the window, `WINDOW: <n> of ...`.
+    window_number: int
+    url: str
+
+
+def navigation_from_export_context(export_context: dict[str, Any] | None) -> list[NavigationChange]:
+    changes: list[NavigationChange] = []
+    for raw in (export_context or {}).get("navigation") or []:
+        # The timeline is optional context, so a malformed entry is dropped rather than failing the read.
+        with contextlib.suppress(ValidationError):
+            changes.append(NavigationChange.model_validate(raw))
+    return changes
 
 
 class ActivityTimings(BaseModel, frozen=True):
@@ -61,8 +116,12 @@ class RasterizationActivityOutput(BaseModel, frozen=True):
     video_duration_s: float
     playback_speed: float
     show_metadata_footer: bool = False
+    # Rows at the bottom of each frame the footer takes; renders from before this was reported used 32.
+    footer_height_px: int = 0
     truncated: bool = False
     inactivity_periods: list[InactivityPeriod] = []
+    # Empty for renders from before the renderer recorded it.
+    navigation: list[NavigationChange] = []
     file_size_bytes: int = 0
     timings: ActivityTimings = ActivityTimings()
 
@@ -73,12 +132,37 @@ class FinalizeRasterizationInput(BaseModel, frozen=True):
     render_fingerprint: str
 
 
+class RecordRasterizationFailureInput(BaseModel, frozen=True):
+    """The renderer's own error code and message, resolved in the workflow before the activity runs.
+
+    The code is the rasterizer's `RasterizationErrorCode`, which Temporal carries as the failure
+    type. Without persisting it the reason lives only in workflow history, where neither the user nor
+    a failure-rate breakdown can reach it.
+    """
+
+    exported_asset_id: int
+    error_code: str
+    error_message: str
+
+
 # Output destination fields — excluded so bucket/prefix changes don't invalidate caches.
-_FINGERPRINT_EXCLUDE: set[str] = {"team_id", "session_id", "s3_bucket", "s3_key_prefix"}
+# recording_api_token is per-run and ephemeral, so it must never participate in the cache key.
+FINGERPRINT_EXCLUDE: set[str] = {
+    "team_id",
+    "session_id",
+    "source_s3_uri",
+    "s3_bucket",
+    "s3_key_prefix",
+    "recording_api_token",
+}
+
+
+# Bump when the renderer draws the same inputs differently, so videos cached from the old renderer are not reused.
+_RENDERER_VERSION = 2
 
 
 def compute_params_fingerprint(activity_input: "RasterizationActivityInput") -> str:
-    payload = activity_input.model_dump_json(exclude=_FINGERPRINT_EXCLUDE)
+    payload = f"v{_RENDERER_VERSION}:" + activity_input.model_dump_json(exclude=FINGERPRINT_EXCLUDE)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 

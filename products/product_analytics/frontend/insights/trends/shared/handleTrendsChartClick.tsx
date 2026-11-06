@@ -1,11 +1,12 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
 import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
-import type { IndexedTrendResult } from 'scenes/trends/types'
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { InsightActorsQuery, InsightVizNode, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { IntervalType } from '~/types'
+import { CompareLabelType, IntervalType } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+import { datasetToActorsQuery } from 'products/product_analytics/frontend/insights/trends/viz/datasetToActorsQuery'
 
 export interface TrendsChartClickDeps {
     context?: QueryContext<InsightVizNode>
@@ -40,6 +41,16 @@ export const LIFECYCLE_PERSONS_MODAL_OPTIONS: TrendsPersonsModalOptions = {
     orderBy: undefined,
 }
 
+/** The tooltip's click hint and {@link handleTrendsChartClick} must agree on this, or the hint
+ *  offers a drill-down the handler then declines: `querySource` is what builds the actors query. */
+export function canHandleTrendsChartClick({
+    context,
+    hasPersonsModal,
+    querySource,
+}: Pick<TrendsChartClickDeps, 'context' | 'querySource'> & { hasPersonsModal?: boolean | null }): boolean {
+    return !!context?.onDataPointClick || (!!hasPersonsModal && !!querySource)
+}
+
 // Adapters key each hog-charts Series by `${r.id}`, so we can resolve back
 // to the source IndexedTrendResult without stashing it on meta.
 export function resolveDataset(seriesKey: string, indexedResults: IndexedTrendResult[]): IndexedTrendResult | null {
@@ -57,7 +68,13 @@ export function handleTrendsChartClick(
         return
     }
 
-    const day = dataset.action?.days?.[dataIndex] ?? dataset.days?.[dataIndex]
+    // A previous-period row lists its own dates, but the actors query takes the current-period date
+    // and shifts it back itself, so read the day from a current-period row.
+    const currentPeriodDataset =
+        dataset.compare_label === CompareLabelType.Previous
+            ? (deps.indexedResults.find((r) => r.compare_label !== CompareLabelType.Previous) ?? dataset)
+            : dataset
+    const day = currentPeriodDataset.days?.[dataIndex]
     if (day == null || day === '') {
         return
     }

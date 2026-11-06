@@ -5,6 +5,8 @@ description: Use when editing, reviewing, or auditing DRF viewsets and serialize
 
 # Improving DRF Endpoints
 
+Before you propose a contract test against the generated OpenAPI schema, check [things already tried](../../../docs/internal/ci-things-already-tried.md). Six PRs took that idea, and none merged.
+
 ## Overview
 
 Serializer fields are the source of truth for PostHog's entire type pipeline:
@@ -51,7 +53,7 @@ Work through this list for every serializer and viewset you touch.
 3. **No bare `JSONField()`** — create a custom field class with `@extend_schema_field(TypedSchema)`
 4. **`SerializerMethodField` has `@extend_schema_field`** on its `get_*` method
 5. **`ChoiceField` has explicit `choices=`** with all valid values listed
-6. **Avoid collision-prone enum field names** — `format`, `type`, `status`, `kind`, `level`, `mode`, `state`, `platform`, `provider` clash with existing choices and fail CI under `--fail-on-warn`; pick a specific name or add an `ENUM_NAME_OVERRIDES` entry up front (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
+6. **Define choices as a class** — `models.TextChoices` in a product's internal modules, `LabeledStrEnum` or `LabeledIntEnum` from `posthog/enums.py` in facade contract files (`backend/facade/contracts.py`, `backend/facade/enums.py`), which must not import Django. The OpenAPI component is named after the class either way (`EarlyAccessFeature.Stage` -> `EarlyAccessFeatureStageEnum`, via `ChoicesEnumNameOverrides` in `posthog/openapi/enum_names.py`), so a class-backed enum never collides on field names like `format`, `type`, `status`, `kind`. Pass `X.choices` to `choices=`, and to name a labeled enum on a `SerializerMethodField` use `@extend_schema_field(ChoiceField(choices=X.choices))`, not a return type hint. Inline `choices=[...]` lists have no class to read, collide with existing choices, and fail CI under `--fail-on-warn`; an explicit `ENUM_NAME_OVERRIDES` entry in `posthog/settings/web.py` is the fallback for choice sets no class can carry (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
 7. **Read vs write serializers are separate** when input shape differs from output
 8. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
 
@@ -67,6 +69,7 @@ See [serializer-fields.md](references/serializer-fields.md) for patterns and exa
 14. **Prefer `@validated_request`** over manual `serializer.is_valid()` + `@extend_schema` — it handles both in one decorator
 15. **ViewSets outside `products/` need `@extend_schema(extensions={"x-product": "<product>"})`** — ViewSets in `products/<name>/backend/` are auto-attributed via module path; ViewSets in `posthog/api/` or `ee/` aren't and must declare attribution explicitly via the `x-product` extension. Accepts a plain string (`"product_analytics"`) or `ProductKey.X` enum (kebab values are normalized). Don't use `tags=["<product>"]` to influence codegen routing — `tags` is for Swagger UI display only. Without `x-product`, the MCP scaffold and frontend type generator can't route the endpoint to the right product
 16. **`partial_update` `request=` override must be a superset of runtime write fields** — `extend_schema(request=CustomSerializer)` replaces drf-spectacular's inference from `serializer_class`; omitted fields disappear from OpenAPI, frontend types, and MCP tool schemas even when the runtime serializer still accepts them. After changing the override, run `hogli build:openapi` and verify generated MCP tool schemas still expose every OpenAPI body field
+17. **Wrap the list queryset with `strict_fetch()`** from `posthog.models.utils`, in `safely_get_queryset` when `self.action == "list"`. In tests and local dev, a lazy load of a forward relation or deferred field then raises `FieldFetchBlocked`, so a missing `select_related` fails the list test. In production, the missing field costs one extra query for the page, not one per row. Fix a failure with the `select_related` the error names, or stop deferring that field. The guard does not cover reverse FK or M2M managers, so keep `prefetch_related` and an `assertNumQueries` test for those. Reference: `AnnotationsViewSet` in `products/annotations/backend/api/annotation.py`. Team-scoped models raise in tests without `strict_fetch()` when a lazy load reads across rows of one query, unless the queryset sets `.fetch_mode(FETCH_RELATION_PEERS)`; see [the scoping README](../../../posthog/models/scoping/README.md#in-tests)
 
 **Streaming endpoints:** For SSE or streaming responses, use `@extend_schema(request=InputSerializer, responses={(200, "text/event-stream"): OpenApiTypes.STR})` to document the request schema even though the response can't be fully typed.
 
@@ -125,6 +128,8 @@ this — just register under `routers.projects` and the middleware handles the a
 For products using the facade pattern (e.g., `visual_review`) with `DataclassSerializer` wrapping frozen dataclasses from `contracts.py`:
 
 - Field types are auto-derived from the dataclass — fewer typing issues by design
+- Type enum fields as `LabeledStrEnum`/`LabeledIntEnum` (or a Django `Choices` class), not a plain `StrEnum`.
+  A schema extension in `posthog/api/documentation.py` documents those fields with their class labels, so their OpenAPI enum is named after the class. A plain `StrEnum` falls back to a field-derived name.
 - Focus on **`help_text`** (dataclass fields don't carry it; add it on the serializer field overrides)
 - **`@validated_request`** is already the standard pattern — verify response serializers are declared
 - `@extend_schema` tags and descriptions still need to be set on viewset methods
@@ -167,9 +172,9 @@ See [common-anti-patterns.md](references/common-anti-patterns.md) for before/aft
 
 ## Canonical examples in the codebase
 
-- **JSONField + @extend_schema_field:** `products/alerts/backend/api/alert.py`
+- **JSONField + @extend_schema_field:** `products/alerts/backend/presentation/views/alert.py`
 - **@validated_request:** `products/tasks/backend/presentation/views/api.py`
-- **help_text + typed responses:** `products/ai_observability/backend/api/evaluation_summary.py`
+- **help_text + typed responses:** `products/ai_observability/backend/api/summarization.py`
 - **Facade product:** `products/visual_review/backend/presentation/views.py`
 
 ## Related

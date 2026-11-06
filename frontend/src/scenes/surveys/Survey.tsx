@@ -30,8 +30,8 @@ export const scene: SceneExport<SurveyLogicProps> = {
 }
 
 export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
-    const { editingSurvey, setSelectedPageIndex, loadSurvey } = useActions(surveyLogic)
-    const { isEditingSurvey, surveyMissing, survey } = useValues(surveyLogic)
+    const { editingSurvey, setSelectedPageIndex, loadSurvey } = useActions(surveyLogic({ id }))
+    const { isEditingSurvey, surveyMissing, survey } = useValues(surveyLogic({ id }))
 
     const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
 

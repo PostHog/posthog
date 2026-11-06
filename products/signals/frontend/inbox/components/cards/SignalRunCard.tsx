@@ -9,8 +9,9 @@ import { urls } from 'scenes/urls'
 import { captureInboxRunOpened } from '../../inboxAnalytics'
 import { SignalRun } from '../../types'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import { RecordedSpend } from '../spend/RecordedSpend'
+import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { resolveRunVariant, RunStatusIndicator } from './runStatusVariant'
-import { inboxCardRowClassName } from './useReportArchive'
 
 export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
     const isScout = run.kind === 'scout'
@@ -51,6 +52,11 @@ export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
                         <span>
                             Started <TZLabel time={run.created_at} className="tabular-nums align-baseline" />
                         </span>
+                        {isScout && (
+                            <span className="text-[11px] text-muted">
+                                <RecordedSpend amount={run.total_spend} />
+                            </span>
+                        )}
                     </div>
                 </div>
             </Link>

@@ -3,12 +3,16 @@ import posthog from 'posthog-js'
 import {
     captureInboxQueryChanged,
     captureInboxReportAction,
+    captureInboxReportClosed,
+    captureInboxReportOpened,
+    captureInboxReportScrolled,
     captureInboxReportsImpressed,
     captureInboxSettingsChanged,
     captureInboxViewed,
     captureScoutConfigChanged,
     captureSignalSourceConnected,
     INBOX_EVENTS,
+    setInboxServedRanker,
 } from './inboxAnalytics'
 import { SignalReport, SignalReportStatus } from './types'
 
@@ -27,7 +31,6 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
         status: SignalReportStatus.READY,
         total_weight: 1,
         signal_count: 1,
-        relevant_user_count: null,
         created_at: '2026-06-20T00:00:00Z',
         updated_at: '2026-06-20T00:00:00Z',
         artefact_count: 0,
@@ -41,6 +44,7 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
 describe('inboxAnalytics', () => {
     beforeEach(() => {
         ;(posthog.capture as jest.Mock).mockClear()
+        setInboxServedRanker(null)
     })
 
     it('stamps every event with the cloud client discriminator', () => {
@@ -48,12 +52,34 @@ describe('inboxAnalytics', () => {
             tab: 'reports',
             reports: [],
             totalCount: 0,
+            pullsTabCount: 3,
+            reportsTabCount: 212,
             hasActiveFilters: false,
             sourceProductFilter: [],
             priorityFilter: [],
             scope: 'for-you',
         })
         expect(lastCapture(INBOX_EVENTS.VIEWED)?.inbox_client).toBe('cloud')
+    })
+
+    it('carries the tab badge counts regardless of the active tab', () => {
+        captureInboxViewed({
+            tab: 'pulls',
+            reports: [],
+            totalCount: 0,
+            pullsTabCount: 0,
+            reportsTabCount: 212,
+            hasActiveFilters: false,
+            sourceProductFilter: [],
+            priorityFilter: [],
+            scope: 'for-you',
+        })
+        expect(lastCapture(INBOX_EVENTS.VIEWED)).toMatchObject({
+            tab: 'pulls',
+            total_count: 0,
+            pulls_tab_count: 0,
+            reports_tab_count: 212,
+        })
     })
 
     it('breaks the visible reports down by priority and actionability', () => {
@@ -65,6 +91,8 @@ describe('inboxAnalytics', () => {
                 makeReport({ id: 'c', priority: null, actionability: null }),
             ],
             totalCount: 3,
+            pullsTabCount: 1,
+            reportsTabCount: 3,
             hasActiveFilters: true,
             sourceProductFilter: ['error_tracking'],
             priorityFilter: ['P0'],
@@ -90,14 +118,31 @@ describe('inboxAnalytics', () => {
         captureInboxReportsImpressed({
             tab: 'reports',
             reports: [
-                makeReport({ id: 'a', priority: 'P0', signal_count: 3, is_suggested_reviewer: true }),
+                makeReport({
+                    id: 'a',
+                    priority: 'P0',
+                    signal_count: 3,
+                    is_suggested_reviewer: true,
+                    implementation_pr_url: 'https://github.com/example/repo/pull/123',
+                    ranking: {
+                        status: 'scored',
+                        model: 'report_embeddings@2026-09-30',
+                        scored_at: '2026-09-30T12:00:00Z',
+                        predictions: [{ outcome: 'fix', probability: 0.4, lift: 2.5, readable: true }],
+                    },
+                }),
                 makeReport({ id: 'b', priority: null, actionability: null, source_products: ['error_tracking'] }),
             ],
             ranks: [1, 2],
             listSize: 2,
             totalCount: 10,
-            hasActiveFilters: false,
+            hasActiveFilters: true,
             scope: 'for-you',
+            sortField: 'ranking_pr_merged',
+            sortDirection: 'desc',
+            createdWindow: '7d',
+            rankerId: 'fix',
+            rankingPill: true,
         })
         const props = lastCapture(INBOX_EVENTS.REPORTS_IMPRESSED)
         expect(props).toMatchObject({
@@ -105,6 +150,12 @@ describe('inboxAnalytics', () => {
             list_size: 2,
             total_count: 10,
             impression_count: 2,
+            sort_field: 'ranking_pr_merged',
+            sort_direction: 'desc',
+            created_window: '7d',
+            ranker_id: 'fix',
+            ranking_pill: true,
+            has_pr: true,
         })
         expect(props?.impressions).toEqual([
             expect.objectContaining({
@@ -113,10 +164,18 @@ describe('inboxAnalytics', () => {
                 priority: 'P0',
                 signal_count: 3,
                 is_suggested_reviewer: true,
+                ranking_served_key: 'report_embeddings@2026-09-30',
+                pill_shown: true,
+                pill_open: null,
+                pill_action: null,
+                pill_fix: 2.5,
             }),
             expect.objectContaining({
                 report_id: 'b',
                 rank: 2,
+                ranking_served_key: null,
+                pill_shown: false,
+                pill_fix: null,
                 priority: null,
                 actionability: null,
                 source_products: ['error_tracking'],
@@ -124,7 +183,8 @@ describe('inboxAnalytics', () => {
         ])
     })
 
-    it('emits a single-report action with the report context', () => {
+    it('emits a single-report action with the report context and the ranker of the list in view', () => {
+        setInboxServedRanker('fix')
         captureInboxReportAction({
             report: makeReport(),
             actionType: 'create_pr',
@@ -136,7 +196,65 @@ describe('inboxAnalytics', () => {
             surface: 'detail_pane',
             is_bulk: false,
             bulk_size: 1,
+            ranker_id: 'fix',
         })
+    })
+
+    it('attributes a pill to opens and actions only after the pill reached the screen', () => {
+        const report = makeReport({
+            ranking: {
+                status: 'scored',
+                model: 'nn@2026-09-30',
+                scored_at: '2026-09-30T12:00:00Z',
+                predictions: [{ outcome: 'fix', probability: 0.4, lift: 2.5, readable: true }],
+            },
+        })
+        const capturedPills = (): (boolean | undefined)[] => {
+            captureInboxReportOpened({
+                report,
+                openMethod: 'click',
+                linkSource: null,
+                previousReportId: null,
+                rank: 1,
+                listSize: 1,
+                section: 'needs-decision',
+                rankerId: 'priority',
+            })
+            captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
+            return [
+                lastCapture(INBOX_EVENTS.REPORT_OPENED)?.pill_shown,
+                lastCapture(INBOX_EVENTS.REPORT_ACTION)?.pill_shown,
+            ]
+        }
+
+        // A deep link loads a pill arm into the hidden list, so nothing is on screen yet.
+        setInboxServedRanker('priority', true)
+        expect(capturedPills()).toEqual([false, false])
+
+        captureInboxReportsImpressed({
+            tab: 'needs-decision',
+            reports: [report],
+            ranks: [1],
+            listSize: 1,
+            totalCount: 1,
+            hasActiveFilters: false,
+            scope: 'for-you',
+            sortField: 'recommended',
+            sortDirection: 'desc',
+            createdWindow: 'all',
+            rankerId: 'priority',
+            rankingPill: true,
+        })
+        expect(capturedPills()).toEqual([true, true])
+
+        setInboxServedRanker('priority', false)
+        expect(capturedPills()).toEqual([false, false])
+    })
+
+    it('never attributes a Today action to the Inbox ranker', () => {
+        setInboxServedRanker('fix')
+        captureInboxReportAction({ report: makeReport(), actionType: 'discuss', surface: 'today' })
+        expect(lastCapture(INBOX_EVENTS.REPORT_ACTION)?.ranker_id).toBeNull()
     })
 
     it('emits a bulk action with a null report and the selection size', () => {
@@ -157,6 +275,24 @@ describe('inboxAnalytics', () => {
         })
     })
 
+    it('carries the dwell before a detail-pane scroll, without the report title', () => {
+        captureInboxReportScrolled({
+            report: makeReport({ id: 'r9' }),
+            rank: 3,
+            listSize: 20,
+            timeSinceOpenMs: 6200,
+        })
+        const props = lastCapture(INBOX_EVENTS.REPORT_SCROLLED)
+        expect(props).toMatchObject({
+            report_id: 'r9',
+            rank: 3,
+            list_size: 20,
+            time_since_open_ms: 6200,
+        })
+        expect(props?.report_title).toBeUndefined()
+        expect(JSON.stringify(props)).not.toContain('Something broke')
+    })
+
     it('records how the query moved without shipping what was typed into the search box', () => {
         captureInboxQueryChanged({
             change: 'search',
@@ -167,8 +303,10 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: ['error_tracking'],
             scoutFilter: [],
             priorityFilter: ['P0'],
+            stateFilter: ['monitoring'],
             searchQuery: '  acme checkout crash  ',
             hasActiveFilters: true,
+            createdWindow: null,
         })
         const props = lastCapture(INBOX_EVENTS.QUERY_CHANGED)
         expect(props).toMatchObject({
@@ -217,6 +355,16 @@ describe('inboxAnalytics', () => {
             success: true,
         })
         expect(JSON.stringify(props)).not.toContain('acme-alerts')
+    })
+
+    it('sends an unload close instantly so the dwell time leaves before the page does', () => {
+        captureInboxReportClosed(
+            { report: makeReport(), timeSpentMs: 4200, closeMethod: 'page_unload' },
+            { send_instantly: true }
+        )
+        const call = (posthog.capture as jest.Mock).mock.calls.find(([name]) => name === INBOX_EVENTS.REPORT_CLOSED)
+        expect(call?.[1]).toMatchObject({ close_method: 'page_unload', time_spent_ms: 4200 })
+        expect(call?.[2]).toEqual({ send_instantly: true })
     })
 
     it('records a connected source with first-connection and wizard flags', () => {

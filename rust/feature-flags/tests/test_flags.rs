@@ -14,10 +14,12 @@ use crate::common::*;
 
 use feature_flags::cohorts::cohort_models::CohortType;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
+use feature_flags::team::team_models::RealtimeCohortLevel;
 use feature_flags::utils::test_utils::{
-    insert_config_in_hypercache, insert_flags_for_team_in_redis,
+    insert_active_flags, insert_config_in_hypercache, insert_flags_for_team_in_redis,
     insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
-    setup_redis_client, update_team_in_hypercache, TestContext,
+    setup_redis_client, unparseable_flag_json, unparseable_v1_filters, update_team_in_hypercache,
+    TestContext,
 };
 
 pub mod common;
@@ -1741,8 +1743,9 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_minimal_flag_called_events_reaches_v2_but_not_legacy_response() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+async fn test_minimal_flag_called_events_reaches_v2_and_v4_but_not_legacy_response() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.flags_v4_response_enabled = true;
     let distinct_id = "user1".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
@@ -1768,6 +1771,14 @@ async fn test_minimal_flag_called_events_reaches_v2_but_not_legacy_response() ->
     assert_eq!(StatusCode::OK, res.status());
     let v2: FlagsResponse = res.json().await?;
     assert_eq!(v2.minimal_flag_called_events, Some(true));
+
+    // V4 response: carried over from the v2 response.
+    let res = server
+        .send_flags_request(payload.to_string(), Some("4"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+    let v4 = res.json::<Value>().await?;
+    assert_eq!(v4["minimalFlagCalledEvents"], true);
 
     // Legacy response (v=1): LegacyFlagsResponse doesn't carry the field at all, so a
     // gated team's v1 clients never see the signal and keep sending full events.
@@ -5817,25 +5828,34 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
         "distinct_id": distinct_id,
     });
 
-    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
-    let bucket_field = current_bucket().to_string();
+    // Bracket the request: the record lands in whichever 2-minute bucket it crosses.
+    let bucket_before = current_bucket();
 
     let res = server
         .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
+    let bucket_after = current_bucket();
 
     if skip_writes {
         // Sleep ~5 flush windows so even a slow CI scheduler couldn't hide
         // an erroneous `record()` behind a delayed first tick.
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        let counter = client.hget(billing_key, bucket_field).await;
-        assert!(
-            counter.is_err(),
-            "billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
-        );
+        for bucket in bucket_before..=bucket_after {
+            let counter = client.hget(billing_key.clone(), bucket.to_string()).await;
+            assert!(
+                counter.is_err(),
+                "billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
+            );
+        }
     } else {
-        let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
+        let counter = poll_for_billing_counter_across_buckets(
+            &client,
+            &billing_key,
+            bucket_before,
+            bucket_after,
+        )
+        .await;
         assert_eq!(
             counter, "1",
             "billing counter should be incremented when skip_writes=false"
@@ -5903,8 +5923,8 @@ async fn test_billing_increments_land_in_production_keyspace() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
-    let bucket_field = current_bucket().to_string();
+    // Bracket the request: the record lands in whichever 2-minute bucket it crosses.
+    let bucket_before = current_bucket();
 
     // Direct reqwest call so we can set the SDK user-agent that drives
     // Library::from_headers → Library::PosthogNode.
@@ -5917,11 +5937,16 @@ async fn test_billing_increments_land_in_production_keyspace() -> Result<()> {
         .send()
         .await?;
     assert_eq!(StatusCode::OK, res.status());
+    let bucket_after = current_bucket();
 
-    let team_counter = poll_for_billing_counter(&client, &team_key, &bucket_field).await;
+    let team_counter =
+        poll_for_billing_counter_across_buckets(&client, &team_key, bucket_before, bucket_after)
+            .await;
     assert_eq!(team_counter, "1", "team key should reflect one request");
 
-    let library_counter = poll_for_billing_counter(&client, &library_key, &bucket_field).await;
+    let library_counter =
+        poll_for_billing_counter_across_buckets(&client, &library_key, bucket_before, bucket_after)
+            .await;
     assert_eq!(
         library_counter, "1",
         "library key should reflect one request"
@@ -5976,30 +6001,34 @@ async fn test_shutdown_flush_writes_production_billing_counter() -> Result<()> {
     insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
 
     let billing_key = get_team_request_key(team.id, FlagRequestType::Decide);
-    let bucket_field = current_bucket().to_string();
     client.del(billing_key.clone()).await.unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({ "token": token, "distinct_id": distinct_id });
+    // Bracket the request: the record lands in whichever 2-minute bucket it crosses.
+    let bucket_before = current_bucket();
     let res = server
         .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
+    let bucket_after = current_bucket();
 
     // Confirm the periodic flusher has NOT yet landed the aggregator's
     // write — sanity check that we're really exercising the shutdown
     // path. With a 60s flush interval and immediate-after-request
     // lookup, the target counter should still be missing.
-    let pre_shutdown = client.hget(billing_key.clone(), bucket_field.clone()).await;
-    assert!(
-        pre_shutdown.is_err(),
-        "billing counter at {billing_key} should NOT be in Redis before \
-         shutdown — the aggregator's periodic flusher is set to 60s and \
-         the test is faster than that. Got {pre_shutdown:?}, which means \
-         the flush window collapsed and this test no longer proves what \
-         it claims."
-    );
+    for bucket in bucket_before..=bucket_after {
+        let pre_shutdown = client.hget(billing_key.clone(), bucket.to_string()).await;
+        assert!(
+            pre_shutdown.is_err(),
+            "billing counter at {billing_key} should NOT be in Redis before \
+             shutdown — the aggregator's periodic flusher is set to 60s and \
+             the test is faster than that. Got {pre_shutdown:?}, which means \
+             the flush window collapsed and this test no longer proves what \
+             it claims."
+        );
+    }
 
     // Trigger graceful shutdown. axum drains in-flight requests, then
     // `serve()` calls `billing_aggregator.shutdown().await` which performs
@@ -6009,7 +6038,9 @@ async fn test_shutdown_flush_writes_production_billing_counter() -> Result<()> {
     // Poll for the counter to land. The helper polls for ~1s
     // (40 × 25ms) — the graceful-drain window plus a single shutdown
     // flush against a healthy local Redis is well under that.
-    let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
+    let counter =
+        poll_for_billing_counter_across_buckets(&client, &billing_key, bucket_before, bucket_after)
+            .await;
     assert_eq!(
         counter, "1",
         "billing counter must reach Redis via the shutdown flush path"
@@ -6302,6 +6333,269 @@ async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -
             }
         })
     );
+
+    Ok(())
+}
+
+/// With REALTIME_COHORT_EVALUATION_TEAM_IDS at `none`, only the cached team's access level can
+/// route a backfilled realtime cohort to the `cohort_membership` table. The person is a member
+/// there but fails the cohort's person-property filters, so the flag is on only when the cohort
+/// routes to the table.
+#[rstest]
+#[case::serving_reads_the_membership_table(RealtimeCohortLevel::Serving, true)]
+#[case::processing_evaluates_dynamically(RealtimeCohortLevel::Processing, false)]
+#[tokio::test]
+async fn test_realtime_cohort_routing_follows_the_cached_team_access_level(
+    #[case] level: RealtimeCohortLevel,
+    #[case] expected_enabled: bool,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    team.realtime_cohort_level = level;
+    update_team_in_hypercache(client.clone(), &team).await?;
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let cohort = context
+        .insert_cohort_with_type_and_condition_type(
+            team.id,
+            Some("Realtime Backfilled".to_string()),
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "AND",
+                        "values": [{
+                            "key": "plan",
+                            "type": "person",
+                            "value": ["enterprise"],
+                            "operator": "exact",
+                            "negation": false
+                        }]
+                    }]
+                }
+            }),
+            false,
+            Some(CohortType::Realtime),
+            None,
+            Some(chrono::Utc::now()),
+            Some(json!({"behavioral": true})),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "realtime-level-flag",
+        "name": "Realtime Level Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort.id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    let distinct_id = "user_realtime_level".to_string();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({ "plan": "free" })),
+        )
+        .await
+        .unwrap();
+    let person_uuid = context
+        .get_person_uuid_by_distinct_id(team.id, &distinct_id)
+        .await?;
+    context
+        .insert_cohort_membership(team.id, cohort.id, person_uuid, true)
+        .await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({
+        "token": team.api_token,
+        "distinct_id": distinct_id,
+    });
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_json_include!(
+        actual: res.json::<Value>().await?,
+        expected: json!({
+            "flags": {
+                "realtime-level-flag": {
+                    "key": "realtime-level-flag",
+                    "enabled": expected_enabled
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_degrades_person_flags_when_the_persons_db_stops_answering() -> Result<()> {
+    // Accepted connections sit in the listen backlog and never get a reply, like a frozen database.
+    let stalled_persons_db = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.persons_read_database_url = format!(
+        "postgres://posthog:posthog@{}/posthog_persons",
+        stalled_persons_db.local_addr()?
+    );
+    // The deadline is shorter than the pool acquire timeout. Only the deadline can then produce
+    // the reason code that the test asserts below.
+    config.persons_db_deadline_ms = 1000;
+    // With one permit, one request waits about 1s for the other to finish. The waiting request
+    // must stop its persons DB work by 1s after it arrived, which is the 1.5s request timeout
+    // minus the 500ms reserve. If its deadline counted 1s from when it got the permit, the
+    // request timeout would end it with a 503.
+    config.max_concurrency = 1;
+    config.request_timeout_ms = 1500;
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "rollout-flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        },
+        {
+            "id": 2,
+            "key": "person-flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {"groups": [{
+                "properties": [{"key": "email", "value": "user@example.com", "operator": "exact", "type": "person"}],
+                "rollout_percentage": 100
+            }]}
+        }
+    ]);
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({"token": team.api_token, "distinct_id": "stalled_user"}).to_string();
+    let (res_a, res_b) = tokio::join!(
+        server.send_flags_request(payload.clone(), Some("2"), None),
+        server.send_flags_request(payload, Some("2"), None),
+    );
+
+    for res in [res_a, res_b] {
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_json_include!(
+            actual: res.json::<Value>().await?,
+            expected: json!({
+                "errorsWhileComputingFlags": true,
+                "flags": {
+                    "rollout-flag": {"enabled": true},
+                    "person-flag": {"enabled": false, "reason": {"code": "timeout:persons_db_deadline"}}
+                }
+            })
+        );
+    }
+
+    Ok(())
+}
+
+#[rstest]
+#[case::no_flag_left(None, &[])]
+#[case::only_an_inactive_flag_left(Some(false), &[])]
+#[case::a_healthy_flag_left(Some(true), &["other-flag"])]
+#[tokio::test]
+async fn it_reports_errors_when_the_serving_read_skips_a_flag(
+    #[case] other_flag_active: Option<bool>,
+    #[case] expected_keys: &[&str],
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let mut flags = vec![unparseable_flag_json(1, "malformed-flag", team.id)];
+    if let Some(active) = other_flag_active {
+        flags.push(json!({
+            "id": 2,
+            "key": "other-flag",
+            "active": active,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        }));
+    }
+    insert_flags_for_team_in_redis(client, team.id, Some(Value::Array(flags).to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({"token": team.api_token, "distinct_id": "user_distinct_id"}).to_string();
+    let res = server.send_flags_request(payload, Some("2"), None).await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.json::<FlagsResponse>().await?;
+    assert!(body.errors_while_computing_flags);
+    let mut keys: Vec<&str> = body.flags.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, expected_keys);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_reports_errors_when_the_postgres_fallback_omits_a_flag_python_publishes() -> Result<()>
+{
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client).await.unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    insert_active_flags(
+        &context,
+        team.id,
+        [
+            ("omitted-flag", unparseable_v1_filters()),
+            (
+                "healthy-flag",
+                json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+        ],
+    )
+    .await;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({"token": team.api_token, "distinct_id": "user_distinct_id"}).to_string();
+    let res = server.send_flags_request(payload, Some("2"), None).await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.json::<FlagsResponse>().await?;
+    assert!(body.errors_while_computing_flags);
+    let keys: Vec<&str> = body.flags.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["healthy-flag"]);
+    assert!(body.flags["healthy-flag"].enabled);
 
     Ok(())
 }

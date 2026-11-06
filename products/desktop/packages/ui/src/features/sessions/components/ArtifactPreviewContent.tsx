@@ -6,13 +6,17 @@ import type {
 } from "@posthog/core/comments/anchors";
 import {
   Button,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import { isAllowedImageMimeType } from "@posthog/shared";
+import {
+  isAllowedImageMimeType,
+  isAllowedVideoMimeType,
+} from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import type {
   Dispatch,
   ReactElement,
@@ -57,15 +61,12 @@ function GenericArtifactHeader({
   actions?: ReactNode;
 }): ReactElement {
   return (
-    <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-border border-b px-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
-          {name}
-        </span>
-        {versionNav}
-      </div>
-      {actions}
-    </header>
+    <ChromeBar inset="even" actions={actions}>
+      <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
+        {name}
+      </span>
+      {versionNav}
+    </ChromeBar>
   );
 }
 
@@ -74,7 +75,6 @@ export function ArtifactPreviewContent({
   versionNav,
   taskId,
   commentTarget,
-  commentsEnabled,
   canEdit,
   beginEditing,
   previewData,
@@ -90,10 +90,11 @@ export function ArtifactPreviewContent({
   members,
   activateThread,
   createAnchoredComment,
+  sendCommentToAgent,
   onResolutionsChange,
   imageCommenting,
   setImageCommenting,
-  onImageError,
+  onMediaError,
   editableKind,
   artifactResult,
 }: {
@@ -101,7 +102,6 @@ export function ArtifactPreviewContent({
   versionNav?: ReactNode;
   taskId: string;
   commentTarget: CommentTarget;
-  commentsEnabled: boolean;
   canEdit: boolean;
   beginEditing: () => void;
   previewData: PreviewData | undefined;
@@ -121,10 +121,15 @@ export function ArtifactPreviewContent({
     content: string,
     mentions?: number[],
   ) => Promise<void>;
+  sendCommentToAgent: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
   imageCommenting: boolean;
   setImageCommenting: Dispatch<SetStateAction<boolean>>;
-  onImageError: () => void;
+  onMediaError: () => void;
   editableKind: EditableArtifactKind | null;
   artifactResult: ArtifactPreviewResult | undefined;
 }): ReactElement {
@@ -141,12 +146,11 @@ export function ArtifactPreviewContent({
           canEdit={canEdit}
           onEdit={beginEditing}
           actions={
-            commentsEnabled ? (
-              <ArtifactDocumentCommentAction
-                target={commentTarget}
-                taskId={taskId}
-              />
-            ) : undefined
+            <ArtifactDocumentCommentAction
+              target={commentTarget}
+              taskId={taskId}
+              name={name}
+            />
           }
         />
         {commentLoadError}
@@ -161,20 +165,19 @@ export function ArtifactPreviewContent({
                 components={{ img: () => null }}
               />
             </div>
-            {commentsEnabled && (
-              <ArtifactTextAnnotations
-                artifactName={name}
-                rootRef={markdownRootRef}
-                containerRef={markdownContainerRef}
-                comments={annotationComments}
-                activeThreadId={focusedThreadId}
-                locateRequest={locateRequest}
-                members={members}
-                onActivateThread={activateThread}
-                onCreate={createAnchoredComment}
-                onResolutionsChange={onResolutionsChange}
-              />
-            )}
+            <ArtifactTextAnnotations
+              artifactName={name}
+              rootRef={markdownRootRef}
+              containerRef={markdownContainerRef}
+              comments={annotationComments}
+              activeThreadId={focusedThreadId}
+              locateRequest={locateRequest}
+              members={members}
+              onActivateThread={activateThread}
+              onCreate={createAnchoredComment}
+              onSendToAgent={sendCommentToAgent}
+              onResolutionsChange={onResolutionsChange}
+            />
           </div>
         ) : (
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -201,12 +204,11 @@ export function ArtifactPreviewContent({
           canEdit={canEdit}
           onEdit={beginEditing}
           actions={
-            commentsEnabled ? (
-              <ArtifactDocumentCommentAction
-                target={commentTarget}
-                taskId={taskId}
-              />
-            ) : undefined
+            <ArtifactDocumentCommentAction
+              target={commentTarget}
+              taskId={taskId}
+              name={name}
+            />
           }
         />
         {commentLoadError}
@@ -214,13 +216,13 @@ export function ArtifactPreviewContent({
           <AnnotatedArtifactHtml
             html={previewData.html}
             name={name}
-            commentsEnabled={commentsEnabled}
             comments={annotationComments}
             activeThreadId={focusedThreadId}
             locateRequest={locateRequest}
             members={members}
             onActivateThread={activateThread}
             onCreate={createAnchoredComment}
+            onSendToAgent={sendCommentToAgent}
             onResolutionsChange={onResolutionsChange}
           />
         </div>
@@ -230,11 +232,7 @@ export function ArtifactPreviewContent({
 
   if (!previewData) return <ArtifactPreviewError />;
   if (previewData instanceof Blob && !previewUrl) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
   if (!previewUrl) return <ArtifactPreviewError />;
 
@@ -243,9 +241,13 @@ export function ArtifactPreviewContent({
     (isAllowedImageMimeType(previewData.type) ||
       previewData.type === SVG_MIME_TYPE)
   ) {
-    const imageActions = commentsEnabled ? (
+    const imageActions = (
       <div className="flex shrink-0 items-center gap-1">
-        <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
+        <ArtifactDocumentCommentAction
+          target={commentTarget}
+          taskId={taskId}
+          name={name}
+        />
         <Tooltip>
           <TooltipTrigger
             render={
@@ -270,7 +272,7 @@ export function ArtifactPreviewContent({
           </TooltipContent>
         </Tooltip>
       </div>
-    ) : undefined;
+    );
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <GenericArtifactHeader
@@ -286,21 +288,27 @@ export function ArtifactPreviewContent({
             comments={annotationComments}
             activeThreadId={focusedThreadId}
             locateRequest={locateRequest}
-            commenting={commentsEnabled && imageCommenting}
+            commenting={imageCommenting}
             members={members}
             onCommentingChange={setImageCommenting}
             onActivateThread={activateThread}
             onCreate={createAnchoredComment}
-            onError={onImageError}
+            onSendToAgent={sendCommentToAgent}
+            onError={onMediaError}
           />
         </div>
       </div>
     );
   }
 
-  const documentActions = commentsEnabled ? (
-    <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
-  ) : undefined;
+  const documentActions = (
+    <ArtifactDocumentCommentAction
+      target={commentTarget}
+      taskId={taskId}
+      name={name}
+    />
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {editableKind === "plain-text" && artifactResult?.source !== undefined ? (
@@ -322,14 +330,29 @@ export function ArtifactPreviewContent({
         />
       )}
       {commentLoadError}
-      <div className="min-h-0 min-w-0 flex-1">
-        <iframe
-          className="h-full w-full border-0 bg-white"
-          sandbox=""
-          src={previewUrl}
-          title={`Preview of ${name}`}
-        />
-      </div>
+      {previewData instanceof Blob &&
+      isAllowedVideoMimeType(previewData.type) ? (
+        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-black">
+          <video
+            className="max-h-full max-w-full"
+            controls
+            muted
+            preload="metadata"
+            aria-label={name}
+            src={previewUrl}
+            onError={onMediaError}
+          />
+        </div>
+      ) : (
+        <div className="min-h-0 min-w-0 flex-1">
+          <iframe
+            className="h-full w-full border-0 bg-white"
+            sandbox=""
+            src={previewUrl}
+            title={`Preview of ${name}`}
+          />
+        </div>
+      )}
     </div>
   );
 }

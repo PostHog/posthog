@@ -1,13 +1,13 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { parseTagsFilter } from 'lib/utils/url'
 import { projectLogic } from 'scenes/projectLogic'
@@ -15,14 +15,18 @@ import { projectLogic } from 'scenes/projectLogic'
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
 
 import { eventDefinitionsBulkUpdateVerifiedCreate } from 'products/event_definitions/frontend/generated/api'
-import type { EventDefinitionBulkUpdateVerifiedResponseApi } from 'products/event_definitions/frontend/generated/api.schemas'
+import type {
+    EventDefinitionBulkUpdateVerifiedResponseApi,
+    PaginatedEnterpriseEventDefinitionListApi,
+} from 'products/event_definitions/frontend/generated/api.schemas'
 
 import type {
     BulkUpdateTagsUUIDErrorApi,
     EventDefinitionBulkUpdateVerifiedItemApi,
 } from '../../../../../products/event_definitions/frontend/generated/api.schemas'
 
-export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
+export interface EventDefinitionsPaginatedResponse
+    extends PaginatedResponse<EventDefinition>, Pick<PaginatedEnterpriseEventDefinitionListApi, 'count_is_capped'> {
     current?: string
     count?: number
     page?: number
@@ -73,6 +77,18 @@ export function normalizePropertyDefinitionEndpointUrl(
         ...(url ? combineUrl(url).searchParams : {}),
         ...searchParams,
     })
+}
+
+function filtersFromSearchParams(searchParams: Record<string, any>): Filters {
+    const { event, event_type, ordering, tags, verified } = searchParams
+    return {
+        ...DEFAULT_FILTERS,
+        ...(event !== undefined && { event }),
+        ...(event_type !== undefined && { event_type }),
+        ...(ordering !== undefined && { ordering }),
+        ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
+        ...(verified !== undefined && { verified: verified === 'true' || verified === true }),
+    }
 }
 
 function normalizeEventDefinitionEndpointUrl({
@@ -285,7 +301,11 @@ export interface eventDefinitionsTableLogicActions {
     setEventDefinitionPropertiesLoading: (ids: string[]) => {
         ids: string[]
     }
-    setFilters: (filters: Partial<Filters>) => {
+    setFilters: (
+        filters: Partial<Filters>,
+        debounce?: boolean
+    ) => {
+        debounce: boolean
         filters: Partial<Filters>
     }
     setLocalEventDefinition: (definition: EventDefinition) => {
@@ -365,7 +385,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         loadEventDefinitions: (url: string | null = '') => ({ url }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
-        setFilters: (filters: Partial<Filters>) => ({ filters }),
+        setFilters: (filters: Partial<Filters>, debounce: boolean = true) => ({ filters, debounce }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         applyBulkTagUpdates: (updates: { id: number | string; tags: string[] }[]) => ({ updates }),
         applyBulkVerifiedUpdates: (updates: { id: string; verified: boolean }[]) => ({ updates }),
@@ -411,8 +431,8 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         return cache.apiCache[url]
                     }
 
-                    await breakpoint(200)
                     cache.eventsStartTime = performance.now()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     breakpoint()
 
@@ -550,6 +570,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         Array.from([...values.eventDefinitionPropertiesLoading, definition.id])
                     )
                     cache.propertiesStartTime = performance.now()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     breakpoint()
 
@@ -560,6 +581,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
                             exampleEventProperties = cache.apiCache[exampleUrl]
                         } else {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                             exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
                             cache.apiCache = {
                                 ...cache.apiCache,
@@ -650,7 +672,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        setFilters: async () => {
+        setFilters: async ({ debounce }, breakpoint) => {
+            if (debounce) {
+                cache.filtersLoadPending = true
+                await breakpoint(200)
+            }
+            cache.filtersLoadPending = false
             actions.loadEventDefinitions()
         },
         bulkUpdateVerifiedSuccess: ({ bulkVerifiedResult, payload }) => {
@@ -679,64 +706,52 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         },
         loadEventDefinitionsSuccess: () => {
             if (cache.eventsStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageLoadSucceeded(
-                        performance.now() - cache.eventsStartTime,
-                        values.eventDefinitions.results.length
-                    )
+                posthog.capture('event definitions page load succeeded', {
+                    load_time: performance.now() - cache.eventsStartTime,
+                    num_results: values.eventDefinitions.results.length,
+                })
                 cache.eventsStartTime = undefined
             }
         },
         loadEventDefinitionsFailure: ({ error }) => {
             if (cache.eventsStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageLoadFailed(
-                        performance.now() - cache.eventsStartTime,
-                        error ?? 'There was an unknown error fetching event definitions.'
-                    )
+                posthog.capture('event definitions page load failed', {
+                    load_time: performance.now() - cache.eventsStartTime,
+                    error: error ?? 'There was an unknown error fetching event definitions.',
+                })
                 cache.eventsStartTime = undefined
             }
         },
         loadPropertiesForEventSuccess: () => {
             if (cache.propertiesStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded(
-                        performance.now() - cache.propertiesStartTime
-                    )
+                posthog.capture('event definitions page event nested properties load succeeded', {
+                    load_time: performance.now() - cache.propertiesStartTime,
+                })
                 cache.propertiesStartTime = undefined
             }
         },
         loadPropertiesForEventFailure: ({ error }) => {
             if (cache.propertiesStartTime !== undefined) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions.reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed(
-                        performance.now() - cache.propertiesStartTime,
-                        error ?? 'There was an unknown error fetching nested property definitions.'
-                    )
+                posthog.capture('event definitions page event nested properties load failed', {
+                    load_time: performance.now() - cache.propertiesStartTime,
+                    error: error ?? 'There was an unknown error fetching nested property definitions.',
+                })
                 cache.propertiesStartTime = undefined
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         '/data-management/events': (_, searchParams) => {
-            const { event, event_type, ordering, tags, verified } = searchParams
-
-            const filtersFromUrl: Filters = {
-                ...DEFAULT_FILTERS,
-                ...(event !== undefined && { event }),
-                ...(event_type !== undefined && { event_type }),
-                ...(ordering !== undefined && { ordering }),
-                ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
-                ...(verified !== undefined && { verified: verified === 'true' || verified === true }),
-            }
+            const filtersFromUrl = filtersFromSearchParams(searchParams)
 
             if (!objectsEqual(values.filters, filtersFromUrl)) {
-                actions.setFilters(filtersFromUrl)
-            } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+                actions.setFilters(filtersFromUrl, false)
+            } else if (
+                // A debounced filter change already writes this URL, so loading here would skip the debounce
+                !cache.filtersLoadPending &&
+                !values.eventDefinitions.results.length &&
+                !values.eventDefinitionsLoading
+            ) {
                 actions.loadEventDefinitions()
             }
         },

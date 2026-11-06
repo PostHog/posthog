@@ -13,7 +13,9 @@ interface Capturable {
 export interface DetachedElementTrackingState {
     currentPath: string | null
     previousDetachedCount: number | null
+    previousPersistedCount: number | null
     routeBaselineDetachedCount: number | null
+    routeBaselinePersistedCount: number | null
 }
 
 interface DetachedElementTrackingContext {
@@ -22,47 +24,115 @@ interface DetachedElementTrackingContext {
     pathChanged: boolean
     routeBaselineDetachedElements: number
     routeDetachedElementsDelta: number
+    routeBaselinePersistedElements: number
+    routePersistedElementsDelta: number
 }
 
 export function createDetachedElementTrackingState(): DetachedElementTrackingState {
     return {
         currentPath: null,
         previousDetachedCount: null,
+        previousPersistedCount: null,
         routeBaselineDetachedCount: null,
+        routeBaselinePersistedCount: null,
     }
 }
 
 export function getDetachedElementTrackingContext(
     state: DetachedElementTrackingState,
     currentCount: number,
-    currentPath: string
+    currentPath: string,
+    persistedCount: number
 ): DetachedElementTrackingContext {
     const pathChanged = state.currentPath !== null && state.currentPath !== currentPath
     const routeBaselineDetachedElements = pathChanged
         ? currentCount
         : (state.routeBaselineDetachedCount ?? currentCount)
+    const routeBaselinePersistedElements = pathChanged
+        ? persistedCount
+        : (state.routeBaselinePersistedCount ?? persistedCount)
 
     return {
         detachedElementsDelta: state.previousDetachedCount === null ? null : currentCount - state.previousDetachedCount,
         pathChanged,
         routeBaselineDetachedElements,
         routeDetachedElementsDelta: currentCount - routeBaselineDetachedElements,
+        routeBaselinePersistedElements,
+        routePersistedElementsDelta: persistedCount - routeBaselinePersistedElements,
         nextState: {
             currentPath,
             previousDetachedCount: currentCount,
+            previousPersistedCount: persistedCount,
             routeBaselineDetachedCount: routeBaselineDetachedElements,
+            routeBaselinePersistedCount: routeBaselinePersistedElements,
         },
     }
 }
 
-export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
+export interface DetachedElementRef {
+    element: { deref: () => Element | undefined }
+    componentStack?: readonly string[] | null
+}
+
+export interface DetachedPersistence {
+    persistedCount: number
+    persistedComponents: Map<string, number>
+    /** Feed back as `seenPreviously` next scan. A WeakSet, so measuring retention cannot cause it. */
+    seenNow: WeakSet<Element>
+}
+
+/** A page cannot force a collection, so one scan cannot tell retained DOM from garbage not yet collected. */
+export function measureDetachedPersistence(
+    detached: readonly DetachedElementRef[],
+    seenPreviously: WeakSet<Element>
+): DetachedPersistence {
+    const seenNow = new WeakSet<Element>()
+    const persistedComponents = new Map<string, number>()
+    let persistedCount = 0
+
+    for (const info of detached) {
+        const element = info.element.deref()
+        if (!element) {
+            continue
+        }
+        seenNow.add(element)
+        if (seenPreviously.has(element)) {
+            persistedCount++
+            // The stack head, which is what MemLens itself reports as an element's component name.
+            const component = info.componentStack?.[0]
+            if (component) {
+                persistedComponents.set(component, (persistedComponents.get(component) ?? 0) + 1)
+            }
+        }
+    }
+
+    return { persistedCount, persistedComponents, seenNow }
+}
+
+export function shouldCaptureDetachedElements(
+    currentCount: number,
+    previousCount: number | null,
+    persistedCount: number,
+    previousPersistedCount: number | null
+): boolean {
     if (currentCount === 0) {
         return false
     }
     if (previousCount === null) {
         return true
     }
-    return currentCount !== previousCount
+    // A steady leak holds the total still while its elements survive, so the total alone would gate it out.
+    return currentCount !== previousCount || persistedCount !== previousPersistedCount
+}
+
+/** MemLens's `stop()` discards its tracked elements, restarting the series. Detached totals are unaffected. */
+export function restartPersistenceSeries(state: DetachedElementTrackingState): DetachedElementTrackingState {
+    return {
+        ...state,
+        previousDetachedCount: null,
+        previousPersistedCount: null,
+        routeBaselinePersistedCount: null,
+    }
 }
 
 export function mapToTopN(map: Map<string, number>, limit: number): Record<string, number> {
@@ -109,16 +179,27 @@ export function startDetachedElementTracking(posthog: Capturable): void {
             })
 
             let trackingState = createDetachedElementTrackingState()
+            let elementsDetachedAtLastScan = new WeakSet<Element>()
 
             scan.subscribe((result) => {
                 const currentPath = window.location.pathname
+                const persistence = measureDetachedPersistence(scan.getDetachedDOMInfo(), elementsDetachedAtLastScan)
+                elementsDetachedAtLastScan = persistence.seenNow
+
                 const trackingContext = getDetachedElementTrackingContext(
                     trackingState,
                     result.totalDetachedElements,
-                    currentPath
+                    currentPath,
+                    persistence.persistedCount
                 )
 
-                if (!shouldCaptureDetachedElements(result.totalDetachedElements, trackingState.previousDetachedCount)) {
+                const shouldCapture = shouldCaptureDetachedElements(
+                    result.totalDetachedElements,
+                    trackingState.previousDetachedCount,
+                    persistence.persistedCount,
+                    trackingState.previousPersistedCount
+                )
+                if (!shouldCapture) {
                     trackingState = trackingContext.nextState
                     return
                 }
@@ -135,6 +216,10 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                     path_changed_at_scan: trackingContext.pathChanged,
                     path_change_baseline_detached_elements: trackingContext.routeBaselineDetachedElements,
                     detached_elements_delta_since_path_change: trackingContext.routeDetachedElementsDelta,
+                    detached_elements_persisted: persistence.persistedCount,
+                    detached_components_persisted: mapToTopN(persistence.persistedComponents, TOP_N),
+                    path_change_baseline_persisted_elements: trackingContext.routeBaselinePersistedElements,
+                    detached_elements_persisted_delta_since_path_change: trackingContext.routePersistedElementsDelta,
                 })
             })
 
@@ -142,7 +227,8 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 if (document.hidden) {
                     scan.stop()
                 } else {
-                    trackingState = { ...trackingState, previousDetachedCount: null }
+                    elementsDetachedAtLastScan = new WeakSet()
+                    trackingState = restartPersistenceSeries(trackingState)
                     scan.start()
                 }
             }

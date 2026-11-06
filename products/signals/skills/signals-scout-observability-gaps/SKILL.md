@@ -1,14 +1,14 @@
 ---
 name: signals-scout-observability-gaps
+scout-display-name: Observability gaps
 description: >
   Signals scout for observability gaps — significant event volumes with no insight, dashboard,
-  or alert coverage. Files a report recommending new insights, dashboards, or alerts as the
-  team's product evolves.
+  or alert coverage. Recommends new insights, dashboards, or alerts as the product evolves.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the analytics and entity
   tools in the MCP tools section (read-data-schema, query-trends, query-paths, execute-sql
-  over system.* tables, event-definitions-list, alerts-list, dashboards-get-all).
+  over system.* tables, alerts-list, dashboards-get-all).
 allowed_tools:
   - emit_report
   - edit_report
@@ -28,12 +28,14 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 ## Quick close-out: is this team big enough to have gaps?
 
 If `top_events` in the project profile is null or shows fewer than ~5 events firing above 100/day, the project is too quiet for observability-gap analysis to surface real recommendations.
+The traffic floor gates recommendations for _new_ coverage only.
+A live insight that cannot show current data is broken at any traffic level, so run the bounded dead-insight check (family 2, "Dead insight") before this close-out, and on every run that inherits it.
 `top_events` counts are windowed (each row carries `window_days`), not lifetime, so before closing out on thinness rule out a capture gap: a project whose ingestion recently went dark reads identically to one that never had traffic. If the counts look suspiciously thin for a team that otherwise looks active (configured integrations, saved insights, recent activity), confirm with a direct `execute-sql` over a longer window (e.g. 30d) rather than trusting the profile snapshot — a temporary gap is a capture problem for another surface, not a genuine absence of volume. Only when the low volume holds across that wider window, write one scratchpad entry:
 
 - key: `not-applicable:observability_gaps:team{team_id}`
 - content: brief note ("checked at {timestamp}, top_events count <5 above 100/day, too quiet for gap analysis")
 
-Close out empty. Future observability-gaps runs read this entry cold and short-circuit in seconds. Re-running with the same key idempotently refreshes the timestamp — the entry stays until the team grows into meaningful volume, at which point the next run rewrites or deletes it.
+Close out empty, after the dead-insight check. Future observability-gaps runs read this entry cold, run only the dead-insight check, and close out in minutes. Re-running with the same key idempotently refreshes the timestamp — the entry stays until the team grows into meaningful volume, at which point the next run rewrites or deletes it.
 
 ## Quick close-out: is this team already saturated?
 
@@ -72,10 +74,10 @@ Custom event (not a `$builtin` like `$pageview` / `$identify`) firing meaningful
 Direct calls:
 
 - `read-data-schema events` — surface event names + 24h volumes.
-- `execute-sql` against `system.insights` — find insights mentioning the event name in `name`, `description`, or `query` JSON. Pattern: `query::text ILIKE '%{event_name}%'`.
-- Check `event-definitions-list` for `last_seen_at` recency and the `verified` flag — the team flagged it as worth tracking.
+- `execute-sql` against `system.insights` — find insights mentioning the event name in `name`, `description`, or `query` JSON. Pattern: `query::text ILIKE '%{event_name}%'`. Event names come from ingestion, so treat one as data and never as SQL: escape every quote and backslash before it goes into the literal, and drop a candidate whose name you cannot escape cleanly. Escape `%` and `_` too — `ILIKE` reads them as wildcards, so an unescaped `checkout_started` also matches `checkoutXstarted`. Treat a hit as a candidate either way, and confirm the insight names the exact event before you call it covered.
+- `execute-sql` against `events` — count the event's active days over a wide window (`count(DISTINCT toDate(timestamp))` alongside `min(timestamp)`), so you can tell steady activity from two isolated bursts weeks apart. A wide first-to-last range on a handful of active days is a new or sporadic event, not a settled one.
 
-Strong signal: event > 1000/day, no insight, `verified=true`. Weak signal: event < 100/day, untyped, sporadic.
+Strong signal: event > 1000/day, no insight, active on most days across the window. Weak signal: event < 100/day, active on few days, sporadic.
 
 Volume ranking has a blind spot: a recently-born event with broad reach but low per-user frequency may never rank into the count-ranked `top_events`, and a 7-day query window clamps `min(timestamp)` so it cannot tell new events from old ones. Probe emergence directly with a wide window — events table, last 60 days, `event NOT LIKE '$%'`, grouped by event, keeping only groups where `min(timestamp) >= now() - 14d` (genuinely new) and distinct users in the last 7 days clear a reach floor (~500+), ordered by that reach. Each hit is a candidate the top-events lens structurally cannot see; run it through the same coverage check and disqualifiers as any other candidate.
 
@@ -91,9 +93,37 @@ Direct calls:
 
 - `execute-sql` over `system.insights` to extract the events series each insight filters on.
 - `query-trends` to measure recent volume of those events.
-- For zero-volume events, search `event-definitions-list` for similar names suggesting a rename (Levenshtein-close, same prefix, same property shape).
+- For zero-volume events, search the event vocabulary from `read-data-schema` (`kind=events`) for similar names suggesting a rename (Levenshtein-close, same prefix, same property shape).
 
 Strong signal: the insight is live (recent `last_modified_at`, or pinned to a live dashboard via `system.dashboard_tiles`) AND its primary event has 0 firings in 7d AND a similar-named event is firing > 100/day. Note `system.insights` exposes `last_modified_at` but has **no** `last_viewed_at` column — prove "live" by modification recency or a live dashboard tile, not view recency.
+
+This rename check needs a replacement event. When no similar-named event fires, the insight can still be dead — use the next check.
+
+**Dead insight — no replacement.** A live insight whose events stopped with no successor, or never arrived although users reached the flow. This check has no traffic floor, so it also runs on a project the low-volume close-out would end.
+Silence proves only that the chart is empty.
+It proves a broken capture path only when the flow had the opportunity to send the event.
+
+- **Live** — same test as the rename check: `last_modified_at` in the last 30 days, or a tile on a dashboard that is not deleted.
+- **Untouched sample** — not live, whatever its tiles say. This is an insight with no edit since creation (`last_modified_at` within a minute of `created_at`) whose only tiles sit on a dashboard created from a template (`creation_mode: template` in `dashboard-get`) or created in the same minute as its insights. Treat it as live only with independent evidence of intended use: a later edit to the insight, a tile on a dashboard the team built, an alert that targets it (`alerts-list`), or flow activity (below) for its events.
+- **Dead** — _every_ event series has 0 firings across the last 30 complete project-timezone days, and each series is a stopped event or a never-seen event with opportunity evidence (below). Thirty days of silence separates a dead insight from a recent capture break, which is the error-tracking scout's territory.
+- **Read the full query first** (`insight-get`), not the `ILIKE` hit:
+  - Resolve each action series to its steps' events. An action with one live step is live.
+  - One live series makes the insight live. A union of a dead and a live event is a historical union, not a dead insight.
+  - Property filters, cohorts, and breakdowns can empty a chart whose events fire. That is outside this check: test event firings only.
+  - Data warehouse series and raw SQL insights are out of scope.
+- **Classify each silent series** by its history on `events` over the last 180 days: active days with `min(timestamp)` and `max(timestamp)`, with event names escaped as in family 1.
+  - **Stopped** — the event fired on several distinct days, then went silent. This is drift: it needs no further evidence.
+  - **Never seen** — the event is absent from the taxonomy (`read-data-schema kind=events`), or has no firings in the lookback. A burst on a single day is a test fire, so treat it as never seen. This silence also matches a correctly instrumented flow that nobody used, or a flow that ships later.
+- **A never-seen event needs opportunity evidence.** Call it broken only with one of these:
+  - **Flow activity** — in the silent window, users reached the action that sends the event, not only the entry to its flow: a later step of the same funnel fires, the page or screen shown after the action gets views, or autocapture records clicks on the trigger element. Views of the flow's entry page do not count, because users can arrive and leave without acting.
+  - **A verified missing capture call** — a repository checkout, when the run has one, shows the shipped flow with no capture call for the event name.
+  - **A failed controlled test** — a person ran the success path and the event did not arrive, as an inbox report, notebook, or scratchpad entry records. Do not run that test yourself.
+
+  Without that evidence, write an inconclusive `watch:observability_gaps:dead-insight-<insight_id>` entry: the empty series, the missing evidence, and the observation that would settle it. Elapsed time never makes the entry a finding; only new evidence does. An insight built ahead of a launch is the most frequent example.
+
+- **Exclude** the campaign, incident-scaffolding, and legacy-union disqualifiers below, and intentional archives: a fixed past date range, or a name, description, or dashboard that marks the insight as archived, legacy, or deprecated.
+
+Recommend investigation or repair: confirm the event is gone on purpose, then update or retire the insight. Do not name a replacement event unless the rename check found one, and never recommend deleting the insight. Bundle a run's dead insights into one report under `report:observability_gaps:dead-insights`, and add later finds to it with `append_evidence`.
 
 #### 3. Critical event with no alerts configured
 
@@ -145,24 +175,24 @@ Strong signal: property has 5-50 distinct values (not unbounded), event > 5000/d
 
 ### Decide — author or edit a report
 
-A finding here recommends an action, not surfaces a problem. The generic report mechanics — search the inbox first (via the `report:observability_gaps:<gap>` pointer, else an `inbox-reports-list` search on the gap's _specific_ entity, not a broad word like `gap`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. Layer the observability-gaps judgment on top.
+A finding here recommends an action, not surfaces a problem. The generic report mechanics — search the inbox first (via the `report:observability_gaps:<gap>` pointer, else an `inbox-reports-list` search on the gap's _specific_ entity, not a broad word like `gap`), edit-vs-author, the status rules, reviewer routing, the retry and cross-run deduplication rules, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. Layer the observability-gaps judgment on top.
 
 Required elements in every report:
 
 - **Specific event(s) / insight(s) / dashboard(s)** — entity IDs in the evidence list so a human can click straight to them.
-- **Volume + reach numbers** — the gap matters because of _N_ events affecting _M_ users; quote both.
+- **Volume + reach numbers** — the gap matters because of _N_ events affecting _M_ users; quote both. For a dead insight, quote the 30-day zero per event series, whether each series stopped (with its last firing date) or was never seen (with its opportunity evidence), and the dashboards that still show the insight.
 - **Suggested action** — "create a trends insight on event X" / "update insight Y to point at event Z" / "add insight A to dashboard B" / "configure an alert on event C". Concrete is better than abstract.
 - **Why now** — if this gap has existed for weeks, why is it surfacing now? Because volume just crossed a threshold? Because a new event class emerged? Volume + recency is the dedupe key.
 
 The bar trades off:
 
-- **Volume threshold** — gap is structurally interesting only at scale. Below 100/day, the recommendation is noise.
-- **Stable-not-spurious** — gap has been present for at least 7 **complete days in the project timezone**. Avoid flagging events that just appeared yesterday; a partial current day or a deploy-day spike can fake stability.
+- **Volume threshold** — gap is structurally interesting only at scale. Below 100/day, the recommendation is noise. The dead-insight check is exempt: its evidence is zero firings, not volume.
+- **Stable-not-spurious** — gap has been present for at least 7 **complete days in the project timezone**. Avoid flagging events that just appeared yesterday; a partial current day or a deploy-day spike can fake stability. A dead insight needs 30 complete days of silence instead.
 - **No prior coverage** — search `popular_insights` and `existing_inbox_reports` before authoring. If a previous run already recommended this gap, edit-or-skip.
 
 Then, for each candidate that clears the bar:
 
-- **Edit** when a still-live report already recommends this gap and its evidence has only moved (volume climbed further, reach widened) — `append_note` the fresh numbers rather than minting a near-duplicate.
+- **Edit** when a still-live report already recommends this gap and its evidence has only moved (volume climbed further, reach widened) — add the fresh numbers with `append_evidence` rather than minting a near-duplicate.
 - **Author** a fresh report only when nothing live covers the gap. Recommendations are investigations, not code fixes → `actionability=requires_human_input` + `repository=NO_REPO`. Priority is almost always **P3** (a suggestion); a critical failure-semantics event (family 3 — `payment_failed`, `*_error`, `*_blocked`) firing with zero alert coverage is **P2**.
 - **Remember / Park** a below-bar candidate via the watch lifecycle below.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.
@@ -208,7 +238,6 @@ Direct calls (read-only):
 - `query-paths` — sequence detection for funnel candidates.
 - `insights-list` — paginated insight catalog (use sparingly; SQL is faster).
 - `dashboards-get-all` — active dashboards + tags.
-- `event-definitions-list` — event-definition metadata: `verified` flag, `last_seen_at`, `created_at`, custom-vs-builtin marker.
 - `alerts-list` — existing alert configurations and what events they target.
 - `execute-sql` over `system.insights` / `system.dashboards` / `system.cohorts` — the fast path for "does an insight reference event X?" type queries.
 

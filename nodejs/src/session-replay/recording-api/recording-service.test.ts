@@ -1,11 +1,19 @@
 import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
+import sodium from 'libsodium-wrappers'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import snappy from 'snappy'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import * as envUtils from '~/common/utils/env-utils'
+import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
+import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
@@ -66,7 +74,8 @@ describe('RecordingService', () => {
             mockMetadataStore,
             mockFeatureStore,
             mockPostgres,
-            mockClickhouse
+            { client: mockClickhouse, credential: new ClickHouseCredential('recording_api', 'static', '') },
+            new SodiumRecordingEncryptor(mockKeyStore)
         )
     })
 
@@ -362,6 +371,83 @@ describe('RecordingService', () => {
         })
     })
 
+    describe('block refs', () => {
+        const sessionKey = (sessionState: 'ciphertext' | 'cleartext' | 'deleted'): SessionKey => ({
+            plaintextKey: Buffer.alloc(32, 7),
+            encryptedKey: Buffer.alloc(0),
+            sessionState,
+        })
+        const block = {
+            key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+            start_byte: 100,
+            end_byte: 250,
+            start_timestamp: '2024-01-01T00:00:00Z',
+            end_timestamp: '2024-01-01T00:01:00Z',
+        }
+
+        beforeAll(async () => {
+            await sodium.ready
+        })
+
+        it('reports a shredded key in place of the blocks', async () => {
+            mockKeyStore.getKey.mockResolvedValue({
+                ...sessionKey('deleted'),
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+
+            expect(await service.annotateBlocks('sess-1', 1, [block])).toEqual({
+                ok: false,
+                error: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+        })
+
+        it('gives a pre-encryption recording no refs', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('cleartext'))
+
+            expect(await service.annotateBlocks('sess-1', 1, [block])).toEqual([block])
+            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1)
+        })
+
+        it('fetches the byte range a listed ref names', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockS3Send.mockResolvedValue({
+                Body: { transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1])) },
+            })
+            mockDecryptor.decryptBlockWithKey = jest
+                .fn()
+                .mockReturnValue({ data: Buffer.from('data'), sessionState: 'ciphertext' })
+            mockKeyStore.getKey.mockClear()
+
+            const result = await service.getBlockByRef(1, 'sess-1', listed.ref)
+
+            expect(result).toEqual({ ok: true, data: Buffer.from('data') })
+            expect(mockKeyStore.getKey).toHaveBeenCalledTimes(1)
+            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1)
+            expect(mockDecryptor.decryptBlock).not.toHaveBeenCalled()
+            expect(mockS3Send).toHaveBeenCalledWith(
+                expect.objectContaining({ input: { Bucket: 'test-bucket', Key: block.key, Range: 'bytes=100-250' } })
+            )
+        })
+
+        it.each([
+            ['a deleted session', 'deleted', 'deleted'],
+            ['a pre-encryption session', 'cleartext', 'not_found'],
+        ] as const)('serves no block by ref for %s', async (_, sessionState, expectedError) => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockKeyStore.getKey.mockResolvedValue(sessionKey(sessionState))
+
+            const result = await service.getBlockByRef(1, 'sess-1', listed.ref)
+
+            expect(result).toMatchObject({ ok: false, error: expectedError })
+            expect(mockS3Send).not.toHaveBeenCalled()
+        })
+    })
+
     describe('listBlocks', () => {
         function mockClickhouseResult(rows: any[]): void {
             mockClickhouse.query.mockResolvedValue({
@@ -440,6 +526,38 @@ describe('RecordingService', () => {
 
             await expect(service.listBlocks('sess-1', 1)).rejects.toThrow('Connection refused')
         })
+
+        it('sends the token file contents as they are when each query runs', async () => {
+            const dir = mkdtempSync(join(tmpdir(), 'recording-service-'))
+            try {
+                const tokenFile = join(dir, 'token')
+                const serviceWithToken = new RecordingService(
+                    mockS3Client,
+                    'test-bucket',
+                    'session_recordings',
+                    mockKeyStore,
+                    mockDecryptor,
+                    mockMetadataStore,
+                    mockFeatureStore,
+                    mockPostgres,
+                    {
+                        client: mockClickhouse,
+                        credential: new ClickHouseCredential('recording_api', 'static', tokenFile),
+                    }
+                )
+                mockClickhouseResult([])
+
+                for (const token of ['first-token', 'rotated-token']) {
+                    writeFileSync(tokenFile, token)
+                    await serviceWithToken.listBlocks('sess-1', 1)
+                    expect(mockClickhouse.query).toHaveBeenLastCalledWith(
+                        expect.objectContaining({ auth: { username: 'recording_api', password: token } })
+                    )
+                }
+            } finally {
+                rmSync(dir, { recursive: true, force: true })
+            }
+        })
     })
 
     describe('deleteRecordings', () => {
@@ -504,17 +622,29 @@ describe('RecordingService', () => {
 
             await service.deleteRecordings(['session-1', 'session-2'], 1, 'test@example.com')
 
-            // 3 DELETE statements + 1 activity log INSERT
-            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            // 4 DELETE statements + 1 asset expiry UPDATE + 1 activity log INSERT
+            expect(mockPostgres.query).toHaveBeenCalledTimes(6)
             expect(mockPostgres.query).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.stringContaining('ee_single_session_summary'),
                 [1, ['session-1', 'session-2']],
                 'deleteSessionSummaries'
             )
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('replay_vision_replayobservation'),
+                [1, ['session-1', 'session-2']],
+                'deleteReplayVisionObservations'
+            )
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_exportedasset'),
+                [1, ['"session-1"', '"session-2"']],
+                'expireRecordingExports'
+            )
         })
 
-        it('excludes already_deleted sessions from postgres batch', async () => {
+        it('still cleans up derived data for an already_deleted session', async () => {
             mockKeyStore.deleteKey
                 .mockResolvedValueOnce({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
                 .mockResolvedValueOnce({
@@ -525,12 +655,14 @@ describe('RecordingService', () => {
 
             await service.deleteRecordings(['new-session', 'already-deleted-session'], 1, 'test@example.com')
 
-            // 3 DELETE statements + 1 activity log INSERT
-            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            // 4 DELETE statements + 1 asset expiry UPDATE + 1 activity log INSERT
+            expect(mockPostgres.query).toHaveBeenCalledTimes(6)
+            // Cleanup is best-effort, so a shred that already happened still gets another pass;
+            // otherwise a failed one is never retried.
             expect(mockPostgres.query).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.stringContaining('ee_single_session_summary'),
-                [1, ['new-session']],
+                [1, ['new-session', 'already-deleted-session']],
                 'deleteSessionSummaries'
             )
         })
@@ -601,7 +733,19 @@ describe('RecordingService', () => {
 
             await service.deleteRecordings(['session-1'], 1, 'test@example.com')
 
-            expect(mockPostgres.query).not.toHaveBeenCalled()
+            expect(mockPostgres.query).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_activitylog'),
+                expect.anything(),
+                'logRecordingDeletion'
+            )
+            // The shred is not repeated, but its derived data still gets a cleanup pass.
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('replay_vision_replayobservation'),
+                [1, ['session-1']],
+                'deleteReplayVisionObservations'
+            )
         })
 
         it('reports success when logActivity fails after shred', async () => {
@@ -682,6 +826,96 @@ describe('RecordingService', () => {
             ])
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
             expect(mockPostgres.query).toHaveBeenCalled()
+        })
+    })
+
+    describe('encryptBlocks', () => {
+        const plaintextKey = Buffer.alloc(32, 7)
+        const ciphertextKey = {
+            plaintextKey,
+            encryptedKey: Buffer.from('wrapped'),
+            sessionState: 'ciphertext' as const,
+        }
+        const cleartextKey = {
+            plaintextKey: Buffer.alloc(0),
+            encryptedKey: Buffer.alloc(0),
+            sessionState: 'cleartext' as const,
+        }
+
+        beforeAll(async () => {
+            await sodium.ready
+        })
+
+        beforeEach(() => {
+            mockKeyStore.generateKey.mockResolvedValue(ciphertextKey)
+        })
+
+        const mockRecordingExists = (exists: boolean): void => {
+            mockClickhouse.query.mockResolvedValue({
+                json: jest.fn().mockResolvedValue(exists ? [{ '1': 1 }] : []),
+            } as any)
+        }
+
+        it.each([
+            ['an existing key', ciphertextKey, 0],
+            ['no key and no recording yet', cleartextKey, 1],
+        ])('encrypts with %s so the decryptor can read it back', async (_, existingKey, expectedKeyMints) => {
+            mockKeyStore.getKey.mockResolvedValue(existingKey)
+            mockRecordingExists(false)
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block-a'), Buffer.from('b')], 365)
+
+            expect(result.ok).toBe(true)
+            const decryptor = new SodiumRecordingDecryptor(mockKeyStore)
+            const decrypted = (result as { blocks: Buffer[] }).blocks.map(
+                (b) => decryptor.decryptBlockWithKey('session-1', 1, b, ciphertextKey).data
+            )
+            expect(decrypted).toEqual([Buffer.from('block-a'), Buffer.from('b')])
+            expect(mockKeyStore.generateKey).toHaveBeenCalledTimes(expectedKeyMints)
+        })
+
+        it.each([
+            ['a recording that predates encryption', cleartextKey],
+            ['an ingested encrypted recording', ciphertextKey],
+        ])('refuses to encrypt into %s', async (_, existingKey) => {
+            mockKeyStore.getKey.mockResolvedValue(existingKey)
+            mockRecordingExists(true)
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
+
+            expect(result).toEqual({ ok: false, error: 'recording_exists' })
+            expect(mockKeyStore.generateKey).not.toHaveBeenCalled()
+        })
+
+        it('refuses to return plaintext when a cloud key mint reads back no key', async () => {
+            const isCloud = jest.spyOn(envUtils, 'isCloud').mockReturnValue(true)
+            mockRecordingExists(false)
+            mockKeyStore.getKey.mockResolvedValue(cleartextKey)
+            mockKeyStore.generateKey.mockResolvedValue(cleartextKey)
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
+
+            expect(result).toEqual({ ok: false, error: 'key_unavailable' })
+            isCloud.mockRestore()
+        })
+
+        it('returns deleted when the session key was shredded', async () => {
+            mockRecordingExists(false)
+            mockKeyStore.getKey.mockResolvedValue({
+                ...cleartextKey,
+                sessionState: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+
+            const result = await service.encryptBlocks('session-1', 1, [Buffer.from('block')], 365)
+
+            expect(result).toEqual({
+                ok: false,
+                error: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
         })
     })
 })

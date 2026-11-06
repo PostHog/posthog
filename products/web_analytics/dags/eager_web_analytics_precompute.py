@@ -211,22 +211,28 @@ def _fetch_active_wa_team_ids(limit: int, lookback_hours: int = 24) -> list[int]
     from posthog.clickhouse.client import sync_execute  # noqa: PLC0415 — keep dagster import path light
 
     try:
+        # query_log_archive keeps one row per query chain with the log_comment tags as typed columns, and its
+        # sort key starts with the hour of initial_query_start_time, so this reads only the lookback window.
+        # The archive has no trigger column. Async dashboard tiles and stale revalidations run in
+        # process_query_task, which tags them kind='celery', but a person viewing the dashboard starts both.
+        # Warmers run in other tasks or in Dagster, so they fail this filter.
         rows = sync_execute(
             """
-            SELECT JSONExtractInt(log_comment, 'team_id') AS team_id, count() AS n
-            FROM clusterAllReplicas(%(cluster)s, system, query_log)
-            WHERE event_time > now() - INTERVAL %(hours)s HOUR
-              AND type = 'QueryFinish' AND is_initial_query = 1
-              AND JSONExtractString(log_comment, 'query_type') LIKE 'stats_table%%'
-              AND JSONExtractString(log_comment, 'feature') != 'cache_warmup'
-              AND JSONExtractString(log_comment, 'trigger') = ''
-              AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
+            SELECT team_id, count() AS n
+            FROM query_log_archive
+            WHERE initial_query_start_time > now() - INTERVAL %(hours)s HOUR
+              AND lc_query_type LIKE 'stats_table%%'
+              AND (lc_kind = 'request' OR (lc_kind = 'celery' AND lc_id = 'posthog.tasks.tasks.process_query_task'))
+              AND lc_feature != 'cache_warmup'
+              AND lc_access_method != 'personal_api_key'
+              AND type = 'QueryFinish' AND is_initial_query
               AND team_id != 0
             GROUP BY team_id
             ORDER BY n DESC
             LIMIT %(limit)s
+            SETTINGS skip_unavailable_shards=1
             """,
-            {"cluster": "posthog", "hours": lookback_hours, "limit": limit},
+            {"hours": lookback_hours, "limit": limit},
         )
         return [int(row[0]) for row in rows]
     except Exception:
@@ -694,10 +700,9 @@ def web_analytics_eager_backfill_job():
     # STOPPED) so the stop is an explicit operational toggle, not a silent
     # code-deploy behavior change.
     # Hourly. The lazy cache's 4h today-TTL absorbs missed cycles, so
-    # there's no need to align with shorter cadences. Offset by 5 min from
-    # the top of the hour to avoid colliding with the existing
-    # `web_analytics_cache_warming_schedule` (`0 * * * *`).
-    cron_schedule="5 * * * *",
+    # there's no need to align with shorter cadences. Minute 53 puts its start
+    # outside the cache warmer's ten-minute release window after minute 3.
+    cron_schedule="53 * * * *",
     job=web_analytics_eager_baseline_warming_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},

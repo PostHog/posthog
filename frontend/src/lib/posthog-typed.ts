@@ -3553,6 +3553,7 @@ interface EventSchemas {
     subscribe_to_product_updates: Record<string, any>
     'subscription cancelled': Record<string, any>
     'subscription created': {
+        creation_source?: 'editor' | 'wizard'
         resource_type?: string
         dashboard_id?: number
         insight_short_id?: string

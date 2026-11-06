@@ -6,8 +6,14 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
+import { PageReportDetail } from 'products/web_analytics/frontend/pageReports/PageReportDetail'
+import { PageReportsDirectory } from 'products/web_analytics/frontend/pageReports/PageReportsDirectory'
+import { pageReportsTeaserLogic } from 'products/web_analytics/frontend/pageReports/pageReportsTeaserLogic'
+
+import { webAnalyticsDateMapping } from './constants'
 import { pageReportsLogic } from './pageReportsLogic'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { Tiles } from './WebAnalyticsDashboard'
@@ -17,11 +23,11 @@ const HedgehogXRay = pngHoggie(xRayPng)
 
 function NoUrlSelectedMessage(): JSX.Element {
     return (
-        <div className="border-2 border-dashed border-primary w-full p-8 rounded flex items-center justify-center gap-8">
+        <div className="border-2 border-dashed border-primary w-full p-4 @min-[48rem]/main-content:p-8 rounded flex flex-col @min-[48rem]/main-content:flex-row items-center justify-center gap-6 @min-[48rem]/main-content:gap-8">
             <div className="flex-shrink-0">
-                <HedgehogXRay title="X-ray hedgehog" className="w-60" />
+                <HedgehogXRay title="X-ray hedgehog" className="w-40 @min-[48rem]/main-content:w-60" />
             </div>
-            <div className="flex-1 max-w-140">
+            <div className="flex-1 max-w-140 text-center @min-[48rem]/main-content:text-left">
                 <h2>Select a page to analyze</h2>
                 <p className="ml-0">
                     See detailed performance metrics for any page on your site. Just use the search bar above to find
@@ -33,8 +39,16 @@ function NoUrlSelectedMessage(): JSX.Element {
 }
 
 export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element {
-    const { pageUrlOptions, pageUrl, isLoading, dateFilter, pageUrlSearchTerm, featureFlags, isPathCleaningEnabled } =
-        useValues(pageReportsLogic)
+    const {
+        pageUrlOptions,
+        pageUrl,
+        isLoading,
+        dateFilter,
+        pageUrlSearchTerm,
+        featureFlags,
+        isPathCleaningEnabled,
+        isDirectoryEnabled,
+    } = useValues(pageReportsLogic)
     const { setPageUrl, setPageUrlSearchTerm, loadPages, setDates, setIsPathCleaningEnabled } =
         useActions(pageReportsLogic)
 
@@ -53,24 +67,33 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
             top={tabs}
             left={
                 <div className="flex flex-row flex-wrap gap-2 items-center w-full min-w-0">
-                    <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-                    <WebAnalyticsCompareFilter />
-                    <LemonInputSelect
-                        className="flex-1 min-w-0"
-                        allowCustomValues={true}
-                        fullWidth={true}
-                        placeholder="Click or type to see top pages, or paste a URL"
-                        loading={isLoading}
-                        size="small"
-                        mode="single"
-                        value={pageUrl ? [pageUrl] : null}
-                        onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
-                        options={pageUrlOptions}
-                        onInputChange={(val: string) => setPageUrlSearchTerm(val)}
-                        data-attr="page-reports-url-search"
-                        onFocus={() => loadPages('')}
-                        emptyStateComponent={emptyStateComponent}
+                    <DateFilter
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                        onChange={setDates}
+                        dateOptions={webAnalyticsDateMapping}
                     />
+                    <WebAnalyticsCompareFilter />
+                    {isDirectoryEnabled ? (
+                        <div className="flex-1" />
+                    ) : (
+                        <LemonInputSelect
+                            className="flex-1 min-w-0 basis-64"
+                            allowCustomValues={true}
+                            fullWidth={true}
+                            placeholder="Click or type to see top pages, or paste a URL"
+                            loading={isLoading}
+                            size="small"
+                            mode="single"
+                            value={pageUrl ? [pageUrl] : null}
+                            onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
+                            options={pageUrlOptions}
+                            onInputChange={(val: string) => setPageUrlSearchTerm(val)}
+                            data-attr="page-reports-url-search"
+                            onFocus={() => loadPages('')}
+                            emptyStateComponent={emptyStateComponent}
+                        />
+                    )}
                     <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
                 </div>
@@ -80,7 +103,18 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
 }
 
 export function PageReports(): JSX.Element {
-    const { hasPageUrl, tiles } = useValues(pageReportsLogic)
+    const { hasPageUrl, tiles, isDirectoryEnabled, pageUrl } = useValues(pageReportsLogic)
+    const { recordPageReportsVisit } = useActions(pageReportsTeaserLogic)
+
+    useOnMountEffect(() => {
+        if (isDirectoryEnabled) {
+            recordPageReportsVisit()
+        }
+    })
+
+    if (isDirectoryEnabled) {
+        return pageUrl ? <PageReportDetail pageUrl={pageUrl} /> : <PageReportsDirectory />
+    }
 
     if (!hasPageUrl) {
         return (

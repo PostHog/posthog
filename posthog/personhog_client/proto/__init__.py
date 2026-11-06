@@ -2,15 +2,28 @@
 # isort: skip_file
 # common_pb2 must be imported before any proto that depends on common.proto
 # (cohort, group, person all reference it in their serialized descriptors)
-from posthog.personhog_client.proto.generated.personhog.types.v1.common_pb2 import (
+from personhog.types.v1.common_pb2 import (
     CONSISTENCY_LEVEL_EVENTUAL,
     CONSISTENCY_LEVEL_STRONG,
     GroupIdentifier,
     GroupKey,
     ReadOptions,
 )
-from posthog.personhog_client.proto.generated.personhog.service.v1.service_pb2_grpc import PersonHogServiceStub
-from posthog.personhog_client.proto.generated.personhog.types.v1.cohort_pb2 import (
+from personhog.service.v1.service_pb2_grpc import PersonHogServiceStub
+from personhog.lifecycle.v1.lifecycle_pb2_grpc import PersonHogLifecycleStub
+
+# Aliased: the facade's delete messages above already use these names.
+from personhog.lifecycle.v1.lifecycle_pb2 import (
+    DELETE_PERSON_OUTCOME_DELETED,
+    DELETE_PERSON_OUTCOME_NOT_FOUND,
+    DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT,
+    DELETE_PERSON_OUTCOME_UNSPECIFIED,
+    DeletePersonOutcome,
+    DeletePersonResult as LifecycleDeletePersonResult,
+    DeletePersonsRequest as LifecycleDeletePersonsRequest,
+    DeletePersonsResponse as LifecycleDeletePersonsResponse,
+)
+from personhog.types.v1.cohort_pb2 import (
     CheckCohortMembershipRequest,
     CohortMembership,
     CohortMembershipResponse,
@@ -25,11 +38,11 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.cohort_pb2 impo
     ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse,
 )
-from posthog.personhog_client.proto.generated.personhog.types.v1.feature_flag_pb2 import (
+from personhog.types.v1.feature_flag_pb2 import (
     DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse,
 )
-from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import (
+from personhog.types.v1.group_pb2 import (
     CountGroupTypeMappingsRequest,
     CountGroupTypeMappingsResponse,
     CreateGroupRequest,
@@ -65,13 +78,17 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 impor
     UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse,
 )
-from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 import (
-    DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonlessDistinctIdsBatchForTeamResponse,
+from personhog.types.v1.person_pb2 import (
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
+    DeletePersonsMode,
     DeletePersonsRequest,
     DeletePersonsResponse,
+    TombstonedDistinctId,
+    TombstonedPerson,
+    DeleteTombstonedPersonsRequest,
+    DeleteTombstonedPersonsResponse,
+    VersionBoundedPerson,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
@@ -79,6 +96,14 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 impo
     GetPersonByDistinctIdRequest,
     GetPersonByUuidRequest,
     GetPersonRequest,
+    GetPersonTombstonesRequest,
+    GetPersonTombstonesResponse,
+    AckedPersonTombstone,
+    AckPersonTombstonesRequest,
+    AckPersonTombstonesResponse,
+    ListPersonTombstoneQueueRequest,
+    ListPersonTombstoneQueueResponse,
+    PersonTombstoneQueueEntry,
     GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
@@ -93,4 +118,38 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 impo
     SplitPersonRequest,
     SplitPersonResponse,
     SplitResult,
+    VersionFloorOutcome,
+    PersonVersionFloor,
+    EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse,
+    DistinctIdRow,
+    GetDistinctIdRowsRequest,
+    GetDistinctIdRowsResponse,
+    ListPersonsForTeamRequest,
+    PersonListEntry,
+    ListPersonsForTeamResponse,
+    RaisePersonVersionFloorsRequest,
+    RaisePersonVersionFloorsResponse,
+    RaisePersonVersionRequest,
+    RaisePersonVersionResponse,
+    RestorePersonsRequest,
+    RestorePersonsResponse,
+    RestoredDistinctId,
+    RESTORE_OUTCOME_NO_DISTINCT_ID,
+    WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
+    DistinctIdWrite,
+    DistinctIdWriteResult,
+    RestoredPerson,
+    DISTINCT_ID_WRITE_ACTION_INSERT,
+    DISTINCT_ID_WRITE_ACTION_RAISE,
+    DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
+    DISTINCT_ID_WRITE_OUTCOME_APPLIED,
+    DISTINCT_ID_WRITE_OUTCOME_UNCHANGED,
+    DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED,
+    DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE,
+    RESTORE_OUTCOME_INSERTED,
+    RESTORE_OUTCOME_EXISTS_LIVE,
+    RESTORE_OUTCOME_EXISTS_TOMBSTONED,
+    PersonVersionFloorResult,
 )

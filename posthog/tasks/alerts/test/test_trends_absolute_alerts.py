@@ -1,7 +1,7 @@
 import datetime
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
@@ -29,14 +29,21 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
 
 # 8:55 AM
 FROZEN_TIME = dateutil.parser.parse("2024-06-02T08:55:00.000Z")
 
 
-@freeze_time(FROZEN_TIME)
-@patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches")
+@time_machine.travel(FROZEN_TIME, tick=False)
+@patch(
+    "posthog.tasks.alerts.utils.send_notifications_for_errors",
+    return_value=[AlertDelivery(channel="email", target="alerts@example.com", at="2024-06-02T08:55:00+00:00")],
+)
+@patch(
+    "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+    return_value=[AlertDelivery(channel="email", target="alerts@example.com", at="2024-06-02T08:55:00+00:00")],
+)
 class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -165,13 +172,14 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (0) is less than lower threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_trend_high_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
         insight = self.create_time_series_trend_insight()
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -205,6 +213,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (2) is more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_trend_currency_value_formatted_in_breach(
@@ -220,7 +229,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         )
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(team=self.team, event="signed_up", distinct_id="1")
             _create_event(team=self.team, event="signed_up", distinct_id="2")
             flush_persons_and_events()
@@ -231,6 +240,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week ($2.00) is more than upper threshold ($1.00)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_trend_no_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
@@ -239,7 +249,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             insight, series_index=0, lower=0, upper=2, calculation_interval=AlertCalculationInterval.MONTHLY
         )
 
-        with freeze_time(FROZEN_TIME):
+        with time_machine.travel(FROZEN_TIME, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -272,7 +282,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             insight, series_index=0, lower=0, upper=2, calculation_interval=AlertCalculationInterval.WEEKLY
         )
 
-        with freeze_time(FROZEN_TIME):
+        with time_machine.travel(FROZEN_TIME, tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -304,7 +314,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_time_series_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -344,6 +354,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up - Chrome) for previous week (2) is more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_trend_breakdown_low_threshold_breached(
@@ -352,7 +363,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_time_series_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
         alert = self.create_alert(insight, series_index=0, lower=2)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -392,6 +403,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up - Firefox) for previous week (1) is less than lower threshold (2)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_trend_breakdown_no_threshold_breached(
@@ -400,7 +412,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_time_series_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
         alert = self.create_alert(insight, series_index=0, lower=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -444,7 +456,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_aggregate_trend_insight()
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -484,6 +496,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for current interval (3) is more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_aggregate_trend_with_breakdown_high_threshold_breached(
@@ -492,7 +505,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         insight = self.create_aggregate_trend_insight(BreakdownFilter(breakdowns=[Breakdown(property="$browser")]))
         alert = self.create_alert(insight, series_index=0, upper=1)
 
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(weeks=4), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -532,6 +545,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up - Chrome) for current interval (2) is more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_trend_current_interval_high_threshold_breached(
@@ -541,7 +555,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         alert = self.create_alert(insight, series_index=0, upper=1, check_ongoing_interval=True)
 
         # around 8 AM on same day as check
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -575,6 +589,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for current week (2) is more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_trend_current_interval_should_not_fallback_to_previous_high_threshold_breached(
@@ -584,7 +599,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         alert = self.create_alert(insight, series_index=0, upper=1, check_ongoing_interval=True)
 
         # current day doesn't breach
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -594,7 +609,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # prev day breaches
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=26)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=26), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -632,8 +647,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         alert = self.create_alert(insight, series_index=0, upper=1)
 
         # day before yesterday
-        with freeze_time(
-            FROZEN_TIME - dateutil.relativedelta.relativedelta(days=2) - dateutil.relativedelta.relativedelta(hours=2)
+        with time_machine.travel(
+            FROZEN_TIME - dateutil.relativedelta.relativedelta(days=2) - dateutil.relativedelta.relativedelta(hours=2),
+            tick=False,
         ):
             _create_event(
                 team=self.team,
@@ -671,7 +687,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         alert = self.create_alert(insight, series_index=0, lower=2)
 
         # around 8 AM on same day as check
-        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1)):
+        with time_machine.travel(FROZEN_TIME - dateutil.relativedelta.relativedelta(hours=1), tick=False):
             _create_event(
                 team=self.team,
                 event="signed_up",
@@ -702,6 +718,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (0) is less than lower threshold (2)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     @patch(
@@ -719,14 +736,14 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         )
 
         # Create 3 events for 07:00-07:59 (will be checked at 08:05)
-        with freeze_time(dateutil.parser.parse("2024-06-02T07:30:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-02T07:30:00.000Z"), tick=False):
             _create_event(team=self.team, event="signed_up", distinct_id="1")
             _create_event(team=self.team, event="signed_up", distinct_id="2")
             _create_event(team=self.team, event="signed_up", distinct_id="3")
             flush_persons_and_events()
 
         # Check at 08:05 - checks previous hour (07:00-07:59), should fire (3 events > upper threshold of 1)
-        with freeze_time(dateutil.parser.parse("2024-06-02T08:05:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-02T08:05:00.000Z"), tick=False):
             run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
@@ -748,7 +765,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         mock_send_breaches.reset_mock()
 
         # Second check at 09:05 - checks previous hour (08:00-08:59), should not fire (0 events)
-        with freeze_time(dateutil.parser.parse("2024-06-02T09:05:00.000Z")):
+        with time_machine.travel(dateutil.parser.parse("2024-06-02T09:05:00.000Z"), tick=False):
             run_alert_check(alert["id"])
 
             # Verify execution mode is still CALCULATE_BLOCKING_ALWAYS

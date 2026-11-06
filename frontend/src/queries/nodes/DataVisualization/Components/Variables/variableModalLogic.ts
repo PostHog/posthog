@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { fetchInsightsUsingVariable } from 'scenes/data-management/variables/insightsLoader'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import type { HogQLVariable, Node } from '../../../../schema/schema-general'
 import {
@@ -96,7 +96,7 @@ const getDefaultVariableForType = (variableType: VariableType): Variable => {
 export interface variableModalLogicValues {
     currentTeamId: number | null // teamLogic
     insightsLoading: boolean
-    insightsUsingVariable: QueryBasedInsightModel[]
+    insightsUsingVariable: InsightModel[]
     isModalOpen: boolean
     isSaving: boolean
     modalType: 'existing' | 'new'
@@ -137,8 +137,8 @@ export interface variableModalLogicActions {
     setInsightsLoading: (loading: boolean) => {
         loading: boolean
     }
-    setInsightsUsingVariable: (insights: QueryBasedInsightModel[]) => {
-        insights: QueryBasedInsightModel<Node<Record<string, any>>>[]
+    setInsightsUsingVariable: (insights: InsightModel[]) => {
+        insights: InsightModel<Node<Record<string, any>>>[]
     }
     updateVariable: (variable: Variable) => {
         variable: Variable
@@ -179,7 +179,7 @@ export const variableModalLogic = kea<variableModalLogicType>([
         saveSuccess: true,
         saveFailure: true,
         changeTypeExistingVariable: (variableType: VariableType) => ({ variableType }),
-        setInsightsUsingVariable: (insights: QueryBasedInsightModel[]) => ({ insights }),
+        setInsightsUsingVariable: (insights: InsightModel[]) => ({ insights }),
         setInsightsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
@@ -230,7 +230,7 @@ export const variableModalLogic = kea<variableModalLogicType>([
             },
         ],
         insightsUsingVariable: [
-            [] as QueryBasedInsightModel[],
+            [] as InsightModel[],
             {
                 setInsightsUsingVariable: (_, { insights }) => insights,
                 closeModal: () => [],

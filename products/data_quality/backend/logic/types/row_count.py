@@ -1,28 +1,22 @@
-from typing import Self
-
-from pydantic import Field, model_validator
+from pydantic import Field
 
 from posthog.hogql import ast
 
 from ...facade.enums import CheckType
 from ..contracts import CheckPlan, Evaluation, SubjectRef
 from ..spec import CheckConfig, CheckTypeSpec
-from .common import one, subject_source
+from .common import BoundsConfig, one, subject_source
 
 ROW_COUNT_ALIAS = "row_count"
 
 
-class RowCountConfig(CheckConfig):
+class RowCountConfig(BoundsConfig):
+    # A row count is a whole number and never negative, so its bounds are too, and the published
+    # config schema has to say so for an API or agent caller that has no other contract to read.
+    # Narrowed here rather than on BoundsConfig, so a bounds check over a measured value can still
+    # take a fractional one. The inherited normalizer still folds an integral float to an int.
     min: int | None = Field(default=None, ge=0, description="Fail if the table has fewer rows than this.")
     max: int | None = Field(default=None, ge=0, description="Fail if the table has more rows than this.")
-
-    @model_validator(mode="after")
-    def _bounds_are_usable(self) -> Self:
-        if self.min is None and self.max is None:
-            raise ValueError("needs at least one of min or max")
-        if self.min is not None and self.max is not None and self.min > self.max:
-            raise ValueError(f"needs min <= max, got min={self.min} and max={self.max}")
-        return self
 
 
 class RowCountSpec(CheckTypeSpec):

@@ -61,7 +61,10 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
         return render(
             <Provider>
                 <TaxonomicFilter
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                    ]}
                     onChange={jest.fn()}
                     {...props}
                 />
@@ -77,6 +80,11 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
             item: { name: key },
             propertyFilter: { type: PropertyFilterType.Event, key, operator: PropertyOperator.Exact, value },
         })
+    }
+
+    async function selectSuggestedCategory(): Promise<void> {
+        await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+        await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-suggested_filters'))
     }
 
     describe('recording on selection', () => {
@@ -117,13 +125,12 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true, onChange })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectSuggestedCategory()
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
             })
-            await userEvent.click(screen.getByTestId('prop-filter-recent_filters-0'))
+            await userEvent.click(screen.getByTestId('prop-filter-suggested_filters-0'))
 
             // Consumer-facing onChange must hand back an item whose recent context has no
             // propertyFilter, so it can't accidentally re-apply "= Chrome" downstream.
@@ -147,7 +154,20 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
     })
 
     describe('display of recents', () => {
-        it('shows the Recent tab in selectingKeyOnly mode when key-only recents exist for the picked group', async () => {
+        it('keeps a complete saved filter available when only one property category is offered', async () => {
+            preloadCompleteRecent('$browser', 'Chrome')
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties] })
+
+            expect(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveTextContent(
+                'Event properties'
+            )
+            await selectSuggestedCategory()
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-suggested_filters-1')).toHaveTextContent('Chrome')
+            })
+        })
+
+        it('shows recent items in Suggested in selectingKeyOnly mode when key-only recents exist for the picked group', async () => {
             recents.actions.recordRecentFilter({
                 groupType: TaxonomicFilterGroupType.EventProperties,
                 groupName: 'Event properties',
@@ -158,14 +178,12 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectSuggestedCategory()
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
             })
-            const row = screen.getByTestId('prop-filter-recent_filters-0')
+            const row = screen.getByTestId('prop-filter-suggested_filters-0')
             expect(row.textContent).toMatch(/OS/)
             expect(row.textContent).not.toMatch(/=|equals/i)
         })
@@ -175,13 +193,12 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectSuggestedCategory()
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
             })
-            const row = screen.getByTestId('prop-filter-recent_filters-0')
+            const row = screen.getByTestId('prop-filter-suggested_filters-0')
             expect(row.textContent).toMatch(/Browser/)
             // The complete-filter label ("Browser equals Chrome") must NOT be rendered.
             expect(row.textContent).not.toMatch(/Chrome/)
@@ -192,16 +209,15 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter()
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectSuggestedCategory()
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
             })
-            const bareKeyRow = screen.getByTestId('prop-filter-recent_filters-0')
+            const bareKeyRow = screen.getByTestId('prop-filter-suggested_filters-0')
             expect(bareKeyRow.textContent).toMatch(/Browser/)
             expect(bareKeyRow.textContent).not.toMatch(/Chrome/)
-            expect(screen.getByTestId('prop-filter-recent_filters-1').textContent).toMatch(/Chrome/)
+            expect(screen.getByTestId('prop-filter-suggested_filters-1').textContent).toMatch(/Chrome/)
         })
 
         it('selecting the bare key row hands back an item with no propertyFilter so the user picks a fresh value', async () => {
@@ -210,13 +226,12 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ onChange })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectSuggestedCategory()
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-recent_filters-1')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-suggested_filters-1')).toBeInTheDocument()
             })
-            await userEvent.click(screen.getByTestId('prop-filter-recent_filters-0'))
+            await userEvent.click(screen.getByTestId('prop-filter-suggested_filters-0'))
 
             await waitFor(() => {
                 expect(onChange).toHaveBeenCalled()
@@ -232,13 +247,16 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectSuggestedCategory()
 
             await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+                expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
             })
-            expect(screen.queryByTestId('prop-filter-recent_filters-1')).not.toBeInTheDocument()
+            expect(
+                screen
+                    .getAllByTestId(/^prop-filter-suggested_filters-/)
+                    .filter((row) => row.textContent?.includes('Browser'))
+            ).toHaveLength(1)
         })
     })
 })

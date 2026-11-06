@@ -4,7 +4,7 @@ import { logger } from '~/common/utils/logger'
 import { aiCacheExclusiveFallbackCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { numericProperty } from './cost-utils'
+import { numericProperty, stringProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
 
 const matchProvider = (event: PluginEvent, provider: string): boolean => {
@@ -12,11 +12,11 @@ const matchProvider = (event: PluginEvent, provider: string): boolean => {
         return false
     }
 
-    const { $ai_provider: eventProvider, $ai_model: eventModel } = event.properties
     const normalizedProvider = provider.toLowerCase()
-    const normalizedModel = eventModel?.toLowerCase()
+    const normalizedModel = stringProperty(event, '$ai_model')?.toLowerCase()
+    const eventProvider = stringProperty(event, '$ai_provider')?.toLowerCase()
 
-    if (eventProvider?.toLowerCase() === normalizedProvider || normalizedModel?.includes(normalizedProvider)) {
+    if (eventProvider === normalizedProvider || normalizedModel?.includes(normalizedProvider)) {
         return true
     }
 
@@ -33,8 +33,8 @@ const usesInclusiveAnthropicInputTokens = (event: PluginEvent): boolean => {
         return false
     }
 
-    const provider = event.properties['$ai_provider']?.toLowerCase()
-    const framework = event.properties['$ai_framework']?.toLowerCase()
+    const provider = stringProperty(event, '$ai_provider')?.toLowerCase()
+    const framework = stringProperty(event, '$ai_framework')?.toLowerCase()
 
     // Vercel AI Gateway reports input tokens inclusive of cache read/write tokens.
     return provider === 'gateway' && framework === 'vercel'
@@ -171,22 +171,27 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     // would under-bill here.
     const rawCachedAudioTokens = numericProperty(event, '$ai_cache_read_audio_tokens')
     const cachedAudioInputTokens = Math.max(0, Math.min(rawCachedAudioTokens, audioInputTokens, cacheReadTokens))
+    const cachedNonAudioTokens = cacheReadTokens - cachedAudioInputTokens
+    const rawCachedImageTokens = numericProperty(event, '$ai_cache_read_image_tokens')
+    const cachedImageInputTokens = Math.max(0, Math.min(rawCachedImageTokens, imageInputTokens, cachedNonAudioTokens))
 
     // Audio/image input tokens are reported by providers (OpenAI, Gemini) as a subset
     // of the total input token count. We bill them separately at modality rates and
     // subtract them from the text pool to avoid double-counting at the prompt rate.
-    // For audio, split further into cached / uncached so cached audio bills at the
-    // (typically much cheaper) audio-cache rate.
+    // Split cached audio and images from their uncached portions. Cached audio
+    // has its own rate; cached images use the standard cache-read rate.
     const uncachedAudioInputTokens = audioInputTokens - cachedAudioInputTokens
+    const uncachedImageInputTokens = imageInputTokens - cachedImageInputTokens
     const audioInputCost = computeAudioInputCost(event, cost, uncachedAudioInputTokens)
     const cachedAudioInputCost = computeCachedAudioInputCost(event, cost, cachedAudioInputTokens)
-    const imageInputCost = computeImageInputCost(event, cost, imageInputTokens)
+    const imageInputCost = computeImageInputCost(event, cost, uncachedImageInputTokens)
     const modalityInputCost = bigDecimal.add(bigDecimal.add(audioInputCost, cachedAudioInputCost), imageInputCost)
     const hasModalityTokens = audioInputTokens > 0 || imageInputTokens > 0
 
-    // Text-only portion of the cache pool. Subtracting cached_audio gives us
-    // the cached-text count, which we bill at the standard cache_read rate.
-    const cachedTextTokens = cacheReadTokens - cachedAudioInputTokens
+    // Cached image tokens use the standard cache-read rate, but remain part of
+    // image_input and must not also reduce the regular text-token pool.
+    const cachedTextTokens = cachedNonAudioTokens - cachedImageInputTokens
+    const imageTokensToSubtract = exclusive ? uncachedImageInputTokens : imageInputTokens
 
     if (matchProvider(event, 'anthropic')) {
         const aggregateCacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
@@ -214,15 +219,15 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
         const cacheReadCost =
             cost.cost.cache_read_token !== undefined
-                ? bigDecimal.multiply(cost.cost.cache_read_token, cachedTextTokens)
-                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cachedTextTokens)
+                ? bigDecimal.multiply(cost.cost.cache_read_token, cachedNonAudioTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cachedNonAudioTokens)
 
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
         const baseUncachedTokens = exclusive
             ? inputTokens
             : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cachedTextTokens), cacheWriteTokens)
         const uncachedTextTokens = clampTextTokens(
-            bigDecimal.subtract(bigDecimal.subtract(baseUncachedTokens, audioInputTokens), imageInputTokens),
+            bigDecimal.subtract(bigDecimal.subtract(baseUncachedTokens, audioInputTokens), imageTokensToSubtract),
             hasModalityTokens
         )
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTextTokens)
@@ -230,9 +235,17 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         return bigDecimal.add(bigDecimal.add(totalCacheCost, uncachedCost), modalityInputCost)
     }
 
-    const baseRegularTokens = exclusive ? inputTokens : bigDecimal.subtract(inputTokens, cachedTextTokens)
+    const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
+    // Gemini's catalog write rate covers storage, not the input charge. Keep writes
+    // in normal input pricing (including audio/image rates); storage needs a known duration.
+    // https://cloud.google.com/vertex-ai/generative-ai/docs/context-cache/context-cache-overview#caching_storage_costs
+    const isGeminiCatalogCost = cost.provider !== 'custom' && /(^|\/)gemini-/.test(cost.model.toLowerCase())
+    const separateCacheWriteTokens = isGeminiCatalogCost ? 0 : cacheWriteTokens
+    const baseRegularTokens = exclusive
+        ? bigDecimal.add(inputTokens, isGeminiCatalogCost ? cacheWriteTokens : 0)
+        : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cachedTextTokens), separateCacheWriteTokens)
     const regularTextTokens = clampTextTokens(
-        bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageInputTokens),
+        bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageTokensToSubtract),
         hasModalityTokens
     )
 
@@ -240,12 +253,12 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
     if (cost.cost.cache_read_token !== undefined) {
         // Use explicit cache read cost if available
-        cacheReadCost = bigDecimal.multiply(cost.cost.cache_read_token, cachedTextTokens)
+        cacheReadCost = bigDecimal.multiply(cost.cost.cache_read_token, cachedNonAudioTokens)
     } else {
         // Use default multiplier of 0.5 for all providers when cache_read_token is not defined
         const multiplier = 0.5
 
-        if (cachedTextTokens > 0) {
+        if (cachedNonAudioTokens > 0) {
             logger.warn('Using default cache read multiplier for model', {
                 multiplier,
                 model: cost.model,
@@ -253,10 +266,15 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
             })
         }
 
-        cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, multiplier), cachedTextTokens)
+        cacheReadCost = bigDecimal.multiply(
+            bigDecimal.multiply(cost.cost.prompt_token, multiplier),
+            cachedNonAudioTokens
+        )
     }
 
+    const cacheWriteRate = cost.cost.cache_write_token ?? cost.cost.prompt_token
+    const cacheWriteCost = bigDecimal.multiply(cacheWriteRate, separateCacheWriteTokens)
     const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTextTokens)
 
-    return bigDecimal.add(bigDecimal.add(cacheReadCost, regularCost), modalityInputCost)
+    return bigDecimal.add(bigDecimal.add(bigDecimal.add(cacheReadCost, cacheWriteCost), regularCost), modalityInputCost)
 }

@@ -19,6 +19,9 @@ from __future__ import annotations
 
 import time
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 import structlog
@@ -44,6 +47,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 
 logger = structlog.get_logger(__name__)
 _fallback_logger = logging.getLogger(__name__)
+
+_redact_request_urls: ContextVar[bool] = ContextVar("redact_request_urls", default=False)
+
+
+@contextmanager
+def redact_request_urls() -> Iterator[None]:
+    # Download redirects can carry credentials in both paths and query parameters.
+    token = _redact_request_urls.set(True)
+    try:
+        yield
+    finally:
+        _redact_request_urls.reset(token)
 
 
 @dataclass(frozen=True)
@@ -109,10 +124,15 @@ def record_request(
     method = (request.method or "GET").upper()
     raw_url = request.url or ""
     scrubbed_url = scrub_url(raw_url)
+    template = url_template(raw_url)
     if redact_values:
         scrubbed_url = redact_literal_values(scrubbed_url, redact_values)
-    template = url_template(raw_url)
+        template = redact_literal_values(template, redact_values)
     host = host_of(raw_url)
+    if _redact_request_urls.get():
+        scrubbed_url = "REDACTED"
+        template = "REDACTED"
+        capture = False
     status_code = response.status_code if response is not None else None
     error_class = type(exception).__name__ if exception is not None else None
     request_bytes = _request_size(request)

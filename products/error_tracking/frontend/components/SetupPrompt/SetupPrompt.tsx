@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { type ComponentType, isValidElement } from 'react'
 
+import * as errorPng from '@posthog/brand/hoggies/png/error'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
-import { WarningHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import {
     ProductIntroduction,
     type ProductIntroductionProps,
@@ -24,6 +25,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
+
+const HedgehogError = pngHoggie(errorPng)
 
 export const ERROR_TRACKING_FRAMEWORK_LINKS: {
     name: string
@@ -104,16 +107,13 @@ export function ErrorTrackingIngestionPrompt({
 
     return (
         <IntroductionComponent
-            productName="Error tracking"
             thingName="issue"
             titleOverride="You haven't captured any exceptions"
             description="PostHog captures exceptions from any of our SDKs. JavaScript apps can flip on exception autocapture; other platforms wire it up in code – the docs have per-SDK instructions."
             isEmpty={true}
-            productKey={ProductKey.ERROR_TRACKING}
             className={cn(introductionClassName, className)}
             {...(introductionStacked !== undefined ? { stacked: introductionStacked } : {})}
-            mcpSurfaceKey="error_tracking.assign"
-            customHog={WarningHog}
+            customHog={HedgehogError}
             actionElementOverride={
                 <div className={actionElementClassName}>
                     <p className="text-sm text-secondary m-0">

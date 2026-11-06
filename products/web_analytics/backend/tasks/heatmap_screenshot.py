@@ -1,5 +1,5 @@
-import re
 import time
+import random
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -14,7 +14,10 @@ from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted, browserless_request
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.security.url_validation import is_url_allowed
@@ -22,8 +25,17 @@ from posthog.tasks.utils import CeleryQueue
 
 from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS, PREWARM_TTL
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
+from products.web_analytics.backend.screenshot_settings import normalize_screenshot_hostname
 
 logger = structlog.get_logger(__name__)
+
+HEATMAP_SCREENSHOT_COOKIE_NAME = "__ph_heatmap_render"
+
+HEATMAP_SCREENSHOT_CREDENTIAL_DELIVERY = Counter(
+    "heatmap_screenshot_credential_delivery",
+    "Whether a screenshot render included the bypass cookie",
+    labelnames=["reason"],
+)
 
 # Reclaim a hung worker rather than letting a stuck render hold an EXPORTS slot for the full retry budget.
 HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT = 600  # seconds
@@ -32,6 +44,7 @@ HEATMAP_SCREENSHOT_TIME_LIMIT = HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT + 30
 HEATMAP_SCREENSHOT_MAX_BYTES = 20 * 1024 * 1024
 HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS = HEATMAP_SCREENSHOT_TIME_LIMIT + 60
 HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE = 20
+PAGE_HTTP_STATUS_MAX_RETRIES = 2
 
 HEATMAP_SCREENSHOT_SUCCEEDED = Counter(
     "heatmap_screenshot_task_succeeded",
@@ -80,6 +93,16 @@ class BrowserlessPermanentError(BrowserlessError):
 class PageHttpStatusError(BrowserlessPermanentError):
     """The customer's page answered the render with a non-2xx, so the capture is a picture of that."""
 
+    @property
+    def retryable(self) -> bool:
+        return self.status_code in (408, 429) or (self.status_code is not None and 500 <= self.status_code < 600)
+
+
+def is_retryable_failure(e: BaseException) -> bool:
+    if isinstance(e, PageHttpStatusError):
+        return e.retryable
+    return not isinstance(e, BrowserlessPermanentError)
+
 
 def _width_bucket(width: int) -> str:
     if width < 500:
@@ -97,10 +120,12 @@ def _classify_failure(e: BaseException) -> str:
     if isinstance(e, PageHttpStatusError):
         return "page_http_status"
     if isinstance(e, BrowserlessError):
-        if e.cause == "not_configured":
-            return "not_configured"
+        if e.cause in ("not_configured", "invalid_image", "ssrf_blocked"):
+            return e.cause
         if e.cause in ("empty_body", "non_image", "non_jpeg", "oversized"):
             return "validation_error"
+        if e.cause == "egress_budget_exhausted":
+            return "egress_budget_exhausted"
         if e.cause == "request_exception":
             return "browserless_timeout"
         if e.status_code is not None:
@@ -121,6 +146,7 @@ def _capture_mode_usage(
     duration_seconds: float | None = None,
     error_type: str | None = None,
     failure_type: str | None = None,
+    page_status: int | None = None,
 ) -> None:
     # ph_scoped_capture (not posthoganalytics.capture) — events from Celery tasks are otherwise
     # silently lost; no-ops off PostHog Cloud. Telemetry must never fail the task, so swallow errors.
@@ -137,6 +163,7 @@ def _capture_mode_usage(
                     "duration_seconds": duration_seconds,
                     "error_type": error_type,
                     "failure_type": failure_type,
+                    "page_status": page_status,
                     "team_id": team.id,
                     "screenshot_id": str(screenshot.id),
                 },
@@ -156,7 +183,13 @@ def _record_failure(screenshot: SavedHeatmap, e: Exception, *, started_at: float
     if started_at is not None:
         HEATMAP_SCREENSHOT_TIMER.labels(outcome="failed").observe(time.monotonic() - started_at)
 
-    _capture_mode_usage(screenshot, success=False, error_type=type(e).__name__, failure_type=failure_type)
+    _capture_mode_usage(
+        screenshot,
+        success=False,
+        error_type=type(e).__name__,
+        failure_type=failure_type,
+        page_status=e.status_code if isinstance(e, PageHttpStatusError) else None,
+    )
 
     logger.exception(
         "heatmap_screenshot.failed",
@@ -268,25 +301,26 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                 duration_seconds=duration_seconds,
             )
 
-        except (BrowserlessPermanentError, SoftTimeLimitExceeded) as e:
-            # Won't succeed on retry (bad request / config / oversized output / timed out) — fail now.
-            _record_failure(screenshot, e, started_at=started_at)
-            raise
         except Exception as e:
             # Transient Browserless failure: retry with backoff, but only record FAILED + emit the
             # failure event once retries are exhausted, so a blip doesn't flap the status or inflate
             # the failure metric.
-            if self.request.called_directly or self.request.retries >= self.max_retries:
+            permanent = isinstance(e, SoftTimeLimitExceeded) or not is_retryable_failure(e)
+            page_error = isinstance(e, PageHttpStatusError)
+            max_retries = PAGE_HTTP_STATUS_MAX_RETRIES if page_error else self.max_retries
+            if permanent or self.request.called_directly or self.request.retries >= max_retries:
                 _record_failure(screenshot, e, started_at=started_at)
                 raise
             countdown = min(2 ** (self.request.retries + 1), 60)
+            if page_error:
+                countdown = random.randint(10, 20) * 2**self.request.retries
             logger.warning(
                 "heatmap_screenshot.retrying",
                 screenshot_id=screenshot.id,
                 team_id=screenshot.team_id,
                 url=screenshot.url,
                 retries=self.request.retries,
-                max_retries=self.max_retries,
+                max_retries=max_retries,
                 countdown=countdown,
                 failure_type=_classify_failure(e),
                 exception=str(e),
@@ -323,17 +357,6 @@ def _redact_browserless_url(url: str) -> str:
     return urlunsplit(parts._replace(netloc=netloc, query=safe_query))
 
 
-_TOKEN_QS_RE = re.compile(r"(token=)[^&\s\"']+")
-
-
-def _sanitize_browserless_error(message: str) -> str:
-    # Scrub the token (raw value + any `token=...` in an echoed URL) while keeping the error reason.
-    token = settings.HEATMAP_BROWSERLESS_TOKEN
-    if token:
-        message = message.replace(token, "REDACTED")
-    return _TOKEN_QS_RE.sub(r"\1REDACTED", message)
-
-
 def _is_permanent_status(status: int) -> bool:
     # 4xx won't be fixed by retrying, except request-timeout / rate-limit which are worth a retry.
     return 400 <= status < 500 and status not in (408, 429)
@@ -357,8 +380,7 @@ def _validate_screenshot_response(response: requests.Response, endpoint_url: str
     content_type = response.headers.get("content-type", "")
     if not content_type.startswith("image/"):
         raise BrowserlessTransientError(
-            f"Browserless returned non-image content-type {content_type!r} for "
-            f"{_redact_browserless_url(endpoint_url)}: {_sanitize_browserless_error(response.text[:200])}",
+            f"Browserless returned non-image content for {_redact_browserless_url(endpoint_url)}",
             cause="non_image",
         )
     if not content.startswith(b"\xff\xd8\xff"):  # JPEG start-of-image marker
@@ -380,8 +402,51 @@ def _page_status_from(response: requests.Response) -> int | None:
         return None
 
 
+def screenshot_credential_delivery_reason(secret: str | None, url: str, allowed_hostnames: list[str]) -> str:
+    if not settings.HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:
+        return "delivery_disabled"
+    if not secret:
+        return "no_secret"
+    if not allowed_hostnames:
+        return "no_approved_hostnames"
+    if urlsplit(url).scheme != "https":
+        return "https_required"
+    try:
+        hostname = normalize_screenshot_hostname(urlsplit(url).hostname or "")
+    except ValueError:
+        return "hostname_not_approved"
+    if hostname not in allowed_hostnames:
+        return "hostname_not_approved"
+    return "sent"
+
+
+def heatmap_screenshot_cookies(secret: str | None, url: str, allowed_hostnames: list[str]) -> list[dict[str, object]]:
+    if screenshot_credential_delivery_reason(secret, url, allowed_hostnames) != "sent":
+        return []
+    return [
+        {
+            "name": HEATMAP_SCREENSHOT_COOKIE_NAME,
+            "value": secret,
+            "secure": True,
+            "httpOnly": True,
+            "sameSite": "Lax",
+            # Omitting Domain prevents disclosure to child and sibling hosts, including shared hosting tenants.
+            "url": f"https://{hostname}/",
+            "path": "/",
+        }
+        for hostname in allowed_hostnames
+    ]
+
+
 def _browserless_screenshot(
-    endpoint_url: str, page_url: str, width: int, block_consent_modals: bool
+    endpoint_url: str,
+    page_url: str,
+    width: int,
+    block_consent_modals: bool,
+    cookies: list[dict[str, object]] | None = None,
+    *,
+    priority: Priority = Priority.NORMAL,
+    source: str = "heatmap_screenshot",
 ) -> tuple[bytes, int | None]:
     # Render one width via the Browserless /screenshot REST API. viewport.width sets the captured width;
     # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
@@ -399,6 +464,8 @@ def _browserless_screenshot(
         "scrollPage": True,
         "bestAttempt": True,
     }
+    if cookies and settings.HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:
+        body["cookies"] = cookies
     # blockConsentModals / blockAds are browserless.io cloud API extensions; the self-hosted OSS
     # image rejects unknown body fields (400 "must NOT have additional properties"), so only send
     # them when enabled.
@@ -414,13 +481,36 @@ def _browserless_screenshot(
     width_bucket = _width_bucket(width)
     started = time.monotonic()
     try:
-        response = requests.post(endpoint_url, json=body, timeout=timeout)
-    except Exception as e:
+        # NORMAL by default: somebody is waiting on this render. Background callers such as the daily
+        # history capture pass BATCH and are shed first, which is what leaves headroom for this call.
+        response = browserless_request(
+            "POST",
+            endpoint_url,
+            token=settings.HEATMAP_BROWSERLESS_TOKEN,
+            source=source,
+            endpoint="screenshot",
+            priority=priority,
+            json=body,
+            timeout=timeout,
+        )
+    except BrowserlessEgressBudgetExhausted as e:
+        # Transient by nature: the budget refills on its own, so the existing retry path is the
+        # right answer. Given its own cause so a starved fleet is not read as a broken one.
+        elapsed = time.monotonic() - started
+        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
+        logger.warning(
+            "heatmap_screenshot.browserless_request",
+            width=width,
+            outcome="error",
+            cause="egress_budget_exhausted",
+            latency_ms=round(elapsed * 1000),
+        )
+        raise BrowserlessTransientError(str(e), cause="egress_budget_exhausted") from None
+    except Exception:
         elapsed = time.monotonic() - started
         HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
         err: BrowserlessError = BrowserlessTransientError(
-            f"Browserless screenshot request failed for {_redact_browserless_url(endpoint_url)}: "
-            f"{_sanitize_browserless_error(str(e))}",
+            f"Browserless screenshot request failed for {_redact_browserless_url(endpoint_url)}",
             cause="request_exception",
         )
         logger.warning(
@@ -438,10 +528,7 @@ def _browserless_screenshot(
 
     if status_code != 200:
         HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
-        message = (
-            f"Browserless screenshot failed ({status_code}) for "
-            f"{_redact_browserless_url(endpoint_url)}: {_sanitize_browserless_error(response.text[:500])}"
-        )
+        message = f"Browserless screenshot failed ({status_code}) for {_redact_browserless_url(endpoint_url)}"
         error_cls = BrowserlessPermanentError if _is_permanent_status(status_code) else BrowserlessTransientError
         err = error_cls(message, status_code=status_code, cause="http_status")
         logger.warning(
@@ -541,9 +628,6 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> int:
 def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int]) -> int:
     # REST /screenshot: one request per width (viewport.width sets the captured width). Persist and
     # release each image as it arrives so worker memory holds one full-page JPEG at a time.
-    endpoint_url = _build_browserless_screenshot_url()
-    if not endpoint_url:
-        raise BrowserlessPermanentError("Browserless screenshot URL is not configured", cause="not_configured")
     # Skip widths already rendered, so promoting a prewarm only renders the still-missing widths.
     already_rendered = _rendered_widths(screenshot, widths)
     pending = [w for w in widths if w not in already_rendered]
@@ -557,18 +641,49 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
     )
     count = 0
     for w in pending:
-        image_data, page_status = _browserless_screenshot(
-            endpoint_url, screenshot.url, w, screenshot.block_consent_modals
-        )
-        if page_status is not None and not 200 <= page_status < 300:
-            raise PageHttpStatusError(
-                f"{_host_of(screenshot.url)} returned {page_status} when we loaded the page, so the capture "
-                f"is a picture of that response. This comes from the site's host or CDN, not from PostHog.",
-                cause="page_http_status",
-            )
+        image_data = render_page(screenshot.team_id, screenshot.url, w, screenshot.block_consent_modals)
         _persist_snapshot(screenshot, w, image_data)
         count += 1
     return count
+
+
+def render_page(
+    team_id: int,
+    page_url: str,
+    width: int,
+    block_consent_modals: bool,
+    *,
+    priority: Priority = Priority.NORMAL,
+    source: str = "heatmap_screenshot",
+) -> bytes:
+    endpoint_url = _build_browserless_screenshot_url()
+    if not endpoint_url:
+        raise BrowserlessPermanentError("Browserless screenshot URL is not configured", cause="not_configured")
+    config = TeamHeatmapConfig.objects.filter(team_id=team_id).first()
+    secret = config.screenshot_secret if config else None
+    allowed_hostnames = config.allowed_hostnames if config else []
+    reason = screenshot_credential_delivery_reason(secret, page_url, allowed_hostnames)
+    HEATMAP_SCREENSHOT_CREDENTIAL_DELIVERY.labels(reason=reason).inc()
+    cookies = heatmap_screenshot_cookies(secret, page_url, allowed_hostnames)
+    image_data, page_status = _browserless_screenshot(
+        endpoint_url, page_url, width, block_consent_modals, cookies, priority=priority, source=source
+    )
+    if page_status is not None and not 200 <= page_status < 300:
+        guidance = (
+            "Screenshot cookie delivery is disabled on this installation. Contact your PostHog administrator."
+            if reason == "delivery_disabled"
+            else "The screenshot cookie was configured. Check the page and your bot protection rule before retrying."
+            if cookies
+            else "No screenshot cookie was sent. If bot protection blocks this page, ask a project admin to "
+            "approve its HTTPS hostname and configure a screenshot cookie in project settings under Heatmaps."
+        )
+        raise PageHttpStatusError(
+            f"{_host_of(page_url)} returned {page_status} when we loaded the page, so the capture "
+            f"is a picture of that response. {guidance}",
+            status_code=page_status,
+            cause="page_http_status",
+        )
+    return image_data
 
 
 def _host_of(url: str) -> str:

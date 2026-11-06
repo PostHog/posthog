@@ -1,0 +1,60 @@
+.InboxWelcome {
+    &__stage {
+        animation: InboxWelcome__stage 9s infinite;
+
+        &--pipeline {
+            animation-delay: 3s;
+        }
+
+        &--inbox {
+            animation-delay: 6s;
+        }
+    }
+
+    &__arrow {
+        animation: InboxWelcome__arrow 3s ease-in-out infinite;
+
+        &--second {
+            animation-delay: 1.5s;
+        }
+    }
+}
+
+// Each stage lights up in sequence (signals at 0s, pipeline at 3s, inbox at 6s) so the diagram
+// reads as a loop: signal sources -> scouts & pipeline -> your inbox.
+@keyframes InboxWelcome__stage {
+    0%,
+    30%,
+    100% {
+        border-color: var(--color-border-primary);
+        box-shadow: none;
+    }
+
+    6%,
+    24% {
+        border-color: var(--brand-red);
+        box-shadow: 0 3px 0 rgb(245 78 0 / 18%);
+    }
+}
+
+@keyframes InboxWelcome__arrow {
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: translateX(0);
+    }
+
+    50% {
+        opacity: 1;
+        transform: translateX(5px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .InboxWelcome {
+        &__stage,
+        &__arrow {
+            animation: none;
+        }
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_discard_claim_abort_persons' */ DELETE FROM lifecycle_op_person WHERE op_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "91779825be1dc7d9435af92d63cd6387b0e7cad66ca0ebf8c08e2b38ce33c8ae"
+}

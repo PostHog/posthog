@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import time
+import asyncio
 from collections.abc import AsyncGenerator, Callable
-from typing import Optional, TypeVar
+from enum import StrEnum
+from typing import Optional
 
 from django.conf import settings
-from django.db import OperationalError, close_old_connections
+from django.db import transaction
 
 import orjson
 import pyarrow as pa
@@ -17,45 +18,60 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import (
+    DEFAULT_BATCH_BYTE_LIMIT,
+    DEFAULT_BATCH_ROW_LIMIT,
+    TableBatcher,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
-T = TypeVar("T")
+# Informational key on a job's `schema_snapshot`. The job keeps `sync_type: webhook`, because the next
+# run compares it with the schema's sync type to decide whether it may continue this job's cursor.
+WEBHOOK_FALLBACK_SNAPSHOT_KEY = "webhook_fallback"
 
-_MAX_DB_READ_ATTEMPTS = 4
+
+class WebhookState(StrEnum):
+    # Read the rows that the webhook delivered.
+    ACTIVE = "active"
+    # The run polls the API by design: the table is not on webhook sync, or the run seeds or rebuilds it.
+    POLL = "poll"
+    # The table is on webhook sync, but the source has no enabled webhook, so nothing delivers rows.
+    NO_WEBHOOK = "no_webhook"
 
 
-def _db_read_with_retry(fn: Callable[[], T]) -> T:
-    """Run an idempotent main-DB read, retrying a transient connection failure with backoff.
+class WebhookFallback(StrEnum):
+    """How a webhook-sync run with no enabled webhook polls the API instead."""
 
-    Temporal activities run in a long-lived worker that never goes through Django's request
-    cycle, so a pooled Postgres connection can be closed server-side while it sits idle, or the
-    connection pooler can reject the query with a wait timeout when the pool is saturated. Both
-    surface as a transient ``OperationalError`` and both clear once a healthy connection is used.
-    ``close_old_connections()`` evicts connections already known to be stale (and, after a failed
-    query marks one unusable, drops it), so each attempt runs on a fresh connection; the short
-    backoff also gives a saturated pool time to drain rather than retrying straight back into the
-    same wait timeout. Must run inside the ``database_sync_to_async_pool`` thread so the eviction
-    targets the same connection the query uses. ``DoesNotExist`` and other errors propagate.
-    """
-    attempt = 0
-    while True:
-        close_old_connections()
-        try:
-            return fn()
-        except OperationalError:
-            attempt += 1
-            if attempt >= _MAX_DB_READ_ATTEMPTS:
-                raise
-            time.sleep(min(2 * attempt, 30))
+    FULL_REFRESH = "full_refresh"
+    INCREMENTAL = "incremental"
+
+
+def _stamp_webhook_fallback(job_id: str, team_id: int, fallback: WebhookFallback) -> None:
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    with transaction.atomic():
+        job = (
+            ExternalDataJob.objects.select_for_update()
+            .filter(id=job_id, team_id=team_id)
+            .only("id", "schema_snapshot")
+            .first()
+        )
+        if job is None:
+            return
+        snapshot = {**dict(job.schema_snapshot or {}), WEBHOOK_FALLBACK_SNAPSHOT_KEY: fallback.value}
+        ExternalDataJob.objects.filter(id=job.id, team_id=team_id).update(schema_snapshot=snapshot)
 
 
 class WebhookSourceManager:
     _inputs: SourceInputs
     _logger: FilteringBoundLogger
+    _state: WebhookState | None
 
     def __init__(self, inputs: SourceInputs, logger: FilteringBoundLogger) -> None:
         self._inputs = inputs
         self._logger = logger
+        self._state = None
 
     def _get_webhook_s3_prefix(self) -> str:
         return f"s3://{settings.DATAWAREHOUSE_BUCKET}/source_webhook_producer/{self._inputs.team_id}/{self._inputs.schema_id}"
@@ -64,10 +80,13 @@ class WebhookSourceManager:
         return s3_path.replace("s3://", "")
 
     async def webhook_enabled(self, webhook_only: bool = False) -> bool:
-        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        return await self.webhook_state(webhook_only=webhook_only) is WebhookState.ACTIVE
 
-        schema = await database_sync_to_async_pool(_db_read_with_retry)(
+    async def webhook_state(self, webhook_only: bool = False) -> WebhookState:
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.webhook_registration import source_has_enabled_webhook
+
+        schema = await database_sync_to_async_pool(db_read_with_retry)(
             lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
         )
 
@@ -84,24 +103,42 @@ class WebhookSourceManager:
                 f"schema.initial_sync_complete={schema.initial_sync_complete}. "
                 f"webhook_only={webhook_only}. reset_pipeline={self._inputs.reset_pipeline}"
             )
-            return False
+            self._state = WebhookState.POLL
+            return self._state
 
-        has_webhook_function = await database_sync_to_async_pool(_db_read_with_retry)(
-            lambda: HogFunction.objects.filter(
-                inputs__source_id__value=self._inputs.source_id,
-                team_id=self._inputs.team_id,
-                type="warehouse_source_webhook",
-                enabled=True,
-                deleted=False,
-            ).exists()
+        has_webhook_function = await database_sync_to_async_pool(db_read_with_retry)(
+            lambda: source_has_enabled_webhook(self._inputs.team_id, self._inputs.source_id)
         )
 
-        return has_webhook_function
+        self._state = WebhookState.ACTIVE if has_webhook_function else WebhookState.NO_WEBHOOK
+        return self._state
+
+    @property
+    def webhook_missing(self) -> bool:
+        """Whether the last `webhook_state` check found a webhook-sync table with no enabled webhook."""
+        return self._state is WebhookState.NO_WEBHOOK
+
+    async def record_webhook_fallback(self, fallback: WebhookFallback) -> None:
+        """Mark this run's job as one that polls the API because the table has no enabled webhook.
+
+        Call it after `webhook_enabled` returns False and the source starts to poll. It does nothing
+        unless that check found a webhook-sync table with no enabled webhook, so an initial sync or a
+        reset, which poll by design, stay unmarked. Without the mark, the job still reads as a webhook
+        sync, so its rows count as webhook rows.
+        """
+        if not self.webhook_missing:
+            return
+        await self._logger.awarning(
+            "This table uses webhook sync, but the source has no active webhook, so this sync reads the "
+            "source API instead. Set up the webhook on the source's Webhook tab, or change the sync method.",
+            webhook_fallback=fallback.value,
+        )
+        await database_sync_to_async_pool(_stamp_webhook_fallback)(self._inputs.job_id, self._inputs.team_id, fallback)
 
     async def schema_is_webhook(self) -> bool:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
-        schema = await database_sync_to_async_pool(_db_read_with_retry)(
+        schema = await database_sync_to_async_pool(db_read_with_retry)(
             lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
         )
         return bool(schema.is_webhook)
@@ -130,24 +167,30 @@ class WebhookSourceManager:
     async def get_items(
         self,
         table_transformer: Optional[Callable[[pa.Table], pa.Table]] = None,
-        batch_row_limit: int = 5000,
-        batch_byte_limit: int = 200 * 1024 * 1024,
+        batch_row_limit: int = DEFAULT_BATCH_ROW_LIMIT,
+        batch_byte_limit: int = DEFAULT_BATCH_BYTE_LIMIT,
     ) -> AsyncGenerator[pa.Table]:
         files = await self._list_webhook_parquet_files()
 
         await self._logger.adebug(f"Webhook source reading {len(files)} files")
 
         def finalize_batch(tables: list[pa.Table]) -> pa.Table:
-            # Dedupe across the whole concatenated batch, not per file: a yielded batch can span
-            # several S3 files, and the same id (e.g. a run's queued/completed events) can land in
-            # different files. A per-file pass would let both survive into one batch.
-            merged = pa.concat_tables(tables, promote_options="permissive")
+            # Concatenate the whole batch, not per file: a yielded batch can span several S3 files,
+            # and the same id (e.g. a run's queued/completed events) can land in different files, so
+            # the downstream transformer must see all of them together to dedupe across the batch.
+            try:
+                merged = pa.concat_tables(tables, promote_options="permissive")
+            except (pa.ArrowTypeError, pa.ArrowInvalid):
+                # Each file's table is typed independently, so one payload field can infer as
+                # different, non-promotable types across files (e.g. a number that arrives quoted in
+                # one delivery and bare in another — string vs int64), which concat can't reconcile.
+                # Rebuild through the shared row-to-table path, which resolves a column's mixed types
+                # the same way a single multi-typed file already does.
+                rows = [row for table in tables for row in table.to_pylist()]
+                merged = table_from_py_list(rows)
             return table_transformer(merged) if table_transformer else merged
 
-        batch_tables: list[pa.Table] = []
-        batch_paths: list[str] = []
-        batch_rows = 0
-        batch_bytes = 0
+        batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
 
         async with aget_s3_client() as s3:
             for file in files:
@@ -173,42 +216,34 @@ class WebhookSourceManager:
 
                 table = self._transform_webhook_table(table)
 
-                batch_tables.append(table)
-                batch_paths.append(path)
-                batch_rows += table.num_rows
-                batch_bytes += table.nbytes
-
-                if batch_rows >= batch_row_limit or batch_bytes >= batch_byte_limit:
-                    merged = finalize_batch(batch_tables)
+                if batch.add(table, path):
+                    merged = await asyncio.to_thread(finalize_batch, batch.tables)
                     await self._logger.adebug(
                         "webhook_batch_yield",
-                        file_count=len(batch_paths),
+                        file_count=len(batch.items),
                         row_count=merged.num_rows,
                         byte_count=merged.nbytes,
                     )
 
                     yield merged
 
-                    for p in batch_paths:
+                    for p in batch.items:
                         await s3._rm(p)
-                    batch_tables = []
-                    batch_paths = []
-                    batch_rows = 0
-                    batch_bytes = 0
+                    batch.reset()
 
             # Yield any remaining rows
-            if batch_tables:
-                merged = finalize_batch(batch_tables)
+            if batch:
+                merged = await asyncio.to_thread(finalize_batch, batch.tables)
                 await self._logger.adebug(
                     "webhook_batch_yield",
-                    file_count=len(batch_paths),
+                    file_count=len(batch.items),
                     row_count=merged.num_rows,
                     byte_count=merged.nbytes,
                 )
 
                 yield merged
 
-                for p in batch_paths:
+                for p in batch.items:
                     await s3._rm(p)
 
     async def _validate_webhook_table(self, table: pa.Table) -> pa.Table:

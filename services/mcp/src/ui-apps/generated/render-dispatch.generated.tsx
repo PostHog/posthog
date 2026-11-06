@@ -30,12 +30,14 @@ import {
     type FeatureFlagTestingData,
 } from 'products/feature_flags/mcp/apps'
 import { InsightActorsView, type InsightActorsData } from 'products/product_analytics/mcp/apps'
+import { SessionRecordingView, type SessionRecordingData } from 'products/replay/mcp/apps'
 import {
-    SessionRecordingView,
-    SessionSummaryView,
-    type SessionRecordingData,
-    type SessionSummaryData,
-} from 'products/replay/mcp/apps'
+    InlineScanView,
+    VisionObservationListView,
+    type InlineScanData,
+    type VisionObservationData,
+    type VisionObservationListData,
+} from 'products/replay_vision/mcp/apps'
 import {
     SurveyListView,
     SurveyStatsView,
@@ -45,18 +47,22 @@ import {
     type SurveyStatsData,
 } from 'products/surveys/mcp/apps'
 import { TraceSpanListView, TraceSpanView, type TraceSpanData, type TraceSpanListData } from 'products/tracing/mcp/apps'
-import { InviteEmailPreviewView, type InviteEmailPreviewData } from 'products/user_interviews/mcp/apps'
 import {
     EmailTemplateView,
     WorkflowListView,
+    WorkflowSendingRulesView,
+    WorkflowSetupStatusView,
     WorkflowView,
     type EmailTemplateData,
     type WorkflowData,
     type WorkflowListData,
+    type WorkflowSendingRulesData,
+    type WorkflowSetupStatusData,
 } from 'products/workflows/mcp/apps'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
 import { Component } from '../components/Component'
+import { ExplainChart, type ExplainChartData } from '../components/ExplainChart'
 
 export interface RenderDispatchProps {
     data: unknown
@@ -274,7 +280,7 @@ function SurveyListContent({ data, app }: { data: SurveyListData; app: App | nul
             try {
                 const result = await app.callServerTool({
                     name: 'survey-get',
-                    arguments: { surveyId: item.id },
+                    arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
                     fallbackToChat(item.name)
@@ -330,6 +336,50 @@ function TraceSpanListContent({ data, app }: { data: TraceSpanListData; app: App
     return <TraceSpanListView data={data} onSpanClick={handleClick} />
 }
 
+function VisionObservationListContent({
+    data,
+    app,
+}: {
+    data: VisionObservationListData
+    app: App | null
+}): JSX.Element {
+    const fallbackToChat = useCallback(
+        (name: string) => {
+            app?.sendMessage({
+                role: 'user',
+                content: [{ type: 'text', text: `Show me the details for observation "${name}"` }],
+            })
+        },
+        [app]
+    )
+
+    const handleClick = useCallback(
+        async (item: VisionObservationData): Promise<VisionObservationData | null> => {
+            if (!app) {
+                fallbackToChat(item.id)
+                return null
+            }
+            try {
+                const result = await app.callServerTool({
+                    name: 'vision-observations-get',
+                    arguments: { id: item.id },
+                })
+                if (result.isError || !result.structuredContent) {
+                    fallbackToChat(item.id)
+                    return null
+                }
+                return result.structuredContent as unknown as VisionObservationData
+            } catch {
+                fallbackToChat(item.id)
+                return null
+            }
+        },
+        [app, fallbackToChat]
+    )
+
+    return <VisionObservationListView data={data} onVisionObservationClick={handleClick} />
+}
+
 function WorkflowListContent({ data, app }: { data: WorkflowListData; app: App | null }): JSX.Element {
     const fallbackToChat = useCallback(
         (name: string) => {
@@ -380,23 +430,32 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     experiment: ({ data }) => <ExperimentView experiment={data as ExperimentData} />,
     'experiment-list': ({ data, app }) => <ExperimentListContent data={data as ExperimentListData} app={app} />,
     'experiment-results': ({ data }) => <ExperimentResultsView data={data as ExperimentResultsData} />,
+    'explain-chart': ({ data, openLink, app }) => (
+        <ExplainChart data={data as ExplainChartData} openLink={openLink} app={app} />
+    ),
     'feature-flag': ({ data }) => <FeatureFlagView flag={data as FeatureFlagData} />,
     'feature-flag-list': ({ data, app }) => <FeatureFlagListContent data={data as FeatureFlagListData} app={app} />,
     'feature-flag-testing': ({ data }) => <FeatureFlagTestingView flag={data as FeatureFlagTestingData} />,
+    'inline-scan': ({ data }) => <InlineScanView data={data as InlineScanData} />,
     'insight-actors': ({ data, openLink }) => (
         <InsightActorsView data={data as InsightActorsData} openLink={openLink} />
     ),
-    'invite-email-preview': ({ data }) => <InviteEmailPreviewView data={data as InviteEmailPreviewData} />,
     'llm-costs': ({ data }) => <LLMCostsView data={data as LLMCostsData} />,
     'query-results': ({ data }) => <Component data={data} />,
     'session-recording': ({ data }) => <SessionRecordingView recording={data as SessionRecordingData} />,
-    'session-summary': ({ data }) => <SessionSummaryView data={data as SessionSummaryData} />,
     survey: ({ data }) => <SurveyView survey={data as SurveyData} />,
     'survey-global-stats': ({ data }) => <SurveyStatsView data={data as SurveyStatsData} />,
     'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />,
     'survey-stats': ({ data }) => <SurveyStatsView data={data as SurveyStatsData} />,
     'trace-span': ({ data }) => <TraceSpanView data={data as TraceSpanData} />,
     'trace-span-list': ({ data, app }) => <TraceSpanListContent data={data as TraceSpanListData} app={app} />,
+    'vision-observation-list': ({ data, app }) => (
+        <VisionObservationListContent data={data as VisionObservationListData} app={app} />
+    ),
     workflow: ({ data }) => <WorkflowView workflow={data as WorkflowData} />,
     'workflow-list': ({ data, app }) => <WorkflowListContent data={data as WorkflowListData} app={app} />,
+    'workflow-sending-rules': ({ data }) => <WorkflowSendingRulesView data={data as WorkflowSendingRulesData} />,
+    'workflow-setup-status': ({ data, openLink }) => (
+        <WorkflowSetupStatusView data={data as WorkflowSetupStatusData} openLink={openLink} />
+    ),
 }

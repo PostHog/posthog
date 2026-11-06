@@ -1,3 +1,4 @@
+import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -5,6 +6,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { tagsModel } from '~/models/tagsModel'
 
 import { ObjectTags } from '../ObjectTags/ObjectTags'
 import { SceneCanEditProps, SceneDataAttrKeyProps } from './utils'
@@ -27,6 +29,9 @@ export const SceneTags = ({
 }: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
+    const { tags: modelTags, tagsLoading } = useValues(tagsModel)
+    const availableTags = tagsAvailable ?? modelTags
 
     const handleTagsChange = (newTags: string[]): void => {
         setLocalTags(newTags)
@@ -43,7 +48,7 @@ export const SceneTags = ({
     const label = (
         <span className="flex items-center gap-1.5">
             Tags
-            {loading ? <Spinner className="text-sm" /> : null}
+            {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
         </span>
     )
 
@@ -54,10 +59,10 @@ export const SceneTags = ({
                     mode="multiple"
                     allowCustomValues
                     value={localTags}
-                    options={tagsAvailable?.map((t) => ({ key: t, label: t }))}
+                    options={availableTags.map((t) => ({ key: t, label: t }))}
                     onChange={handleTagsChange}
                     onBlur={() => setLocalIsEditing(false)}
-                    loading={false}
+                    loading={tagsLoading}
                     data-attr={`${dataAttrKey}-new-tag-input`}
                     placeholder='try "official"'
                     size="xsmall"
@@ -71,7 +76,12 @@ export const SceneTags = ({
             <ButtonPrimitive
                 className="hyphens-auto flex gap-1 items-center"
                 lang="en"
-                onClick={() => onSave && canEdit && setLocalIsEditing(true)}
+                onClick={() => {
+                    if (onSave && canEdit) {
+                        loadTagsIfNeeded()
+                        setLocalIsEditing(true)
+                    }
+                }}
                 tooltip={canEdit ? 'Edit tags' : 'Tags are read-only'}
                 autoHeight
                 menuItem

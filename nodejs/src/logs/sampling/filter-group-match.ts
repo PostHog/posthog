@@ -10,6 +10,7 @@
  * The drop-rule form validates non-empty before submit; this is defense in
  * depth at the worker boundary.
  */
+import { decodeLogAttributeValue } from '~/logs/attribute-value'
 import type { LogRecord } from '~/logs/log-record-avro'
 
 import { type PropertyFilterLeaf, matchPropertyFilter } from './property-filter-match'
@@ -22,6 +23,8 @@ export type FilterGroupNode = {
 const PROPERTY_FILTER_TYPE_LOG = 'log'
 const PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE = 'log_attribute'
 const PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE = 'log_resource_attribute'
+const PROPERTY_FILTER_TYPE_SPAN_ATTRIBUTE = 'span_attribute'
+const PROPERTY_FILTER_TYPE_SPAN_RESOURCE_ATTRIBUTE = 'span_resource_attribute'
 
 /**
  * Hard ceiling on filter-group nesting depth. The drop-rules UI surfaces at
@@ -79,7 +82,7 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         // (underscore) is only the in-memory Avro field name, never an OTel
         // resource attribute. Looking up `resource_attributes['service_name']`
         // would silently miss real data.
-        return record.service_name ?? record.resource_attributes?.['service.name']
+        return record.service_name ?? decodedAttr(record.resource_attributes, 'service.name')
     }
     if (key === 'severity_text' || key === 'level' || key === 'severity_level') {
         // First-class column wins. Otherwise fall back to attribute storage,
@@ -91,17 +94,60 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         // attribute names is populated). `severity_level` is the logs UI / HogQL
         // alias and the key the drop-rule builder writes; without this branch it
         // falls through to the `type: 'log'` body fallback and never matches.
-        return record.severity_text ?? record.attributes?.['level'] ?? record.attributes?.['severity_text']
+        return (
+            record.severity_text ??
+            decodedAttr(record.attributes, 'level') ??
+            decodedAttr(record.attributes, 'severity_text')
+        )
     }
     if (key === 'message' || filter.type === PROPERTY_FILTER_TYPE_LOG) {
         return record.body ?? undefined
     }
 
-    if (filter.type === PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE) {
-        return record.resource_attributes?.[key]
+    // Span top-level keys (traces consumer decodes spans through the same Avro path, so
+    // these arrive on the record). Restricted to `span_attribute`-typed filters: a
+    // `log_attribute` filter named `status_code` / `name` must keep resolving through the
+    // attribute map, or an existing log drop/sampling rule would read the absent span
+    // column and silently stop matching. Falls back to the attribute map for spans whose
+    // column is unset, mirroring the service_name / severity_text handling above.
+    if (filter.type === PROPERTY_FILTER_TYPE_SPAN_ATTRIBUTE) {
+        if (key === 'status_code') {
+            const code = (record as { status_code?: number | null }).status_code
+            return code == null ? decodedAttr(record.attributes, key) : String(code)
+        }
+        if (key === 'name') {
+            return (record as { name?: string | null }).name ?? decodedAttr(record.attributes, key)
+        }
+        if (key === 'kind') {
+            const kind = (record as { kind?: number | null }).kind
+            return kind == null ? decodedAttr(record.attributes, key) : String(kind)
+        }
     }
-    if (filter.type === PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE) {
-        return record.attributes?.[key]
+
+    if (
+        filter.type === PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE ||
+        filter.type === PROPERTY_FILTER_TYPE_SPAN_RESOURCE_ATTRIBUTE
+    ) {
+        // Span resource attributes live on the same resource_attributes map (a span
+        // arrives as a LogRecord through the shared Avro decode path). Without this
+        // branch a span_resource_attribute leaf fell through to the untyped fallback,
+        // which reads span *attributes* first — so a same-named span attribute would
+        // shadow the resource attribute the filter asked for.
+        return decodedAttr(record.resource_attributes, key)
     }
-    return record.attributes?.[key] ?? record.resource_attributes?.[key]
+    if (filter.type === PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE || filter.type === PROPERTY_FILTER_TYPE_SPAN_ATTRIBUTE) {
+        return decodedAttr(record.attributes, key)
+    }
+    return decodedAttr(record.attributes, key) ?? decodedAttr(record.resource_attributes, key)
+}
+
+/**
+ * Attribute map values are JSON-encoded on the Avro wire (a string arrives as
+ * `"production"`, quotes included), while filter values and first-class columns
+ * are plain. Decode at the read so every operator compares like against like —
+ * the same decoding the ClickHouse sink applies before the preview queries it.
+ */
+function decodedAttr(map: Record<string, string> | null | undefined, key: string): string | undefined {
+    const raw = map?.[key]
+    return raw === undefined ? undefined : decodeLogAttributeValue(raw)
 }

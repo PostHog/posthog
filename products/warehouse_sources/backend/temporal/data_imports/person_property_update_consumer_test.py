@@ -1,4 +1,5 @@
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer import (
     _DEFAULT_RATE_PER_SEC,
@@ -20,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_up
     build_capture_kwargs,
 )
 
+hang = threading.Event()
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer"
 _SETTING = (
     "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer.get_instance_setting"
 )
@@ -35,13 +39,15 @@ class TestBuildCaptureKwargs:
             "event_name": "$set",
             "event_source": "x",
             "distinct_id": "42",
-            "properties": {"$set": {"plan_tier": "pro"}},
+            "properties": {"$set": {"plan_tier": "pro"}, "$geoip_disable": True},
             "process_person_profile": True,
         }
 
     def test_group_message_maps_to_groupidentify(self):
         # Regression: a group message must become a $groupidentify with $group_type/$group_key/$group_set
-        # and process_person_profile=False, mirroring the canonical group-identify write.
+        # and process_person_profile=True. With false, ingestion drops the event before the group
+        # upsert (invalid_event_when_process_person_profile_is_false), so the sync reports success
+        # while writing nothing to the group.
         kwargs = build_capture_kwargs(
             {
                 "token": "tok",
@@ -58,8 +64,13 @@ class TestBuildCaptureKwargs:
             "event_name": "$groupidentify",
             "event_source": EVENT_SOURCE,
             "distinct_id": "team-uuid",
-            "properties": {"$group_type": "organization", "$group_key": "acme", "$group_set": {"plan_tier": "pro"}},
-            "process_person_profile": False,
+            "properties": {
+                "$group_type": "organization",
+                "$group_key": "acme",
+                "$group_set": {"plan_tier": "pro"},
+                "$geoip_disable": True,
+            },
+            "process_person_profile": True,
         }
 
     @parameterized.expand(
@@ -172,6 +183,32 @@ class TestProcessRecord:
 
         assert c.process_record(value) == DLQ
         dlq.produce.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("team_found", {"return_value": SimpleNamespace(id=42)}, 42),
+            ("team_missing", {"return_value": None}, None),
+            ("lookup_error", {"side_effect": RuntimeError("db down")}, None),
+            ("lookup_hangs", {"side_effect": lambda _token: hang.wait(5)}, None),
+        ]
+    )
+    def test_capture_rejection_dlq_log_names_team(self, _name, lookup_kwargs, expected_team_id):
+        hang.clear()
+        capture = MagicMock(return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=402))
+        c = self._consumer(capture)
+        value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+
+        with (
+            patch(f"{_MODULE}.Team.objects.get_team_from_cache_or_token", **lookup_kwargs),
+            patch(f"{_MODULE}._TEAM_LOOKUP_TIMEOUT_SECONDS", 0.05),
+            capture_logs() as logs,
+        ):
+            assert c.process_record(value) == DLQ
+            hang.set()
+
+        [entry] = [e for e in logs if e["event"] == "person_property_update.dlq"]
+        assert entry["reason"] == "capture_error:402"
+        assert entry["team_id"] == expected_team_id
 
     @parameterized.expand(
         [

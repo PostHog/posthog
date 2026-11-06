@@ -24,6 +24,7 @@ export type { ChangeColor, MetricChange }
 interface MetricContextValue {
     /** Formatted headline — already follows the hovered sparkline point. */
     headlineDisplay: string
+    headlineColor?: string
     /** Resolved caption (subtitle override → resting subtitle at rest → hovered label). */
     subtitle: React.ReactNode
     /** The change pill's resolved state, or null when there is nothing to show. */
@@ -50,6 +51,7 @@ interface MetricContextValue {
         dashedFromIndex?: number
         setHoverIndex: (index: number) => void
         tooltip?: (ctx: TooltipContext) => React.ReactNode
+        onError?: (error: Error, info: React.ErrorInfo) => void
     } | null
 }
 
@@ -64,6 +66,7 @@ function useMetric(part: string): MetricContextValue {
 }
 
 const DEFAULT_FORMAT_VALUE = (v: number): string => v.toLocaleString()
+const DEFAULT_FORMAT_LABEL = (label: string): React.ReactNode => label
 const DEFAULT_FORMAT_CHANGE = (p: number): string => {
     // Matches the monolithic MetricCard: `percentage` carries the sign for negatives, we prepend `+`.
     const formatted = percentage(p / 100, 1, true)
@@ -74,8 +77,13 @@ interface MetricBaseProps {
     /** Resting headline number. Defaults to `data[data.length - 1]` when `data` is present;
      *  required when `data` is empty or omitted. */
     value?: number
-    /** Labels paired with `data`. Used for the default subtitle on hover. */
+    /** Labels paired with `data`. Used for the default subtitle on hover, and passed to the sparkline
+     *  as its x-scale keys, so entries must be unique. Pass raw keys (ISO dates) and turn them into
+     *  display text with `formatLabel`, because pre-formatted text like `'June 16'` repeats once a
+     *  range spans a year, and a duplicate collapses two points onto one position. */
     labels?: string[]
+    /** Formats a `labels` entry for the subtitle, so `labels` can stay unique raw keys. */
+    formatLabel?: (label: string) => React.ReactNode
     /** Required when `data` is present. */
     theme?: ChartTheme
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
@@ -89,6 +97,8 @@ interface MetricBaseProps {
     /** Tooltip renderer for the sparkline. Off by default — hovering already scrubs the headline. */
     sparklineTooltip?: (ctx: TooltipContext) => React.ReactNode
     formatValue?: (value: number) => string
+    /** Headline color for the value it shows, so a hovered point gets its own color (a threshold status). */
+    valueColor?: (value: number) => string | undefined
     formatChange?: (percent: number) => string
     showChange?: boolean
     /** Fixed comparison pill. Supplied → no hover-driven fallback. Pass `null` to suppress. */
@@ -157,10 +167,9 @@ export type MetricProps = MetricBaseProps &
  * ```
  */
 export function Metric(props: MetricProps): React.ReactElement | null {
-    const { onError, ...rest } = props
     return (
-        <ChartErrorBoundary onError={onError}>
-            <MetricInner {...rest} />
+        <ChartErrorBoundary onError={props.onError}>
+            <MetricInner {...props} />
         </ChartErrorBoundary>
     )
 }
@@ -170,6 +179,7 @@ function MetricInner({
     data,
     series,
     labels,
+    formatLabel = DEFAULT_FORMAT_LABEL,
     theme,
     color,
     sparklineHeight = 120,
@@ -178,6 +188,7 @@ function MetricInner({
     sparklineDashedFromIndex,
     sparklineTooltip,
     formatValue = DEFAULT_FORMAT_VALUE,
+    valueColor,
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
     change,
@@ -188,12 +199,16 @@ function MetricInner({
     subtitle,
     restingSubtitle,
     hoverChangeFromPreviousPoint = false,
-    animationMs = 350,
-    hoverIntentMs = 140,
+    animationMs = 120,
+    hoverIntentMs = 60,
     className,
     dataAttr,
+    onError,
     children,
-}: Omit<MetricBaseProps, 'onError'> & { data?: number[]; series?: Series[] }): React.ReactElement | null {
+}: MetricBaseProps & {
+    data?: number[]
+    series?: Series[]
+}): React.ReactElement | null {
     const sparklineData = data != null && data.length > 0 && theme != null ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
@@ -236,10 +251,13 @@ function MetricInner({
         const positive = delta != null && delta.value >= 0
         const good = goodDirection === 'up' ? positive : !positive
 
+        const activeLabel = labels?.[activeIndex]
+        const labelCaption = activeLabel != null ? formatLabel(activeLabel) : undefined
+
         return {
             headlineDisplay: sparklineData ? formatValue(animatedValue) : formatValue(restingValue),
-            subtitle:
-                subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labels?.[activeIndex]),
+            headlineColor: valueColor?.(animationTarget),
+            subtitle: subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labelCaption),
             change:
                 delta != null
                     ? {
@@ -264,6 +282,7 @@ function MetricInner({
                       dashedFromIndex: sparklineDashedFromIndex,
                       setHoverIndex,
                       tooltip: sparklineTooltip,
+                      onError,
                   }
                 : null,
         }
@@ -282,10 +301,13 @@ function MetricInner({
         positiveColor,
         negativeColor,
         formatValue,
+        valueColor,
+        animationTarget,
         animatedValue,
         subtitle,
         restingSubtitle,
         labels,
+        formatLabel,
         theme,
         color,
         series,
@@ -294,6 +316,7 @@ function MetricInner({
         sparklineFillOpacity,
         sparklineDashedFromIndex,
         sparklineTooltip,
+        onError,
     ])
 
     if (ctx == null) {
@@ -313,24 +336,38 @@ function MetricInner({
 }
 
 /** Header row: title on the left, change pill (or anything) on the right. */
-export function MetricHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div className={cn('flex items-start justify-between gap-2', className)} {...props} />
-}
+export const MetricHeader = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MetricHeader(
+    { className, ...props },
+    ref
+) {
+    return <div ref={ref} className={cn('flex items-start justify-between gap-2', className)} {...props} />
+})
 
-export function MetricTitle({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div className={cn('text-sm font-medium', className)} {...props} />
-}
+export const MetricTitle = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MetricTitle(
+    { className, ...props },
+    ref
+) {
+    return <div ref={ref} className={cn('text-sm font-medium', className)} {...props} />
+})
 
 /** Headline number. Follows the hovered sparkline point; pass `children` to render your own, or a
  *  `text-*` class to resize it (cn lets your size win over the default `text-4xl`). */
-export function MetricValue({ className, children, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    const { headlineDisplay } = useMetric('MetricValue')
+export const MetricValue = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MetricValue(
+    { className, children, style, ...props },
+    ref
+) {
+    const { headlineDisplay, headlineColor } = useMetric('MetricValue')
     return (
-        <div className={cn('min-w-0 truncate text-4xl font-bold tracking-tight tabular-nums', className)} {...props}>
+        <div
+            ref={ref}
+            className={cn('min-w-0 truncate text-4xl font-bold tracking-tight tabular-nums', className)}
+            style={{ color: headlineColor, ...style }}
+            {...props}
+        >
             {children ?? headlineDisplay}
         </div>
     )
-}
+})
 
 /** Change pill — a `Badge` (success/destructive by `goodDirection`, or the root's custom
  *  `positiveColor`/`negativeColor`) with a directional chevron. Renders nothing when there is no
@@ -348,7 +385,10 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
             // Dynamic user-configured colors can't be Tailwind classes; inline style wins over the variant.
             style={
                 change.colors != null
-                    ? { background: change.colors.background, color: change.colors.foreground }
+                    ? {
+                          background: change.colors.background,
+                          color: change.colors.foreground,
+                      }
                     : undefined
             }
             data-attr="metric-change-pill"
@@ -360,11 +400,10 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
     if (change.tooltip == null) {
         return badge
     }
-    // Badge isn't a forwardRef component, so it can't be the `render` target — anchor on a span.
     return (
         <TooltipProvider>
             <Tooltip>
-                <TooltipTrigger render={<span className="inline-flex" />}>{badge}</TooltipTrigger>
+                <TooltipTrigger render={badge} />
                 <TooltipContent>{change.tooltip}</TooltipContent>
             </Tooltip>
         </TooltipProvider>
@@ -372,22 +411,21 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
 }
 
 /** Caption under the headline. Renders nothing when empty; pass `children` to override. */
-export function MetricSubtitle({
-    className,
-    children,
-    ...props
-}: React.ComponentProps<'div'>): React.ReactElement | null {
+export const MetricSubtitle = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MetricSubtitle(
+    { className, children, ...props },
+    ref
+) {
     const { subtitle } = useMetric('MetricSubtitle')
     const content = children ?? subtitle
     if (content == null || content === '') {
         return null
     }
     return (
-        <div className={cn('text-sm opacity-60', className)} data-attr="metric-subtitle" {...props}>
+        <div ref={ref} className={cn('text-sm opacity-60', className)} data-attr="metric-subtitle" {...props}>
             {content}
         </div>
     )
-}
+})
 
 /** Sparkline, bled out to the card edges. Renders nothing when no series was supplied to the root. */
 export function MetricSparkline({
@@ -419,6 +457,7 @@ export function MetricSparkline({
             tooltip={sparkline.tooltip}
             className={cn('relative top-[6px]', pinBottom, className)}
             dataAttr="metric-sparkline"
+            onError={sparkline.onError}
         />
     )
 }

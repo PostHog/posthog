@@ -10,7 +10,7 @@
             "type": "boolean"
         },
         "enabled": {
-            "description": "Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.",
+            "description": "Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the boolean form `true` / `false`. Omit to list every scanner.",
             "type": "string"
         },
         "experiment_id": {
@@ -35,6 +35,10 @@
         },
         "search": {
             "description": "Case-insensitive substring match across name, description, and the prompt in scanner_config.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "Filter to scanners carrying at least one of the given tags (comma-separated).",
             "type": "string"
         }
     },

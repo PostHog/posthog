@@ -24,17 +24,21 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import DatabricksIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import DatabricksIntegration
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsModel,
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
-    BatchExportSchema,
     DatabricksBatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -43,6 +47,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -54,6 +59,7 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -63,6 +69,7 @@ EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = [
+    "UnsupportedColumnTypeError",
     # Our own exception when we can't connect to Databricks, usually due to invalid parameters.
     "DatabricksConnectionError",
     # Raised when we don't have sufficient permissions to perform an operation.
@@ -89,6 +96,7 @@ DatabricksField = tuple[str, str]
 
 # Common operation timeouts (seconds)
 ONE_MINUTE = 60
+TWO_MINUTES = 2 * 60
 FIVE_MINUTES = 5 * 60
 THIRTY_MINUTES = 30 * 60
 ONE_HOUR = 60 * 60
@@ -192,7 +200,7 @@ class DatabricksIncompatibleSchemaError(DatabricksOperationError):
         )
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class DatabricksInsertInputs(BatchExportInsertInputs):
     """Inputs for Databricks.
 
@@ -213,6 +221,7 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         NOTE: currently we don't expose this in the frontend as we're assuming all users would want to use this.
     """
 
+    data_interval_end: str
     integration_id: int
     http_path: str
     catalog: str
@@ -220,6 +229,10 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
     table_name: str
     use_variant_type: bool = True
     use_automatic_schema_evolution: bool = True
+
+
+def _quote_databricks_identifier(identifier: str) -> str:
+    return "`" + identifier.replace("`", "``") + "`"
 
 
 class DatabricksClient:
@@ -311,7 +324,13 @@ class DatabricksClient:
         that case in ``connect_timeout_seconds`` and, unlike wrapping ``sql.connect`` in a timeout,
         leaves no stranded thread — the socket terminates on its own timeout and the SDK call is never
         started.
+
+        We also refuse a host outside the Databricks workspace DNS zones, because the SDK and connector
+        send requests to URLs the server returns. Checking here as well as at creation also covers
+        integrations that are already stored.
         """
+        if not is_databricks_workspace_host(self.server_hostname):
+            raise DatabricksConnectionError(NOT_A_DATABRICKS_HOST_MESSAGE, retryable=False)
 
         def probe() -> None:
             with socket.create_connection((self.server_hostname, 443), timeout=self.connect_timeout_seconds):
@@ -357,10 +376,14 @@ class DatabricksClient:
                 enable_telemetry=False,
                 # Per-RPC, not per-query — long queries poll via repeated status RPCs.
                 _socket_timeout=ONE_MINUTE,
-                _retry_stop_after_attempts_count=2,
+                # The SDK floors each retry wait at `_retry_delay_max` and skips the retry if that
+                # wait would exceed `_retry_stop_after_attempts_duration`, so the delay must stay
+                # under the budget.
+                _retry_delay_max=10,
+                _retry_stop_after_attempts_count=4,
                 # Cap the SDK's synchronous retry loop so a cancelled caller doesn't leave
                 # the worker thread polling for ~15 minutes (the SDK's 900s default).
-                _retry_stop_after_attempts_duration=ONE_MINUTE,
+                _retry_stop_after_attempts_duration=TWO_MINUTES,
                 session_configuration=(
                     {"STATEMENT_TIMEOUT": str(int(self.statement_timeout_seconds))}
                     if self.statement_timeout_seconds is not None
@@ -632,7 +655,7 @@ class DatabricksClient:
     async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
         timeout = FIVE_MINUTES
-        field_ddl = ", ".join(f"`{field[0]}` {field[1]}" for field in fields)
+        field_ddl = ", ".join(f"{_quote_databricks_identifier(field[0])} {field[1]}" for field in fields)
         query = f"""
             CREATE TABLE IF NOT EXISTS `{table_name}` (
                 {field_ddl}
@@ -705,14 +728,15 @@ class DatabricksClient:
         """
         select_fields = []
         for field in fields:
+            quoted_field = _quote_databricks_identifier(field[0])
             if field[1] == "VARIANT":
-                select_fields.append(f"PARSE_JSON(`{field[0]}`) as `{field[0]}`")
+                select_fields.append(f"PARSE_JSON({quoted_field}) as {quoted_field}")
             elif field[1] == "BIGINT":
-                select_fields.append(f"CAST(`{field[0]}` as BIGINT) as `{field[0]}`")
+                select_fields.append(f"CAST({quoted_field} as BIGINT) as {quoted_field}")
             elif field[1] == "INTEGER":
-                select_fields.append(f"CAST(`{field[0]}` as INTEGER) as `{field[0]}`")
+                select_fields.append(f"CAST({quoted_field} as INTEGER) as {quoted_field}")
             else:
-                select_fields.append(f"`{field[0]}`")
+                select_fields.append(quoted_field)
         select_fields_str = ", ".join(select_fields)
 
         merge_schema = f"true" if with_schema_evolution else "false"
@@ -818,7 +842,6 @@ class DatabricksClient:
         """
 
         assert merge_key, "Merge key must be defined"
-        assert update_key, "Update key must be defined"
 
         if with_schema_evolution is True:
             self.logger.info(
@@ -875,14 +898,20 @@ class DatabricksClient:
         merge_key: collections.abc.Iterable[str],
         update_key: collections.abc.Iterable[str],
     ) -> str:
-        merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
-        update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
+        merge_condition = " AND ".join(
+            f"target.{quoted} = source.{quoted}" for quoted in map(_quote_databricks_identifier, merge_key)
+        )
+        update_condition = " OR ".join(
+            f"target.{quoted} < source.{quoted}" for quoted in map(_quote_databricks_identifier, update_key)
+        )
+        if update_condition:
+            update_condition = f" AND ({update_condition})"
 
         return f"""
         MERGE WITH SCHEMA EVOLUTION INTO `{target_table}` AS target
         USING `{source_table}` AS source
         ON {merge_condition}
-        WHEN MATCHED AND ({update_condition}) THEN
+        WHEN MATCHED{update_condition} THEN
             UPDATE SET *
         WHEN NOT MATCHED THEN
             INSERT *
@@ -897,27 +926,41 @@ class DatabricksClient:
         source_table_fields: collections.abc.Iterable[DatabricksField],
         target_table_field_names: list[str],
     ) -> str:
-        merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
-        update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
+        merge_condition = " AND ".join(
+            f"target.{quoted} = source.{quoted}" for quoted in map(_quote_databricks_identifier, merge_key)
+        )
+        update_condition = " OR ".join(
+            f"target.{quoted} < source.{quoted}" for quoted in map(_quote_databricks_identifier, update_key)
+        )
+        if update_condition:
+            update_condition = f" AND ({update_condition})"
         update_clause = ", ".join(
             [
-                f"target.`{field[0]}` = source.`{field[0]}`"
+                f"target.{_quote_databricks_identifier(field[0])} = source.{_quote_databricks_identifier(field[0])}"
                 for field in source_table_fields
                 if field[0] in target_table_field_names
             ]
         )
         field_names = ", ".join(
-            [f"`{field[0]}`" for field in source_table_fields if field[0] in target_table_field_names]
+            [
+                _quote_databricks_identifier(field[0])
+                for field in source_table_fields
+                if field[0] in target_table_field_names
+            ]
         )
         values = ", ".join(
-            [f"source.`{field[0]}`" for field in source_table_fields if field[0] in target_table_field_names]
+            [
+                f"source.{_quote_databricks_identifier(field[0])}"
+                for field in source_table_fields
+                if field[0] in target_table_field_names
+            ]
         )
 
         return f"""
         MERGE INTO `{target_table}` AS target
         USING `{source_table}` AS source
         ON {merge_condition}
-        WHEN MATCHED AND ({update_condition}) THEN
+        WHEN MATCHED{update_condition} THEN
             UPDATE SET
                 {update_clause}
         WHEN NOT MATCHED THEN
@@ -933,10 +976,16 @@ def databricks_default_fields() -> list[BatchExportField]:
     concerned about supporting legacy fields for backwards compatibility.
     """
     batch_export_fields = events_model_default_fields()
+    # `timestamp` comes from the client, whereas `created_at` is set server-side at ingestion, so
+    # users get an event time they can rely on.
+    batch_export_fields.append({"expression": "created_at", "alias": "created_at"})
     # add a metadata field for the ingested timestamp to aid with debugging
     # (this is not strictly the time the data is ingested into Databricks but rather the time we query it from ClickHouse)
     batch_export_fields.append({"expression": "NOW64()", "alias": "databricks_ingested_timestamp"})
     return batch_export_fields
+
+
+DATABRICKS_MAX_DECIMAL_PRECISION = 38
 
 
 def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | None:
@@ -968,9 +1017,17 @@ def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | 
     elif pa.types.is_timestamp(pa_type):
         return "TIMESTAMP"
 
+    elif pa.types.is_date(pa_type):
+        return "DATE"
+
+    elif pa.types.is_decimal(pa_type) and pa_type.precision <= DATABRICKS_MAX_DECIMAL_PRECISION:
+        return f"DECIMAL({pa_type.precision}, {pa_type.scale})"
+
     elif pa.types.is_list(pa_type):
         assert isinstance(pa_type, pa.ListType)
         list_type = _get_databricks_field_type(pa_type.value_type, False)
+        if list_type is None:
+            return None
         return f"ARRAY<{list_type}>"
 
     return None
@@ -994,10 +1051,30 @@ def _get_databricks_fields_from_record_schema(
         is_variant = pa_field.name in known_variant_columns
         databricks_type = _get_databricks_field_type(pa_field.type, is_variant)
         if databricks_type is None:
-            raise TypeError(f"Unsupported type in field '{name}': '{databricks_type}'")
+            raise ColumnTypeMappingError("Databricks", name, pa_field.type)
         databricks_schema.append((name, databricks_type))
 
     return databricks_schema
+
+
+def _events_table_fields(json_type: str) -> list[DatabricksField]:
+    """Return the Databricks columns for the events model with the default schema.
+
+    Must stay in sync with the fields `databricks_default_fields` queries, minus `_inserted_at`,
+    which only tracks progress and is never exported.
+    """
+    return [
+        ("uuid", "STRING"),
+        ("event", "STRING"),
+        ("properties", json_type),
+        ("person_properties", json_type),
+        ("person_id", "STRING"),
+        ("distinct_id", "STRING"),
+        ("team_id", "BIGINT"),
+        ("timestamp", "TIMESTAMP"),
+        ("created_at", "TIMESTAMP"),
+        ("databricks_ingested_timestamp", "TIMESTAMP"),
+    ]
 
 
 class TableSettings(t.NamedTuple):
@@ -1007,7 +1084,7 @@ class TableSettings(t.NamedTuple):
 
 
 def _get_databricks_table_settings(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel,
     record_batch_schema: pa.Schema,
     use_variant_type: bool,
 ) -> TableSettings:
@@ -1030,42 +1107,30 @@ def _get_databricks_table_settings(
         json_type = "STRING"
         known_variant_columns = []
 
-    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-        table_fields = [
-            ("uuid", "STRING"),
-            ("event", "STRING"),
-            ("properties", json_type),
-            ("person_properties", json_type),
-            ("distinct_id", "STRING"),
-            ("team_id", "BIGINT"),
-            ("timestamp", "TIMESTAMP"),
-            ("databricks_ingested_timestamp", "TIMESTAMP"),
-        ]
+    if isinstance(model, BatchExportEventsModel):
+        table_fields = _events_table_fields(json_type)
+
+        # Staging and copying are two activities, so a deploy of a schema change between them could
+        # leave the staged files a version behind this list. Outside that window the two lists
+        # always match, because the staging query is built from the same
+        # `databricks_default_fields`.
+        staged_columns = set(record_batch_schema.names)
+        missing_columns = [name for name, _ in table_fields if name not in staged_columns]
+        if missing_columns:
+            LOGGER.warning("Skipping columns absent from the staged data: %s", missing_columns)
+            staged_fields = [field for field in table_fields if field[0] in staged_columns]
+            # Keeping the full list is better than a `CREATE TABLE` with no columns, which cannot
+            # run at all. Sharing no column with the staged data means something else is wrong.
+            if staged_fields:
+                table_fields = staged_fields
     else:
-        table_fields = _get_databricks_fields_from_record_schema(
-            record_batch_schema,
-            known_variant_columns=known_variant_columns,
-        )
+        with handle_column_type_mapping_errors(model):
+            table_fields = _get_databricks_fields_from_record_schema(
+                record_batch_schema,
+                known_variant_columns=known_variant_columns,
+            )
 
     return TableSettings(table_fields, record_batch_schema, known_variant_columns)
-
-
-def _get_databricks_merge_config(
-    model: BatchExportModel | BatchExportSchema | None,
-) -> tuple[bool, list[str], list[str]]:
-    requires_merge = False
-    merge_key = []
-    update_key = []
-    if isinstance(model, BatchExportModel):
-        if model.name == "persons":
-            requires_merge = True
-            merge_key = ["team_id", "distinct_id"]
-            update_key = ["person_version", "person_distinct_id_version"]
-        elif model.name == "sessions":
-            requires_merge = True
-            merge_key = ["team_id", "session_id"]
-            update_key = ["end_timestamp"]
-    return requires_merge, merge_key, update_key
 
 
 async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> DatabricksIntegration:
@@ -1076,8 +1141,8 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
         DatabricksIntegrationError: If the Databricks integration is not valid.
     """
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.databricks.credentials.aget(inputs.team_id, inputs.integration_id)
+    except IntegrationNotFound:
         raise DatabricksIntegrationNotFoundError(f"Databricks integration with id '{inputs.integration_id}' not found")
     return DatabricksIntegration(integration)
 
@@ -1266,12 +1331,8 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         inputs.table_name,
     )
 
-    async with Heartbeater():
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None:
-            model = inputs.batch_export_model
-        else:
-            model = inputs.batch_export_schema
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
+        model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_DATABRICKS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1284,6 +1345,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
@@ -1301,7 +1363,9 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             use_variant_type=inputs.use_variant_type,
         )
 
-        requires_merge, merge_key, update_key = _get_databricks_merge_config(model=model)
+        requires_merge = model.incremental_mode == IncrementalMode.MERGE
+        merge_key = list(model.primary_key) if requires_merge else []
+        update_key = list(model.version_key) if requires_merge else []
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         # include attempt in the stage table & volume names to avoid collisions if multiple attempts are running at the
@@ -1346,7 +1410,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 consumer = DatabricksConsumer(
                     client=databricks_client,
                     volume_path=volume_path,
-                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                    model=model.name,
                 )
 
                 transformer: ChunkTransformerProtocol = ParquetStreamTransformer(
@@ -1451,7 +1515,6 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=databricks_default_fields(),
             integration_id=inputs.integration_id,

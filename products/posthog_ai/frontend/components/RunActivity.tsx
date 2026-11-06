@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react'
 
 import { Activity } from './ActivityPrimitives'
-import type { ActivityStatus } from './ActivityPrimitives'
+import type { ActivityStatus } from './activityTypes'
 
 /**
  * Progress / status card for the sandbox runtime — a thin adapter over the shared `Activity` used by

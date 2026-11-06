@@ -58,6 +58,24 @@ const render = (props: SqlChartProps): JSX.Element => (
 
 const baseSettings: ChartSettings = { showLegend: true }
 
+export const InsideLabelsWithoutGaps: Story = {
+    render: () =>
+        render({
+            xData,
+            yData: positiveSeries,
+            visualizationType: ChartDisplayType.ActionsStackedBar,
+            chartSettings: {
+                ...baseSettings,
+                showValuesOnSeries: true,
+                valueLabelPosition: 'center',
+                valueLabelBackground: false,
+                valueLabelFontSize: 14,
+                valueLabelRotation: -90,
+                barGap: 0,
+            },
+        }),
+}
+
 export const StackedBar: Story = {
     render: () =>
         render({
@@ -88,5 +106,15 @@ export const GroupedBarWithNegativeValues: Story = {
             yData: mixedSignSeries,
             visualizationType: ChartDisplayType.ActionsBar,
             chartSettings: baseSettings,
+        }),
+}
+
+export const HorizontalBar: Story = {
+    render: () =>
+        render({
+            xData,
+            yData: positiveSeries,
+            visualizationType: ChartDisplayType.ActionsBarValue,
+            chartSettings: { ...baseSettings, showValuesOnSeries: true },
         }),
 }

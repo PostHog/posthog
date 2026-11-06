@@ -18,6 +18,7 @@ jest.mock('~/common/utils/request', () => {
                 text: () => Promise.resolve(''),
             } as FetchResponse)
         ),
+        closeSharedAgents: jest.fn(() => Promise.resolve()),
     }
 })
 

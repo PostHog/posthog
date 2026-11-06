@@ -1,12 +1,19 @@
 import os
 import json
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.errors import QueryError
+
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import ExposedCHQueryError
+
+from products.logs.backend.presentation.views.api import _LogsValuesQuerySerializer
 
 
 class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
@@ -114,6 +121,39 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("de", result["name"].lower(), f"Value '{result['name']}' should contain 'de'")
 
         self.assertGreater(len(results), 0, "Should return at least one result")
+
+    @parameterized.expand(
+        [
+            ("the service the values live under", "argo-rollouts", True),
+            ("another service", "cdp-api", False),
+        ]
+    )
+    def test_log_values_query_scoped_by_service_in_group(self, _name, service, expects_results):
+        # The viewer keeps its service selection in filterGroup, so these suggestions have to read it
+        # from there: otherwise a scoped viewer offers values that exist only in other services.
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": "level",
+            "attribute_type": "log",
+            "value": "DE",
+            "filterGroup": json.dumps(
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "service_name", "type": "log", "operator": "exact", "value": [service]}],
+                        }
+                    ],
+                }
+            ),
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results) > 0, expects_results)
 
     def test_log_values_query_with_value_filter_no_matches(self):
         query_params = {
@@ -306,6 +346,88 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         self.assertLess(brokers_id_index, pid_index, "brokers.0.id should appear before pid when searching for 'id'")
 
 
+class TestLogValuesAttributesQueryErrors(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "values",
+                "products.logs.backend.presentation.views.api.LogValuesQueryRunner.calculate",
+                {"key": "service.name", "attribute_type": "resource"},
+            ),
+            (
+                "attributes",
+                "products.logs.backend.presentation.views.api.LogAttributesQueryRunner.calculate",
+                {"attribute_type": "resource"},
+            ),
+        ]
+    )
+    def test_query_error_returns_400_with_message(self, endpoint, runner_path, params):
+        # HogQL and ClickHouse failures are disjoint exception hierarchies; both must reach the
+        # service filter as a clean 400, not an opaque 500.
+        for error in (QueryError("bad log query"), ExposedCHQueryError("bad clickhouse query", code=43)):
+            with self.subTest(error=type(error).__name__):
+                with patch(runner_path, side_effect=error):
+                    response = self.client.get(f"/api/projects/{self.team.pk}/logs/{endpoint}", params)
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.json()["error"], str(error))
+
+    @parameterized.expand(
+        [
+            ("values", "LogValuesQueryRunner", {"key": "service.name", "attribute_type": "resource"}),
+            ("attributes", "LogAttributesQueryRunner", {"attribute_type": "resource"}),
+        ]
+    )
+    def test_filter_group_param_is_optional_and_accepts_a_flat_list(self, endpoint, runner_name, params):
+        flat_filter_group = [{"type": "log", "key": "severity_level", "value": ["error"], "operator": "exact"}]
+        with (
+            patch(f"products.logs.backend.presentation.views.api.{runner_name}") as runner_class,
+            patch("posthog.api.mixins.capture_exception") as capture_exception,
+        ):
+            runner_class.return_value.calculate.return_value = SimpleNamespace(results=[], count=0)
+
+            response = self.client.get(f"/api/projects/{self.team.pk}/logs/{endpoint}", params)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            self.assertIsNone(runner_class.call_args.kwargs["query"].filterGroup)
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/logs/{endpoint}",
+                {**params, "filterGroup": json.dumps(flat_filter_group)},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            filter_group = runner_class.call_args.kwargs["query"].filterGroup
+            self.assertEqual(filter_group.values[0].values[0].key, "severity_level")
+
+        capture_exception.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("empty_string", ""),
+            ("empty_object", "{}"),
+            ("empty_list", "[]"),
+            ("not_json", "not json"),
+            ("scalar", "5"),
+            ("group_without_values", json.dumps({"type": "AND"})),
+            ("integer_past_the_digit_limit", "[" + "1" * 5000 + "]"),
+        ]
+    )
+    def test_malformed_filter_group_param_means_no_filter(self, _name, filter_group):
+        with (
+            patch("products.logs.backend.presentation.views.api.LogAttributesQueryRunner") as runner_class,
+            patch("posthog.api.mixins.capture_exception") as capture_exception,
+        ):
+            runner_class.return_value.calculate.return_value = SimpleNamespace(results=[], count=0)
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/logs/attributes",
+                {"attribute_type": "resource", "filterGroup": filter_group},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIsNone(runner_class.call_args.kwargs["query"].filterGroup)
+        capture_exception.assert_not_called()
+
+
 class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
@@ -362,3 +484,132 @@ class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
         names = {r["name"] for r in response.json()["results"]}
         self.assertIn("50%off", names)
         self.assertNotIn("50ABCoff", names)
+
+
+class TestLogAttributesKeysFilter(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    DATE_RANGE = '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}'
+    FILLER_KEYS = [f"filler.key.{i:03d}" for i in range(100)]
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # The 100 filler keys occur in two logs. The environment key occurs in one log.
+        # A list of the 100 most common keys omits the environment key. The facet probe must find it.
+        filler = dict.fromkeys(cls.FILLER_KEYS, "x")
+        resources = [
+            {"service.name": "api", **filler},
+            {"service.name": "api", **filler},
+            {"service.name": "api", "deployment.environment": "production"},
+        ]
+        sql = ""
+        for i, resource_attributes in enumerate(resources):
+            sql += (
+                json.dumps(
+                    {
+                        "uuid": f"019b2664-0000-7000-0000-0000000001{i:02d}",
+                        "team_id": cls.team.id,
+                        "timestamp": "2025-12-16 09:30:00.000000",
+                        "observed_timestamp": "2025-12-16 09:30:00.000000",
+                        "body": f"keys filter log {i}",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": "api",
+                        "resource_attributes": resource_attributes,
+                    }
+                )
+                + "\n"
+            )
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
+
+    def _get(self, params: dict):
+        query_params = {"dateRange": self.DATE_RANGE, "attribute_type": "resource", **params}
+        return self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+
+    def _names(self, params: dict) -> list[str]:
+        response = self._get(params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return [r["name"] for r in response.json()["results"]]
+
+    def test_keys_returns_low_volume_key_beyond_top_100(self):
+        self.assertNotIn("deployment.environment", self._names({}))
+        self.assertEqual(
+            self._names({"keys": "deployment.environment.name,deployment.environment,env"}),
+            ["deployment.environment"],
+        )
+
+    def test_keys_survive_resource_attribute_filter(self):
+        # Keep the key filter out of the resource fingerprint subquery. That subquery has no attribute_key.
+        filter_group = json.dumps(
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "service.name",
+                                "type": "log_resource_attribute",
+                                "operator": "exact",
+                                "value": ["api"],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(
+            self._names({"keys": "deployment.environment", "filterGroup": filter_group}), ["deployment.environment"]
+        )
+
+    @parameterized.expand(
+        [
+            ("spaces_and_blanks", " deployment.environment , ,env,", ["deployment.environment"]),
+            ("duplicates", "deployment.environment,deployment.environment", ["deployment.environment"]),
+            ("absent_key", "k8s.pod.name", []),
+        ]
+    )
+    def test_keys_parsing(self, _name, keys, expected):
+        self.assertEqual(self._names({"keys": keys}), expected)
+
+    def test_empty_keys_does_not_filter(self):
+        self.assertEqual(len(self._names({"keys": ""})), 100)
+
+    @parameterized.expand(
+        [
+            ("window_over_the_seed", "2025-12-16T09:00:00Z", "2025-12-16T11:00:00Z", ["deployment.environment"]),
+            ("window_before_the_seed", "2025-12-15T09:00:00Z", "2025-12-15T11:00:00Z", []),
+        ]
+    )
+    def test_flat_date_params_scope_window(self, _name, date_from, date_to, expected):
+        # The generated frontend client cannot send the JSON dateRange, so it scopes the window with flat params.
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/logs/attributes",
+            {
+                "attribute_type": "resource",
+                "keys": "deployment.environment",
+                "date_from": date_from,
+                "date_to": date_to,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([r["name"] for r in response.json()["results"]], expected)
+
+    def test_date_range_json_wins_over_flat_params(self):
+        names = self._names(
+            {"keys": "deployment.environment", "date_from": "2025-12-15T09:00:00Z", "date_to": "2025-12-15T11:00:00Z"}
+        )
+        self.assertEqual(names, ["deployment.environment"])
+
+    def test_too_many_keys_returns_400(self):
+        response = self._get({"keys": ",".join(f"key.{i}" for i in range(101))})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestLogValuesQuerySerializer:
+    def test_blank_value_is_accepted(self) -> None:
+        serializer = _LogsValuesQuerySerializer(data={"key": "level", "value": ""})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data.get("value", "") == ""

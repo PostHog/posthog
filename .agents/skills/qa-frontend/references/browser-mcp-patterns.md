@@ -56,6 +56,14 @@ Start with the default snapshot. Deepen or scroll only when:
 
 Do not declare an element absent until you have checked the plausible scroll or tab state.
 
+## Proof-First Screenshots
+
+Every screenshot should visibly prove the coverage row it supports. Before capturing, identify the exact text, control, table row, chart, toast, or form state that makes the target pass or fail. Wait for that proof element, scroll it into view when needed, and capture with enough surrounding context for a reviewer to understand the route and state.
+
+For long pages, landing pages, pricing pages, docs, and other hero-led layouts, assume the first viewport is setup context rather than proof. A screenshot of the hero only is not useful evidence for a lower-page gate, form, warning, or CTA state. Scroll to the changed region before capture, or use a full-page screenshot only when the resulting image remains readable and the proof area is easy to find.
+
+After each candidate screenshot, inspect the saved file before annotating or uploading it. Recapture if the proof is cropped away, hidden behind a banner or caption, too small to read, or if the frame mostly shows navigation, debug chrome, or unrelated page setup. If the screenshot needs a caption to explain a term of art, add a short note in the report rather than relying on the image alone.
+
 ## Console And Network Signals
 
 Collect a baseline console snapshot after initial page load, then compare after the changed action. Treat a new error as relevant only if it appears after the target interaction or clearly belongs to the exercised endpoint.
@@ -277,6 +285,6 @@ Run a **demo pass** by default after the QA loop settles: re-run the key flow on
 
    The sheet must show the caption bar present from the first seconds, every step's caption in order, motion between frames (no stretches of identical idle frames), and the final finding state held at the end. If it does not, fix the trim and re-check; do not share an unverified video.
 
-Transcoding needs a local `ffmpeg`; if it is missing, keep the WebM and say so in run notes. A 15-second 1280px demo lands around 300 KB. Keep the MP4 under ~10 MB so it stays drag-droppable into a GitHub comment. Do not try to auto-embed video in an agent-posted comment: GitHub only renders a video player for files uploaded by hand through its web editor, and raw-hosted MP4 links are served as downloads, not playable video. Link the MP4 from the local report; in PR mode it may join the approved upload set via `hogli pr:upload-video` (a download link in the comment), and the developer can still drag the file into the comment editor for an inline player. The overlay uses only opaque brand colors, so it reads identically on light and dark themes.
+Transcoding needs a local `ffmpeg`; if it is missing, keep the WebM and say so in run notes. A 15-second 1280px demo lands around 300 KB. Keep the MP4 under ~10 MB so it stays drag-droppable into a GitHub comment. Do not try to auto-embed video in an agent-posted comment: GitHub only renders a video player for files uploaded by hand through its web editor, and raw-hosted MP4 links are served as downloads, not playable video. Link the MP4 from the local report; in PR mode it may join the approved upload set via `hogli pr:upload-video --print-markdown` (a download link in the comment), and the developer can still drag the file into the comment editor for an inline player. The overlay uses only opaque brand colors, so it reads identically on light and dark themes.
 
 Keep paths relative in PR comments. If the comment would be too long, summarize the evidence and rely on the approved uploaded files or the local report. Do not fall back to a secret gist.

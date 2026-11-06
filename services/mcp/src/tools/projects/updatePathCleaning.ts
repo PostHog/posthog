@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { wrapError } from '@/lib/errors'
 import { PathCleaningRulesUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -276,7 +277,10 @@ export const updatePathCleaningHandler: ToolBase<typeof schema, Result>['handler
 
     const projectResult = await context.api.projects().get({ projectId })
     if (!projectResult.success) {
-        throw new Error(`Failed to read current path cleaning rules: ${projectResult.error.message}`)
+        throw wrapError(
+            `Failed to read current path cleaning rules: ${projectResult.error.message}`,
+            projectResult.error
+        )
     }
 
     const currentStored = normalizePathCleaningFilters(
@@ -309,7 +313,7 @@ export const updatePathCleaningHandler: ToolBase<typeof schema, Result>['handler
         filters: resultingRules,
     })
     if (!updateResult.success) {
-        throw new Error(`Failed to save path cleaning rules: ${updateResult.error.message}`)
+        throw wrapError(`Failed to save path cleaning rules: ${updateResult.error.message}`, updateResult.error)
     }
 
     const saved = normalizePathCleaningFilters(

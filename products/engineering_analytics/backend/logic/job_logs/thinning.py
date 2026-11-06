@@ -24,6 +24,7 @@ DEFAULT_FAILURE_MARKERS: tuple[str, ...] = (
     "Traceback (most recent call last)",  # Python
     "AssertionError",  # Python / JS
     "FAILED ",  # pytest per-test failure line
+    "RERUN ",  # pytest failed-attempt diagnostics, including jobs that recovered
     "test result: FAILED",  # cargo test summary
     "panic:",  # Go / Rust panic
     "--- FAIL",  # go test

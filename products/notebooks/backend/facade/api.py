@@ -16,6 +16,8 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.db import transaction
+
 from asgiref.sync import sync_to_async
 
 from .. import logic, markdown_migration
@@ -24,11 +26,17 @@ from .. import logic, markdown_migration
 # source (e.g. notebooks.NotebookCreationSource.TEMPORAL_AGENT) without importing internals.
 from ..analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
 from ..models import Notebook, ResourceNotebook
+
+# The run endpoint rejects a SQLV2 or PythonV2 cell from a user without this flag, so a caller
+# that writes notebook content must ask before it authors one. Re-exported so cross-product
+# callers read the same gate the endpoint enforces and the two cannot drift apart.
+from ..sql_v2 import is_sql_v2_enabled as is_sql_v2_enabled
 from . import contracts
 
 if TYPE_CHECKING:
     from posthog.models import User
-    from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = markdown_migration.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE
 
@@ -113,7 +121,7 @@ async def aupdate_notebook_content(
     content: dict[str, Any],
     title: str,
     text_content: str | None,
-    last_modified_by_id: int | None,
+    user: "User",
 ) -> contracts.NotebookData | None:
     notebook = await logic.aupdate_notebook_content(
         team_id,
@@ -121,7 +129,7 @@ async def aupdate_notebook_content(
         content=content,
         title=title,
         text_content=text_content,
-        last_modified_by_id=last_modified_by_id,
+        user=user,
     )
     return _to_notebook_data(notebook) if notebook is not None else None
 
@@ -131,7 +139,7 @@ async def aupsert_notebook(
     short_id: str,
     *,
     created_by_id: int | None,
-    last_modified_by_id: int | None,
+    user: "User",
     title: str,
     content: dict[str, Any],
     text_content: str | None = None,
@@ -143,7 +151,7 @@ async def aupsert_notebook(
         team_id,
         short_id,
         created_by_id=created_by_id,
-        last_modified_by_id=last_modified_by_id,
+        user=user,
         title=title,
         content=content,
         text_content=text_content,
@@ -182,13 +190,15 @@ def create_notebook(
         last_modified_by_id=last_modified_by_id,
         visibility=visibility,
     )
-    capture_notebook_created(
-        short_id=notebook.short_id,
-        creation_source=creation_source,
-        team_id=team_id,
-        created_by_id=created_by_id,
-        visibility=notebook.visibility,
-        node_count=notebook_node_count(notebook.content),
+    transaction.on_commit(
+        lambda: capture_notebook_created(
+            short_id=notebook.short_id,
+            creation_source=creation_source,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            visibility=notebook.visibility,
+            node_count=notebook_node_count(notebook.content),
+        )
     )
     return _to_notebook_data(notebook)
 
@@ -208,6 +218,10 @@ def migrate_notebooks_to_markdown(
         batch_size=batch_size,
         max_previews=max_previews,
     )
+
+
+def to_markdown_notebook_content(content: Any, *, organization_id: UUID) -> dict[str, Any] | None:
+    return markdown_migration.to_markdown_notebook_content(content, organization_id=organization_id)
 
 
 # --- Resource links (groups, accounts) ---

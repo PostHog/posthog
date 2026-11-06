@@ -20,7 +20,8 @@ export function SuppressionList(): JSX.Element {
         setShowAddModal,
         setNewIdentifier,
         addSuppression,
-        removeSuppression,
+        confirmRemove,
+        setSearchTerm,
     } = useActions(suppressionListLogic)
     const {
         suppressions,
@@ -28,8 +29,9 @@ export function SuppressionList(): JSX.Element {
         currentPage,
         showAddModal,
         addSuppressionLoading,
-        removeSuppressionLoading,
+        removedSuppressionsLoading,
         newIdentifier,
+        searchTerm,
     } = useValues(suppressionListLogic)
 
     const columns: LemonTableColumns<MessageSuppressionApi> = [
@@ -43,8 +45,8 @@ export function SuppressionList(): JSX.Element {
             dataIndex: 'source',
             key: 'source',
             render: (source) => (
-                <LemonTag type={source === 'MANUAL' ? 'completion' : 'warning'}>
-                    {source === 'MANUAL' ? 'Manual' : 'Bounces'}
+                <LemonTag type={source === 'MANUAL' ? 'completion' : source === 'COMPLAINT' ? 'danger' : 'warning'}>
+                    {source === 'MANUAL' ? 'Manual' : source === 'COMPLAINT' ? 'Spam complaint' : 'Bounces'}
                 </LemonTag>
             ),
         },
@@ -72,9 +74,9 @@ export function SuppressionList(): JSX.Element {
                             <LemonButton
                                 status="danger"
                                 icon={<IconTrash />}
-                                onClick={() => removeSuppression(entry.identifier)}
-                                loading={removeSuppressionLoading}
-                                disabledReason={removeSuppressionLoading ? 'Removing…' : undefined}
+                                onClick={() => confirmRemove([entry])}
+                                loading={removedSuppressionsLoading}
+                                disabledReason={removedSuppressionsLoading ? 'Removing…' : undefined}
                                 fullWidth
                             >
                                 Remove
@@ -92,7 +94,15 @@ export function SuppressionList(): JSX.Element {
 
     return (
         <>
-            <div className="flex justify-end gap-2 mb-2">
+            <div className="flex flex-wrap justify-end gap-2 mb-2">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search addresses"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="w-60"
+                />
                 <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={() => setShowAddModal(true)}>
                     Add address
                 </LemonButton>
@@ -100,7 +110,7 @@ export function SuppressionList(): JSX.Element {
                     icon={<IconRefresh />}
                     size="small"
                     type="secondary"
-                    onClick={loadSuppressions}
+                    onClick={() => loadSuppressions()}
                     loading={suppressionsLoading}
                 >
                     Reload
@@ -112,7 +122,29 @@ export function SuppressionList(): JSX.Element {
                 loading={suppressionsLoading}
                 loadingSkeletonRows={3}
                 rowKey="identifier"
-                emptyState="No suppressed addresses. Addresses land here automatically after repeated soft bounces, or when you add them manually."
+                bulkSelection={{
+                    noun: ['address', 'addresses'],
+                    clearSelectionKey: suppressions,
+                    rowAriaLabel: (entry: MessageSuppressionApi) => `Select ${entry.identifier}`,
+                    headerAriaLabel: 'Select all addresses on this page',
+                    renderActions: ({ selectedRecords }) => (
+                        <LemonButton
+                            icon={<IconTrash />}
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            onClick={() => confirmRemove(selectedRecords)}
+                            loading={removedSuppressionsLoading}
+                        >
+                            Remove
+                        </LemonButton>
+                    ),
+                }}
+                emptyState={
+                    searchTerm.trim()
+                        ? 'No suppressed addresses match your search'
+                        : 'No suppressed addresses. Addresses land here automatically after repeated soft bounces, or when you add them manually.'
+                }
                 size="small"
             />
             {suppressions.count > PAGE_SIZE && (

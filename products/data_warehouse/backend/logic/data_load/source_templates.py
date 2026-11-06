@@ -5,7 +5,7 @@ from posthog.temporal.common.logger import get_logger
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.joins import ensure_person_join
 from products.warehouse_sources.backend.facade.models import ExternalDataJob
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -42,14 +42,14 @@ def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
     job: ExternalDataJob = ExternalDataJob.objects.get(pk=run_id)
     last_successful_job: ExternalDataJob | None = (
         ExternalDataJob.objects.filter(
-            team_id=job.team_id, pipeline_id=job.pipeline_id, status=ExternalDataJob.Status.COMPLETED
+            team_id=job.team_id, pipeline_id=job.pipeline_id, status=ExternalDataJobStatus.COMPLETED
         )
         .prefetch_related("pipeline")
         .order_by("-created_at")
         .first()
     )
 
-    source = ExternalDataSourceType(job.pipeline.source_type)
+    source = job.pipeline.source_type
 
     # Quick exit if this isn't the first sync, or a stripe source
     if source != ExternalDataSourceType.STRIPE or last_successful_job is not None:

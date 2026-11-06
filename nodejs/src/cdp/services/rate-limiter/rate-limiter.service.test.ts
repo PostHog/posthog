@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { register } from 'prom-client'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -7,10 +8,10 @@ import { Hub } from '~/types'
 
 import { RateLimiterService } from './rate-limiter.service'
 
-const KEY = '@posthog-test/ses-rate-limiter/bucket'
+const KEY = `@posthog-test/ses-rate-limiter/${randomUUID()}/bucket`
 
 describe('RateLimiterService', () => {
-    jest.retryTimes(3)
+    jest.retryTimes(3, { logErrorsBeforeRetry: true })
 
     let hub: Hub
     let redis: RedisV2
@@ -31,7 +32,7 @@ describe('RateLimiterService', () => {
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
         limiter = new RateLimiterService(redis, { name: 'ses-rate-limiter' })
-        await deleteKeysWithPrefix(redis, '@posthog-test/ses-rate-limiter')
+        await deleteKeysWithPrefix(redis, KEY)
     })
 
     afterEach(async () => {
@@ -133,7 +134,7 @@ describe('RateLimiterService', () => {
         }
 
         it('increments granted_full when the grant equals the request', async () => {
-            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'granted_full' }
+            const labels = { limiter: 'ses-rate-limiter', result: 'granted_full' }
             const before = await readCounter(labels)
 
             const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
@@ -147,7 +148,7 @@ describe('RateLimiterService', () => {
             // Drain to 2 tokens, then ask for 5.
             await limiter.claimUpTo({ key: KEY, requested: 8, capacity: 10, refillPerSecond: 0 })
 
-            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'granted_partial' }
+            const labels = { limiter: 'ses-rate-limiter', result: 'granted_partial' }
             const before = await readCounter(labels)
 
             const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
@@ -161,7 +162,7 @@ describe('RateLimiterService', () => {
             // Drain the bucket fully.
             await limiter.claimUpTo({ key: KEY, requested: 10, capacity: 10, refillPerSecond: 0 })
 
-            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'denied' }
+            const labels = { limiter: 'ses-rate-limiter', result: 'denied' }
             const before = await readCounter(labels)
 
             const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
@@ -179,7 +180,7 @@ describe('RateLimiterService', () => {
             } as unknown as RedisV2
             const brokenLimiter = new RateLimiterService(brokenValkey, { name: 'broken-limiter' })
 
-            const labels = { limiter: 'broken-limiter', key: KEY, result: 'valkey_error' }
+            const labels = { limiter: 'broken-limiter', result: 'valkey_error' }
             const before = await readCounter(labels)
 
             const granted = await brokenLimiter.claimUpTo({
@@ -193,6 +194,122 @@ describe('RateLimiterService', () => {
 
             const after = await readCounter(labels)
             expect(after - before).toBe(1)
+        })
+    })
+
+    describe('claimAllOrNothing', () => {
+        const AON_KEY = `${KEY}/all-or-nothing`
+
+        it('grants and charges the pool when the bucket covers the request', async () => {
+            const claim = await limiter.claimAllOrNothing(
+                { key: AON_KEY, requested: 30, capacity: 50, refillPerSecond: 0 },
+                600_000
+            )
+            expect(claim).toEqual({ granted: true, retryAfterMs: null, reserved: false })
+            // The remainder is all that is left to claim.
+            expect(await limiter.claimUpTo({ key: AON_KEY, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
+        })
+
+        it('consumes nothing on denial, so retries cannot starve the bucket', async () => {
+            // The bucket cannot cover the request, so the claim must leave the pool untouched.
+            // Without that, a rescheduled multi-recipient send would burn the refill on every
+            // retry while never sending.
+            const req = { key: `${AON_KEY}/denied`, requested: 30, capacity: 10, refillPerSecond: 0 }
+            const claim = await limiter.claimAllOrNothing(req, 600_000)
+            // refillPerSecond 0 means the missing tokens never accrue, so no horizon is reported.
+            expect(claim).toEqual({ granted: false, retryAfterMs: null, reserved: false })
+            expect(await limiter.claimUpTo({ ...req, requested: 10 })).toBe(10)
+        })
+
+        it('reports on denial how long until the missing tokens accrue', async () => {
+            // Cold start: the bucket holds exactly its capacity of 10, so the request for 30 is
+            // missing 20 tokens. At 2 tokens/s that is 10 seconds.
+            const claim = await limiter.claimAllOrNothing(
+                { key: `${AON_KEY}/horizon`, requested: 30, capacity: 10, refillPerSecond: 2 },
+                600_000
+            )
+            expect(claim).toEqual({ granted: false, retryAfterMs: 10_000, reserved: true })
+        })
+
+        it('fails closed when the Lua call throws', async () => {
+            const brokenValkey = {
+                useClient: jest.fn().mockRejectedValue(new Error('connection lost')),
+                usePipeline: jest.fn(),
+            } as unknown as RedisV2
+            const brokenLimiter = new RateLimiterService(brokenValkey, { name: 'broken-limiter' })
+            // A null horizon is how the caller tells an unreachable limiter from a reached cap.
+            const claim = await brokenLimiter.claimAllOrNothing(
+                { key: AON_KEY, requested: 5, capacity: 50, refillPerSecond: 1 },
+                600_000
+            )
+            expect(claim).toEqual({ granted: false, retryAfterMs: null, reserved: false })
+        })
+    })
+
+    describe('claimOrReserve', () => {
+        const RESERVE_KEY = `${KEY}/reserve`
+        const req = { key: RESERVE_KEY, requested: 1, capacity: 2, refillPerSecond: 2 }
+
+        it('grants normally without reserving a slot', async () => {
+            const claim = await limiter.claimOrReserve(req, 60_000)
+            expect(claim).toEqual({ granted: 1, retryAfterMs: null, reserved: false })
+        })
+
+        it('hands successive denials distinct, later slots', async () => {
+            // Drain the bucket so every claim below is a full denial. At 2 tokens/s each
+            // reservation advances the slot cursor by 500ms, so three denied callers park
+            // at three different times instead of all retrying against the next token.
+            await limiter.claimUpTo({ ...req, requested: 2 })
+
+            const first = await limiter.claimOrReserve(req, 60_000)
+            const second = await limiter.claimOrReserve(req, 60_000)
+            const third = await limiter.claimOrReserve(req, 60_000)
+
+            expect(first.granted).toBe(0)
+            expect(first.retryAfterMs).toBeGreaterThan(0)
+            // Strictly later each time; the spacing is ~500ms minus wall-clock elapsed
+            // between calls, so bound it loosely rather than exactly.
+            expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
+            expect(third.retryAfterMs!).toBeGreaterThan(second.retryAfterMs!)
+            expect(third.retryAfterMs!).toBeLessThanOrEqual(1_500)
+            // All three got their own slot, so each can park on it exactly.
+            expect([first.reserved, second.reserved, third.reserved]).toEqual([true, true, true])
+        })
+
+        it('charges the first denial only for the tokens the bucket is short of', async () => {
+            // One token takes 4s to refill. Drain the bucket, wait 1s so a quarter of a
+            // token is back, then get denied. The slot must only cover what is still
+            // missing (~3s), not the full 4s: the quarter token is credit already earned.
+            const partialReq = { key: `${RESERVE_KEY}/partial`, requested: 1, capacity: 1, refillPerSecond: 0.25 }
+            await limiter.claimUpTo(partialReq)
+            await new Promise((resolve) => setTimeout(resolve, 1_000))
+
+            const denial = await limiter.claimOrReserve(partialReq, 60_000)
+
+            expect(denial.granted).toBe(0)
+            expect(denial.reserved).toBe(true)
+            // A slow test runner only makes the slot shorter (more refill happened).
+            // Charging the full interval would report 4s and fail this bound.
+            expect(denial.retryAfterMs).toBeGreaterThan(0)
+            expect(denial.retryAfterMs).toBeLessThanOrEqual(3_000)
+        })
+
+        it('stops advancing the cursor at the horizon', async () => {
+            // One 1s slot fits the 1s horizon. The first denial takes it; everyone after
+            // just gets "come back in 1s" with no slot, so the cursor cannot run away.
+            const slowReq = { key: `${RESERVE_KEY}/capped`, requested: 1, capacity: 1, refillPerSecond: 1 }
+            await limiter.claimUpTo({ ...slowReq })
+
+            const first = await limiter.claimOrReserve(slowReq, 1_000)
+            const second = await limiter.claimOrReserve(slowReq, 1_000)
+            const third = await limiter.claimOrReserve(slowReq, 1_000)
+
+            expect(first.retryAfterMs).toBeLessThanOrEqual(1_000)
+            expect(second.retryAfterMs).toBe(1_000)
+            expect(third.retryAfterMs).toBe(1_000)
+            // Only the first got a slot. The other two share one wake time and are told so,
+            // which is the caller's cue to spread its own wake.
+            expect([first.reserved, second.reserved, third.reserved]).toEqual([true, false, false])
         })
     })
 })

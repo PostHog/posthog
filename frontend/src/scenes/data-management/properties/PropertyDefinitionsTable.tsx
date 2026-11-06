@@ -10,6 +10,7 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
@@ -89,6 +90,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
 
     return (
         <SceneContent data-attr="manage-events-table">
+            <DefinitionsSceneTabs activeKey="properties" />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.PropertyDefinition].name}
                 description={sceneConfigurations[Scene.PropertyDefinition].description}

@@ -2,12 +2,13 @@ from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri
 
@@ -15,12 +16,47 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+DASHBOARD_GRID_SPACING_GAPS = {
+    "tight": 8,
+    "condensed": 12,
+    "standard": 16,
+    "relaxed": 32,
+    "wide": 48,
+}
+
+
+class LayoutCompaction(models.TextChoices):
+    VERTICAL = "vertical", "vertical"
+    HORIZONTAL = "horizontal", "horizontal"
+    STABLE = "stable", "stable"
+
+
+DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
+
+
+class TileGroupDisplay(models.TextChoices):
+    SECTIONS = "sections", "sections"
+    TABS = "tabs", "tabs"
+
+
+DASHBOARD_TILE_GROUP_DISPLAY_MODES = tuple(TileGroupDisplay.values)
+
+
+class DashboardTileGroupColor(models.TextChoices):
+    BLUE = "blue", "Blue"
+    PURPLE = "purple", "Purple"
+    GREEN = "green", "Green"
+    YELLOW = "yellow", "Yellow"
+    ORANGE = "orange", "Orange"
+    RED = "red", "Red"
+
+
 class DashboardManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -36,27 +72,12 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
             "Unlisted (product-embedded)",
         )  # Product dashboards (e.g. AI observability) - hidden from general lists, accessed via tag queries
 
-    class RestrictionLevel(models.IntegerChoices):
-        """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""
-
-        EVERYONE_IN_PROJECT_CAN_EDIT = 21, "Everyone in the project can edit"
-        ONLY_COLLABORATORS_CAN_EDIT = (
-            37,
-            "Only those invited to this dashboard can edit",
-        )
-
-    class PrivilegeLevel(models.IntegerChoices):
-        """Collaboration privilege level (which is a user property). Sync with RestrictionLevel."""
-
-        CAN_VIEW = 21, "Can view dashboard"
-        CAN_EDIT = 37, "Can edit dashboard"
-
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pinned = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
     last_accessed_at = models.DateTimeField(blank=True, null=True)
     last_refresh = models.DateTimeField(blank=True, null=True)
@@ -64,20 +85,14 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
     variables = models.JSONField(default=dict, null=True, blank=True)
     breakdown_colors = models.JSONField(default=list, null=True, blank=True)
     data_color_theme = models.ForeignKey(
-        "posthog.DataColorTheme",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        "posthog.DataColorTheme", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
-    restriction_level = models.PositiveSmallIntegerField(
-        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        choices=RestrictionLevel,
-    )
     insights = models.ManyToManyField(
         "product_analytics.Insight", related_name="dashboards", through="DashboardTile", blank=True
     )  # type: models.ManyToManyField
     quick_filter_ids = models.JSONField(default=list, blank=True, null=True)
+    customization = models.JSONField(default=dict, db_default={}, blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
@@ -163,4 +178,20 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
             "creation_mode": self.creation_mode,
+            "group_display": self.group_display,
+            "group_count": self.tile_group_count,
         }
+
+    @property
+    def group_display(self) -> str:
+        group_display = self.customization.get("group_display") if isinstance(self.customization, dict) else None
+        return group_display if group_display in DASHBOARD_TILE_GROUP_DISPLAY_MODES else TileGroupDisplay.SECTIONS
+
+    @property
+    def tile_group_keys(self) -> set[str]:
+        visible_tiles = self.tiles.filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+        return {group_key for group_key in visible_tiles.values_list("group_key", flat=True) if group_key}
+
+    @property
+    def tile_group_count(self) -> int:
+        return len(self.tile_group_keys)

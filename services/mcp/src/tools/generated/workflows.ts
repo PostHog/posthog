@@ -2,125 +2,361 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    HogFlowsBatchJobsListParams,
-    HogFlowsCreateBody,
-    HogFlowsDiscardDraftCreateParams,
-    HogFlowsInvocationResultRetrieveParams,
-    HogFlowsInvocationResultsRetrieveParams,
-    HogFlowsInvocationResultsRetrieveQueryParams,
-    HogFlowsInvocationsCreateBody,
-    HogFlowsInvocationsCreateParams,
-    HogFlowsListQueryParams,
-    HogFlowsLogsRetrieveParams,
-    HogFlowsLogsRetrieveQueryParams,
-    HogFlowsMetricsGlobalRetrieveQueryParams,
-    HogFlowsMetricsRetrieveParams,
-    HogFlowsMetricsRetrieveQueryParams,
-    HogFlowsPartialUpdateBody,
-    HogFlowsPartialUpdateParams,
-    HogFlowsPublishCreateBody,
-    HogFlowsPublishCreateParams,
-    HogFlowsRetrieveParams,
-    HogFlowsRevisionsListParams,
-    HogFlowsRevisionsListQueryParams,
-    HogFlowsRevisionsRestoreCreateBody,
-    HogFlowsRevisionsRestoreCreateParams,
-    HogFlowsRevisionsRetrieveParams,
-    HogFlowsSchedulesPartialUpdateBody,
-    HogFlowsSchedulesPartialUpdateParams,
-} from '@/generated/workflows/api'
+import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import hooks_workflowsCreate from '@/tools/workflows/broadcastLinkHooks'
+import hooks_workflowsGet from '@/tools/workflows/broadcastLinkHooks'
+import hooks_workflowsUpdate from '@/tools/workflows/broadcastLinkHooks'
+import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggestionCreateHooks'
 
-const WorkflowsCreateSchema = HogFlowsCreateBody
+const BroadcastsCreateSchema = () => {
+    const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
+    return HogFlowsCreateBody
+}
 
-const workflowsCreate = (): ToolBase<typeof WorkflowsCreateSchema, WithPostHogUrl<Schemas.HogFlow>> =>
+const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>, WithPostHogUrl<Schemas.HogFlow>> => ({
+    name: 'broadcasts-create',
+    schema: BroadcastsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BroadcastsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.origin_product !== undefined) {
+            body['origin_product'] = params.origin_product
+        }
+        if (params.source_record !== undefined) {
+            body['source_record'] = params.source_record
+        }
+        if (params.trigger_masking !== undefined) {
+            body['trigger_masking'] = params.trigger_masking
+        }
+        if (params.conversion !== undefined) {
+            body['conversion'] = params.conversion
+        }
+        if (params.exit_condition !== undefined) {
+            body['exit_condition'] = params.exit_condition
+        }
+        if (params.email_sending_rate_limit !== undefined) {
+            body['email_sending_rate_limit'] = params.email_sending_rate_limit
+        }
+        if (params.edges !== undefined) {
+            body['edges'] = params.edges
+        }
+        if (params.actions !== undefined) {
+            body['actions'] = params.actions
+        }
+        if (params.variables !== undefined) {
+            body['variables'] = params.variables
+        }
+        body['origin_product'] = 'broadcasts'
+        const result = await context.api.request<Schemas.HogFlow>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'actions.*.config.inputs',
+            'draft.actions.*.config.inputs',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/broadcasts/${filtered.id}`)
+    },
+})
+
+const WorkflowsConvertToBroadcastSchema = () => {
+    const HogFlowsConvertToBroadcastParams = orvalSchemas.HogFlowsConvertToBroadcastParams()
+    return HogFlowsConvertToBroadcastParams.omit({ project_id: true })
+}
+
+const workflowsConvertToBroadcast = (): ToolBase<
+    ReturnType<typeof WorkflowsConvertToBroadcastSchema>,
+    WithPostHogUrl<Schemas.HogFlowConvertedToBroadcast>
+> => ({
+    name: 'workflows-convert-to-broadcast',
+    schema: WorkflowsConvertToBroadcastSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsConvertToBroadcastSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogFlowConvertedToBroadcast>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/convert_to_broadcast/`,
+        })
+        return await withPostHogUrl(context, result, `/broadcasts/${result.id}`)
+    },
+})
+
+const WorkflowsCreateSchema = () => {
+    const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
+    return HogFlowsCreateBody
+}
+
+const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, WithPostHogUrl<Schemas.HogFlow>> =>
     withUiApp('workflow', {
         name: 'workflows-create',
-        schema: WorkflowsCreateSchema,
-        handler: async (context: Context, params: z.infer<typeof WorkflowsCreateSchema>) => {
+        schema: WorkflowsCreateSchema(),
+        handler: withToolHooks(
+            hooks_workflowsCreate,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsCreateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.name !== undefined) {
+                    body['name'] = params.name
+                }
+                if (params.description !== undefined) {
+                    body['description'] = params.description
+                }
+                if (params.tags !== undefined) {
+                    body['tags'] = params.tags
+                }
+                if (params.status !== undefined) {
+                    body['status'] = params.status
+                }
+                if (params.origin_product !== undefined) {
+                    body['origin_product'] = params.origin_product
+                }
+                if (params.source_record !== undefined) {
+                    body['source_record'] = params.source_record
+                }
+                if (params.trigger_masking !== undefined) {
+                    body['trigger_masking'] = params.trigger_masking
+                }
+                if (params.conversion !== undefined) {
+                    body['conversion'] = params.conversion
+                }
+                if (params.exit_condition !== undefined) {
+                    body['exit_condition'] = params.exit_condition
+                }
+                if (params.email_sending_rate_limit !== undefined) {
+                    body['email_sending_rate_limit'] = params.email_sending_rate_limit
+                }
+                if (params.edges !== undefined) {
+                    body['edges'] = params.edges
+                }
+                if (params.actions !== undefined) {
+                    body['actions'] = params.actions
+                }
+                if (params.variables !== undefined) {
+                    body['variables'] = params.variables
+                }
+                const result = await context.api.request<Schemas.HogFlow>({
+                    method: 'POST',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
+                    body: await transformRequestBody(hooks_workflowsCreate, context, params, body),
+                })
+                const filtered = omitResponseFields(result, [
+                    'actions.*.config.inputs',
+                    'draft.actions.*.config.inputs',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/workflows/${filtered.id}/workflow`)
+            }
+        ),
+    })
+
+const WorkflowsDataSuggestionsCreateSchema = () => {
+    const WorkflowDataSuggestionsBuildBody = orvalSchemas.WorkflowDataSuggestionsBuildBody()
+    return WorkflowDataSuggestionsBuildBody
+}
+
+const workflowsDataSuggestionsCreate = (): ToolBase<
+    ReturnType<typeof WorkflowsDataSuggestionsCreateSchema>,
+    Schemas.DataSuggestionBuildResponse
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-create',
+        schema: WorkflowsDataSuggestionsCreateSchema(),
+        handler: withToolHooks(
+            hooks_workflowsDataSuggestionsCreate,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsCreateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.suggestion_id !== undefined) {
+                    body['suggestion_id'] = params.suggestion_id
+                }
+                if (params.retry !== undefined) {
+                    body['retry'] = params.retry
+                }
+                body['save_draft'] = true
+                const result = await context.api.request<Schemas.DataSuggestionBuildResponse>({
+                    method: 'POST',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build/`,
+                    body: await transformRequestBody(hooks_workflowsDataSuggestionsCreate, context, params, body),
+                })
+                const filtered = pickResponseFields(result, [
+                    'status',
+                    'workflow_id',
+                    'missing_inputs',
+                    'uses_saved_template',
+                ]) as typeof result
+                return filtered
+            }
+        ),
+    })
+
+const WorkflowsDataSuggestionsGetSchema = () => z.object({})
+
+const workflowsDataSuggestionsGet = (): ToolBase<
+    ReturnType<typeof WorkflowsDataSuggestionsGetSchema>,
+    Schemas.DataSuggestionsResponse
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-get',
+        schema: WorkflowsDataSuggestionsGetSchema(),
+        handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsGetSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.name !== undefined) {
-                body['name'] = params.name
-            }
-            if (params.description !== undefined) {
-                body['description'] = params.description
-            }
-            if (params.status !== undefined) {
-                body['status'] = params.status
-            }
-            if (params.trigger_masking !== undefined) {
-                body['trigger_masking'] = params.trigger_masking
-            }
-            if (params.conversion !== undefined) {
-                body['conversion'] = params.conversion
-            }
-            if (params.exit_condition !== undefined) {
-                body['exit_condition'] = params.exit_condition
-            }
-            if (params.edges !== undefined) {
-                body['edges'] = params.edges
-            }
-            if (params.actions !== undefined) {
-                body['actions'] = params.actions
-            }
-            if (params.variables !== undefined) {
-                body['variables'] = params.variables
-            }
-            const result = await context.api.request<Schemas.HogFlow>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
-                body,
+            const result = await context.api.request<Schemas.DataSuggestionsResponse>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/current/`,
             })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+            const filtered = pickResponseFields(result, [
+                'status',
+                'suggestions.*.id',
+                'suggestions.*.name',
+                'suggestions.*.description',
+                'suggestions.*.reason',
+                'suggestions.*.trigger_event',
+                'suggestions.*.weekly_count',
+                'email_sender_ready',
+            ]) as typeof result
+            return filtered
         },
     })
 
-const WorkflowsDiscardDraftSchema = HogFlowsDiscardDraftCreateParams.omit({ project_id: true })
+const WorkflowsDataSuggestionsListSchema = () => {
+    const WorkflowDataSuggestionsGenerateBody = orvalSchemas.WorkflowDataSuggestionsGenerateBody()
+    return WorkflowDataSuggestionsGenerateBody
+}
 
-const workflowsDiscardDraft = (): ToolBase<typeof WorkflowsDiscardDraftSchema, Schemas.HogFlow> =>
+const workflowsDataSuggestionsList = (): ToolBase<
+    ReturnType<typeof WorkflowsDataSuggestionsListSchema>,
+    Schemas.DataSuggestionsResponse
+> =>
+    withUiApp('workflow-data-suggestions', {
+        name: 'workflows-data-suggestions-list',
+        schema: WorkflowsDataSuggestionsListSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsDataSuggestionsListSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.refresh !== undefined) {
+                body['refresh'] = params.refresh
+            }
+            const result = await context.api.request<Schemas.DataSuggestionsResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/generate/`,
+                body,
+            })
+            const filtered = pickResponseFields(result, [
+                'status',
+                'suggestions.*.id',
+                'suggestions.*.name',
+                'suggestions.*.description',
+                'suggestions.*.reason',
+                'suggestions.*.trigger_event',
+                'suggestions.*.weekly_count',
+                'email_sender_ready',
+            ]) as typeof result
+            return filtered
+        },
+    })
+
+const WorkflowsDiscardDraftSchema = () => {
+    const HogFlowsDiscardDraftCreateParams = orvalSchemas.HogFlowsDiscardDraftCreateParams()
+    return HogFlowsDiscardDraftCreateParams.omit({ project_id: true })
+}
+
+const workflowsDiscardDraft = (): ToolBase<ReturnType<typeof WorkflowsDiscardDraftSchema>, Schemas.HogFlow> =>
     withUiApp('workflow', {
         name: 'workflows-discard-draft',
-        schema: WorkflowsDiscardDraftSchema,
-        handler: async (context: Context, params: z.infer<typeof WorkflowsDiscardDraftSchema>) => {
+        schema: WorkflowsDiscardDraftSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsDiscardDraftSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.HogFlow>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/discard_draft/`,
             })
-            return result
+            const filtered = omitResponseFields(result, [
+                'actions.*.config.inputs',
+                'draft.actions.*.config.inputs',
+            ]) as typeof result
+            return filtered
         },
     })
 
-const WorkflowsGetSchema = HogFlowsRetrieveParams.omit({ project_id: true })
+const WorkflowsEmailDraftsCreateSchema = () => {
+    const WorkflowDataSuggestionsBuildForEventsBody = orvalSchemas.WorkflowDataSuggestionsBuildForEventsBody()
+    return WorkflowDataSuggestionsBuildForEventsBody
+}
 
-const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, WithPostHogUrl<Schemas.HogFlow>> =>
+const workflowsEmailDraftsCreate = (): ToolBase<
+    ReturnType<typeof WorkflowsEmailDraftsCreateSchema>,
+    Schemas.EventWorkflowsBuildResponse
+> => ({
+    name: 'workflows-email-drafts-create',
+    schema: WorkflowsEmailDraftsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsEmailDraftsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.events !== undefined) {
+            body['events'] = params.events
+        }
+        if (params.retry !== undefined) {
+            body['retry'] = params.retry
+        }
+        const result = await context.api.request<Schemas.EventWorkflowsBuildResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build_for_events/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WorkflowsGetSchema = () => {
+    const HogFlowsRetrieveParams = orvalSchemas.HogFlowsRetrieveParams()
+    return HogFlowsRetrieveParams.omit({ project_id: true })
+}
+
+const workflowsGet = (): ToolBase<ReturnType<typeof WorkflowsGetSchema>, WithPostHogUrl<Schemas.HogFlow>> =>
     withUiApp('workflow', {
         name: 'workflows-get',
-        schema: WorkflowsGetSchema,
-        handler: async (context: Context, params: z.infer<typeof WorkflowsGetSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.HogFlow>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
-            })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
-        },
+        schema: WorkflowsGetSchema(),
+        handler: withToolHooks(
+            hooks_workflowsGet,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsGetSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const result = await context.api.request<Schemas.HogFlow>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
+                })
+                return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+            }
+        ),
     })
 
-const WorkflowsGetInvocationSchema = HogFlowsInvocationResultRetrieveParams.omit({ project_id: true })
+const WorkflowsGetInvocationSchema = () => {
+    const HogFlowsInvocationResultRetrieveParams = orvalSchemas.HogFlowsInvocationResultRetrieveParams()
+    return HogFlowsInvocationResultRetrieveParams.omit({ project_id: true })
+}
 
 const workflowsGetInvocation = (): ToolBase<
-    typeof WorkflowsGetInvocationSchema,
+    ReturnType<typeof WorkflowsGetInvocationSchema>,
     Schemas.HogInvocationResultDetail
 > => ({
     name: 'workflows-get-invocation',
-    schema: WorkflowsGetInvocationSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsGetInvocationSchema>) => {
+    schema: WorkflowsGetInvocationSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsGetInvocationSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogInvocationResultDetail>({
             method: 'GET',
@@ -130,12 +366,15 @@ const workflowsGetInvocation = (): ToolBase<
     },
 })
 
-const WorkflowsGetRevisionSchema = HogFlowsRevisionsRetrieveParams.omit({ project_id: true })
+const WorkflowsGetRevisionSchema = () => {
+    const HogFlowsRevisionsRetrieveParams = orvalSchemas.HogFlowsRevisionsRetrieveParams()
+    return HogFlowsRevisionsRetrieveParams.omit({ project_id: true })
+}
 
-const workflowsGetRevision = (): ToolBase<typeof WorkflowsGetRevisionSchema, Schemas.HogFlowRevision> => ({
+const workflowsGetRevision = (): ToolBase<ReturnType<typeof WorkflowsGetRevisionSchema>, Schemas.HogFlowRevision> => ({
     name: 'workflows-get-revision',
-    schema: WorkflowsGetRevisionSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsGetRevisionSchema>) => {
+    schema: WorkflowsGetRevisionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsGetRevisionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFlowRevision>({
             method: 'GET',
@@ -145,15 +384,18 @@ const workflowsGetRevision = (): ToolBase<typeof WorkflowsGetRevisionSchema, Sch
     },
 })
 
-const WorkflowsGlobalStatsSchema = HogFlowsMetricsGlobalRetrieveQueryParams
+const WorkflowsGlobalStatsSchema = () => {
+    const HogFlowsMetricsGlobalRetrieveQueryParams = orvalSchemas.HogFlowsMetricsGlobalRetrieveQueryParams()
+    return HogFlowsMetricsGlobalRetrieveQueryParams
+}
 
 const workflowsGlobalStats = (): ToolBase<
-    typeof WorkflowsGlobalStatsSchema,
+    ReturnType<typeof WorkflowsGlobalStatsSchema>,
     WithPostHogUrl<Schemas.WorkflowStatsRow[]>
 > => ({
     name: 'workflows-global-stats',
-    schema: WorkflowsGlobalStatsSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsGlobalStatsSchema>) => {
+    schema: WorkflowsGlobalStatsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsGlobalStatsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WorkflowStatsRow[]>({
             method: 'GET',
@@ -167,25 +409,112 @@ const workflowsGlobalStats = (): ToolBase<
     },
 })
 
-const WorkflowsListSchema = HogFlowsListQueryParams
+const WorkflowsImportCustomerioSchema = () => {
+    const WorkflowImportsCreateBody = orvalSchemas.WorkflowImportsCreateBody()
+    return WorkflowImportsCreateBody
+}
 
-const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Schemas.PaginatedHogFlowMinimalList>> =>
+const workflowsImportCustomerio = (): ToolBase<
+    ReturnType<typeof WorkflowsImportCustomerioSchema>,
+    Schemas.WorkflowImportResponse
+> => ({
+    name: 'workflows-import-customerio',
+    schema: WorkflowsImportCustomerioSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsImportCustomerioSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        if (params.campaigns !== undefined) {
+            body['campaigns'] = params.campaigns
+        }
+        if (params.snippets !== undefined) {
+            body['snippets'] = params.snippets
+        }
+        if (params.segment_cohorts !== undefined) {
+            body['segment_cohorts'] = params.segment_cohorts
+        }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        if (params.sender_identities !== undefined) {
+            body['sender_identities'] = params.sender_identities
+        }
+        if (params.segments !== undefined) {
+            body['segments'] = params.segments
+        }
+        if (params.dry_run !== undefined) {
+            body['dry_run'] = params.dry_run
+        }
+        const result = await context.api.request<Schemas.WorkflowImportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_imports/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WorkflowsImportNotesSchema = () => {
+    const WorkflowImportsForWorkflowRetrieveQueryParams = orvalSchemas.WorkflowImportsForWorkflowRetrieveQueryParams()
+    return WorkflowImportsForWorkflowRetrieveQueryParams
+}
+
+const workflowsImportNotes = (): ToolBase<
+    ReturnType<typeof WorkflowsImportNotesSchema>,
+    Schemas.WorkflowImportRecord
+> => ({
+    name: 'workflows-import-notes',
+    schema: WorkflowsImportNotesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsImportNotesSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WorkflowImportRecord>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_imports/for_workflow/`,
+            query: {
+                hog_flow_id: params.hog_flow_id,
+            },
+        })
+        return result
+    },
+})
+
+const WorkflowsListSchema = () => {
+    const HogFlowsListQueryParams = orvalSchemas.HogFlowsListQueryParams()
+    return HogFlowsListQueryParams
+}
+
+const workflowsList = (): ToolBase<
+    ReturnType<typeof WorkflowsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedHogFlowMinimalList>
+> =>
     withUiApp('workflow-list', {
         name: 'workflows-list',
-        schema: WorkflowsListSchema,
-        handler: async (context: Context, params: z.infer<typeof WorkflowsListSchema>) => {
+        schema: WorkflowsListSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.PaginatedHogFlowMinimalList>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
                 query: {
+                    broadcast_eligible: params.broadcast_eligible,
+                    broadcast_status: params.broadcast_status,
                     created_at: params.created_at,
                     created_by: params.created_by,
                     id: params.id,
+                    latest_send_first: params.latest_send_first,
                     limit: params.limit,
+                    name: params.name,
                     offset: params.offset,
+                    optimization_enabled: params.optimization_enabled,
+                    origin_product: params.origin_product,
                     search: params.search,
+                    source_record: params.source_record,
                     status: params.status,
+                    tags: params.tags,
+                    trigger: params.trigger,
+                    type: params.type,
                     updated_at: params.updated_at,
                 },
             })
@@ -193,15 +522,18 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
         },
     })
 
-const WorkflowsListBatchJobsSchema = HogFlowsBatchJobsListParams.omit({ project_id: true })
+const WorkflowsListBatchJobsSchema = () => {
+    const HogFlowsBatchJobsListParams = orvalSchemas.HogFlowsBatchJobsListParams()
+    return HogFlowsBatchJobsListParams.omit({ project_id: true })
+}
 
 const workflowsListBatchJobs = (): ToolBase<
-    typeof WorkflowsListBatchJobsSchema,
+    ReturnType<typeof WorkflowsListBatchJobsSchema>,
     WithPostHogUrl<Schemas.HogFlowBatchJob[]>
 > => ({
     name: 'workflows-list-batch-jobs',
-    schema: WorkflowsListBatchJobsSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsListBatchJobsSchema>) => {
+    schema: WorkflowsListBatchJobsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListBatchJobsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFlowBatchJob[]>({
             method: 'GET',
@@ -211,17 +543,21 @@ const workflowsListBatchJobs = (): ToolBase<
     },
 })
 
-const WorkflowsListInvocationsSchema = HogFlowsInvocationResultsRetrieveParams.omit({ project_id: true }).extend(
-    HogFlowsInvocationResultsRetrieveQueryParams.shape
-)
+const WorkflowsListInvocationsSchema = () => {
+    const HogFlowsInvocationResultsRetrieveParams = orvalSchemas.HogFlowsInvocationResultsRetrieveParams()
+    const HogFlowsInvocationResultsRetrieveQueryParams = orvalSchemas.HogFlowsInvocationResultsRetrieveQueryParams()
+    return HogFlowsInvocationResultsRetrieveParams.omit({ project_id: true }).extend(
+        HogFlowsInvocationResultsRetrieveQueryParams.shape
+    )
+}
 
 const workflowsListInvocations = (): ToolBase<
-    typeof WorkflowsListInvocationsSchema,
+    ReturnType<typeof WorkflowsListInvocationsSchema>,
     WithPostHogUrl<Schemas.HogInvocationResult[]>
 > => ({
     name: 'workflows-list-invocations',
-    schema: WorkflowsListInvocationsSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsListInvocationsSchema>) => {
+    schema: WorkflowsListInvocationsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListInvocationsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogInvocationResult[]>({
             method: 'GET',
@@ -230,6 +566,7 @@ const workflowsListInvocations = (): ToolBase<
                 after: params.after,
                 before: params.before,
                 distinct_id: params.distinct_id,
+                error_message_contains: params.error_message_contains,
                 limit: params.limit,
                 status: params.status,
             },
@@ -238,17 +575,46 @@ const workflowsListInvocations = (): ToolBase<
     },
 })
 
-const WorkflowsListRevisionsSchema = HogFlowsRevisionsListParams.omit({ project_id: true }).extend(
-    HogFlowsRevisionsListQueryParams.shape
-)
+const WorkflowsListProposalsSchema = () => {
+    const HogFlowsProposalsListParams = orvalSchemas.HogFlowsProposalsListParams()
+    const HogFlowsProposalsListQueryParams = orvalSchemas.HogFlowsProposalsListQueryParams()
+    return HogFlowsProposalsListParams.omit({ project_id: true }).extend(HogFlowsProposalsListQueryParams.shape)
+}
+
+const workflowsListProposals = (): ToolBase<
+    ReturnType<typeof WorkflowsListProposalsSchema>,
+    WithPostHogUrl<Schemas.PaginatedWorkflowProposalList>
+> => ({
+    name: 'workflows-list-proposals',
+    schema: WorkflowsListProposalsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListProposalsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedWorkflowProposalList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/proposals/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                status: params.status,
+            },
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
+const WorkflowsListRevisionsSchema = () => {
+    const HogFlowsRevisionsListParams = orvalSchemas.HogFlowsRevisionsListParams()
+    const HogFlowsRevisionsListQueryParams = orvalSchemas.HogFlowsRevisionsListQueryParams()
+    return HogFlowsRevisionsListParams.omit({ project_id: true }).extend(HogFlowsRevisionsListQueryParams.shape)
+}
 
 const workflowsListRevisions = (): ToolBase<
-    typeof WorkflowsListRevisionsSchema,
+    ReturnType<typeof WorkflowsListRevisionsSchema>,
     WithPostHogUrl<Schemas.PaginatedHogFlowRevisionBasicList>
 > => ({
     name: 'workflows-list-revisions',
-    schema: WorkflowsListRevisionsSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsListRevisionsSchema>) => {
+    schema: WorkflowsListRevisionsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListRevisionsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFlowRevisionBasicList>({
             method: 'GET',
@@ -262,14 +628,42 @@ const workflowsListRevisions = (): ToolBase<
     },
 })
 
-const WorkflowsLogsSchema = HogFlowsLogsRetrieveParams.omit({ project_id: true }).extend(
-    HogFlowsLogsRetrieveQueryParams.shape
-)
+const WorkflowsListVersionsSchema = () => {
+    const HogFlowsRevisionsListParams = orvalSchemas.HogFlowsRevisionsListParams()
+    const HogFlowsRevisionsListQueryParams = orvalSchemas.HogFlowsRevisionsListQueryParams()
+    return HogFlowsRevisionsListParams.omit({ project_id: true }).extend(HogFlowsRevisionsListQueryParams.shape)
+}
 
-const workflowsLogs = (): ToolBase<typeof WorkflowsLogsSchema, unknown> => ({
+const workflowsListVersions = (): ToolBase<
+    ReturnType<typeof WorkflowsListVersionsSchema>,
+    WithPostHogUrl<Schemas.PaginatedHogFlowRevisionBasicList>
+> => ({
+    name: 'workflows-list-versions',
+    schema: WorkflowsListVersionsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListVersionsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedHogFlowRevisionBasicList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
+const WorkflowsLogsSchema = () => {
+    const HogFlowsLogsRetrieveParams = orvalSchemas.HogFlowsLogsRetrieveParams()
+    const HogFlowsLogsRetrieveQueryParams = orvalSchemas.HogFlowsLogsRetrieveQueryParams()
+    return HogFlowsLogsRetrieveParams.omit({ project_id: true }).extend(HogFlowsLogsRetrieveQueryParams.shape)
+}
+
+const workflowsLogs = (): ToolBase<ReturnType<typeof WorkflowsLogsSchema>, unknown> => ({
     name: 'workflows-logs',
-    schema: WorkflowsLogsSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsLogsSchema>) => {
+    schema: WorkflowsLogsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsLogsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -280,6 +674,7 @@ const workflowsLogs = (): ToolBase<typeof WorkflowsLogsSchema, unknown> => ({
                 instance_id: params.instance_id,
                 level: params.level,
                 limit: params.limit,
+                offset: params.offset,
                 search: params.search,
             },
         })
@@ -287,50 +682,63 @@ const workflowsLogs = (): ToolBase<typeof WorkflowsLogsSchema, unknown> => ({
     },
 })
 
-const WorkflowsPatchActionEmailSchema = WorkflowActionEmailPatchSchema
+const WorkflowsPatchActionEmailSchema = () => WorkflowActionEmailPatchSchema
 
-const workflowsPatchActionEmail = (): ToolBase<typeof WorkflowsPatchActionEmailSchema, Schemas.HogFlow> => ({
+const workflowsPatchActionEmail = (): ToolBase<
+    ReturnType<typeof WorkflowsPatchActionEmailSchema>,
+    Schemas.HogFlow
+> => ({
     name: 'workflows-patch-action-email',
-    schema: WorkflowsPatchActionEmailSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsPatchActionEmailSchema>) => {
+    schema: WorkflowsPatchActionEmailSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPatchActionEmailSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const parsedParams = WorkflowsPatchActionEmailSchema.parse(params)
+        const parsedParams = WorkflowsPatchActionEmailSchema().parse(params)
         const { id, action_id, ...body } = parsedParams
         const result = await context.api.request<Schemas.HogFlow>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/actions/${encodeURIComponent(String(action_id))}/email/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'actions.*.config.inputs',
+            'draft.actions.*.config.inputs',
+        ]) as typeof result
+        return filtered
     },
 })
 
-const WorkflowsPatchGraphSchema = WorkflowGraphPatchSchema
+const WorkflowsPatchGraphSchema = () => WorkflowGraphPatchSchema
 
-const workflowsPatchGraph = (): ToolBase<typeof WorkflowsPatchGraphSchema, Schemas.HogFlow> => ({
+const workflowsPatchGraph = (): ToolBase<ReturnType<typeof WorkflowsPatchGraphSchema>, Schemas.HogFlow> => ({
     name: 'workflows-patch-graph',
-    schema: WorkflowsPatchGraphSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsPatchGraphSchema>) => {
+    schema: WorkflowsPatchGraphSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPatchGraphSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const parsedParams = WorkflowsPatchGraphSchema.parse(params)
+        const parsedParams = WorkflowsPatchGraphSchema().parse(params)
         const { id, ...body } = parsedParams
         const result = await context.api.request<Schemas.HogFlow>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/graph/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'actions.*.config.inputs',
+            'draft.actions.*.config.inputs',
+        ]) as typeof result
+        return filtered
     },
 })
 
-const WorkflowsPublishSchema = HogFlowsPublishCreateParams.omit({ project_id: true }).extend(
-    HogFlowsPublishCreateBody.shape
-)
+const WorkflowsPublishSchema = () => {
+    const HogFlowsPublishCreateBody = orvalSchemas.HogFlowsPublishCreateBody()
+    const HogFlowsPublishCreateParams = orvalSchemas.HogFlowsPublishCreateParams()
+    return HogFlowsPublishCreateParams.omit({ project_id: true }).extend(HogFlowsPublishCreateBody.shape)
+}
 
-const workflowsPublish = (): ToolBase<typeof WorkflowsPublishSchema, Schemas.HogFlowPublishResponse> => ({
+const workflowsPublish = (): ToolBase<ReturnType<typeof WorkflowsPublishSchema>, Schemas.HogFlowPublishResponse> => ({
     name: 'workflows-publish',
-    schema: WorkflowsPublishSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsPublishSchema>) => {
+    schema: WorkflowsPublishSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPublishSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.confirm !== undefined) {
@@ -344,40 +752,196 @@ const workflowsPublish = (): ToolBase<typeof WorkflowsPublishSchema, Schemas.Hog
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'workflow.actions.*.config.inputs',
+            'workflow.draft.actions.*.config.inputs',
+        ]) as typeof result
+        return filtered
     },
 })
 
-const WorkflowsRestoreRevisionSchema = HogFlowsRevisionsRestoreCreateParams.omit({ project_id: true }).extend(
-    HogFlowsRevisionsRestoreCreateBody.shape
-)
+const WorkflowsReputationGetSchema = () => {
+    const HogFlowsReputationRetrieveQueryParams = orvalSchemas.HogFlowsReputationRetrieveQueryParams()
+    return HogFlowsReputationRetrieveQueryParams.extend({
+        fields: z
+            .array(
+                z.enum([
+                    'sending_allowance',
+                    'reputation',
+                    'workflows',
+                    'aws',
+                    'isps',
+                    'isp_shared_domains',
+                    'isp_withheld_domains',
+                    'email_sending_suspended',
+                    'email_sending_suspended_at',
+                    'email_sending_suspension_reason',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
+}
 
-const workflowsRestoreRevision = (): ToolBase<typeof WorkflowsRestoreRevisionSchema, Schemas.HogFlow> => ({
+const workflowsReputationGet = (): ToolBase<
+    ReturnType<typeof WorkflowsReputationGetSchema>,
+    Schemas.TeamEmailReputationResponse
+> => ({
+    name: 'workflows-reputation-get',
+    schema: WorkflowsReputationGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsReputationGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TeamEmailReputationResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/reputation/`,
+            query: {
+                search: params.search,
+            },
+        })
+        const filtered = pickResponseFields(
+            result,
+            params.fields?.length
+                ? params.fields
+                : [
+                      'sending_allowance',
+                      'reputation',
+                      'workflows',
+                      'aws',
+                      'isps',
+                      'isp_shared_domains',
+                      'isp_withheld_domains',
+                      'email_sending_suspended',
+                      'email_sending_suspended_at',
+                      'email_sending_suspension_reason',
+                  ]
+        ) as typeof result
+        return filtered
+    },
+})
+
+const WorkflowsRestoreRevisionSchema = () => {
+    const HogFlowsRevisionsRestoreCreateBody = orvalSchemas.HogFlowsRevisionsRestoreCreateBody()
+    const HogFlowsRevisionsRestoreCreateParams = orvalSchemas.HogFlowsRevisionsRestoreCreateParams()
+    return HogFlowsRevisionsRestoreCreateParams.omit({ project_id: true }).extend(
+        HogFlowsRevisionsRestoreCreateBody.shape
+    )
+}
+
+const workflowsRestoreRevision = (): ToolBase<ReturnType<typeof WorkflowsRestoreRevisionSchema>, Schemas.HogFlow> => ({
     name: 'workflows-restore-revision',
-    schema: WorkflowsRestoreRevisionSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsRestoreRevisionSchema>) => {
+    schema: WorkflowsRestoreRevisionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsRestoreRevisionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.overwrite !== undefined) {
             body['overwrite'] = params.overwrite
+        }
+        if (params.expected_draft_updated_at !== undefined) {
+            body['expected_draft_updated_at'] = params.expected_draft_updated_at
         }
         const result = await context.api.request<Schemas.HogFlow>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/${encodeURIComponent(String(params.version))}/restore/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'actions.*.config.inputs',
+            'draft.actions.*.config.inputs',
+        ]) as typeof result
+        return filtered
     },
 })
 
-const WorkflowsStatsSchema = HogFlowsMetricsRetrieveParams.omit({ project_id: true }).extend(
-    HogFlowsMetricsRetrieveQueryParams.shape
-)
+const WorkflowsSendingRulesGetSchema = () => z.object({})
 
-const workflowsStats = (): ToolBase<typeof WorkflowsStatsSchema, Schemas.AppMetricsResponse> => ({
+const workflowsSendingRulesGet = (): ToolBase<
+    ReturnType<typeof WorkflowsSendingRulesGetSchema>,
+    Schemas.WorkflowSendingRules
+> =>
+    withUiApp('workflow-sending-rules', {
+        name: 'workflows-sending-rules-get',
+        schema: WorkflowsSendingRulesGetSchema(),
+        handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsSendingRulesGetSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.WorkflowSendingRules>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_sending_rules/current/`,
+            })
+            return result
+        },
+    })
+
+const WorkflowsSendingRulesUpdateSchema = () => {
+    const WorkflowSendingRulesPartialUpdateBody = orvalSchemas.WorkflowSendingRulesPartialUpdateBody()
+    return WorkflowSendingRulesPartialUpdateBody
+}
+
+const workflowsSendingRulesUpdate = (): ToolBase<
+    ReturnType<typeof WorkflowsSendingRulesUpdateSchema>,
+    Schemas.WorkflowSendingRules
+> =>
+    withUiApp('workflow-sending-rules', {
+        name: 'workflows-sending-rules-update',
+        schema: WorkflowsSendingRulesUpdateSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendingRulesUpdateSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.expected_project_id !== undefined) {
+                body['expected_project_id'] = params.expected_project_id
+            }
+            if (params.marketing_frequency_cap_max_messages !== undefined) {
+                body['marketing_frequency_cap_max_messages'] = params.marketing_frequency_cap_max_messages
+            }
+            if (params.marketing_frequency_cap_window_days !== undefined) {
+                body['marketing_frequency_cap_window_days'] = params.marketing_frequency_cap_window_days
+            }
+            if (params.marketing_frequency_cap_hold_hours !== undefined) {
+                body['marketing_frequency_cap_hold_hours'] = params.marketing_frequency_cap_hold_hours
+            }
+            if (params.email_tracking_consent_mode !== undefined) {
+                body['email_tracking_consent_mode'] = params.email_tracking_consent_mode
+            }
+            if (params.capture_workflows_engagement_events !== undefined) {
+                body['capture_workflows_engagement_events'] = params.capture_workflows_engagement_events
+            }
+            const result = await context.api.request<Schemas.WorkflowSendingRules>({
+                method: 'PATCH',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_sending_rules/current/`,
+                body,
+            })
+            return result
+        },
+    })
+
+const WorkflowsSetupStatusSchema = () => z.object({})
+
+const workflowsSetupStatus = (): ToolBase<ReturnType<typeof WorkflowsSetupStatusSchema>, Schemas.WorkflowSetupStatus> =>
+    withUiApp('workflow-setup-status', {
+        name: 'workflows-setup-status',
+        schema: WorkflowsSetupStatusSchema(),
+        handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsSetupStatusSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.WorkflowSetupStatus>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_setup/status/`,
+            })
+            return result
+        },
+    })
+
+const WorkflowsStatsSchema = () => {
+    const HogFlowsMetricsRetrieveParams = orvalSchemas.HogFlowsMetricsRetrieveParams()
+    const HogFlowsMetricsRetrieveQueryParams = orvalSchemas.HogFlowsMetricsRetrieveQueryParams()
+    return HogFlowsMetricsRetrieveParams.omit({ project_id: true }).extend(HogFlowsMetricsRetrieveQueryParams.shape)
+}
+
+const workflowsStats = (): ToolBase<ReturnType<typeof WorkflowsStatsSchema>, Schemas.AppMetricsResponse> => ({
     name: 'workflows-stats',
-    schema: WorkflowsStatsSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsStatsSchema>) => {
+    schema: WorkflowsStatsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsStatsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AppMetricsResponse>({
             method: 'GET',
@@ -396,14 +960,58 @@ const workflowsStats = (): ToolBase<typeof WorkflowsStatsSchema, Schemas.AppMetr
     },
 })
 
-const WorkflowsTestRunSchema = HogFlowsInvocationsCreateParams.omit({ project_id: true }).extend(
-    HogFlowsInvocationsCreateBody.shape
-)
+const WorkflowsSuggestSchema = () => {
+    const HogFlowsProposalsCreateBody = orvalSchemas.HogFlowsProposalsCreateBody()
+    const HogFlowsProposalsCreateParams = orvalSchemas.HogFlowsProposalsCreateParams()
+    return HogFlowsProposalsCreateParams.omit({ project_id: true }).extend(HogFlowsProposalsCreateBody.shape)
+}
 
-const workflowsTestRun = (): ToolBase<typeof WorkflowsTestRunSchema, unknown> => ({
+const workflowsSuggest = (): ToolBase<ReturnType<typeof WorkflowsSuggestSchema>, Schemas.WorkflowProposal> => ({
+    name: 'workflows-suggest',
+    schema: WorkflowsSuggestSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSuggestSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.rationale !== undefined) {
+            body['rationale'] = params.rationale
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.evidence !== undefined) {
+            body['evidence'] = params.evidence
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        if (params.step_id !== undefined) {
+            body['step_id'] = params.step_id
+        }
+        if (params.source_id !== undefined) {
+            body['source_id'] = params.source_id
+        }
+        const result = await context.api.request<Schemas.WorkflowProposal>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/proposals/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WorkflowsTestRunSchema = () => {
+    const HogFlowsInvocationsCreateBody = orvalSchemas.HogFlowsInvocationsCreateBody()
+    const HogFlowsInvocationsCreateParams = orvalSchemas.HogFlowsInvocationsCreateParams()
+    return HogFlowsInvocationsCreateParams.omit({ project_id: true }).extend(HogFlowsInvocationsCreateBody.shape)
+}
+
+const workflowsTestRun = (): ToolBase<ReturnType<typeof WorkflowsTestRunSchema>, unknown> => ({
     name: 'workflows-test-run',
-    schema: WorkflowsTestRunSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsTestRunSchema>) => {
+    schema: WorkflowsTestRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsTestRunSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.globals !== undefined) {
@@ -427,52 +1035,74 @@ const workflowsTestRun = (): ToolBase<typeof WorkflowsTestRunSchema, unknown> =>
     },
 })
 
-const WorkflowsUpdateSchema = HogFlowsPartialUpdateParams.omit({ project_id: true }).extend(
-    HogFlowsPartialUpdateBody.shape
-)
+const WorkflowsUpdateSchema = () => {
+    const HogFlowsPartialUpdateBody = orvalSchemas.HogFlowsPartialUpdateBody()
+    const HogFlowsPartialUpdateParams = orvalSchemas.HogFlowsPartialUpdateParams()
+    return HogFlowsPartialUpdateParams.omit({ project_id: true }).extend(HogFlowsPartialUpdateBody.shape)
+}
 
-const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUrl<Schemas.HogFlow>> =>
+const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, WithPostHogUrl<Schemas.HogFlowUpdate>> =>
     withUiApp('workflow', {
         name: 'workflows-update',
-        schema: WorkflowsUpdateSchema,
-        handler: async (context: Context, params: z.infer<typeof WorkflowsUpdateSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.name !== undefined) {
-                body['name'] = params.name
+        schema: WorkflowsUpdateSchema(),
+        handler: withToolHooks(
+            hooks_workflowsUpdate,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsUpdateSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                if (params.name !== undefined) {
+                    body['name'] = params.name
+                }
+                if (params.description !== undefined) {
+                    body['description'] = params.description
+                }
+                if (params.tags !== undefined) {
+                    body['tags'] = params.tags
+                }
+                if (params.trigger_masking !== undefined) {
+                    body['trigger_masking'] = params.trigger_masking
+                }
+                if (params.conversion !== undefined) {
+                    body['conversion'] = params.conversion
+                }
+                if (params.exit_condition !== undefined) {
+                    body['exit_condition'] = params.exit_condition
+                }
+                if (params.email_sending_rate_limit !== undefined) {
+                    body['email_sending_rate_limit'] = params.email_sending_rate_limit
+                }
+                if (params.variables !== undefined) {
+                    body['variables'] = params.variables
+                }
+                const result = await context.api.request<Schemas.HogFlowUpdate>({
+                    method: 'PATCH',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
+                    body: await transformRequestBody(hooks_workflowsUpdate, context, params, body),
+                })
+                const filtered = omitResponseFields(result, [
+                    'actions.*.config.inputs',
+                    'draft.actions.*.config.inputs',
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/workflows/${filtered.id}/workflow`)
             }
-            if (params.description !== undefined) {
-                body['description'] = params.description
-            }
-            if (params.trigger_masking !== undefined) {
-                body['trigger_masking'] = params.trigger_masking
-            }
-            if (params.conversion !== undefined) {
-                body['conversion'] = params.conversion
-            }
-            if (params.exit_condition !== undefined) {
-                body['exit_condition'] = params.exit_condition
-            }
-            if (params.variables !== undefined) {
-                body['variables'] = params.variables
-            }
-            const result = await context.api.request<Schemas.HogFlow>({
-                method: 'PATCH',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
-                body,
-            })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
-        },
+        ),
     })
 
-const WorkflowsUpdateScheduleSchema = HogFlowsSchedulesPartialUpdateParams.omit({ project_id: true }).extend(
-    HogFlowsSchedulesPartialUpdateBody.shape
-)
+const WorkflowsUpdateScheduleSchema = () => {
+    const HogFlowsSchedulesPartialUpdateBody = orvalSchemas.HogFlowsSchedulesPartialUpdateBody()
+    const HogFlowsSchedulesPartialUpdateParams = orvalSchemas.HogFlowsSchedulesPartialUpdateParams()
+    return HogFlowsSchedulesPartialUpdateParams.omit({ project_id: true }).extend(
+        HogFlowsSchedulesPartialUpdateBody.shape
+    )
+}
 
-const workflowsUpdateSchedule = (): ToolBase<typeof WorkflowsUpdateScheduleSchema, Schemas.HogFlowSchedule> => ({
+const workflowsUpdateSchedule = (): ToolBase<
+    ReturnType<typeof WorkflowsUpdateScheduleSchema>,
+    Schemas.HogFlowSchedule
+> => ({
     name: 'workflows-update-schedule',
-    schema: WorkflowsUpdateScheduleSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsUpdateScheduleSchema>) => {
+    schema: WorkflowsUpdateScheduleSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsUpdateScheduleSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.rrule !== undefined) {
@@ -496,24 +1126,74 @@ const workflowsUpdateSchedule = (): ToolBase<typeof WorkflowsUpdateScheduleSchem
     },
 })
 
+const WorkflowsVersionStatsSchema = () => {
+    const HogFlowsMetricsVersionRetrieveParams = orvalSchemas.HogFlowsMetricsVersionRetrieveParams()
+    const HogFlowsMetricsVersionRetrieveQueryParams = orvalSchemas.HogFlowsMetricsVersionRetrieveQueryParams()
+    return HogFlowsMetricsVersionRetrieveParams.omit({ project_id: true }).extend(
+        HogFlowsMetricsVersionRetrieveQueryParams.shape
+    )
+}
+
+const workflowsVersionStats = (): ToolBase<
+    ReturnType<typeof WorkflowsVersionStatsSchema>,
+    Schemas.AppMetricsResponse
+> => ({
+    name: 'workflows-version-stats',
+    schema: WorkflowsVersionStatsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsVersionStatsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AppMetricsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/metrics/version/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                breakdown_by: params.breakdown_by,
+                instance_id: params.instance_id,
+                interval: params.interval,
+                kind: params.kind,
+                name: params.name,
+                version: params.version,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'broadcasts-create': broadcastsCreate,
+    'workflows-convert-to-broadcast': workflowsConvertToBroadcast,
     'workflows-create': workflowsCreate,
+    'workflows-data-suggestions-create': workflowsDataSuggestionsCreate,
+    'workflows-data-suggestions-get': workflowsDataSuggestionsGet,
+    'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
+    'workflows-email-drafts-create': workflowsEmailDraftsCreate,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,
     'workflows-global-stats': workflowsGlobalStats,
+    'workflows-import-customerio': workflowsImportCustomerio,
+    'workflows-import-notes': workflowsImportNotes,
     'workflows-list': workflowsList,
     'workflows-list-batch-jobs': workflowsListBatchJobs,
     'workflows-list-invocations': workflowsListInvocations,
+    'workflows-list-proposals': workflowsListProposals,
     'workflows-list-revisions': workflowsListRevisions,
+    'workflows-list-versions': workflowsListVersions,
     'workflows-logs': workflowsLogs,
     'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
+    'workflows-reputation-get': workflowsReputationGet,
     'workflows-restore-revision': workflowsRestoreRevision,
+    'workflows-sending-rules-get': workflowsSendingRulesGet,
+    'workflows-sending-rules-update': workflowsSendingRulesUpdate,
+    'workflows-setup-status': workflowsSetupStatus,
     'workflows-stats': workflowsStats,
+    'workflows-suggest': workflowsSuggest,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
     'workflows-update-schedule': workflowsUpdateSchedule,
+    'workflows-version-stats': workflowsVersionStats,
 }

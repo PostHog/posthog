@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { sanitizeNotebookLinkHref } from 'lib/components/MarkdownNotebook/markdown'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -35,15 +36,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
     const [loaded, setLoaded] = useState(false)
 
     const validUrl = useMemo(() => {
-        // Check the src exists and is a valid URL beginning with http
-        if (!src || /^https?:\/\//.test(src) === false) {
-            return null
-        }
-        try {
-            return new URL(src)
-        } catch {
-            return null
-        }
+        const sanitizedSrc = typeof src === 'string' ? sanitizeNotebookLinkHref(src) : null
+        return sanitizedSrc ? new URL(sanitizedSrc) : null
     }, [src])
 
     useEffect(() => {
@@ -67,7 +61,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
                         onLoad={() => {
                             setLoaded(true)
                         }}
-                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                        sandbox="allow-scripts allow-popups allow-forms"
                     />
                     {!loaded ? <SpinnerOverlay /> : null}
                 </>

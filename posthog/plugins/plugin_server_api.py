@@ -1,15 +1,15 @@
+import re
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Optional, Union
 
-from django.conf import settings
-
-import jwt
 import requests
 import structlog
 
+from posthog.jwt import PosthogJwtAudience
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.security.outbound_proxy import internal_requests
 from posthog.settings import CDP_API_URL, INTERNAL_API_SECRET, PLUGINS_RELOAD_REDIS_URL
 
@@ -77,6 +77,11 @@ def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
     publish_message("reload-integrations", {"teamId": team_id, "integrationIds": integration_ids})
 
 
+def reload_team_workflows_config_on_workers(team_id: int):
+    logger.info(f"Reloading team workflows config for team {team_id} on workers")
+    publish_message("reload-team-workflows-config", {"teamId": team_id})
+
+
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
     publish_message("populate-plugin-capabilities", {"pluginId": plugin_id})
@@ -104,10 +109,13 @@ def create_hog_flow_scheduled_invocation(
     team_id: int, hog_flow_id: str, variables: dict[str, object]
 ) -> requests.Response:
     logger.info(f"Creating scheduled hog flow invocation for hog flow {hog_flow_id} on workers")
+    # Same rationale as get_hog_flow_in_flight_count below: a stalled CDP connection must not pin
+    # the calling request thread indefinitely.
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/scheduled_invocations",
         json={"variables": variables},
         headers=get_internal_api_headers(),
+        timeout=10,
     )
 
 
@@ -122,24 +130,21 @@ def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Res
     )
 
 
+WORKFLOWS_RESCHEDULE_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED,
+    settings_name="WORKFLOWS_RESCHEDULE_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
 def _mint_reschedule_parked_jwt(team_id: int, hog_flow_id: str) -> str:
     """Short-lived scoped JWT for one reschedule_parked call — a leaked token can only sweep this
     one team + workflow. Signed with the dedicated key (never INTERNAL_API_SECRET / SECRET_KEY /
     JWT_SIGNING_KEY, per .agents/security.md); raises when unprovisioned so the sweep fails closed.
     Verified in the plugin server's CdpApi.postHogFlowRescheduleParked."""
-    secrets = settings.WORKFLOWS_RESCHEDULE_JWT_SECRETS
-    if not secrets:
+    if not WORKFLOWS_RESCHEDULE_JWT_PURPOSE.enabled():
         raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot call reschedule_parked")
-    return jwt.encode(
-        {
-            "team_id": team_id,
-            "hog_flow_id": hog_flow_id,
-            "aud": "posthog:workflows:reschedule_parked",
-            "exp": datetime.now(tz=UTC) + timedelta(minutes=2),
-        },
-        secrets[0],
-        algorithm="HS256",
-    )
+    return WORKFLOWS_RESCHEDULE_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
 
 
 def reschedule_hog_flow_parked_jobs(
@@ -161,6 +166,167 @@ def reschedule_hog_flow_parked_jobs(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/reschedule_parked",
         json=payload,
         headers={"Authorization": f"Bearer {_mint_reschedule_parked_jwt(team_id, hog_flow_id)}"},
+        timeout=30,
+    )
+
+
+# Dedicated cancel key, distinct from reschedule_parked's: the scoped-JWT rule is one key per
+# caller/callee surface, and cancel mints from the web tier while reschedule mints from the
+# worker, so a leak of one tier's key can't forge the other's calls. The distinct audience
+# still keeps a cancel-invocations token useless for cancel-batch (and vice versa).
+WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS,
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_cancel_invocations_jwt(team_id: int, hog_flow_id: str) -> str:
+    """Short-lived scoped JWT for one invocations/cancel call — a leaked token can only cancel runs
+    of this one team + workflow. Raises when unprovisioned so the call fails closed. Verified in
+    the plugin server's CdpApi.postHogFlowCancelInvocations."""
+    if not WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_CANCEL_JWT_SECRET is not configured — cannot cancel invocations")
+    return WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
+
+
+# Same dedicated cancel key as cancel-invocations (both mint from the web tier), on its own audience.
+WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_cancel_batch_jwt(team_id: int, hog_flow_id: str, batch_job_id: str) -> str:
+    """Short-lived scoped JWT for one batch_jobs/:id/cancel call — a leaked token can only stop
+    this one batch run of this one team + workflow. Raises when unprovisioned so the call fails
+    closed. Verified in the plugin server's CdpApi.postHogFlowCancelBatchJob."""
+    if not WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_CANCEL_JWT_SECRET is not configured — cannot stop the batch run")
+    return WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.mint(
+        {"team_id": team_id, "hog_flow_id": hog_flow_id, "batch_job_id": batch_job_id}
+    )
+
+
+def cancel_hog_flow_batch_job(team_id: int, hog_flow_id: str, batch_job_id: str) -> requests.Response:
+    """Flag a batch run's resolver job and all its child runs for cancellation — they share
+    parent_run_id, so the CDP side sweeps both with one selector. Bounded like the invocation
+    cancel: `done: false` means another call is needed for the rest. The timeout covers the
+    endpoint's worst-case chunked sweep (chunk sleeps + UPDATEs)."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_jobs/{batch_job_id}/cancel",
+        json={},
+        headers={"Authorization": f"Bearer {_mint_cancel_batch_jwt(team_id, hog_flow_id, batch_job_id)}"},
+        timeout=30,
+    )
+
+
+WORKFLOWS_STEP_RESUME_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_STEP_RESUME,
+    settings_name="WORKFLOWS_STEP_RESUME_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_step_resume_jwt(team_id: int, origin_key: str) -> str:
+    """Short-lived scoped JWT for one step_resume call, pinned to the team and the dispatch key so a
+    leaked token can wake exactly one step. Verified in the plugin server's CdpApi.postWorkflowStepResume."""
+    if not WORKFLOWS_STEP_RESUME_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_STEP_RESUME_JWT_SECRET is not configured — cannot call step_resume")
+    return WORKFLOWS_STEP_RESUME_JWT_PURPOSE.mint({"team_id": team_id, "origin_key": origin_key})
+
+
+def resume_workflow_step(team_id: int, origin_key: str, status: str, result: dict) -> requests.Response:
+    """Wake the parked workflow step that dispatched `origin_key`. 409 means the worker still holds the
+    job and the caller should retry. A 200 carries the outcome in its body."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/workflow_steps/resume",
+        json={"origin_key": origin_key, "status": status, "result": result},
+        headers={"Authorization": f"Bearer {_mint_step_resume_jwt(team_id, origin_key)}"},
+        timeout=10,
+    )
+
+
+WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
+    settings_name="WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+# The workers that wake parked steps also wake parked batch resolvers, so the two share a key. The
+# audience keeps a token for one from waking the other.
+WORKFLOWS_RESUME_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_RESUME_BATCH,
+    settings_name="WORKFLOWS_STEP_RESUME_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_transactional_email_jwt(team_id: int, hog_flow_id: str, **route_claims: str) -> str:
+    """Short-lived scoped JWT for one transactional email send, pinned to the team and the transactional email's
+    workflow so a leaked token can only send that email. Verified in the plugin server's CdpApi."""
+    if not WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET is not configured — cannot send email")
+    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint(
+        {"team_id": team_id, "hog_flow_id": hog_flow_id, **route_claims}
+    )
+
+
+def send_transactional_email(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 10
+) -> requests.Response:
+    """Run a transactional email's workflow once. `payload` carries the recipient, the recipient's distinct_id and
+    the template variables. 202 means queued, 429 means the team is over its email quota."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email",
+        json=payload,
+        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
+        timeout=timeout,
+    )
+
+
+def send_accepted_transactional_email(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 10
+) -> requests.Response:
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/send",
+        data=json.dumps(payload, ensure_ascii=False).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id, kind='code_send')}",
+        },
+        timeout=timeout,
+    )
+
+
+def resume_hog_flow_batch_job(team_id: int, hog_flow_id: str, batch_job_id: str) -> requests.Response:
+    """Wake a batch run's resolver, parked until its realtime cohort finished calculating. The JSON
+    `outcome` is `resumed` or `already_resumed` on success; a 409 means the resolver isn't parked."""
+    if not WORKFLOWS_RESUME_BATCH_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_STEP_RESUME_JWT_SECRET is not configured — cannot resume a batch run")
+    token = WORKFLOWS_RESUME_BATCH_JWT_PURPOSE.mint(
+        {"team_id": team_id, "hog_flow_id": hog_flow_id, "batch_job_id": batch_job_id}
+    )
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_jobs/{batch_job_id}/resume",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+
+
+def cancel_hog_flow_invocations(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    """Flag a workflow's in-flight invocations for cancellation. `payload` carries exactly one
+    selector: {"invocation_ids": [...]} or {"all": true}. The Node side only marks rows and wakes
+    parked ones — the workers terminate them with lifecycle rows and metrics — so a `done: false`
+    response just means another call is needed for the rest. The timeout covers the endpoint's
+    worst-case chunked sweep (chunk sleeps + UPDATEs)."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/invocations/cancel",
+        json=payload,
+        headers={"Authorization": f"Bearer {_mint_cancel_invocations_jwt(team_id, hog_flow_id)}"},
         timeout=30,
     )
 
@@ -192,7 +358,24 @@ def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
     return ""
 
 
+# A preferences token is a three-segment base64url JWT. The charset has no path separators, so a
+# conforming token cannot alter the request path when interpolated below. Reject anything else
+# before the call, so an unauthenticated caller can't steer this internal, secret-bearing request
+# at another CDP endpoint (requests collapses `..` path segments).
+_PREFERENCES_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+
+
+def _invalid_token_response() -> requests.Response:
+    response = requests.Response()
+    response.status_code = 400
+    response._content = json.dumps({"error": "Invalid recipient token"}).encode()
+    response.headers["Content-Type"] = "application/json"
+    return response
+
+
 def validate_messaging_preferences_token(token: str) -> requests.Response:
+    if not isinstance(token, str) or not _PREFERENCES_TOKEN_RE.fullmatch(token):
+        return _invalid_token_response()
     return internal_requests.get(
         CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}",
         headers=get_internal_api_headers(),
@@ -212,11 +395,14 @@ def create_batch_hog_flow_job_invocation(
     batch_job_id: UUIDT,
     max_audience_size: int | None = None,
     filters: dict | None = None,
+    realtime_cohort: dict | None = None,
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
-        json={"max_audience_size": max_audience_size, "filters": filters},
+        json={"max_audience_size": max_audience_size, "filters": filters, "realtime_cohort": realtime_cohort},
         headers=get_internal_api_headers(),
+        # A run waits on this call while it is created, so a stalled CDP API must not hold it open.
+        timeout=30,
     )
 
 

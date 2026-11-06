@@ -22,14 +22,20 @@ jobs:
     flox-dev-setup:
         runs-on: ubuntu-24.04
         timeout-minutes: 30
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
 
             - name: Install Flox
-              uses: flox/install-flox-action@c94e7e1ab56ae14fe98bae4fd84384fd135f0c2a # v2.4.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: flox/install-flox-action@v2.7.0
               with:
+                  version: '1.19.3'
                   # This workflow only runs on pull_request, so the cache is never seeded on
                   # master and every PR writes a branch-scoped copy nothing else can read.
                   # Re-downloading the installer on a free runner is cheaper than the churn.
@@ -60,7 +66,13 @@ jobs:
 
             - name: Check lockfile consistency
               run: |
-                  if ! git diff --exit-code -- uv.lock pnpm-lock.yaml; then
+                  # git diff cannot see an untracked file, so a deletion would
+                  # otherwise pass: flox activate just regenerates it untracked.
+                  if ! git ls-files --error-unmatch .flox/env/manifest.lock > /dev/null 2>&1; then
+                    echo "::error::.flox/env/manifest.lock must stay tracked. Untracked, every fresh clone resolves against the catalog again, which needs a FloxHub account."
+                    exit 1
+                  fi
+                  if ! git diff --exit-code -- uv.lock pnpm-lock.yaml .flox/env/manifest.lock; then
                     echo "::error::Lockfiles were modified by flox activate. Please commit the updated lockfiles."
                     exit 1
                   fi

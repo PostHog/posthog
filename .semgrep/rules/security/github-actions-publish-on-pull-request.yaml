@@ -1,0 +1,221 @@
+# Flags a job that publishes a package to a public registry in a workflow that
+# a pull request event can trigger, when nothing in the job's `if:` pins the run
+# to a non-PR event or to a branch/tag ref. The pull request events are
+# `pull_request`, `pull_request_target`, `pull_request_review` and
+# `pull_request_review_comment`.
+#
+# A `pull_request` run checks out code the PR author controls. If a publish step
+# reaches it, anyone who can open a PR can push a release version of
+# an npm package such as `hogql-parser`, a crate, or a GitHub release to the public
+# and burn a version number that no later commit can take back. The registry
+# credential is exposed on the same run.
+#
+# Fix: keep `pull_request` for build-only validation, add `workflow_dispatch`,
+# and gate the publish job on the event plus the ref:
+#
+#     publish:
+#         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
+#         environment: npm-<package>
+#
+# The gate must be an `&&` chain. A `||` anywhere in the job `if:` counts as no
+# gate, because one arm of an alternation can admit a pull request and a regex
+# cannot decompose an alternation. Give each event its own job when two events
+# must reach a publish. A `!` outside `!=` counts as no gate too, because it can
+# invert an accepted clause. A comparison on a clause's result, such as
+# `(...) == false`, counts as no gate for the same reason. A `merge_group` pin
+# counts as no gate either: the merge queue runs the queued pull request before
+# it lands, and the queue can still reject it afterwards. A `workflow_run` pin
+# counts as no gate, because a pull request run of the upstream workflow can
+# trigger it. An inequality such as `!= 'pull_request'` counts as no gate,
+# because it admits every other event, `merge_group` and `workflow_run` included.
+#
+# `pull_request_target` sets `github.ref` to the base branch, so `refs/heads/master`
+# reads true while a pull request runs. Pin the event in those workflows.
+#
+# `.github/workflows/build-hogql-parser-npm.yml` is the reference shape.
+rules:
+    - id: github-actions-publish-on-pull-request
+      languages:
+          - yaml
+      message: |
+          This job publishes to a public registry, and a pull request can trigger the workflow it
+          lives in. Nothing in the job's `if:` holds a pull request run back, so that run reaches the
+          publish step with PR-author-controlled code and the registry credential in scope. A version
+          published this way is public forever; no later commit retracts it.
+
+          Fix: keep the pull request trigger for build-only validation, add `workflow_dispatch`, and
+          gate the publish job on both the event and the ref.
+
+              publish:
+                  if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
+                  environment: npm-<package>
+
+          These shapes count as no gate too. A `||` anywhere in the job `if:` does, because one arm
+          of an alternation can admit a pull request. A `!` outside `!=` does, because it can invert
+          an accepted clause, and so does a comparison on a clause's result, such as `(...) == false`.
+          A `merge_group` pin does, because the merge queue runs the queued pull request before it
+          lands. A `workflow_run` pin does, because a pull request run of the upstream workflow can
+          trigger it. An inequality such as `github.event_name != 'pull_request'` does, because it
+          admits every other event. A ref pin does in a `pull_request_target`
+          workflow, because `github.ref` names the base branch there and reads `refs/heads/master`
+          while a pull request runs.
+
+          `.github/workflows/build-hogql-parser-npm.yml` is the reference shape.
+      metadata:
+          category: security
+          cwe:
+              - 'CWE-284: Improper Access Control'
+          owasp:
+              - A01:2021 - Broken Access Control
+          references:
+              - https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/control-jobs#using-a-specific-environment
+              - https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
+          technology:
+              - github-actions
+          subcategory:
+              - vuln
+          likelihood: MEDIUM
+          impact: HIGH
+          confidence: MEDIUM
+      paths:
+          include:
+              - '**/.github/workflows/*.yml'
+              - '**/.github/workflows/*.yaml'
+      patterns:
+          # 1. The workflow can run on a pull request. Anchored on the whole document
+          #    mapping (trailing `...`), so a job anywhere in the file counts as inside it.
+          #    The trigger key is a metavariable so that a quoted `"on":` matches too. Some
+          #    authors quote it, because YAML 1.1 reads a bare `on` as the boolean `true`.
+          - pattern-either:
+                - pattern-inside: |
+                      $ON:
+                          ...
+                          $EVENT: ...
+                          ...
+                      ...
+                - pattern-inside: |
+                      $ON: [..., $EVENT, ...]
+                      ...
+                - pattern-inside: |
+                      $ON: $EVENT
+                      ...
+          - metavariable-regex:
+                metavariable: $ON
+                regex: ^["']?on["']?$
+          - metavariable-regex:
+                metavariable: $EVENT
+                regex: ^pull_request(?:_target|_review|_review_comment)?$
+          # 2. The job holding this step is ungated. `$GATE` binds the job-level `if:`
+          #    scalar only, never a step-level one. Which clauses count as a gate depends
+          #    on the `github.ref` the trigger sets, so `pull_request_target` gets its own arm.
+          - pattern-either:
+                # The job declares no `if:` at all.
+                - patterns:
+                      - pattern-inside: |
+                            $JOB:
+                                ...
+                                steps: ...
+                                ...
+                      - pattern-not-inside: |
+                            $JOB_WITH_IF:
+                                ...
+                                if: $ANY
+                                ...
+                                steps: ...
+                                ...
+                # `pull_request` and the two review events set `github.ref` to
+                # `refs/pull/<number>/merge`, so a branch or tag pin excludes their runs and
+                # counts as a gate.
+                - patterns:
+                      - pattern-either:
+                            - pattern-inside: |
+                                  $PR_ON:
+                                      ...
+                                      $PR_EVENT: ...
+                                      ...
+                                  ...
+                            - pattern-inside: |
+                                  $PR_ON: [..., $PR_EVENT, ...]
+                                  ...
+                            - pattern-inside: |
+                                  $PR_ON: $PR_EVENT
+                                  ...
+                      - metavariable-regex:
+                            metavariable: $PR_ON
+                            regex: ^["']?on["']?$
+                      - metavariable-regex:
+                            metavariable: $PR_EVENT
+                            regex: ^pull_request(?:_review|_review_comment)?$
+                      - pattern-inside: |
+                            $JOB:
+                                ...
+                                if: $GATE
+                                ...
+                                steps: ...
+                                ...
+                      - metavariable-regex:
+                            metavariable: $GATE
+                            # (?s) so a folded multi-line `if:` is one subject. The job is
+                            # ungated when no clause pins the event to a trusted release one,
+                            # or the ref to a branch or tag. An inequality such as
+                            # `!= 'pull_request'` is no pin, because it admits every other event,
+                            # `merge_group` and `workflow_run` included. `merge_group` is not a trusted
+                            # release event, because the queue run holds the pull request
+                            # merged onto the base before it lands. `workflow_run` is not one
+                            # either, because a pull request run of the upstream workflow can
+                            # trigger it. A `||` counts as no gate too, because one arm of an
+                            # alternation can admit a pull request and a regex cannot decompose
+                            # an alternation. A `!` outside `!=` counts as no gate for the same
+                            # reason: it can invert an accepted clause. So can a comparison on
+                            # a clause's result, such as `(...) == false` or `... == 'push' == false`.
+                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule)'|github\\.ref\\s*==\\s*'refs/(?:heads|tags)/|github\\.ref_name\\s*==\\s*'|startsWith\\(\\s*github\\.ref\\s*,\\s*'refs/(?:heads|tags)/))|(?=.*(?:\\|\\||!(?!=)|\\)\\s*[=!]=|[=!]=\\s*\\(|'\\s*[=!]=))).*$"
+                # `pull_request_target` sets `github.ref` to the base branch, so a branch pin
+                # reads true while a pull request runs. An event pin is the only gate here.
+                - patterns:
+                      - pattern-either:
+                            - pattern-inside: |
+                                  $PRT_ON:
+                                      ...
+                                      pull_request_target: ...
+                                      ...
+                                  ...
+                            - pattern-inside: |
+                                  $PRT_ON: [..., pull_request_target, ...]
+                                  ...
+                            - pattern-inside: |
+                                  $PRT_ON: pull_request_target
+                                  ...
+                      - metavariable-regex:
+                            metavariable: $PRT_ON
+                            regex: ^["']?on["']?$
+                      - pattern-inside: |
+                            $JOB:
+                                ...
+                                if: $GATE
+                                ...
+                                steps: ...
+                                ...
+                      - metavariable-regex:
+                            metavariable: $GATE
+                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule)'))|(?=.*(?:\\|\\||!(?!=)|\\)\\s*[=!]=|[=!]=\\s*\\(|'\\s*[=!]=))).*$"
+          # 3. The step publishes. A `--dry-run` invocation validates without shipping. The
+          #    guard follows a shell line continuation, so a dry run that wraps onto the next
+          #    line stays exempt while a real publish on a line of its own does not. It stops
+          #    at a shell operator or comment, where the `--dry-run` belongs to another command.
+          #    `--dry-run=false` publishes, so only a bare `--dry-run` or `--dry-run=true` counts.
+          #    Options may sit between the tool and `publish` (`pnpm --filter=<pkg> publish`), but
+          #    `publish` must be a bare word, so `electron-builder --publish never` stays clear.
+          #    An S3 copy counts only when a release URI follows the source argument, so a
+          #    download from a release bucket stays clear.
+          - pattern-either:
+                - patterns:
+                      - pattern: 'run: $CMD'
+                      - metavariable-regex:
+                            metavariable: $CMD
+                            regex: "(?s).*(?:\\b(?:npm|pnpm|yarn|uv|poetry|cargo)(?:(?:[ \\t]|\\\\\\r?\\n)+(?:-[^\\s;&|#]*(?:(?:[ \\t]|\\\\\\r?\\n)+[^\\s;&|#\\-\\\\][^\\s;&|#]*)?|workspace(?:[ \\t]|\\\\\\r?\\n)+[^\\s;&|#\\-\\\\][^\\s;&|#]*))*(?:[ \\t]|\\\\\\r?\\n)+publish(?![\\w-])(?!(?:[^\\n;&|#]*\\\\[ \\t]*\\r?\\n)*[^\\n;&|#]*--dry-run(?:=true)?(?![=\\w-]))|\\btwine(?:[ \\t]|\\\\\\r?\\n)+upload\\b(?!(?:[^\\n;&|#]*\\\\[ \\t]*\\r?\\n)*[^\\n;&|#]*--dry-run(?:=true)?(?![=\\w-]))|\\bgh(?:[ \\t]|\\\\\\r?\\n)+release(?:[ \\t]|\\\\\\r?\\n)+(?:create|upload|edit)\\b|\\baws(?:[ \\t]|\\\\\\r?\\n)+s3(?:[ \\t]|\\\\\\r?\\n)+(?:cp|sync)\\b(?:(?:[ \\t]|\\\\\\r?\\n)+-[^\\s;&|#]*)*(?:[ \\t]|\\\\\\r?\\n)+[^\\s;&|#\\-\\\\][^\\s;&|#]*(?:[ \\t]|\\\\\\r?\\n)+(?:[^\\n;&|#]|\\\\\\r?\\n)*?s3://[^\\s;&|#]*release).*"
+                - patterns:
+                      - pattern: 'uses: $ACTION'
+                      - metavariable-regex:
+                            metavariable: $ACTION
+                            regex: '^(?:pypa/gh-action-pypi-publish|JS-DevTools/npm-publish|softprops/action-gh-release|ncipollo/release-action|actions/create-release|actions/upload-release-asset)@'
+      severity: ERROR

@@ -1,26 +1,19 @@
 from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
-from posthog.settings import EE_AVAILABLE
 
-import products.alerts.backend.api.alert as alert
-from products.product_analytics.backend.api.insight import InsightViewSet
-from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet
-from products.product_analytics.backend.api.paths_v2 import PathsV2ViewSet
+import products.alerts.backend.presentation.views.alert as alert
+from products.product_analytics.backend.presentation.events_retention import (
+    EventsRetentionViewSet,
+    OrganizationEventsRetentionViewSet,
+)
+from products.product_analytics.backend.presentation.insight import InsightViewSet
+from products.product_analytics.backend.presentation.insight_explanation import InsightExplanationViewSet
+from products.product_analytics.backend.presentation.insight_variable import InsightVariableViewSet
+from products.product_analytics.backend.presentation.paths_v2 import PathsV2ViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    # EE installs override the insights viewset with EnterpriseInsightsViewSet.
-    # The non-EE InsightViewSet is the fallback. Either way, the route name and
-    # nested sub-routes (sharing, thresholds) stay identical.
-    insights_viewset: type[InsightViewSet]
-    if EE_AVAILABLE:
-        from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
-
-        insights_viewset = EnterpriseInsightsViewSet
-    else:
-        insights_viewset = InsightViewSet
-
-    insights_router = routers.projects.register(r"insights", insights_viewset, "project_insights", ["team_id"])
+    insights_router = routers.projects.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
 
     # SharingConfigurationViewSet is shared (core); the route lives under
     # insights/<id>/sharing — product_analytics owns the sub-route.
@@ -28,6 +21,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"sharing",
         sharing.SharingConfigurationViewSet,
         "project_insight_sharing",
+        ["team_id", "insight_id"],
+    )
+
+    insights_router.register(
+        r"explanations",
+        InsightExplanationViewSet,
+        "project_insight_explanations",
         ["team_id", "insight_id"],
     )
 
@@ -51,4 +51,20 @@ def register_routes(routers: RouterRegistry) -> None:
         PathsV2ViewSet,
         "project_paths_v2",
         ["team_id"],
+    )
+
+    routers.projects.register(
+        r"events_retention",
+        EventsRetentionViewSet,
+        "project_events_retention",
+        ["team_id"],
+    )
+
+    # Not "events_retention": the schema generator marks an organization path that repeats a project path as a
+    # deprecated duplicate and leaves it out of the generated client.
+    routers.organizations.register(
+        r"events_retention_setting",
+        OrganizationEventsRetentionViewSet,
+        "organization_events_retention_setting",
+        ["organization_id"],
     )

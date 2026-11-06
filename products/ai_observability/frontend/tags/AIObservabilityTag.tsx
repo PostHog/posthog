@@ -1,5 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconArrowLeft, IconCopy, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import {
@@ -17,6 +19,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -25,17 +28,18 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
+import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
+import { getModelPickerFooterActions, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
-import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
+import { AddKeyModal } from '../settings/AddKeyModal'
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import {
     getUnhealthyProviderKey,
     providerKeyStateIssueDescription,
@@ -43,6 +47,8 @@ import {
 } from '../settings/providerKeyStateUtils'
 import { HOG_TAGGER_EXAMPLES } from './hogTaggerExamples'
 import { HogTestResult, TagRun, llmTaggerLogic } from './llmTaggerLogic'
+import { TaggerCreationRetiredModal } from './TaggerCreationRetiredModal'
+import { TaggersDeprecationBanner } from './TaggersDeprecationBanner'
 import { Tagger, TaggerConditionSet } from './types'
 
 const DEFAULT_HOG_SOURCE = `// Return a list of tag names that apply to this generation
@@ -53,13 +59,6 @@ if (output ilike '%billing%') {
     print('Found: billing')
 }
 return result`
-
-export const scene: SceneExport = {
-    component: AIObservabilityTagScene,
-    logic: llmTaggerLogic,
-    paramsToProps: ({ params }): { id: string } => ({ id: params.id || 'new' }),
-    productKey: ProductKey.AI_OBSERVABILITY,
-}
 
 function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
     const { taggerForm } = useValues(llmTaggerLogic({ id }))
@@ -111,7 +110,7 @@ function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
 }
 
 function TaggerModelPicker({ id }: { id: string }): JSX.Element {
-    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading, byokModelNotice } =
         useValues(modelPickerLogic)
     const { selectedModel, selectedPickerProviderKeyId } = useValues(llmTaggerLogic({ id }))
     const { selectModelFromPicker } = useActions(llmTaggerLogic({ id }))
@@ -121,7 +120,8 @@ function TaggerModelPicker({ id }: { id: string }): JSX.Element {
     const groups = providerModelGroups
     const loading = byokModelsLoading || providerKeysLoading
 
-    const footerLink = getModelPickerFooterLink(hasByokKeys)
+    const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
+    const footerActions = getModelPickerFooterActions(hasByokKeys, () => setNewKeyModalOpen(true))
 
     return (
         <div className="bg-bg-light border rounded p-6">
@@ -131,18 +131,37 @@ function TaggerModelPicker({ id }: { id: string }): JSX.Element {
             </p>
 
             <div className="space-y-4">
-                <Field name="model" label="Model">
-                    <ModelPicker
-                        model={selectedModel}
-                        selectedProviderKeyId={selectedPickerProviderKeyId}
-                        onSelect={selectModelFromPicker}
-                        groups={groups}
-                        loading={loading}
-                        footerLink={footerLink}
-                        selectedModelName={selectedModelName}
-                        data-attr="tagger-model-selector"
-                    />
-                </Field>
+                <div>
+                    <Field name="model" label="Model">
+                        {() =>
+                            byokModelNotice?.kind === 'no-keys' ? (
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    fullWidth
+                                    center
+                                    onClick={() => setNewKeyModalOpen(true)}
+                                    data-attr="tagger-add-api-key"
+                                >
+                                    Add API key
+                                </LemonButton>
+                            ) : (
+                                <ModelPicker
+                                    model={selectedModel}
+                                    selectedProviderKeyId={selectedPickerProviderKeyId}
+                                    onSelect={selectModelFromPicker}
+                                    groups={groups}
+                                    loading={loading}
+                                    footerActions={footerActions}
+                                    selectedModelName={selectedModelName}
+                                    data-attr="tagger-model-selector"
+                                />
+                            )
+                        }
+                    </Field>
+                    <ByokModelPickerNotice />
+                    <AddKeyModal />
+                </div>
             </div>
         </div>
     )
@@ -379,8 +398,9 @@ function HogTaggerTestSection({ id }: { id: string }): JSX.Element {
 
 function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
     const logic = llmTaggerLogic({ id })
-    const { taggerForm, taggerFormChanged, isTaggerFormSubmitting } = useValues(logic)
+    const { tagger, taggerForm, taggerFormChanged, isTaggerFormSubmitting } = useValues(logic)
     const { setTaggerFormValues, submitTaggerForm, deleteTagger } = useActions(logic)
+    const [isEnableRetiredModalOpen, setIsEnableRetiredModalOpen] = useState(false)
 
     return (
         <BindLogic logic={llmTaggerLogic} props={{ id }}>
@@ -408,8 +428,17 @@ function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
                         <div className="flex items-center gap-2">
                             <LemonSwitch
                                 checked={taggerForm.enabled}
-                                onChange={(checked) => setTaggerFormValues({ enabled: checked })}
+                                onChange={(checked) =>
+                                    checked && !tagger?.enabled
+                                        ? setIsEnableRetiredModalOpen(true)
+                                        : setTaggerFormValues({ enabled: checked })
+                                }
                                 label="Enabled"
+                            />
+                            <TaggerCreationRetiredModal
+                                action="enable"
+                                isOpen={isEnableRetiredModalOpen}
+                                onClose={() => setIsEnableRetiredModalOpen(false)}
                             />
                         </div>
                     </div>
@@ -585,29 +614,22 @@ function AIObservabilityTaggerForm({ id }: { id: string }): JSX.Element {
                                 type="primary"
                                 onClick={submitTaggerForm}
                                 loading={isTaggerFormSubmitting}
-                                disabledReason={!taggerFormChanged && id !== 'new' ? 'No changes to save' : undefined}
+                                disabledReason={!taggerFormChanged ? 'No changes to save' : undefined}
                             >
-                                {id === 'new' ? 'Create tagger' : 'Save changes'}
+                                Save changes
                             </LemonButton>
                         </AccessControlAction>
                         <LemonButton type="secondary" to={urls.aiObservabilityTags()}>
                             Cancel
                         </LemonButton>
-                        {id !== 'new' && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Tagger}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    status="danger"
-                                    className="ml-auto"
-                                    onClick={deleteTagger}
-                                >
-                                    Delete
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Tagger}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton type="secondary" status="danger" className="ml-auto" onClick={deleteTagger}>
+                                Delete
+                            </LemonButton>
+                        </AccessControlAction>
                     </div>
                 </div>
             </Form>
@@ -738,12 +760,20 @@ function getTaggerProviderKeyIssue(tagger: Tagger | null, providerKeys: LLMProvi
     return getUnhealthyProviderKey(providerKeys, tagger.model_configuration?.provider_key_id)
 }
 
-export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
+export function AIObservabilityTag({ id }: { id?: string }): JSX.Element {
     const taggerId = id || 'new'
     const isNew = taggerId === 'new'
     const { tagger, taggerLoading, activeTab, providerKeys } = useValues(llmTaggerLogic({ id: taggerId }))
     const { setActiveTab } = useActions(llmTaggerLogic({ id: taggerId }))
     const providerKeyIssue = tagger?.enabled ? getTaggerProviderKeyIssue(tagger, providerKeys) : null
+
+    if (isNew) {
+        return (
+            <SceneContent>
+                <TaggerCreationRetiredModal isOpen onClose={() => router.actions.push(urls.aiObservabilityTags())} />
+            </SceneContent>
+        )
+    }
 
     if (taggerLoading) {
         return (
@@ -755,12 +785,13 @@ export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
 
     return (
         <SceneContent>
+            <TaggersDeprecationBanner />
             <div className="space-y-6">
                 {/* Header */}
                 <div className="flex justify-between items-start pb-4 border-b">
                     <div className="space-y-2">
-                        <h1 className="text-2xl font-semibold">{isNew ? 'New tagger' : tagger?.name || 'Tagger'}</h1>
-                        {!isNew && tagger && (
+                        <h1 className="text-2xl font-semibold">{tagger?.name || 'Tagger'}</h1>
+                        {tagger && (
                             <div className="flex items-center gap-2">
                                 <LemonTag type={tagger.enabled ? 'success' : 'default'}>
                                     {tagger.enabled ? 'Enabled' : 'Disabled'}
@@ -796,24 +827,20 @@ export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
                 )}
 
                 <LemonTabs
-                    activeKey={isNew ? 'configuration' : activeTab}
+                    activeKey={activeTab}
                     onChange={(key) => setActiveTab(key as 'runs' | 'configuration')}
                     data-attr="llma-tagger-tabs"
                     tabs={[
-                        ...(!isNew
-                            ? [
-                                  {
-                                      key: 'runs',
-                                      label: 'Runs',
-                                      content: (
-                                          <div className="max-w-6xl">
-                                              <TagRunsChart id={taggerId} />
-                                              <TagRunsTable id={taggerId} />
-                                          </div>
-                                      ),
-                                  },
-                              ]
-                            : []),
+                        {
+                            key: 'runs',
+                            label: 'Runs',
+                            content: (
+                                <div className="max-w-6xl">
+                                    <TagRunsChart id={taggerId} />
+                                    <TagRunsTable id={taggerId} />
+                                </div>
+                            ),
+                        },
                         {
                             key: 'configuration',
                             label: 'Configuration',

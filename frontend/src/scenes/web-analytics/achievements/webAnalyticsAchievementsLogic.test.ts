@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -236,8 +237,17 @@ describe('webAnalyticsAchievementsLogic', () => {
         ] as const)('records a data interaction when %s fires', async (report) => {
             enableAchievements()
             await expectLogic(logic, () => {
-                eventUsageLogic.mount()
-                eventUsageLogic.actions[report]({} as any)
+                if (report === 'reportWebAnalyticsDateRangeChanged') {
+                    webAnalyticsLogic.mount()
+                    webAnalyticsLogic.actions.reportWebAnalyticsDateRangeChanged({
+                        date_from: null,
+                        date_to: null,
+                        interval: 'day',
+                    })
+                } else {
+                    eventUsageLogic.mount()
+                    eventUsageLogic.actions[report]({} as any)
+                }
             })
                 .toDispatchActions(['recordInteraction'])
                 .toFinishAllListeners()

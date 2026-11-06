@@ -2,21 +2,20 @@
 Core Bayesian calculation utilities for A/B testing.
 
 This module provides fundamental Bayesian statistical calculations including
-posterior updates, credible intervals, probability calculations, and risk assessment.
+posterior updates, credible intervals, and probability calculations.
 """
 
-import numpy as np
-from scipy.stats import norm, truncnorm
+from scipy.stats import norm
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, StatisticError
 from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 from .priors import GaussianPrior
 
 
 def calculate_effect_size_and_variance(
-    treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-    control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+    treatment_stat: AnyStatistic,
+    control_stat: AnyStatistic,
     difference_type: DifferenceType,
     unadjusted_mean: float | None = None,
 ) -> tuple[float, float]:
@@ -35,7 +34,7 @@ def calculate_effect_size_and_variance(
         Tuple of (effect_size, effect_variance)
 
     Raises:
-        StatisticError: If control mean is zero for relative calculations
+        StatisticError: If the baseline mean is zero for relative calculations
     """
     treatment_mean = get_mean(treatment_stat)
     control_mean = get_mean(control_stat)
@@ -51,13 +50,12 @@ def calculate_effect_size_and_variance(
 
     elif difference_type == DifferenceType.RELATIVE:
         denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
-        if denominator <= 0:
-            raise StatisticError("Control mean must be positive for relative difference calculation")
+        if abs(denominator) < 1e-10:
+            raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
 
-        # Direct relative difference: (μ_T - μ_C) / μ_C
-        effect = (treatment_mean - control_mean) / denominator
+        effect = (treatment_mean - control_mean) / abs(denominator)
 
-        # Using delta method for ratios
+        # The effect is ±(μ_T / μ_C - 1), so it has the variance of μ_T / μ_C. Keep the signed μ_C for the covariance term.
         effect_variance = variance_of_ratios(
             mean_numerator=treatment_mean,
             var_numerator=treatment_var / treatment_n,
@@ -202,84 +200,9 @@ def credible_interval(posterior_mean: float, posterior_std: float, alpha: float 
     return (float(bounds[0]), float(bounds[1]))
 
 
-def calculate_risk(posterior_mean: float, posterior_std: float) -> tuple[float, float]:
-    """
-    Calculate expected loss (risk) for each decision.
-
-    Risk represents the expected loss if we make the wrong decision:
-    - Risk of choosing control: E[θ | θ > 0] x P(θ > 0)
-    - Risk of choosing treatment: E[|θ|] x P(θ < 0)
-
-    Args:
-        posterior_mean: Posterior mean of effect size
-        posterior_std: Posterior standard deviation
-
-    Returns:
-        Tuple of (risk_control, risk_treatment)
-    """
-    if posterior_std <= 0:
-        raise StatisticError("Posterior standard deviation must be positive")
-
-    # Probability that control is better (effect < 0)
-    prob_control_better = norm.cdf(0, loc=posterior_mean, scale=posterior_std)
-
-    # Probability that treatment is better (effect > 0)
-    prob_treatment_better = 1 - prob_control_better
-
-    # Expected effect given treatment is better (truncated normal mean for θ > 0)
-    if prob_treatment_better > 1e-10:
-        expected_effect_positive = truncated_normal_mean(posterior_mean, posterior_std, 0, np.inf)
-    else:
-        expected_effect_positive = 0
-
-    # Expected absolute effect given control is better (truncated normal mean for θ < 0)
-    if prob_control_better > 1e-10:
-        expected_effect_negative = abs(truncated_normal_mean(posterior_mean, posterior_std, -np.inf, 0))
-    else:
-        expected_effect_negative = 0
-
-    # Risk calculations
-    risk_control = prob_treatment_better * expected_effect_positive
-    risk_treatment = prob_control_better * expected_effect_negative
-
-    return float(risk_control), float(risk_treatment)
-
-
-def truncated_normal_mean(mu: float, sigma: float, lower_bound: float, upper_bound: float) -> float:
-    """
-    Calculate expected value of truncated normal distribution.
-
-    For X ~ N(μ, σ²) truncated to [a, b], computes E[X | a ≤ X ≤ b].
-
-    Args:
-        mu: Original normal distribution mean
-        sigma: Original normal distribution standard deviation
-        lower_bound: Lower truncation bound (-np.inf for no lower bound)
-        upper_bound: Upper truncation bound (np.inf for no upper bound)
-
-    Returns:
-        Expected value of truncated distribution
-    """
-    if sigma <= 0:
-        raise StatisticError("Standard deviation must be positive")
-
-    # Standardize bounds
-    lower_std = (lower_bound - mu) / sigma if not np.isinf(lower_bound) else lower_bound
-    upper_std = (upper_bound - mu) / sigma if not np.isinf(upper_bound) else upper_bound
-
-    # Use scipy's truncated normal
-    try:
-        return float(truncnorm.mean(lower_std, upper_std, loc=mu, scale=sigma))
-    except Exception as e:
-        # Handle numerical issues
-        if np.isfinite(lower_bound) and np.isfinite(upper_bound):
-            return mu  # Fallback to original mean
-        raise StatisticError(f"Failed to calculate truncated normal mean: {e}")
-
-
 def validate_inputs(
-    treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-    control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+    treatment_stat: AnyStatistic,
+    control_stat: AnyStatistic,
 ) -> None:
     """
     Validate input statistics for Bayesian analysis.

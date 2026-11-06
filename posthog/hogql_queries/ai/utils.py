@@ -1,8 +1,14 @@
 from abc import ABC
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Optional
 
 import orjson
+
+from posthog.schema import PropertyOperator
+
+from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.caching.utils import ThresholdMode, is_stale
 
@@ -62,6 +68,52 @@ _NUMERIC_AI_PROPERTIES: frozenset[str] = frozenset(
         "$ai_time_to_first_token",
     }
 )
+
+
+# These operators express the whole condition on their own, so a filter using one is complete without a value.
+_VALUELESS_PROPERTY_OPERATORS: frozenset[PropertyOperator] = frozenset(
+    {PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET}
+)
+
+
+def _is_filled_property_filter(prop: Any) -> bool:
+    if getattr(prop, "type", None) == "hogql":
+        # A HogQL filter carries its whole expression in `key` and has no value.
+        return bool(getattr(prop, "key", None))
+
+    if not getattr(prop, "key", None):
+        return False
+
+    if getattr(prop, "operator", None) in _VALUELESS_PROPERTY_OPERATORS:
+        return True
+
+    value = getattr(prop, "value", None)
+    if isinstance(value, list | tuple):
+        return len(value) > 0
+    # `False`, `0`, and empty strings are real property values, so only a missing value is incomplete here.
+    return value is not None
+
+
+def filled_property_filters(properties: Sequence[Any] | None) -> list[Any]:
+    """Drop incomplete filters without conflating valid falsy values with missing input."""
+    return [prop for prop in (properties or []) if _is_filled_property_filter(prop)]
+
+
+def timestamp_bound_as_hogql(bound: datetime) -> ast.Expr:
+    """A non-null DateTime64(6) constant for `bound`, keeping its microseconds.
+
+    `QueryDateRange.format_date` rounds down to a whole second, which would drop the events inside
+    the final second of an upper bound. Event timestamps carry microseconds, so the bound does too.
+    """
+    return ast.Call(
+        name="assumeNotNull",
+        args=[
+            ast.Call(
+                name="toDateTime64",
+                args=[ast.Constant(value=bound.strftime("%Y-%m-%d %H:%M:%S.%f")), ast.Constant(value=6)],
+            )
+        ],
+    )
 
 
 def parse_ai_property_value(value: Any) -> Any:
@@ -133,3 +185,19 @@ class TaxonomyCacheMixin(ABC):
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         return None
+
+
+class _GlobalInSubqueries(TraversingVisitor):
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op == ast.CompareOperationOp.In and isinstance(node.right, ast.SelectQuery):
+            node.op = ast.CompareOperationOp.GlobalIn
+        super().visit_compare_operation(node)
+
+
+def with_global_in_subqueries(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Turn `x IN (SELECT ...)` into GLOBAL IN. A plain IN subquery over the Distributed ai_events
+    table does not narrow the outer read, so the outer read scans the whole table."""
+    _GlobalInSubqueries().visit(query)
+    return query

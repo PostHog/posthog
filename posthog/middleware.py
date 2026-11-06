@@ -5,14 +5,17 @@ import time
 import uuid
 import posixpath
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+from functools import partial
 from ipaddress import ip_address, ip_network
-from typing import Optional, cast
-from urllib.parse import urlencode
+from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.contrib import auth
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
+from django.contrib.auth.middleware import AuthenticationMiddleware as DjangoAuthenticationMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import (
@@ -26,43 +29,55 @@ from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
+from django.utils.functional import SimpleLazyObject
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
+import requests
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from rest_framework.exceptions import ValidationError
+from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.impersonation import get_original_user_from_session, get_original_user_id_from_session
+from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Team, User
+from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
-    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    ACTIVITY_LOG_INTENT_HEADER,
+    ActivityCredential,
     activity_storage,
+    client_from_header,
+    record_agent_intent,
 )
-from posthog.models.utils import generate_random_token
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
+from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
-from products.actions.backend.models.action import Action
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.actions.backend.facade.api import find_action_team_id
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.facade.mcp_intents import buffer_mcp_intent
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -118,6 +133,152 @@ default_cookie_options = {
 }
 
 cookie_api_paths_to_ignore = {"api", "flags", "scim"}
+
+# Both regions share the `posthog.com` domain, so a browser signed in to both carries both of
+# these, which is what lets the OAuth region picker tell one live region apart from two. The
+# `ph_*` cookies above cannot: they are one slot, last writer wins.
+REGION_AUTHENTICATED_COOKIES = {"US": "ph_authenticated_us", "EU": "ph_authenticated_eu"}
+
+
+def region_authenticated_cookie_name() -> str | None:
+    return REGION_AUTHENTICATED_COOKIES.get((settings.CLOUD_DEPLOYMENT or "").upper())
+
+
+def session_age_for_user(user: User) -> int:
+    org_id = user.current_organization_id
+    if org_id:
+        org_session_age = cache.get(f"org_session_age:{org_id}")
+        if org_session_age is not None:
+            return org_session_age
+    return settings.SESSION_COOKIE_AGE
+
+
+SIGNED_CLIENT_IP_MAX_AGE_SECONDS = 60
+SIGNED_CLIENT_IP_MAX_CLOCK_SKEW_SECONDS = 5
+
+
+class SignedClientIPOutcome(StrEnum):
+    VALID = "valid"
+    # The instance holds no signing key, which is the normal state outside PostHog Cloud.
+    NOT_CONFIGURED = "not_configured"
+    TIMESTAMP_OUT_OF_WINDOW = "timestamp_out_of_window"
+    INVALID_INPUT = "invalid_input"
+    BAD_SIGNATURE = "bad_signature"
+
+
+# Alert on `valid` falling to zero while managed proxy traffic continues. Do not alert on the
+# failure outcomes, because anyone can raise those by sending forged headers to the origin.
+MANAGED_PROXY_CLIENT_IP_VERIFICATIONS = Counter(
+    "posthog_managed_proxy_client_ip_verifications",
+    "Verifications of the client IP that the managed reverse proxy signs, by outcome.",
+    ["outcome"],
+)
+
+MCP_CLIENT_IP_VERIFICATIONS = Counter(
+    "posthog_mcp_client_ip_verifications",
+    "Verifications of the end user IP that the MCP server signs, by outcome.",
+    ["outcome"],
+)
+
+MCP_CLIENT_IP_META_KEY = "HTTP_X_POSTHOG_MCP_CLIENT_IP"
+MCP_CLIENT_IP_TIMESTAMP_META_KEY = "HTTP_X_POSTHOG_MCP_CLIENT_IP_TIMESTAMP"
+MCP_CLIENT_IP_SIGNATURE_META_KEY = "HTTP_X_POSTHOG_MCP_CLIENT_IP_SIGNATURE"
+
+
+def verify_signed_client_ip(
+    ip: str | None, timestamp: str | None, signature: str | None, signing_keys: list[str]
+) -> SignedClientIPOutcome:
+    """Report whether the holder of one of `signing_keys` signed this client IP.
+
+    The signer sends hex(HMAC-SHA256(key, f"{ip}:{timestamp}")) with the timestamp in unix seconds.
+    The managed proxy Worker and the MCP server both sign in this format. A change to it must also go
+    to them, or Django ignores the signed IP on every request.
+    """
+    keys = [key for key in signing_keys if key]
+    if not keys:
+        return SignedClientIPOutcome.NOT_CONFIGURED
+    if not ip or not timestamp or not signature:
+        return SignedClientIPOutcome.INVALID_INPUT
+    # int() raises ValueError on very long digit strings, so check the length first.
+    if len(timestamp) > 12 or not (timestamp.isascii() and timestamp.isdigit()):
+        return SignedClientIPOutcome.INVALID_INPUT
+    try:
+        ip_address(ip)
+    except ValueError:
+        return SignedClientIPOutcome.INVALID_INPUT
+    age_seconds = time.time() - int(timestamp)
+    if not -SIGNED_CLIENT_IP_MAX_CLOCK_SKEW_SECONDS <= age_seconds <= SIGNED_CLIENT_IP_MAX_AGE_SECONDS:
+        return SignedClientIPOutcome.TIMESTAMP_OUT_OF_WINDOW
+
+    message = f"{ip}:{timestamp}".encode()
+    provided = signature.lower()
+    for key in keys:
+        if signatures_match(hmac_sha256_signature(key, message), provided):
+            return SignedClientIPOutcome.VALID
+    return SignedClientIPOutcome.BAD_SIGNATURE
+
+
+def pop_mcp_client_ip(request: HttpRequest) -> str | None:
+    """Remove the MCP server's signed end user IP from the request, and return it when it verifies.
+
+    The MCP server calls the API from inside the cluster, so REMOTE_ADDR is the MCP pod. The signed
+    IP is the one the MCP server received from its own edge. Only the activity log uses it, so the
+    request's X-Forwarded-For does not change.
+    """
+    ip = request.META.pop(MCP_CLIENT_IP_META_KEY, None)
+    timestamp = request.META.pop(MCP_CLIENT_IP_TIMESTAMP_META_KEY, None)
+    signature = request.META.pop(MCP_CLIENT_IP_SIGNATURE_META_KEY, None)
+    if ip is None and timestamp is None and signature is None:
+        return None
+    # request.headers caches a copy of META on first access, and the pops above changed META.
+    # Drop the cache so that a later reader cannot see the unverified values.
+    request.__dict__.pop("headers", None)
+
+    outcome = verify_signed_client_ip(ip, timestamp, signature, settings.MCP_CLIENT_IP_SIGNING_KEYS)
+    MCP_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
+    return ip if outcome is SignedClientIPOutcome.VALID else None
+
+
+class ManagedProxyClientIPMiddleware:
+    """Use the client IP that the managed reverse proxy signed as the request's client IP.
+
+    Envoy sets X-Forwarded-For to its peer, which is a Cloudflare edge for managed proxy traffic.
+    Only a shared secret can recover the real client, because a Cloudflare edge range identifies
+    Cloudflare and not PostHog's Worker: any Cloudflare tenant can point a zone at this origin.
+    The ingress must therefore keep overwriting X-Forwarded-For rather than appending to it.
+
+    After a valid signature, X-Forwarded-For holds only the signed IP, so get_ip_address,
+    get_trusted_client_ip, axes, DRF throttles and the request log all see the real client.
+    The rewrite goes into request.META because axes/ipware and the DRF throttles read
+    HTTP_X_FORWARDED_FOR from META directly, which a request attribute would not reach.
+
+    REMOTE_ADDR stays the transport peer. get_trusted_client_ip then returns the signed IP only
+    when that peer is in TRUSTED_PROXIES, or when TRUST_ALL_PROXIES is set.
+
+    Any other outcome keeps the edge IP and lets the request through. The edge IP comes from Envoy
+    rather than from the client, so the fallback costs precision and not safety. A rejection would
+    instead turn a key or Worker mistake into failed requests on a path that carries event capture.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        # Remove the headers on every request, so that no later code can read an unverified value.
+        ip = request.META.pop("HTTP_X_POSTHOG_CLIENT_IP", None)
+        timestamp = request.META.pop("HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP", None)
+        signature = request.META.pop("HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE", None)
+        if ip is None and timestamp is None and signature is None:
+            return self.get_response(request)
+
+        outcome = verify_signed_client_ip(ip, timestamp, signature, settings.MANAGED_PROXY_SIGNING_KEYS)
+        MANAGED_PROXY_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
+        if outcome is SignedClientIPOutcome.VALID:
+            request.META["HTTP_X_FORWARDED_FOR"] = ip
+        # request.headers caches a copy of META on first access, and the pops above changed META.
+        # Drop the cache so that a later reader sees the change.
+        request.__dict__.pop("headers", None)
+        return self.get_response(request)
 
 
 class AllowIPMiddleware:
@@ -197,6 +358,9 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
 
     def process_view(self, request, callback, callback_args, callback_kwargs):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
+        # Admin pages authenticate by session only, so a personal API key never stands in for their CSRF token.
+        if request.path.startswith("/admin/"):
+            return result
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
             return self._accept(request)
@@ -246,26 +410,18 @@ class AutoProjectMiddleware:
                 and path_parts[0] == "project"
                 and (path_parts[1].startswith("phc_") or path_parts[1] in self.token_allowlist)
             ):
+                new_team = Team.objects.filter(api_token=path_parts[1]).first()
 
-                def do_redirect():
+                if new_team is not None and self.switch_team_if_allowed(new_team, request):
+                    path_parts[1] = str(new_team.pk)
                     new_path = "/".join(path_parts)
                     search_params = request.GET.urlencode()
-
                     return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
 
-                try:
-                    new_team = Team.objects.get(api_token=path_parts[1])
-
-                    if not self.can_switch_to_team(new_team, request):
-                        raise Team.DoesNotExist
-
-                    path_parts[1] = str(new_team.pk)
-                    return do_redirect()
-
-                except Team.DoesNotExist:
-                    if user.team:
-                        path_parts[1] = str(user.team.pk)
-                        return do_redirect()
+                # The token names no project the person can open. The address keeps the token,
+                # which tells them nothing about the project behind it.
+                if user.team:
+                    request.project_access_denied = path_parts[1]  # type: ignore
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])
@@ -279,16 +435,25 @@ class AutoProjectMiddleware:
                 project_id_in_url = int(path_parts[2])
 
             if project_id_in_url and user.team and user.team.pk != project_id_in_url:
+                switched = False
                 try:
                     new_team = Team.objects.get(pk=project_id_in_url)
-                    self.switch_team_if_allowed(new_team, request)
+                    switched = self.switch_team_if_allowed(new_team, request)
                 except Team.DoesNotExist:
                     pass
+                if not switched and path_parts[0] == "project":
+                    # We keep serving the user's own team here, so the app must say so instead of
+                    # rendering that team under another project's address.
+                    request.project_access_denied = path_parts[1]  # type: ignore
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)
             if target_queryset is not None:
                 self.switch_team_if_needed_and_allowed(request, target_queryset)
+            else:
+                target_team_id = self.get_target_team_id(request)
+                if target_team_id is not None:
+                    self.switch_to_team_id_if_needed_and_allowed(request, target_team_id)
         return self.get_response(request)
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
@@ -308,22 +473,34 @@ class AutoProjectMiddleware:
             elif path_parts[0] == "notebooks":
                 notebook_short_id = path_parts[1]
                 return Notebook.objects.filter(deleted=False, short_id=notebook_short_id)
-            elif path_parts[0] == "feature_flags":
+            elif path_parts[0] in ("feature_flags", "feature-flags"):
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return FeatureFlag.objects.filter(id=feature_flag_id)
-            elif path_parts[0] == "action":
-                action_id = path_parts[1]
-                if action_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Action.objects.filter(deleted=False, id=action_id)
             elif path_parts[0] == "cohorts":
                 cohort_id = path_parts[1]
                 if cohort_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
+
+    def get_target_team_id(self, request: HttpRequest) -> Optional[int]:
+        """The team owning the object a legacy app path names, for objects read through a product facade."""
+        path_parts = request.path.strip("/").split("/")
+        # Sync the paths with urls.ts!
+        if len(path_parts) >= 2 and path_parts[0] == "action" and path_parts[1].isnumeric():
+            # The permission check in switch_team_if_allowed guards the switch, so the lookup is unscoped.
+            return find_action_team_id(action_id=int(path_parts[1]), include_deleted=False)
+        return None
+
+    def switch_to_team_id_if_needed_and_allowed(self, request: HttpRequest, target_team_id: int) -> None:
+        user = cast(User, request.user)
+        current_team = user.team
+        if current_team is not None and current_team.pk != target_team_id:
+            target_team = Team.objects.filter(pk=target_team_id).first()
+            if target_team is not None:
+                self.switch_team_if_allowed(target_team, request)
 
     def switch_team_if_needed_and_allowed(self, request: HttpRequest, target_queryset: QuerySet):
         user = cast(User, request.user)
@@ -333,11 +510,11 @@ class AutoProjectMiddleware:
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
 
-    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
+    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest) -> bool:
         user = cast(User, request.user)
 
         if not self.can_switch_to_team(new_team, request):
-            return
+            return False
 
         old_team_id = user.current_team_id
         user.team = new_team
@@ -346,6 +523,7 @@ class AutoProjectMiddleware:
         user.save()
         # Information for POSTHOG_APP_CONTEXT
         request.switched_team = old_team_id  # type: ignore
+        return True
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
@@ -402,28 +580,26 @@ API_REQUESTS_LATENCY_SECONDS = Histogram(
 class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
-        self.logger = structlog.get_logger(__name__)
 
     def __call__(self, request: HttpRequest):
         """Install monkey-patch on demand.
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
-        route = resolve(request.path)
-        route_id = f"{route.route} ({route.func.__name__})"
         is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
 
-        with suppress(Exception):
-            if request_id := structlog.get_context(self.logger).get("request_id"):
-                tag_queries(http_request_id=uuid.UUID(request_id))
+        http_request_id: uuid.UUID | None = None
+        with suppress(ValueError):
+            if isinstance(request_id := structlog.contextvars.get_contextvars().get("request_id"), str):
+                http_request_id = uuid.UUID(request_id)
 
         tag_queries(
+            http_request_id=http_request_id,
             user_id=user.pk,
             kind="request",
             id=request.path,
-            route_id=route.route,
             is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
@@ -440,16 +616,18 @@ class CHQueries:
         try:
             response: HttpResponse = self.get_response(request)
             status_class = f"{response.status_code // 100}xx"
+            if get_query_tag_value("is_scout_experiment") is True:
+                response["X-PostHog-Suppress-Analytics"] = "true"
 
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
                     "http_api_request_response",
-                    tags={"id": route_id, "status_code": response.status_code},
+                    tags={"id": f"{route.route} ({route.func.__name__})", "status_code": response.status_code},
                 )
 
             return response
         finally:
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
@@ -463,6 +641,16 @@ class CHQueries:
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
             reset_query_tags()
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[Any, ...],
+        view_kwargs: dict[str, Any],
+    ) -> None:
+        if request.resolver_match is not None:
+            tag_queries(route_id=request.resolver_match.route)
 
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
@@ -484,20 +672,31 @@ class QueryTimeCountingMiddleware:
         "properties",
         "person",
     ]
+    LABELLED_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        if not settings.CAPTURE_TIME_TO_SEE_DATA or not self._should_instrument(request):
+        add_server_timing = settings.CAPTURE_TIME_TO_SEE_DATA and self._should_instrument(request)
+        record_pg_queries = request.path.startswith("/api/")
+        if not add_server_timing and not record_pg_queries:
             return self.get_response(request)
 
         pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
         start_time = time.perf_counter()
-        with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
+        with (
+            connection.execute_wrapper(pg_query_counter),
+            clickhouse_query_counter(ch_query_counter) if add_server_timing else nullcontext(),
+        ):
             response: HttpResponse = self.get_response(request)
 
-        response.headers["Server-Timing"] = self._construct_header(
+        if record_pg_queries:
+            self._record_pg_queries(request, response, pg_query_counter.count)
+        if not add_server_timing:
+            return response
+
+        server_timing = self._construct_header(
             durations_ms={
                 "django": (time.perf_counter() - start_time) * 1000,
                 "pg": pg_query_counter.query_time_ms,
@@ -512,7 +711,29 @@ class QueryTimeCountingMiddleware:
                 "ch_slow": ch_query_counter.slow_count,
             },
         )
+        if existing_server_timing := response.headers.get("Server-Timing"):
+            server_timing = f"{existing_server_timing}, {server_timing}"
+        response.headers["Server-Timing"] = server_timing
         return response
+
+    def _record_pg_queries(self, request: HttpRequest, response: HttpResponse, query_count: int) -> None:
+        match = request.resolver_match
+        client = posthoganalytics.default_client
+        if match is None or client is None:
+            return
+        method = request.method or ""
+        client.metrics.histogram(
+            "api.request.pg_queries",
+            query_count,
+            unit="{query}",
+            attributes={
+                # The URLconf bounds view_name. The raw path carries ids, so it must never be a label.
+                "route": match.view_name,
+                # A client can send any method token, so unknown methods share one label.
+                "method": method if method in self.LABELLED_METHODS else "other",
+                "status_class": f"{response.status_code // 100}xx",
+            },
+        )
 
     def _construct_header(self, durations_ms: dict[str, float], counts: dict[str, int]) -> str:
         parts = [f"{key};dur={round(value)}" for key, value in durations_ms.items()]
@@ -704,6 +925,14 @@ def per_request_logging_context_middleware(
             if mcp_conversation_id:
                 span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
+        # posthog-js `tracing_headers` sends the browser session on app API calls. The key is
+        # `sessionId` because the Logs and Tracing session links look for that key by default,
+        # and the PostHog SDKs use it on their own spans. Caller-asserted, like the MCP headers.
+        frontend_session_id = sanitize_header_value(request.headers.get("X-Posthog-Session-Id"))
+        if frontend_session_id:
+            structlog.contextvars.bind_contextvars(sessionId=frontend_session_id)
+            trace.get_current_span().set_attribute("sessionId", frontend_session_id)
+
         response: HttpResponse | None = None
         try:
             response = get_response(request)
@@ -764,14 +993,21 @@ def user_logging_context_middleware(
     get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
-    This middleware adds the team_id to the logging context if it exists. Note
-    that this should be added after we have performed authentication, as we
-    need the user to be authenticated to get the team_id.
+    This middleware adds the team_id and the user's distinct_id to the logging
+    context if they exist, and the distinct_id to the request span. Note that
+    this should be added after we have performed authentication, as we need
+    the user to be authenticated to get them.
     """
 
     def middleware(request: HttpRequest) -> HttpResponse:
         if request.user.is_authenticated:
             structlog.contextvars.bind_contextvars(team_id=request.user.current_team_id)
+            # `posthogDistinctId` is the key that the Logs and Tracing person links look for by default.
+            # The span gets no team_id here, because current_team_id can differ from the team in the URL.
+            # TeamAndOrgViewSetMixin tags the span with the team that the view resolves.
+            if distinct_id := request.user.distinct_id:
+                structlog.contextvars.bind_contextvars(posthogDistinctId=distinct_id)
+                trace.get_current_span().set_attribute("posthogDistinctId", distinct_id)
 
         return get_response(request)
 
@@ -823,6 +1059,11 @@ class PostHogTokenCookieMiddleware(MiddlewareMixin):
             # clears the cookies that were previously set, except for ph_current_instance as that is used for the website login button
             response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
+            # Unlike the two above, leaving this one behind would redirect the picker into a
+            # region the visitor just left.
+            region_cookie = region_authenticated_cookie_name()
+            if region_cookie:
+                response.delete_cookie(region_cookie, domain=default_cookie_options["domain"])
         if request.user and request.user.is_authenticated:
             if request.user.team:
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
@@ -860,6 +1101,30 @@ class PostHogTokenCookieMiddleware(MiddlewareMixin):
                     secure=default_cookie_options["secure"],
                     samesite=default_cookie_options["samesite"],
                 )
+
+            region_cookie = region_authenticated_cookie_name()
+            session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+            if region_cookie and session_created_at:
+                # SessionAgeMiddleware ages a session from creation and never slides that
+                # deadline, so count down to the same instant rather than renew a window here.
+                remaining = int(session_created_at + session_age_for_user(request.user) - time.time())
+                if remaining > 0:
+                    response.set_cookie(
+                        key=region_cookie,
+                        value="1",
+                        max_age=remaining,
+                        expires=None,
+                        path=default_cookie_options["path"],
+                        domain=default_cookie_options["domain"],
+                        secure=default_cookie_options["secure"],
+                        # The oauth.posthog.com worker reads this from the request Cookie header,
+                        # so nothing in the browser needs it. HttpOnly keeps a script on any
+                        # sibling posthog.com origin from reading or overwriting it.
+                        httponly=True,
+                        # Strict, used above, is withheld on the cross-site top-level navigation
+                        # an OAuth client sends the visitor to oauth.posthog.com by.
+                        samesite="Lax",
+                    )
 
             auth_backend = request.session.get("_auth_user_backend")
             login_method = AUTH_BACKEND_KEYS.get(auth_backend)
@@ -902,14 +1167,7 @@ class SessionAgeMiddleware:
         # Get session creation time
         session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
         if session_created_at:
-            # Get timeout from Redis cache first, fallback to settings
-            org_id = request.user.current_organization_id
-            session_age = None
-            if org_id:
-                session_age = cache.get(f"org_session_age:{org_id}")
-
-            if session_age is None:
-                session_age = settings.SESSION_COOKIE_AGE
+            session_age = session_age_for_user(request.user)
 
             current_time = time.time()
             if current_time - session_created_at > session_age:
@@ -959,6 +1217,34 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     total_expiry_time = datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
 
     return min(idle_expiry_time, total_expiry_time)
+
+
+def _get_session_user(request: HttpRequest) -> Any:
+    if not hasattr(request, "_cached_user"):
+        with User.objects.joining_current_organization():
+            setattr(request, "_cached_user", auth.get_user(request))  # noqa: B010
+    return getattr(request, "_cached_user")  # noqa: B009
+
+
+async def _aget_session_user(request: HttpRequest) -> Any:
+    if not hasattr(request, "_acached_user"):
+        with User.objects.joining_current_organization():
+            setattr(request, "_acached_user", await auth.aget_user(request))  # noqa: B010
+    return getattr(request, "_acached_user")  # noqa: B009
+
+
+class AuthenticationMiddleware(DjangoAuthenticationMiddleware):
+    """Load the session user with its current organization in one query.
+
+    The 2FA and verified-domain checks in `SessionAuthentication` read `user.organization` on every
+    session request, so a separate lazy load costs one query each time.
+    """
+
+    def process_request(self, request: HttpRequest) -> None:
+        super().process_request(request)
+        # The attribute names match Django's middleware, because AdminImpersonationMiddleware writes `_cached_user`.
+        setattr(request, "user", SimpleLazyObject(lambda: _get_session_user(request)))  # noqa: B010
+        setattr(request, "auser", partial(_aget_session_user, request))  # noqa: B010
 
 
 class AdminImpersonationMiddleware:
@@ -1039,9 +1325,50 @@ class AutoLogoutImpersonateMiddleware:
         return self.get_response(request)
 
 
+class NewEventsSchemaCookieMiddleware:
+    """A staff person's requests read the native JSON events table while their browser carries the cookie.
+
+    The switch is per person, so one person can check a project on events_json, an impersonated one included,
+    without switching the project for everyone. An impersonated session counts as staff because only staff can
+    start one.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE) != "1":
+            return self.get_response(request)
+        user = cast(User, request.user)
+        if not (user.is_staff or is_impersonated_session(request)):
+            return self.get_response(request)
+        with new_events_schema_for_request():
+            return self.get_response(request)
+
+
+class UnversionedStaticPathMiddleware:
+    """Serves /static/<version>/<file> as /static/<file>.
+
+    A posthog-js client with `strict_script_versioning` asks for its extension scripts under
+    a version folder. Cloud serves those from a versioned CDN bucket. A self-hosted instance
+    holds one build of each script, so any version gets that build, as an unversioned request
+    does. Only self-hosted instances rewrite, so a request on cloud never changes.
+    """
+
+    VERSIONED_STATIC_PATH = re.compile(r"^/static/\d+\.\d+\.\d+(?:-[\w.]+)?/")
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if is_hobby():
+            request.path_info = self.VERSIONED_STATIC_PATH.sub("/static/", request.path_info, count=1)
+        return self.get_response(request)
+
+
 class Fix204Middleware:
     """
-    Remove the 'Content-Type' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
+    Remove the 'Content-Type', 'Content-Length' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
     """
 
     def __init__(self, get_response):
@@ -1052,7 +1379,8 @@ class Fix204Middleware:
 
         if response.status_code == 204:
             response.content = b""
-            for h in ["Content-Type", "X-Content-Type-Options"]:
+            # Envoy rejects a 204 that has a non-zero Content-Length, then retries the request.
+            for h in ["Content-Type", "Content-Length", "X-Content-Type-Options"]:
                 response.headers.pop(h, None)
 
         return response
@@ -1066,8 +1394,8 @@ class OAuthCoopMiddleware:
     window.opener when a cross-origin popup navigates to our pages — breaking
     popup-based OAuth flows that rely on the opener reference to detect completion.
 
-    We set COOP to "unsafe-none" on all OAuth-related paths so the opener
-    reference is preserved.
+    We set COOP to "unsafe-none" on OAuth paths, and on the social-auth and signup
+    pages that an OAuth flow passes through, so the opener reference is preserved.
     """
 
     OAUTH_PATH_PREFIXES = (
@@ -1079,6 +1407,16 @@ class OAuthCoopMiddleware:
         "/api/agentic/oauth/",
     )
 
+    SIGNUP_AND_LOGIN_PATHS = (
+        "/login",
+        "/login/",
+        "/signup",
+        "/signup/",
+        "/organization/confirm-creation",
+    )
+
+    SIGNUP_PATH_PREFIXES = ("/verify_email/",)
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -1089,16 +1427,111 @@ class OAuthCoopMiddleware:
                 return True
         return False
 
+    @staticmethod
+    def _is_social_auth_path(path: str) -> bool:
+        parts = path.strip("/").split("/")
+        if len(parts) != 2 or parts[0] not in ("login", "complete"):
+            return False
+        return parts[1] in load_backends(settings.AUTHENTICATION_BACKENDS)
+
+    def _targets_oauth_flow(self, next_url: str) -> bool:
+        if not next_url:
+            return False
+        normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
+        return self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES)
+
+    def _needs_opener_reference(self, request) -> bool:
+        path = request.path
+        if self._matches_oauth_prefix(path, self.OAUTH_PATH_PREFIXES):
+            return True
+        if self._is_social_auth_path(path):
+            # The provider redirects back to /complete/ without a next parameter, so read the destination
+            # that social-auth stored in the session at /login/.
+            session = getattr(request, "session", None)
+            session_next = session.get("next", "") if session is not None else ""
+            return self._targets_oauth_flow(request.GET.get("next", "")) or self._targets_oauth_flow(session_next)
+        if path in self.SIGNUP_AND_LOGIN_PATHS or self._matches_oauth_prefix(path, self.SIGNUP_PATH_PREFIXES):
+            return self._targets_oauth_flow(request.GET.get("next", ""))
+        return False
+
     def __call__(self, request):
         response = self.get_response(request)
-        if self._matches_oauth_prefix(request.path, self.OAUTH_PATH_PREFIXES):
+        if self._needs_opener_reference(request):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
-        elif request.path == "/login" or request.path == "/login/":
-            next_url = request.GET.get("next", "")
-            normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
-            if self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES):
-                response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
+
+
+def _session_credential(request: HttpRequest, session_user_pk: object) -> ActivityCredential | None:
+    """The session credential for a row written now, or None when the session did not authenticate
+    the request.
+
+    DRF writes the principal of the authentication class that succeeded back onto `request.user`.
+    An authentication class that records its own credential replaces this resolver. Another
+    principal here means that a class authenticated the request without recording a credential,
+    so the row must not name the session cookie.
+    The check compares primary keys, not objects, because later middleware such as django-otp's
+    wraps the same user in a new object.
+    """
+    if getattr(request.user, "pk", None) != session_user_pk:
+        return None
+    return session_activity_credential(request, get_original_user_id_from_session(request))
+
+
+# Credentials a person holds. A server-minted sandbox token is OAuth too, but it binds a task.
+_MCP_INTENT_CREDENTIAL_TYPES = frozenset({"oauth", "personal_api_key"})
+
+
+def _resolved_team_id(response: HttpResponse) -> int | None:
+    """The team that a DRF view resolved for the request, read without a query.
+
+    Reads only the cached values, because a view that never resolved a team has no team to report.
+    """
+    renderer_context = getattr(response, "renderer_context", None) or {}
+    cached = getattr(renderer_context.get("view"), "__dict__", {})
+    team = cached.get("team")
+    if isinstance(team, Team):
+        return team.id
+    team_id = cached.get("team_id")
+    return team_id if isinstance(team_id, int) else None
+
+
+def _buffer_mcp_intent(request: HttpRequest, response: HttpResponse) -> None:
+    """Keep the intent of an MCP read for the activity summary, which sees only the calls that write.
+
+    Runs after the view, because bearer authentication sets the user inside it. The buffer is
+    optional context, so a failure here must not fail the request.
+    """
+    if not settings.ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED:
+        return
+    try:
+        if request.headers.get(ACTIVITY_LOG_CLIENT_HEADER, "").strip().lower() != "mcp" or response.status_code >= 400:
+            return
+        intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()
+        if not intent:
+            return
+        credential = activity_storage.get_credential()
+        if (
+            credential is None
+            or credential.type not in _MCP_INTENT_CREDENTIAL_TYPES
+            or credential.impersonated_by_id is not None
+            or activity_storage.get_agent_task_id() is not None
+        ):
+            return
+        user = activity_storage.get_user()
+        team_id = _resolved_team_id(response)
+        if user is None or team_id is None:
+            return
+        resolver_match = request.resolver_match
+        buffer_mcp_intent(
+            team_id=team_id,
+            user_id=user.pk,
+            session_id=sanitize_header_value(request.headers.get("X-Posthog-Mcp-Session-Id"))
+            or sanitize_header_value(request.headers.get("X-Posthog-Mcp-Conversation-Id")),
+            route_name=resolver_match.view_name if resolver_match else None,
+            intent=intent,
+        )
+    except Exception:
+        logger.warning("activity_summary.mcp_intent_buffer_failed", exc_info=True)
 
 
 class ActivityLoggingMiddleware:
@@ -1117,97 +1550,24 @@ class ActivityLoggingMiddleware:
 
         # Set user in activity storage if authenticated
         if request.user.is_authenticated:
+            session_user_pk = request.user.pk
             activity_storage.set_user(request.user)
             activity_storage.set_was_impersonated(is_impersonated_session(request))
+            activity_storage.set_credential_resolver(lambda: _session_credential(request, session_user_pk))
+            record_agent_intent(request)
 
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
-            activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+            activity_storage.set_client(client_from_header(client_header))
 
-        activity_storage.set_ip_address(get_ip_address(request) or None)
+        activity_storage.set_ip_address(pop_mcp_client_ip(request) or get_ip_address(request) or None)
 
         try:
             response = self.get_response(request)
+            _buffer_mcp_intent(request, response)
         finally:
             # Clean up activity storage after request
             activity_storage.clear_all()
-
-        return response
-
-
-class CSPMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        nonce = generate_random_token(16)
-        request.csp_nonce = nonce
-
-        # nonce must be added to request (above) before generating response
-        response = self.get_response(request)
-
-        content_type = response.get("Content-Type", "")
-        # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
-        if "text/html" not in content_type:
-            response.headers["Content-Security-Policy"] = "default-src 'none'"
-            return response
-
-        is_admin_view = request.path.startswith("/admin/")
-        if is_admin_view:
-            django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
-            csp_parts = [
-                "default-src 'self'",
-                "style-src 'self' 'unsafe-inline'",
-                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
-                "font-src data: https://fonts.gstatic.com",
-                "worker-src 'none'",
-                "child-src 'none'",
-                "object-src 'none'",
-                "frame-ancestors 'none'",
-                "manifest-src 'none'",
-                # used by the error page
-                "frame-src https://posthog.com",
-                "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
-                "report-to posthog",
-            ]
-
-            response.headers["Reporting-Endpoints"] = (
-                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
-            )
-            response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
-        else:
-            resource_url = "https://*.posthog.com"
-            if settings.DEBUG or settings.TEST:
-                resource_url = "http://localhost:8234"
-            elif settings.SITE_URL.endswith(".dev.posthog.dev"):
-                resource_url = "https://*.dev.posthog.dev"
-
-            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
-            csp_parts = [
-                "default-src 'self'",
-                f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
-                f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
-                "worker-src 'self'",
-                "child-src 'none'",
-                "object-src 'none'",
-                "media-src https://res.cloudinary.com",
-                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
-                "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
-                # allow all sites for displaying heatmaps
-                "frame-src https:",
-                "manifest-src 'self'",
-                "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2",
-                "report-to posthog",
-            ]
-
-            response.headers["Reporting-Endpoints"] = (
-                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"'
-            )
-            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
 
         return response
 
@@ -1218,6 +1578,14 @@ class SocialAuthExceptionMiddleware:
     """
 
     _AUTH_FAILED_PREFIX = "Authentication failed: "
+
+    # `OrganizationInvite.validate()` codes mapped to login page error codes.
+    _INVITE_ERROR_CODES = {
+        "expired": "invalid_invite",
+        "invalid_recipient": "invite_email_mismatch",
+        "user_already_member": "invite_already_member",
+        "existing_email_address": "invite_email_taken",
+    }
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1232,7 +1600,7 @@ class SocialAuthExceptionMiddleware:
 
         # Handle AuthCanceled (user cancelled OAuth flow)
         if isinstance(exception, AuthCanceled):
-            return redirect("/login?error_code=oauth_cancelled")
+            return redirect(sso_failure_redirect_url(request, "oauth_cancelled"))
 
         # Handle AuthFailed with specific error codes that have dedicated frontend messages
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
@@ -1243,16 +1611,35 @@ class SocialAuthExceptionMiddleware:
                 "github_sso_enforced",
                 "gitlab_sso_enforced",
                 "sso_enforced",
+                "reauth_user_mismatch",
+                "access_blocked",
             ):
-                return redirect(f"/login?error_code={error}")
+                return redirect(sso_failure_redirect_url(request, error))
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
             error_detail = self._get_error_detail(exception)
-            params = urlencode({"error_code": "social_login_failure", "error_detail": error_detail})
-            return redirect(f"/login?{params}")
+            return redirect(sso_failure_redirect_url(request, "social_login_failure", error_detail=error_detail))
+
+        # The social auth pipeline validates invites with DRF exceptions. The callback is a plain
+        # Django view, so without this branch they render the 500 page.
+        if isinstance(exception, ValidationError):
+            error_code = self._INVITE_ERROR_CODES.get(self._error_code(exception), "social_login_failure")
+            return redirect(sso_failure_redirect_url(request, error_code))
+
+        # social-core wraps only ConnectionError from provider calls, so a read timeout or a provider 5xx
+        # arrives here as a plain requests error. The detail holds the provider URL, so it stays out of the redirect.
+        if isinstance(exception, requests.RequestException):
+            return redirect(sso_failure_redirect_url(request, "social_login_failure"))
 
         return None
+
+    def _error_code(self, exception: ValidationError) -> str:
+        # `OrganizationInvite.validate()` raises ValidationError("message", code=...), which DRF stores
+        # as a one-element list. Any other shape gets the generic login message.
+        codes = exception.get_codes()
+        first = codes[0] if isinstance(codes, list) and codes else None
+        return first if isinstance(first, str) else "unknown"
 
     def _get_error_detail(self, exception: AuthException) -> str:
         error_detail = str(exception).strip()
@@ -1268,9 +1655,51 @@ class SocialAuthExceptionMiddleware:
         return error_detail
 
 
-class ActiveOrganizationMiddleware:
+# Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
+# organization, which this check never judges. Partner consent can target an organization that the
+# partner pays for, which this check also never judges. Settling the balance is how a member lifts
+# a deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
+    "/organization-pending-deletion": (
+        "/organization-pending-deletion",
+        "/signup/",
+        "/agentic/authorize",
+        "/_app_context",
+    ),
+    "/organization-deactivated": (
+        "/organization-deactivated",
+        "/_app_context",
+        "/signup/",
+        "/agentic/authorize",
+        "/organization/billing",
+        "/billing/authorization_status",
+    ),
+}
+
+
+def organization_block_page(organization: Organization) -> Optional[str]:
+    """The page explaining why this organization is closed to its members, or None when it is open.
+
+    Only an explicit `False` deactivates. `is_active` is nullable, but the migration that added it
+    backfilled every row to `True` and operators write `False` explicitly, so a null means "never
+    deactivated".
     """
-    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    if organization.is_pending_deletion:
+        return "/organization-pending-deletion"
+    if organization.is_active is False:
+        return "/organization-deactivated"
+    return None
+
+
+class ActiveOrganizationMiddleware:
+    """Keep members out of an organization that is deactivated or pending deletion.
+
+    Runs after `AutoProjectMiddleware`, which switches the user into the organization a
+    `/project/<id>` URL names, so this middleware needs no path parsing of its own.
+    `test_middleware.py` pins the order.
+
+    This is UX, not enforcement: every `/api` path is skipped, and `ActiveOrganizationPermission`
+    is what holds the API.
     """
 
     _IGNORED_PATHS = ("/logout", "/api", "/admin")
@@ -1287,26 +1716,21 @@ class ActiveOrganizationMiddleware:
             return self.get_response(request)
 
         user = cast(User, request.user)
+        organization = user.current_organization
 
-        if user.current_organization is None:
+        if organization is None:
             return self.get_response(request)
 
-        # Check pending deletion first — takes priority over is_active
-        if user.current_organization.is_pending_deletion:
-            return (
-                self.get_response(request)
-                if request.path == "/organization-pending-deletion"
-                else redirect("/organization-pending-deletion")
-            )
+        block_page = organization_block_page(organization)
 
-        if user.current_organization.is_active is not False:
-            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+        if block_page is None:
+            # A member sitting on a block page has been let back in.
+            return redirect("/") if request.path in ALLOWED_WHILE_BLOCKED else self.get_response(request)
 
-        return (
-            self.get_response(request)
-            if request.path == "/organization-deactivated"
-            else redirect("/organization-deactivated")
-        )
+        if any(request.path.startswith(allowed) for allowed in ALLOWED_WHILE_BLOCKED[block_page]):
+            return self.get_response(request)
+
+        return redirect(block_page)
 
 
 # Session key used to mark an impersonation session as read-only
@@ -1346,6 +1770,14 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/materialization_preview/?$")),
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$")),
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$")),
+    # POST but read-only: reads how the person's key properties changed within an insight data point's
+    # time window. It takes the data point's actors query as the body, which is why it is not a GET. The
+    # action is named exactly, because the same detail prefix hosts the mutating person actions
+    # (delete_property, update_property, split).
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/[^/]+/properties_timeline/?$"),
+    ),
     # POST but read-only: loads stack frame records (source context) for error tracking UI
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$")),
     # POST but read-only: returns metadata about available incremental fields / columns
@@ -1357,8 +1789,49 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
             r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"
         ),
     ),
+    # POST but read-only: parses the query's SQL to report whether it can be materialized
+    # incrementally, and writes nothing. The editor calls it on every open of a model's
+    # materialization panel, so blocking it hides the whole Refresh mode section with no error.
+    # The action is named exactly, because the same prefix hosts the mutating saved-query
+    # actions (materialize, run, cancel, resume).
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/warehouse_saved_queries/check_incremental/?$"),
+    ),
+    # POST but read-only: reads the project facts that decide how to configure a new experiment, for
+    # support on identity and bucketing tickets. The action is named exactly, because the same prefix
+    # hosts the mutating experiment actions.
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/experiments/setup_context/?$")),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
+    # POST but read-only: counts the persons a workflow audience matches. The action is named
+    # exactly, because the same `hog_flows/` prefix hosts the writing actions (publish, run).
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/hog_flows/user_blast_radius/?$")),
+    # POST but read-only: the Logs product sends its queries as POST because the filter payload
+    # is too large for a query string. Action names are enumerated rather than allowing the whole
+    # `logs/` prefix, which also hosts writing CRUD viewsets (alerts, views, sampling_rules,
+    # retention_rules, metric_rules, anomalies).
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/logs/"
+            r"(query|sparkline|facet_values|count-ranges|count|services|patterns_diff|patterns|group-by)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Traces (tracing spans) product
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/tracing/spans/"
+            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|aggregate|tree"
+            r"|attribute-breakdown|trace/[a-zA-Z0-9]+)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Metrics product
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metrics/(query|samples|characterize)/?$"),
+    ),
     # Allow upgrading from read-only to read-write impersonation
     ("POST", "/admin/impersonation/upgrade/"),
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
@@ -1449,6 +1922,7 @@ class ImpersonationReadOnlyMiddleware:
 IMPERSONATION_BLOCKED_PATHS: list[str] = [
     "/api/users/",
     "/api/personal_api_keys/",
+    "/api/ai_gateway/dev_tokens/",
 ]
 
 

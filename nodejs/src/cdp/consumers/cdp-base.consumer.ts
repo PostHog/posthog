@@ -1,12 +1,11 @@
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 
 import type { CommonConfig } from '../../common/config'
-import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
+import { HealthCheckResult, PluginServerService, Team, TeamId } from '../../types'
 import {
     CdpCoreServicesConfig,
     CdpCoreServicesDeps,
@@ -15,6 +14,7 @@ import {
     createCdpCoreServices,
 } from '../cdp-services'
 import type { CdpConfig } from '../config'
+import { HogFlow } from '../schema/hogflow'
 import { HogExecutorAsyncService } from '../services/hog-executor-async.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
@@ -27,20 +27,25 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
+import { EmailAttachmentsService } from '../services/messaging/email-attachments.service'
 import { EmailService } from '../services/messaging/email.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from '../services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
+import { CdpUsageReporterService } from '../services/usage/cdp-usage-reporter.service'
+import { HogFunctionType, HogFunctionTypeType } from '../types'
+
+export type TeamWork = { team: Team; hogFunctions: HogFunctionType[]; hogFlows: HogFlow[] }
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
     Pick<CdpConfig, 'CDP_OVERFLOW_QUEUE_ENABLED'>
 
 export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
-    personRepository: PersonReadRepository
     geoipService: GeoIPService
     groupRepository: GroupReadRepository
     quotaLimiting: QuotaLimiting
@@ -72,7 +77,10 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     recipientsManager: RecipientsManagerService
 
     emailService: EmailService
+    emailAttachmentsService: EmailAttachmentsService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: WorkflowsActivationReporter
+    cdpUsageReporter: CdpUsageReporterService
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
     pluginDestinationExecutorService: LegacyPluginExecutorService
@@ -98,11 +106,15 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.hogInputsService = services.hogInputsService
         this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
         this.hogFlowFunctionsService = services.hogFlowFunctionsService
+        this.personsManager = services.personsManager
         this.recipientsManager = services.recipientsManager
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.emailService = services.emailService
+        this.emailAttachmentsService = services.emailAttachmentsService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.workflowsActivationReporter = services.workflowsActivationReporter
+        this.cdpUsageReporter = services.cdpUsageReporter
         this.invocationResultsService = services.invocationResultsService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
@@ -110,7 +122,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
 
         // Base-only services
         this.hogMasker = new HogMaskerService(services.redis, services.valkeyShadow.writer)
-        this.personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     }
@@ -123,17 +134,39 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         }
     }
 
+    /** The team, or null when it has no hog function of these types and no hog flow. */
+    protected async loadTeamWithHogFunctionsOrFlows(
+        teamId: TeamId,
+        hogTypes: HogFunctionTypeType[]
+    ): Promise<Team | null> {
+        return (await this.loadTeamWork(teamId, hogTypes))?.team ?? null
+    }
+
+    protected async loadTeamWork(teamId: TeamId, hogTypes: HogFunctionTypeType[]): Promise<TeamWork | null> {
+        const [hogFunctions, hogFlows, team] = await Promise.all([
+            this.hogFunctionManager.getHogFunctionsForTeam(teamId, hogTypes),
+            this.hogFlowManager.getHogFlowsForTeam(teamId),
+            this.deps.teamManager.getTeam(teamId),
+        ])
+        return team && (hogFunctions.length || hogFlows.length) ? { team, hogFunctions, hogFlows } : null
+    }
+
     public async start(): Promise<void> {
         // Outputs are resolved in the constructor via `createCdpCoreServices` — no
         // per-consumer producer lifecycle. The outer server owns producer shutdown
         // through `cdpProducerRegistry.disconnectAll()`.
     }
 
-    public stop(): Promise<void> {
+    public async stop(): Promise<void> {
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
+        // Billing records live only in memory until they are sent, so a graceful stop drains them.
+        await this.cdpUsageReporter.shutdown()
+        // Release the per-consumer conversion-watcher pool created in createCdpCoreServices, so
+        // graceful shutdown frees its cyclotron connections like the other cyclotron pools do.
+        await this.invocationResultsService.stop()
+        await this.emailAttachmentsService.stop()
         logger.info('👍', `${this.name} - stopped!`)
-        return Promise.resolve()
     }
 
     public abstract isHealthy(): HealthCheckResult

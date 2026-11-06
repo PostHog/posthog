@@ -5,20 +5,22 @@ import { forwardRef, useEffect, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
+import { Button, SelectTriggerIcon } from '@posthog/quill'
 
 import {
     CUSTOM_OPTION_DESCRIPTION,
-    CUSTOM_OPTION_KEY,
     DateFilterLogicProps,
     DateFilterView,
     NO_OVERRIDE_RANGE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
+import { CUSTOM_OPTION_KEY, dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
 import { formatResolvedDateRange } from 'lib/utils/datetime'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
@@ -57,6 +59,8 @@ export interface DateFilterProps {
     resolvedDateRange?: ResolvedDateRangeResponse
     showJumpToTimestamp?: boolean
     showCustomRelativeRange?: boolean
+    allowFutureRelativeDateOptions?: boolean
+    footerComponent?: (onClose: () => void) => React.ReactNode
     /**
      * When true, surfaces every option — presets, rolling picker, "Custom date…" (single exact),
      * "Custom fixed date range…", and "Custom relative range…" — in one flat list. Callers opt
@@ -127,13 +131,16 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         resolvedDateRange,
         showJumpToTimestamp = false,
         showCustomRelativeRange = false,
+        allowFutureRelativeDateOptions = false,
         allowSingleAndRange = false,
         onOpenChange,
+        footerComponent,
     },
     ref
 ) {
     const effectiveShowCustomRelativeRange = allowSingleAndRange ? true : showCustomRelativeRange
     const key = useRef(uuid()).current
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const logicProps: DateFilterLogicProps = {
         key,
         dateFrom,
@@ -195,14 +202,21 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
     const { weekStartDay } = useValues(teamLogic)
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
+    const futureRollingDateRangeRef = useRef<HTMLDivElement | null>(null)
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(
         forceGranularity ?? (dateFromHasTimePrecision ? 'minute' : 'day')
     )
 
+    const isFutureRelativeDate = typeof dateFrom === 'string' && /^\+?\d+[hdwmqyMs]$/.test(dateFrom)
     const showFixedRangeTimeToggle = allowTimePrecision || allowFixedRangeWithTime
     const showExclusions =
         (showIncompletePeriodExclusion || showDaysOfWeekExclusions) && !!exclusions && !!onExclusionsChange
-    const showFooter = showCustomRangeOptions || showExplicitDateToggle || showExclusions || showJumpToTimestamp
+    const showFooter =
+        showCustomRangeOptions ||
+        showExplicitDateToggle ||
+        showExclusions ||
+        showJumpToTimestamp ||
+        Boolean(footerComponent)
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
@@ -348,13 +362,37 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                             size={optionsSize}
                             dateFrom={dateFrom}
                             dateRangeFilterLabel={isFixedDateMode ? 'Last' : undefined}
-                            selected={isRollingDateRange}
+                            selected={isRollingDateRange && !isFutureRelativeDate}
                             onChange={(fromDate) => {
                                 setDate(fromDate, '', true, explicitDate)
                             }}
                             makeLabel={makeLabel}
                             popover={{
                                 ref: rollingDateRangeRef,
+                            }}
+                            max={max}
+                            allowedDateOptions={
+                                isFixedDateMode && !allowedRollingDateOptions
+                                    ? ['hours', 'days', 'weeks', 'months', 'years']
+                                    : allowedRollingDateOptions
+                            }
+                            fullWidth
+                        />
+                    )}
+                    {allowFutureRelativeDateOptions && (
+                        <RollingDateRangeFilter
+                            pageKey={`${key}-future`}
+                            size={optionsSize}
+                            dateFrom={dateFrom}
+                            dateRangeFilterLabel="In the next"
+                            direction="future"
+                            selected={isRollingDateRange && isFutureRelativeDate}
+                            onChange={(fromDate) => {
+                                setDate(fromDate, '', true, explicitDate)
+                            }}
+                            makeLabel={makeLabel}
+                            popover={{
+                                ref: futureRollingDateRangeRef,
                             }}
                             max={max}
                             allowedDateOptions={
@@ -405,6 +443,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                                 )}
                             </>
                         )}
+                        {footerComponent?.(close)}
                         {showCustomRangeOptions && (showExplicitDateToggle || showExclusions) && <LemonDivider />}
                         {showExplicitDateToggle && (
                             <div
@@ -473,25 +512,42 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             overlay={popoverOverlay}
             placement={dropdownPlacement}
             actionable
-            additionalRefs={[rollingDateRangeRef]}
+            additionalRefs={[rollingDateRangeRef, futureRollingDateRangeRef]}
             onClickOutside={close}
             closeParentPopoverOnClickInside={false}
             overflowHidden={view === DateFilterView.QuickList}
         >
-            <LemonButton
-                ref={ref}
-                id="daterange_selector"
-                size={size ?? 'small'}
-                type={type ?? 'secondary'}
-                disabledReason={disabledReason}
-                data-attr="date-filter"
-                icon={<IconCalendar />}
-                onClick={isVisible ? close : open}
-                fullWidth={fullWidth}
-                tooltip={formatResolvedDateRange(resolvedDateRange)}
-            >
-                <span className={clsx('text-nowrap', className)}>{label}</span>
-            </LemonButton>
+            {todayRailNav ? (
+                <Button
+                    ref={ref}
+                    id="daterange_selector"
+                    variant={quillButtonVariant(type ?? 'secondary')}
+                    disabledReason={disabledReason}
+                    data-attr="date-filter"
+                    onClick={isVisible ? close : open}
+                    className={fullWidth ? 'w-full' : undefined}
+                    tooltip={formatResolvedDateRange(resolvedDateRange)}
+                >
+                    <IconCalendar />
+                    <span className={clsx('text-nowrap', className)}>{label}</span>
+                    <SelectTriggerIcon />
+                </Button>
+            ) : (
+                <LemonButton
+                    ref={ref}
+                    id="daterange_selector"
+                    size={size ?? 'small'}
+                    type={type ?? 'secondary'}
+                    disabledReason={disabledReason}
+                    data-attr="date-filter"
+                    icon={<IconCalendar />}
+                    onClick={isVisible ? close : open}
+                    fullWidth={fullWidth}
+                    tooltip={formatResolvedDateRange(resolvedDateRange)}
+                >
+                    <span className={clsx('text-nowrap', className)}>{label}</span>
+                </LemonButton>
+            )}
         </Popover>
     )
 })

@@ -17,7 +17,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.utils import (
@@ -25,15 +26,16 @@ from posthog.caching.utils import (
     cache_target_age as _cache_target_age,
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import PropertyDefinition
+from posthog.hogql_queries.utils.aggregated_property_values import get_event_property_values_from_aggregated_table
 from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.queries.property_values import (
-    get_event_property_values_from_aggregated_table,
-    get_person_property_values_for_key,
-)
 from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
+from products.event_definitions.backend.models import PropertyDefinition
+from products.feature_flags.backend.facade.property_values import (
+    flag_property_values_revision,
+    get_flag_property_values,
+)
 
 PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
 
@@ -54,8 +56,9 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def to_query(self) -> ast.SelectQuery:
         if self.query.property_type == PropertyType.EVENT:
             return self._event_query()
-        # Person queries use raw SQL for speed (4s vs 30s) — move here when HogQL persons table gets faster
-        raise NotImplementedError("Person property values use raw SQL via _calculate_person()")
+        if self.query.property_key == "distinct_id":
+            return self._distinct_id_query()
+        return self._person_query()
 
     def _calculate(self) -> PropertyValuesQueryResponse:
         if self.query.property_type == PropertyType.PERSON:
@@ -69,17 +72,15 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
                 timings=self.timings.to_list(),
                 modifiers=self.modifiers,
             )
+        if self._feature_flag_property_values is not None:
+            return self._calculate_event_from_flag(self._feature_flag_property_values)
         if self._use_property_values_table:
             return self._calculate_event_from_table()
         result = execute_hogql_query(
             self._event_query(),
             team=self.team,
             user=self.user,
-            context=HogQLContext(
-                team_id=self.team.pk,
-                user=self.user,
-                use_new_events_schema=self._use_new_events_schema,
-            ),
+            context=self.build_hogql_context(use_new_events_schema=self._use_new_events_schema),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -99,7 +100,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
 
     @cached_property
     def _use_new_events_schema(self) -> bool:
-        return use_new_events_schema(self.team.pk)
+        return use_new_events_schema(self.team.pk, self.modifiers)
 
     @cached_property
     def _restricted_event_property_names(self) -> set[str]:
@@ -108,12 +109,40 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     @cached_property
+    def _feature_flag_key(self) -> str | None:
+        key = self.query.property_key
+        if (
+            self.query.property_type != PropertyType.EVENT
+            or self.query.is_column
+            or not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
+        ):
+            return None
+        return key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX)
+
+    @cached_property
+    def _feature_flag_property_values(self) -> list[bool | str] | None:
+        if self._feature_flag_key is None:
+            return None
+        return get_flag_property_values(self.team, self._feature_flag_key)
+
+    def _calculate_event_from_flag(self, values: list[bool | str]) -> PropertyValuesQueryResponse:
+        search = (self.query.search_value or "").lower()
+        names = list(dict.fromkeys(convert_property_value(value) for value in values))
+        return PropertyValuesQueryResponse(
+            results=[PropertyValueItem(name=name) for name in names if search in name.lower()],
+            timings=self.timings.to_list(),
+            modifiers=self.modifiers,
+        )
+
+    @cached_property
     def _use_property_values_table(self) -> bool:
         # Column and virtual lookups stay on the events scan: the table only
-        # holds keys from the properties blob. event_names is deliberately not
-        # a fallback: the table has no event dimension, so flagged teams get
-        # event-agnostic value suggestions for event-scoped requests.
-        if self.query.is_column or self.query.property_key.startswith("$virt_"):
+        # holds keys from the properties blob. `$feature/` lookups stay there
+        # too, because property-vals-rs can be set to skip `$feature/` keys.
+        # event_names is deliberately not a fallback: the table has no event
+        # dimension, so flagged teams get event-agnostic value suggestions for
+        # event-scoped requests.
+        if self.query.is_column or self.query.property_key.startswith(("$virt_", FEATURE_FLAG_PROPERTY_PREFIX)):
             return False
         team_id = str(self.team.pk)
         if not posthoganalytics.feature_enabled(
@@ -143,18 +172,119 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     def _calculate_person(self) -> PropertyValuesQueryResponse:
-        # Use the raw SQL person query — the HogQL persons virtual table does full argMax dedup
-        # which is correct but much slower (30s vs 4s on large teams). The raw SQL approximates
-        # dedup with uniq(id) - uniqIf(id, is_deleted != 0) and caps at 100k rows, which is
-        # fast enough and good enough for autocomplete.
-        rows = cast(
-            list, get_person_property_values_for_key(self.query.property_key, self.team, self.query.search_value)
+        # HogQL masking covers properties-blob reads only; distinct_id is a plain
+        # column on the mapping table, so its restriction is enforced here.
+        if self.query.property_key == "distinct_id" and self._is_restricted_person_property_key:
+            return PropertyValuesQueryResponse(
+                results=[],
+                timings=self.timings.to_list(),
+                modifiers=self.modifiers,
+            )
+        # query_type must go through execute_hogql_query: the executor re-tags it right
+        # before execution, so a tag_queries() call here would be overwritten.
+        if self.query.property_key == "distinct_id":
+            query_type = "get_person_distinct_id_values"
+        elif self.query.search_value:
+            query_type = "get_person_property_values_with_value"
+        else:
+            query_type = "get_person_property_values"
+        result = execute_hogql_query(
+            self.to_query(),
+            query_type=query_type,
+            team=self.team,
+            user=self.user,
+            context=self.build_hogql_context(),
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         return PropertyValuesQueryResponse(
-            results=self._format_person_results(rows),
+            results=self._format_person_results(result.results),
             timings=self.timings.to_list(),
+            hogql=result.hogql,
             modifiers=self.modifiers,
         )
+
+    @cached_property
+    def _is_restricted_person_property_key(self) -> bool:
+        restricted = get_restricted_property_names(
+            team_id=self.team.pk, user=self.user, property_type=PropertyDefinition.Type.PERSON
+        )
+        return self.query.property_key in restricted
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # Person values cached before the HogQL port were computed without property
+        # masking; the version marker keeps them from being served.
+        payload["property_values_version"] = 2
+        # A cached answer must not outlive a flag edit or a new access rule on the flag.
+        if self._feature_flag_key is not None:
+            payload["feature_flag_revision"] = flag_property_values_revision(self.team, self._feature_flag_key)
+        return payload
+
+    def _person_query(self) -> ast.SelectQuery:
+        # `persons` resolves every person to its latest version first, far too slow
+        # for autocomplete, so this samples raw rows instead. Deletion hiding is
+        # best-effort: a deletion row only hides values it carries itself.
+        if self.query.search_value:
+            inner_where = parse_expr(
+                "value ILIKE {pattern}",
+                {"pattern": ast.Constant(value=self._ilike_pattern(self.query.search_value))},
+            )
+        else:
+            inner_where = parse_expr("isNotNull(value) AND value != ''")
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT value, uniq(id) - uniqIf(id, is_deleted != 0) AS c
+                FROM (
+                    SELECT toString({property_expr}) AS value, is_deleted, id
+                    FROM raw_persons
+                    WHERE {inner_where}
+                    ORDER BY id DESC
+                    LIMIT 100000
+                )
+                GROUP BY value
+                HAVING c > 0
+                ORDER BY c DESC
+                LIMIT 20
+                """,
+                placeholders={
+                    "property_expr": ast.Field(chain=["properties", self.query.property_key]),
+                    "inner_where": inner_where,
+                },
+            ),
+        )
+
+    def _distinct_id_query(self) -> ast.SelectQuery:
+        # distinct_id lives in the distinct_id-to-person mapping table, not in person
+        # properties, so the generic person query would return nothing. c is always 1
+        # because the GROUP BY already deduplicates.
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT distinct_id AS value, 1 AS c
+                FROM raw_person_distinct_ids
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+                ORDER BY value ASC
+                LIMIT 20
+                """
+            ),
+        )
+        if self.query.search_value:
+            query.where = parse_expr(
+                "distinct_id ILIKE {pattern}",
+                {"pattern": ast.Constant(value=self._ilike_pattern(self.query.search_value))},
+            )
+        return query
+
+    @staticmethod
+    def _ilike_pattern(search_value: str) -> str:
+        escaped = search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
 
     def _event_query(self) -> ast.SelectQuery:
         key = self.query.property_key
@@ -202,12 +332,11 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
 
         if self.query.search_value:
-            escaped = self.query.search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
                     left=string_expr,
-                    right=ast.Constant(value=f"%{escaped}%"),
+                    right=ast.Constant(value=self._ilike_pattern(self.query.search_value)),
                 )
             )
 

@@ -4,14 +4,15 @@ import { languages } from 'monaco-editor'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     AutocompleteCompletionItemKind,
     HogLanguage,
     HogQLAutocomplete,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
+import { findStatementAtOffset, splitQueries } from './multiQueryUtils'
 import { getContextSourceQuery } from './sourceQueryUtils'
 
 const convertCompletionItemKind = (kind: AutocompleteCompletionItemKind): languages.CompletionItemKind => {
@@ -115,18 +116,29 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
         const queryText = model.getValue()
         const sourceQuery = logic.isMounted() ? getContextSourceQuery(logic.props.sourceQuery, queryText) : undefined
 
+        // The server parses the payload as one statement, so a document holding several
+        // `;`-separated queries fails to parse and comes back with no suggestions at all.
+        // Send just the statement under the cursor, with the offsets rebased onto it.
+        // Single-statement documents are still sent whole so a trailing `;` behaves as before.
+        const statements = type === HogLanguage.hogQL ? splitQueries(queryText, { hogql: true }) : []
+        const statement =
+            statements.length > 1
+                ? findStatementAtOffset(queryText, model.getOffsetAt(position), { hogql: true })
+                : null
+        const statementOffset = statement?.start ?? 0
+
         const query: HogQLAutocomplete = setLatestVersionsOnQuery(
             {
                 kind: NodeKind.HogQLAutocomplete,
                 language: type,
                 // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
-                query: queryText,
+                query: statement?.query ?? queryText,
                 filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
                 globals: logic.isMounted() ? logic.props.globals : undefined,
                 sourceQuery,
                 connectionId,
-                startPosition: startOffset,
-                endPosition: endOffset,
+                startPosition: startOffset - statementOffset,
+                endPosition: endOffset - statementOffset,
             },
             { recursion: false }
         )
@@ -140,7 +152,9 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
         const completionItems = response.suggestions
         const suggestions = completionItems.map<languages.CompletionItem>((item) => {
             const kind = convertCompletionItemKind(item.kind)
-            const sortText = kindToSortText(item.kind, item.label)
+            // The backend sets sortText when it can rank a suggestion, for example a function
+            // whose return type fits the comparison being written. Otherwise fall back to kind order.
+            const sortText = item.sortText ?? kindToSortText(item.kind, item.label)
 
             return {
                 label: {

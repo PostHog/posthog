@@ -2,16 +2,22 @@ import re
 import json
 import base64
 import datetime as dt
+from time import monotonic
+from typing import Any
 
+from django.db import models
+from django.http import HttpRequest, HttpResponseBase
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -20,11 +26,15 @@ from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery
 
 from posthog.hogql.errors import QueryError
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation import PropertyGroupOperator, _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
@@ -50,6 +60,7 @@ from products.logs.backend.group_by_query_runner import (
     LogsGroupByQueryRunner,
 )
 from products.logs.backend.has_logs_query_runner import team_has_logs
+from products.logs.backend.impact_query_runner import ImpactQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
@@ -64,10 +75,21 @@ from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
+from products.logs.backend.presentation.views.patterns_diff_fields import (
+    PatternDiffEntryFields,
+    PatternsDiffBodyFields,
+    PatternsDiffResponseFields,
+)
 from products.logs.backend.presentation.views.retention_api import LogsRetentionRuleViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
-from products.logs.backend.services_query_runner import ServicesQueryRunner
+from products.logs.backend.services_query_runner import (
+    COMPARE_MODES,
+    LogsCompareMode,
+    LogsServicesSource,
+    LogsServiceStatus,
+    ServicesQueryRunner,
+)
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
 __all__ = [
@@ -81,7 +103,10 @@ __all__ = [
 ]
 
 tracer = trace.get_tracer(__name__)
+logger = structlog.get_logger(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
+LOGS_API_SLOT_TTL_MARGIN_SECONDS = 30
+MAX_ATTRIBUTE_KEYS = 100
 
 
 class DateRangeSerializer(serializers.Serializer):
@@ -170,7 +195,12 @@ class _DateRangeSerializer(serializers.Serializer):
 
 class _LogPropertyFilterSerializer(serializers.Serializer):
     key = serializers.CharField(
-        help_text='Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").',
+        help_text=(
+            'Attribute key. For type "log", use "message" for the body text, or a log column: '
+            '"pattern" and "pattern_version" (the patterns pivot), "severity_level", "service_name", '
+            '"trace_id", "span_id". For "log_attribute"/"log_resource_attribute", use the attribute '
+            'key (e.g. "k8s.container.name").'
+        ),
     )
     type = serializers.ChoiceField(
         choices=_LOG_PROPERTY_TYPE_CHOICES,
@@ -185,6 +215,33 @@ class _LogPropertyFilterSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
     )
+
+
+class _LogsFilterInnerGroupSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=PropertyGroupOperator.choices, help_text="How to combine the filters in `values`."
+    )
+    values = _LogPropertyFilterSerializer(many=True, help_text="Property filters in this group.")
+
+
+class _LogsFilterGroupSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=PropertyGroupOperator.choices, help_text="How to combine the groups in `values`."
+    )
+    values = _LogsFilterInnerGroupSerializer(many=True, help_text="Groups of property filters.")
+
+
+# `_normalize_filter_group` accepts both forms and reads a flat list as one AND group.
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="LogsFilterGroupInput",
+        serializers=[_LogPropertyFilterSerializer(many=True), _LogsFilterGroupSerializer],
+        resource_type_field_name=None,
+        many=False,
+    )
+)
+class _LogsFilterGroupField(serializers.JSONField):
+    pass
 
 
 class _LogsAttributesQuerySerializer(serializers.Serializer):
@@ -204,6 +261,18 @@ class _LogsAttributesQuerySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
         help_text="Date range to search within. Defaults to last hour.",
+    )
+    keys = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        help_text="Start of the range as a top-level parameter. The endpoint ignores it when you send dateRange.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text="End of the range as a top-level parameter. The endpoint ignores it when you send dateRange.",
     )
     serviceNames = serializers.ListField(
         child=serializers.CharField(),
@@ -226,7 +295,11 @@ class _LogsValuesQuerySerializer(serializers.Serializer):
         required=False,
         help_text='Type of attribute: "log" or "resource". Defaults to "log".',
     )
-    value = serializers.CharField(required=False, help_text="Search filter for attribute values")
+    value = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Search filter for attribute values. Omit it or pass an empty string to list all values.",
+    )
     dateRange = _DateRangeSerializer(
         required=False,
         help_text="Date range to search within. Defaults to last hour.",
@@ -243,6 +316,40 @@ class _LogsValuesQuerySerializer(serializers.Serializer):
         default=[],
         help_text="Property filters to narrow which logs are scanned for values.",
     )
+
+
+class OrderBy(models.TextChoices):
+    LATEST = "latest", "latest"
+    EARLIEST = "earliest", "earliest"
+
+
+# Scope fields ride on every logs body that reaches the query runner, so they are built here
+# rather than redeclared per serializer — the help text is what drf-spectacular ships into the
+# generated TypeScript and the MCP tool schemas, and six copies drift.
+def _person_scope_field(noun: str) -> serializers.CharField:
+    return serializers.CharField(
+        required=False,
+        help_text=(
+            f"Scope {noun} to one person (UUID or numeric ID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
+        ),
+    )
+
+
+def _session_scope_field(noun: str) -> serializers.CharField:
+    return serializers.CharField(
+        required=False,
+        help_text=(
+            f"Scope {noun} to one session ID. Matched server-side against the team's configured "
+            "session-id log attribute keys plus the built-in conventions, in both log attributes "
+            "and resource attributes."
+        ),
+    )
+
+
+# The query action uses _LOGS_QUERY_SERVER_DEFAULT_LIMIT when the body omits limit, and caps larger values.
+_LOGS_QUERY_MAX_LIMIT = 2000
+_LOGS_QUERY_SERVER_DEFAULT_LIMIT = 1000
 
 
 class _LogsQueryBodySerializer(serializers.Serializer):
@@ -263,18 +370,24 @@ class _LogsQueryBodySerializer(serializers.Serializer):
         help_text="Filter by service names.",
     )
     orderBy = serializers.ChoiceField(
-        choices=["latest", "earliest"],
+        choices=OrderBy.choices,
         required=False,
         help_text="Order results by timestamp.",
     )
     searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
-    filterGroup = serializers.ListField(
-        child=_LogPropertyFilterSerializer(),
+    filterGroup = _LogsFilterGroupField(
         required=False,
-        default=[],
-        help_text="Property filters for the query.",
+        help_text=(
+            "Property filters for the query. Pass a list of filters, which are all combined with AND, "
+            "or a filter group object with nested AND/OR groups."
+        ),
     )
-    limit = serializers.IntegerField(required=False, default=100, help_text="Max results (1-1000).")
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        help_text=f"Max results. Values above {_LOGS_QUERY_MAX_LIMIT} are capped at {_LOGS_QUERY_MAX_LIMIT}.",
+    )
     after = serializers.CharField(required=False, help_text="Pagination cursor from previous response.")
     excludeAttributes = serializers.BooleanField(
         required=False,
@@ -292,13 +405,13 @@ class _LogsQueryBodySerializer(serializers.Serializer):
             "Values come back on each result row keyed by the aliases echoed in the response `columns` field."
         ),
     )
-    personId = serializers.CharField(
-        required=False,
-        help_text=(
-            "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's "
-            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
-        ),
-    )
+    personId = _person_scope_field("results")
+    sessionId = _session_scope_field("results")
+
+
+class _LogsBodyLimitSerializer(serializers.Serializer):
+    # Validates only the limit key of a raw query body; the other keys pass through untouched.
+    limit = serializers.IntegerField(required=False, allow_null=True, min_value=1, help_text="Max results.")
 
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
@@ -323,11 +436,12 @@ class _LogsSparklineBodySerializer(serializers.Serializer):
         help_text="Filter by service names.",
     )
     searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
-    filterGroup = serializers.ListField(
-        child=_LogPropertyFilterSerializer(),
+    filterGroup = _LogsFilterGroupField(
         required=False,
-        default=[],
-        help_text="Property filters for the query.",
+        help_text=(
+            "Property filters for the query. Pass a list of filters, which are all combined with AND, "
+            "or a filter group object with nested AND/OR groups."
+        ),
     )
     sparklineBreakdownBy = serializers.ChoiceField(
         choices=["severity", "service"],
@@ -339,13 +453,8 @@ class _LogsSparklineBodySerializer(serializers.Serializer):
         required=False,
         help_text='Rank breakdown values by "count" (default) or "bytes" before collapsing the tail into "other".',
     )
-    personId = serializers.CharField(
-        required=False,
-        help_text=(
-            "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's "
-            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
-        ),
-    )
+    personId = _person_scope_field("results")
+    sessionId = _session_scope_field("results")
 
 
 class _LogsSparklineRequestSerializer(serializers.Serializer):
@@ -382,6 +491,65 @@ class _LogsCountRequestSerializer(serializers.Serializer):
     query = _LogsCountBodySerializer(help_text="The count query to execute.")
 
 
+class _LogsImpactRequestSerializer(serializers.Serializer):
+    query = _LogsCountBodySerializer(
+        help_text="The impact query to execute. Takes the same filters as the count query."
+    )
+
+
+class _LogsImpactTopValueSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="The session ID or person distinct ID.")
+    count = serializers.IntegerField(
+        help_text="Approximate number of matching logs that carry this value (topK estimate)."
+    )
+
+
+class _LogsImpactGroupKeySerializer(serializers.Serializer):
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=list(GROUP_SOURCES),
+        help_text='Attribute map the key lives in, in the group-by endpoint\'s vocabulary: "log" or "resource".',
+    )
+    key = serializers.CharField(help_text="The attribute key that carries the ID on most matching logs.")
+
+
+class _LogsImpactResponseSerializer(serializers.Serializer):
+    total = serializers.IntegerField(help_text="Number of log entries matching the filters.")
+    logsWithSessionId = serializers.IntegerField(
+        help_text="How many of the matching logs carry a session ID under the team's configured or conventional attribute keys."
+    )
+    sessions = serializers.IntegerField(
+        help_text="Estimated number of unique session IDs across the matching logs (HyperLogLog, about 1-2% error)."
+    )
+    logsWithDistinctId = serializers.IntegerField(
+        help_text="How many of the matching logs carry a person distinct ID under the team's configured or conventional attribute keys."
+    )
+    users = serializers.IntegerField(
+        help_text="Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error)."
+    )
+    topSessions = _LogsImpactTopValueSerializer(
+        many=True,
+        help_text="Top session IDs on the matching logs, ordered by log count descending (topK, at most 5).",
+    )
+    topUsers = _LogsImpactTopValueSerializer(
+        many=True,
+        help_text="Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5).",
+    )
+    sessionGroupKey = _LogsImpactGroupKeySerializer(
+        allow_null=True,
+        help_text=(
+            "The dimension that carries the session ID on most matching logs. Group by this dimension to "
+            "drill into the sessions behind the counts. Null when no matching log carries a session ID."
+        ),
+    )
+    personGroupKey = _LogsImpactGroupKeySerializer(
+        allow_null=True,
+        help_text=(
+            "The dimension that carries the person distinct ID on most matching logs. Group by this dimension to "
+            "drill into the users behind the counts. Null when no matching log carries a distinct ID."
+        ),
+    )
+
+
 class _LogFacetValueSerializer(serializers.Serializer):
     value = serializers.CharField(help_text="The facet value (e.g. a severity level or service name).")
     count = serializers.IntegerField(
@@ -401,7 +569,11 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or "
-        "facetAttribute. Its own filter is excluded so counts reflect the other active filters.",
+        "facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets "
+        "that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body "
+        "search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts "
+        "come from the logs table with the exact window and every other filter. Both paths exclude this facet's "
+        "own filter.",
     )
     facetResourceAttribute = serializers.CharField(
         required=False,
@@ -442,13 +614,8 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters for the query.",
     )
-    personId = serializers.CharField(
-        required=False,
-        help_text=(
-            "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's "
-            "distinct IDs and matched against the team's configured distinct-id log attribute keys."
-        ),
-    )
+    personId = _person_scope_field("counts")
+    sessionId = _session_scope_field("counts")
 
 
 class _LogsFacetValuesRequestSerializer(serializers.Serializer):
@@ -546,16 +713,43 @@ class _LogsServicesBodySerializer(serializers.Serializer):
         help_text="Restrict the aggregation to these service names.",
     )
     searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    serviceNameSearch = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Case-insensitive substring match on service name, applied before aggregation. "
+            "Use to reach services beyond the response cap."
+        ),
+    )
     filterGroup = serializers.ListField(
         child=_LogPropertyFilterSerializer(),
         required=False,
         default=list,
         help_text="Property filters for the query.",
     )
+    environment = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Deployment environment, matched without case against the first set resource attribute of "
+            'deployment.environment.name, deployment.environment and env. "(none)" matches logs without one.'
+        ),
+    )
+    compare = serializers.ChoiceField(
+        choices=LogsCompareMode.choices,
+        default="none",
+        help_text=(
+            "Baseline window for per-service status: the window just before, the same window a day or a week "
+            "earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline."
+        ),
+    )
 
 
 class _LogsServicesRequestSerializer(serializers.Serializer):
     query = _LogsServicesBodySerializer(help_text="The services aggregation query to execute.")
+    baselineDateRange = _DateRangeSerializer(
+        required=False, help_text="Explicit baseline window. Takes precedence over `query.compare`."
+    )
 
 
 class _LogEntrySerializer(serializers.Serializer):
@@ -578,7 +772,6 @@ class _LogEntrySerializer(serializers.Serializer):
     span_id = serializers.CharField(
         help_text='Span ID. Returns "0000000000000000" when not set (padding, not null).',
     )
-    trace_flags = serializers.IntegerField(required=False, help_text="OpenTelemetry trace flags.")
     attributes = serializers.DictField(
         child=serializers.CharField(allow_blank=True),
         help_text="Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).",
@@ -588,6 +781,19 @@ class _LogEntrySerializer(serializers.Serializer):
         help_text="Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.",
     )
     event_name = serializers.CharField(required=False, allow_blank=True, help_text="OpenTelemetry event name, if set.")
+    instrumentation_scope = serializers.CharField(
+        allow_blank=True, help_text="OpenTelemetry instrumentation scope name. Empty when not set."
+    )
+    resource_fingerprint = serializers.CharField(
+        help_text="Hash of the resource attributes. Logs from the same pod or host share it."
+    )
+    live_logs_checkpoint = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "Latest timestamp up to which ingestion is known to be complete. The same on every row. "
+            "Logs newer than it can still arrive."
+        ),
+    )
 
 
 class _LogsQueryResponseSerializer(serializers.Serializer):
@@ -629,17 +835,10 @@ class _LogsSparklineBucketSerializer(serializers.Serializer):
         required=False,
         help_text='Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines.',
     )
-    count = serializers.IntegerField()
+    count = serializers.IntegerField(help_text="Number of log entries in the bucket.")
     bytes_uncompressed = serializers.IntegerField(
         required=False,
         help_text="Sum of uncompressed bytes for the bucket.",
-    )
-
-
-class _LogsSparklineResponseSerializer(serializers.Serializer):
-    results = _LogsSparklineBucketSerializer(
-        many=True,
-        help_text="Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown.",
     )
 
 
@@ -659,6 +858,32 @@ class _LogsServiceActiveRuleSerializer(serializers.Serializer):
 class _LogsServiceAggregateSerializer(serializers.Serializer):
     service_name = serializers.CharField(
         help_text='Service name, or "(no value)" / "(no service)" placeholder for unset entries.',
+    )
+    status = serializers.ChoiceField(
+        required=False,
+        choices=LogsServiceStatus.choices,
+        help_text=(
+            "ok, degraded (error rate of 5% or more), regressed or improved (error rate up or down by 1 pp and 2x), "
+            "recovered (back under 5%), new (no baseline logs) or silent (baseline logs, none in the window)."
+        ),
+    )
+    reason = serializers.CharField(
+        required=False, help_text='Short reason for the status, e.g. "error rate 0.4% → 3.1%".'
+    )
+    error_rate_pct = serializers.FloatField(required=False, help_text="Error rate in percent, rounded to 1 decimal.")
+    baseline_log_count = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Logs in the baseline. Null without one."
+    )
+    error_rate_delta_pp = serializers.FloatField(
+        required=False, allow_null=True, help_text="Error rate change against the baseline, in percentage points."
+    )
+    log_count_change_pct = serializers.FloatField(
+        required=False, allow_null=True, help_text="Log volume change against the baseline, in percent."
+    )
+    last_seen = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Latest log time (UTC). From the rollup, and for silent services, the start of the last 5-minute bucket.",
     )
     log_count = serializers.IntegerField(help_text="Total log entries from this service in the window.")
     error_count = serializers.IntegerField(
@@ -695,20 +920,64 @@ class _LogsServicesSummarySerializer(serializers.Serializer):
     top_services_volume_share_pct = serializers.FloatField(
         help_text="Combined volume share (percent) of the top services by log_count.",
     )
+    status_counts = serializers.DictField(
+        required=False, child=serializers.IntegerField(), help_text="Service rows per status."
+    )
+    truncated = serializers.BooleanField(
+        required=False, help_text="True when more services matched than `services` holds."
+    )
+
+
+class _LogsWindowSerializer(serializers.Serializer):
+    current = serializers.DictField(
+        child=serializers.CharField(), help_text="`from` and `to` of the queried window, ISO 8601 UTC."
+    )
+    baseline = serializers.DictField(
+        child=serializers.CharField(), required=False, help_text="`from` and `to` of the baseline. Absent without one."
+    )
+    timezone = serializers.CharField(help_text="Always UTC.")
+
+
+class _LogsNextStepSerializer(serializers.Serializer):
+    tool = serializers.CharField(help_text="MCP tool to call next.")
+    why = serializers.CharField(help_text="What the call answers.")
+    query = serializers.DictField(help_text="Prefilled `query` for that tool.")
+    baselineDateRange = serializers.DictField(
+        required=False, help_text="Prefilled sibling `baselineDateRange` argument, for tools that take one."
+    )
 
 
 class _LogsServicesResponseSerializer(serializers.Serializer):
     services = _LogsServiceAggregateSerializer(
         many=True,
-        help_text="Per-service aggregates, ordered by log_count descending. Capped at 25 services.",
+        help_text="Per-service aggregates, ordered by log_count descending. Capped at 10000 services.",
     )
     sparkline = _LogsServicesSparklineBucketSerializer(
         many=True,
-        help_text="Time-bucketed counts broken down by service, for plotting volume over time.",
+        help_text=(
+            "Time-bucketed counts broken down by service, for plotting volume over time. "
+            "Covers only the top 25 services in this response; re-request with `serviceNames` "
+            "to get sparklines for specific services."
+        ),
+    )
+    total_services = serializers.IntegerField(
+        help_text=(
+            "True distinct service count for the window and filters, unaffected by the 10000-service "
+            "cap on `services`. Greater than the length of `services` when the response is truncated."
+        ),
     )
     summary = _LogsServicesSummarySerializer(
         required=False,
         help_text="Roll-up stats for the Services tab header.",
+    )
+    window = _LogsWindowSerializer(required=False, help_text="Absolute UTC bounds of the window and the baseline.")
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        required=False,
+        choices=LogsServicesSource.choices,
+        help_text="rollup: 5-minute rollup only. rollup+raw: rollup plus raw logs at unaligned window edges.",
+    )
+    next = _LogsNextStepSerializer(
+        required=False, many=True, help_text="Prefilled follow-up calls for problem services."
     )
 
 
@@ -738,6 +1007,8 @@ class _LogsPatternsBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters applied before mining. Same shape as the query-logs endpoint.",
     )
+    personId = _person_scope_field("mining")
+    sessionId = _session_scope_field("mining")
 
 
 class _LogsPatternsRequestSerializer(serializers.Serializer):
@@ -747,8 +1018,9 @@ class _LogsPatternsRequestSerializer(serializers.Serializer):
 class _LogPatternExampleSerializer(serializers.Serializer):
     body = serializers.CharField(
         help_text=(
-            "Log body as the miner saw it: whitespace-collapsed and truncated to the mining "
-            "length cap, not the raw stored line."
+            "Original-message example. Body mining normalizes whitespace, extracts JSON message fields "
+            "and truncates to the mining cap. Stored-pattern aggregation returns the raw body prefix, "
+            "limited to 4096 Unicode characters."
         ),
     )
     severity_text = serializers.CharField(help_text='Severity of the sampled line, e.g. "info", "error".')
@@ -759,8 +1031,11 @@ class _LogPatternExampleSerializer(serializers.Serializer):
 class _LogPatternSerializer(serializers.Serializer):
     pattern = serializers.CharField(
         help_text=(
-            'Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". '
-            "Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary."
+            'Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". '
+            "Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions "
+            "Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, "
+            "<TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and "
+            "<JSON:keys> for a JSON body reduced to its key set."
         ),
     )
     count = serializers.IntegerField(
@@ -776,10 +1051,16 @@ class _LogPatternSerializer(serializers.Serializer):
         ),
     )
     volume_share_pct = serializers.FloatField(
-        help_text="Share of the sampled log volume this pattern represents (0–100).",
+        help_text=(
+            "Share of the log volume this pattern represents (0–100). Measured over the sample when "
+            "`sampled` is true, over every matching row otherwise."
+        ),
     )
     error_count = serializers.IntegerField(
-        help_text='Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display.',
+        help_text=(
+            'Occurrences at severity "error" or "fatal". A sample count when `sampled` is true, so '
+            "prefer `estimated_error_count` for display."
+        ),
     )
     estimated_error_count = serializers.IntegerField(
         help_text=(
@@ -787,8 +1068,18 @@ class _LogPatternSerializer(serializers.Serializer):
             "Equals `error_count` when the window was not sampled."
         ),
     )
-    first_seen = serializers.CharField(help_text="ISO 8601 timestamp of the earliest sampled occurrence.")
-    last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the latest sampled occurrence.")
+    first_seen = serializers.CharField(
+        help_text=(
+            "ISO 8601 timestamp of the earliest occurrence. Taken from the sample when `sampled` is "
+            "true, from every matching row otherwise."
+        )
+    )
+    last_seen = serializers.CharField(
+        help_text=(
+            "ISO 8601 timestamp of the latest occurrence. Taken from the sample when `sampled` is "
+            "true, from every matching row otherwise."
+        )
+    )
     examples = _LogPatternExampleSerializer(
         many=True,
         help_text=(
@@ -803,25 +1094,28 @@ class _LogPatternSerializer(serializers.Serializer):
     sparkline = serializers.ListField(
         child=serializers.IntegerField(),
         help_text=(
-            "Estimated occurrences per time bucket, aligned index-for-index with the response's "
-            "`sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows "
-            "the volume shape over the window, not exact per-bucket tallies."
+            "Occurrences per time bucket, aligned index-for-index with the response's "
+            "`sparkline_buckets`. When `sampled` is true these are extrapolated like `estimated_count` "
+            "and show the volume shape over the window rather than exact tallies. Otherwise they are "
+            "exact per-bucket counts."
         ),
     )
     severity_counts = serializers.DictField(
         child=serializers.IntegerField(),
         help_text=(
-            'Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample '
-            "counts, not extrapolated — severity dominance is a proportion, so scaling would not change it."
+            'Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, '
+            "because severity dominance is a proportion that scaling would not change. Sample counts "
+            "when `sampled` is true, counts over every matching row otherwise."
         ),
     )
     match_regex = serializers.CharField(
         allow_null=True,
         help_text=(
             "RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from "
-            "the template and validated against the pattern's own examples before being offered. "
-            "Null when the template lacks literal content or validation failed — never trust an "
-            "unvalidated predicate. Use with the message/regex log property filter."
+            "the template and validated against the raw bodies of the pattern's own sampled rows "
+            "before being offered. Null when the template lacks literal content or validation "
+            "failed. Never trust an unvalidated predicate. Use with the message/regex log "
+            "property filter."
         ),
     )
     match_literal = serializers.CharField(
@@ -831,6 +1125,16 @@ class _LogPatternSerializer(serializers.Serializer):
             "`match_regex` is null. Null when the template has no usable literal content."
         ),
     )
+    match_patterns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining.",
+    )
+    pattern_version = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Version required by match_patterns. Null for body mining.",
+    )
 
 
 class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):
@@ -838,13 +1142,47 @@ class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):
     end = serializers.CharField(help_text="Bucket end (ISO 8601, exclusive).")
 
 
-class _LogsPatternsResponseSerializer(serializers.Serializer):
+class _LogsPatternsSourceSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=["stored_patterns", "body_mining"],
+        required=False,
+        help_text="Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.",
+    )
+    pattern_version = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Stored pattern version used. Null for body mining.",
+    )
+    fallback_reason = serializers.ChoiceField(
+        choices=["flag_disabled", "insufficient_version_coverage", "empty_window", "comparison"],
+        allow_null=True,
+        required=False,
+        help_text="Why body mining was used. Null for stored-pattern aggregation.",
+    )
+    pattern_coverage_pct = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text="Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.",
+    )
+    represented_count = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Exact rows represented by the returned stored-pattern groups. Null for body mining.",
+    )
+    remainder_count = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.",
+    )
+
+
+class _LogsPatternsResponseSerializer(_LogsPatternsSourceSerializer):
     patterns = _LogPatternSerializer(
         many=True,
-        help_text="Mined patterns ordered by `count` descending.",
+        help_text="Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample.",
     )
     scanned_count = serializers.IntegerField(
-        help_text="Number of log rows fed to the miner (the sample size, capped at the sample limit).",
+        help_text="Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation.",
     )
     total_count = serializers.IntegerField(
         help_text=(
@@ -875,8 +1213,12 @@ class _LogsPatternsResponseSerializer(serializers.Serializer):
     )
 
 
+class _LogsPatternsDiffBodySerializer(_LogsPatternsBodySerializer, PatternsDiffBodyFields):
+    pass
+
+
 class _LogsPatternsDiffRequestSerializer(serializers.Serializer):
-    query = _LogsPatternsBodySerializer(
+    query = _LogsPatternsDiffBodySerializer(
         help_text=(
             "The patterns query for the current (foreground) window: date range plus any "
             "severity/service/search/property filters. The same filters are applied to the baseline window."
@@ -892,7 +1234,7 @@ class _LogsPatternsDiffRequestSerializer(serializers.Serializer):
     )
 
 
-class _LogPatternDiffEntrySerializer(serializers.Serializer):
+class _LogPatternDiffEntrySerializer(PatternDiffEntryFields):
     classification = serializers.ChoiceField(
         choices=["new", "rate_shift", "gone", "unchanged"],
         help_text=(
@@ -933,7 +1275,7 @@ class _LogPatternDiffEntrySerializer(serializers.Serializer):
     )
 
 
-class _LogsPatternsDiffWindowSerializer(serializers.Serializer):
+class _LogsPatternsDiffWindowSerializer(_LogsPatternsSourceSerializer):
     scanned_count = serializers.IntegerField(help_text="Log rows fed to the miner for this window (sample size).")
     total_count = serializers.IntegerField(help_text="Total log rows matching the filters in this window.")
     sampled = serializers.BooleanField(
@@ -946,7 +1288,7 @@ class _LogsPatternsDiffWindowSerializer(serializers.Serializer):
     date_to = serializers.CharField(help_text="Resolved window end (ISO 8601, exclusive).")
 
 
-class _LogsPatternsDiffResponseSerializer(serializers.Serializer):
+class _LogsPatternsDiffResponseSerializer(PatternsDiffResponseFields):
     entries = _LogPatternDiffEntrySerializer(
         many=True,
         help_text=(
@@ -971,7 +1313,7 @@ class _LogsGroupByDimensionSerializer(serializers.Serializer):
         help_text=(
             'The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") '
             'or, when source is "column", one of the top-level log fields: '
-            '"severity_level", "trace_id", "span_id".'
+            '"severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template).'
         ),
     )
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
@@ -1015,7 +1357,7 @@ class _LogsGroupByBodySerializer(serializers.Serializer):
         help_text=(
             'The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, '
             'when groupBySource is "column", one of the top-level log fields: '
-            '"severity_level", "trace_id", "span_id". Ignored when groupBys is provided.'
+            '"severity_level", "service_name", "trace_id", "span_id", "pattern". Ignored when groupBys is provided.'
         ),
     )
     groupBySource = serializers.ChoiceField(
@@ -1052,6 +1394,8 @@ class _LogsGroupByBodySerializer(serializers.Serializer):
         max_value=MAX_GROUP_LIMIT,
         help_text=f"Maximum number of groups to return (top-N by orderGroupsBy). Defaults to {DEFAULT_GROUP_LIMIT}.",
     )
+    personId = _person_scope_field("grouping")
+    sessionId = _session_scope_field("grouping")
 
 
 class _LogsGroupByRequestSerializer(serializers.Serializer):
@@ -1069,6 +1413,9 @@ class _LogsGroupByGroupSerializer(serializers.Serializer):
     log_count = serializers.IntegerField(help_text="Number of matching logs in this group.")
     error_count = serializers.IntegerField(
         help_text='Number of matching logs in this group at severity "error" or "fatal".',
+    )
+    first_seen = serializers.CharField(
+        required=False, help_text="ISO 8601 timestamp of the earliest matching log in this group."
     )
     last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the most recent matching log in this group.")
 
@@ -1129,6 +1476,7 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
+    _logs_api_slot: ConcurrencySlot | None = None
 
     def get_throttles(self) -> list[BaseThrottle]:
         # patterns_diff mines two windows per request (current + baseline), roughly doubling the
@@ -1137,6 +1485,34 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if self.action == "patterns_diff":
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return
+        try:
+            self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)
+        except ConcurrencyLimitExceeded as error:
+            logger.warning("logs_api_concurrency_limit_exceeded", team_id=self.team_id, detail=str(error))
+            # wait sets a Retry-After header, so a polling client backs off instead of retrying the burst at once.
+            raise Throttled(wait=1, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+        except RedisError:
+            # The cap protects ClickHouse capacity. A Redis outage must not also make the logs API fail.
+            logger.exception("logs_api_concurrency_limiter_unavailable", team_id=self.team_id)
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        # DRF skips finalize_response when the exception handler re-raises an error, so only a finally block
+        # releases the slot on every path.
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        finally:
+            if self._logs_api_slot is not None:
+                try:
+                    get_logs_api_team_rate_limiter().release(self._logs_api_slot)
+                except RedisError:
+                    # The slot expires after the limiter's ttl, so keep the response the query already produced.
+                    logger.exception("logs_api_concurrency_slot_release_failed", team_id=self.team_id)
+                self._logs_api_slot = None
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
@@ -1148,6 +1524,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if isinstance(filter_group, dict):
             return filter_group
         return {"type": "AND", "values": []}
+
+    @staticmethod
+    def _filter_group_from_query_params(request: Request) -> PropertyGroupFilter | None:
+        try:
+            filter_group = json.loads(request.GET.get("filterGroup") or "null")
+        except ValueError:
+            return None
+        if not isinstance(filter_group, dict | list) or not filter_group:
+            return None
+        try:
+            return PropertyGroupFilter.model_validate(LogsViewSet._normalize_filter_group(filter_group))
+        except ValidationError:
+            return None
 
     @staticmethod
     def _require_dict_query(query_data: object) -> None:
@@ -1162,11 +1551,26 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # The body serializers document dateRange as optional, so an absent range must
             # default rather than 400 (get_model rejects None).
             dateRange=self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h"),
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
+            # A null list in the body must default like an absent one instead of failing validation.
+            severityLevels=query_data.get("severityLevels") or [],
+            serviceNames=query_data.get("serviceNames") or [],
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+            # Patterns and Group are modes of the same viewer, so they inherit its scope. Dropping
+            # these would mine or aggregate the whole project and label the result one session.
+            personId=query_data.get("personId", None),
+            sessionId=query_data.get("sessionId", None),
         )
+
+    @staticmethod
+    def _filter_analytics_props(query_data: dict) -> dict:
+        """The filter-shape properties every logs aggregation action reports."""
+        return {
+            "has_search_term": bool(query_data.get("searchTerm")),
+            "has_filter_group": bool(query_data.get("filterGroup")),
+            "severity_levels_count": len(query_data.get("severityLevels") or []),
+            "service_names_count": len(query_data.get("serviceNames") or []),
+        }
 
     @extend_schema(request=_LogsQueryRequestSerializer, responses={200: _LogsQueryResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
@@ -1214,7 +1618,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             except (KeyError, ValueError, json.JSONDecodeError):
                 pass  # Invalid cursor format, continue with original date range
 
-        requested_limit = min(query_data.get("limit", 1000), 2000)
+        paging = _LogsBodyLimitSerializer(data=query_data)
+        paging.is_valid(raise_exception=True)
+        limit = paging.validated_data.get("limit")
+        requested_limit = min(_LOGS_QUERY_SERVER_DEFAULT_LIMIT if limit is None else limit, _LOGS_QUERY_MAX_LIMIT)
         logs_query_params = {
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),
@@ -1224,6 +1631,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "filterGroup": self._normalize_filter_group(query_data.get("filterGroup", None)),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
             "personId": query_data.get("personId", None),
+            "sessionId": query_data.get("sessionId", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
             "excludeAttributes": query_data.get("excludeAttributes", False),
             "customColumns": custom_columns,
@@ -1242,7 +1650,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
         try:
-            if live_logs_checkpoint:
+            # Replay asks for session logs on every recording open, and most of those teams send no logs.
+            if query.sessionId and not team_has_logs(self.team, cache_negative=True):
+                results: list[Any] = []
+            elif live_logs_checkpoint:
                 response = LogsQueryRunner(query, self.team).run(
                     ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
                 )
@@ -1273,18 +1684,22 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
 
         if not live_logs_checkpoint:
+            event_properties: dict[str, object] = {
+                "results_count": len(results),
+                "has_more": has_more,
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "is_paginated": bool(after_cursor),
+            }
+            if results:
+                # This endpoint serves the app, API keys, MCP and other integrations, so the property covers all of them.
+                event_properties["$set_once"] = {"first_used_logs_at": timezone.now().isoformat()}
             report_user_action(
                 request.user,
                 "logs query executed",
-                {
-                    "results_count": len(results),
-                    "has_more": has_more,
-                    "has_search_term": bool(query_data.get("searchTerm")),
-                    "has_filter_group": bool(query_data.get("filterGroup")),
-                    "severity_levels_count": len(query_data.get("severityLevels", [])),
-                    "service_names_count": len(query_data.get("serviceNames", [])),
-                    "is_paginated": bool(after_cursor),
-                },
+                event_properties,
                 team=self.team,
                 request=request,
             )
@@ -1301,7 +1716,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             status=200,
         )
 
-    @extend_schema(request=_LogsSparklineRequestSerializer, responses={200: _LogsSparklineResponseSerializer})
+    @extend_schema(
+        request=_LogsSparklineRequestSerializer,
+        responses={200: _LogsSparklineBucketSerializer(many=True)},
+    )
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
@@ -1319,6 +1737,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             resourceFingerprint=query_data.get("resourceFingerprint", None),
             personId=query_data.get("personId", None),
+            sessionId=query_data.get("sessionId", None),
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
             sparklineRankBy=query_data.get("sparklineRankBy"),
         )
@@ -1336,8 +1755,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             {
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "has_filter_group": bool(query_data.get("filterGroup")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
                 "breakdown_by": query_data.get("sparklineBreakdownBy"),
             },
             team=self.team,
@@ -1371,6 +1790,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             personId=query_data.get("personId", None),
+            sessionId=query_data.get("sessionId", None),
         )
 
         runner = LogFacetValuesQueryRunner(
@@ -1395,16 +1815,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_data = request.data.get("query", {})
         self._require_dict_query(query_data)
 
-        date_range_data = query_data.get("dateRange")
-        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
-
-        query = LogsQuery(
-            dateRange=date_range,
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
-            searchTerm=query_data.get("searchTerm", None),
-            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
-        )
+        query = self._filtered_logs_query(query_data)
 
         runner = CountQueryRunner(team=self.team, query=query)
         response = runner.run(
@@ -1416,12 +1827,33 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         report_user_action(
             request.user,
             "logs count queried",
-            {
-                "has_search_term": bool(query_data.get("searchTerm")),
-                "has_filter_group": bool(query_data.get("filterGroup")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
-            },
+            self._filter_analytics_props(query_data),
+            team=self.team,
+            request=request,
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_LogsImpactRequestSerializer, responses={200: _LogsImpactResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def impact(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+        self._require_dict_query(query_data)
+
+        query = self._filtered_logs_query(query_data)
+
+        runner = ImpactQueryRunner(team=self.team, query=query)
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+
+        report_user_action(
+            request.user,
+            "logs impact queried",
+            self._filter_analytics_props(query_data),
             team=self.team,
             request=request,
         )
@@ -1432,6 +1864,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         request=_LogsCountRangesRequestSerializer,
         responses={200: _LogsCountRangesResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="count-ranges")
     def count_ranges(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
@@ -1465,8 +1898,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "target_buckets": target_buckets,
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "has_filter_group": bool(query_data.get("filterGroup")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1489,7 +1922,22 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
 
-        runner = ServicesQueryRunner(team=self.team, query=query)
+        compare = query_data.get("compare") or "none"
+        if compare not in COMPARE_MODES:
+            return Response(
+                {"error": f"compare must be one of {', '.join(COMPARE_MODES)}"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if not isinstance(query_data.get("environment") or "", str):
+            return Response({"error": "environment must be a string"}, status=status.HTTP_400_BAD_REQUEST)
+        baseline_data = request.data.get("baselineDateRange")
+        runner = ServicesQueryRunner(
+            team=self.team,
+            query=query,
+            service_name_search=query_data.get("serviceNameSearch") or None,
+            environment=query_data.get("environment") or None,
+            compare=compare,
+            baseline_date_range=self.get_model(baseline_data, DateRange) if baseline_data else None,
+        )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1504,8 +1952,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 if isinstance(response.results, dict)
                 else 0,
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1522,7 +1970,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
-        runner = PatternsQueryRunner(team=self.team, query=query)
+        runner = PatternsQueryRunner(
+            team=self.team, query=query, user=request.user if isinstance(request.user, User) else None
+        )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1537,9 +1987,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 if isinstance(response.results, dict)
                 else 0,
                 "sampled": response.results.get("sampled") if isinstance(response.results, dict) else None,
+                "source": response.results.get("source") if isinstance(response.results, dict) else None,
+                "pattern_version": response.results.get("pattern_version")
+                if isinstance(response.results, dict)
+                else None,
+                "fallback_reason": response.results.get("fallback_reason")
+                if isinstance(response.results, dict)
+                else None,
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1561,7 +2018,18 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             else None
         )
 
-        results = run_patterns_diff(self.team, query, baseline_date_range)
+        options = PatternsDiffBodyFields(data={"limit": query_data["limit"]} if "limit" in query_data else {})
+        options.is_valid(raise_exception=True)
+        results = run_patterns_diff(
+            self.team,
+            query,
+            baseline_date_range,
+            user=request.user if isinstance(request.user, User) else None,
+            limit=options.validated_data.get("limit"),
+            # The comparison runs several queries in sequence. End it before the concurrency slot's ttl, so the
+            # slot cannot expire while the request still queries ClickHouse.
+            deadline=monotonic() + get_logs_api_team_rate_limiter().ttl - LOGS_API_SLOT_TTL_MARGIN_SECONDS,
+        )
 
         report_user_action(
             request.user,
@@ -1571,8 +2039,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "changed_count": sum(1 for e in results["entries"] if e["classification"] != "unchanged"),
                 "auto_baseline": baseline_date_range is None,
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1581,6 +2049,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         return Response(results, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsGroupByRequestSerializer, responses={200: _LogsGroupByResponseSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="group-by")
     def group_by(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
@@ -1601,20 +2070,26 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         else:
             group_bys = [(query_data.get("groupBy", ""), query_data.get("groupBySource", "log"))]
 
+        paging = _LogsBodyLimitSerializer(data=query_data)
+        paging.is_valid(raise_exception=True)
+        limit = paging.validated_data.get("limit")
+
         try:
             runner = LogsGroupByQueryRunner(
                 team=self.team,
                 query=query,
                 group_bys=group_bys,
                 order_groups_by=query_data.get("orderGroupsBy", "log_count"),
-                group_limit=int(query_data.get("limit", DEFAULT_GROUP_LIMIT)),
+                group_limit=DEFAULT_GROUP_LIMIT if limit is None else limit,
             )
         except (ValueError, TypeError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # calculate() bypasses the query cache on purpose: the group-by parameters are runner
-        # args, not query-model fields, so they can't participate in the cache key.
-        response = runner.calculate()
+        response = runner.run(
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         results = response.results if isinstance(response.results, dict) else {}
         report_user_action(
@@ -1627,8 +2102,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "groups_count": len(results.get("groups", [])),
                 "truncated": results.get("truncated"),
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1650,15 +2125,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         except (json.JSONDecodeError, ValidationError, ValueError):
             # Default to last hour if dateRange is malformed
             dateRange = DateRange(date_from="-1h")
+        # Flat params let clients that cannot send a JSON query param (the generated frontend client) scope the window.
+        if "dateRange" not in request.GET and (request.GET.get("date_from") or request.GET.get("date_to")):
+            dateRange = DateRange(date_from=request.GET.get("date_from"), date_to=request.GET.get("date_to"))
 
         try:
             serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
         except json.JSONDecodeError:
             serviceNames = []
-        try:
-            filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-            filterGroup = None
+        filterGroup = self._filter_group_from_query_params(request)
 
         attributeType = request.GET.get("attribute_type", "log")
         # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
@@ -1676,9 +2151,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         except ValueError:
             offset = 0
 
+        attribute_keys = list(dict.fromkeys(k.strip() for k in request.GET.get("keys", "").split(",") if k.strip()))
+        if len(attribute_keys) > MAX_ATTRIBUTE_KEYS:
+            return Response(
+                {"error": f"At most {MAX_ATTRIBUTE_KEYS} keys are allowed."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
         query = LogAttributesQuery(
             dateRange=dateRange,
             attributeType=attributeType,
+            attributeKeys=attribute_keys or None,
             search=search,
             searchValues=search_values,
             limit=limit,
@@ -1689,7 +2171,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         runner = LogAttributesQueryRunner(team=self.team, query=query)
 
-        result = runner.calculate()
+        try:
+            result = runner.calculate()
+        except (QueryError, ExposedCHQueryError) as e:
+            # A user query error (HogQL or ClickHouse) becomes a clean 400 the filter can show.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
             {
                 "results": [r.model_dump(exclude_none=True) for r in result.results],
@@ -1728,10 +2214,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
             except json.JSONDecodeError:
                 serviceNames = []
-            try:
-                filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-                filterGroup = None
+            filterGroup = self._filter_group_from_query_params(request)
 
             attributeType = request.GET.get("attribute_type", "log")
             # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
@@ -1764,7 +2247,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             runner = LogValuesQueryRunner(team=self.team, query=query)
 
-            result = runner.calculate()
+            try:
+                result = runner.calculate()
+            except (QueryError, ExposedCHQueryError) as e:
+                # A user query error (HogQL or ClickHouse) becomes a clean 400 the filter can show.
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             span.set_attribute("result_count", len(result.results))
             return Response(
                 {"results": [r.model_dump() for r in result.results], "refreshing": False},
@@ -1827,7 +2314,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "export_id": asset.id,
                 "columns_count": len(columns),
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,

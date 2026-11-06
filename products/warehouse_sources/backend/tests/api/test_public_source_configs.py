@@ -1,22 +1,33 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
+from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
+from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs, tracer
+
 
 class TestPublicSourceConfigs(APIBaseTest):
+    def test_catalog_spans_only_cover_cache_misses(self):
+        build_source_configs.cache_clear()
+        try:
+            with patch.object(tracer, "start_as_current_span") as start_span:
+                cold = build_source_configs(include_tables=False)
+                assert build_source_configs(include_tables=False) is cold
+
+            assert [call.args[0] for call in start_span.call_args_list] == [
+                "warehouse_sources.catalog.registry",
+                "warehouse_sources.catalog.build",
+            ]
+        finally:
+            build_source_configs.cache_clear()
+
     def test_list_returns_source_configs(self):
         response = self.client.get("/api/public_source_configs/")
         assert response.status_code == status.HTTP_200_OK
 
-        data = response.json()
-        assert isinstance(data, dict)
-        assert len(data) > 0
-
-        first_config = next(iter(data.values()))
-        assert "name" in first_config
-        assert "label" in first_config
-        assert "iconPath" in first_config
-        assert "fields" in first_config
+        catalog = SourceConfigMapResponse.model_validate_json(response.content).root
+        assert len(catalog) > 0
 
     def test_matches_wizard_response(self):
         """Public endpoint returns the same data as the authenticated /wizard endpoint, plus the
@@ -80,6 +91,17 @@ class TestPublicSourceConfigs(APIBaseTest):
         response = self.client.get("/api/public_source_configs/")
         assert response.json()["Postgres"]["tables"] == []
 
+    def test_cdc_engine_is_set_for_every_source_with_change_capture(self):
+        response = self.client.get("/api/public_source_configs/")
+
+        engines = {source_type: config["cdcEngine"] for source_type, config in response.json().items()}
+
+        assert {source_type: engine for source_type, engine in engines.items() if engine is not None} == {
+            "Postgres": "postgres",
+            "Supabase": "postgres",
+            "Neon": "postgres",
+        }
+
     def test_every_config_exposes_version_fields(self):
         """The external version-update automation consumes these exact field names."""
         response = self.client.get("/api/public_source_configs/")
@@ -92,8 +114,8 @@ class TestPublicSourceConfigs(APIBaseTest):
             assert isinstance(config["deprecatedVersions"], list), source_type
 
         stripe = data["Stripe"]
-        assert stripe["versions"] == ["2024-09-30.acacia"]
-        assert stripe["defaultVersion"] == "2024-09-30.acacia"
+        assert stripe["versions"] == ["2024-09-30.acacia", "2026-10-28.endive"]
+        assert stripe["defaultVersion"] == "2026-10-28.endive"
         assert stripe["apiDocsUrl"] == "https://docs.stripe.com/changelog"
 
     def test_many_fixed_schema_sources_list_tables(self):

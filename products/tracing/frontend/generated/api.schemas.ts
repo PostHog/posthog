@@ -7,6 +7,122 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface TeamTracingConfigApi {
+    /**
+     * Span or resource attribute keys whose values should match a person's distinct_id — a span links to a person when any of these attributes holds one of their distinct IDs. Defaults to ['posthogDistinctId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the person identifier under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    tracing_distinct_id_attribute_keys: string[]
+    /**
+     * Ordered list of span or resource attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the session ID under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    tracing_session_id_attribute_keys: string[]
+    /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+    retention_days?: number
+    /** @nullable */
+    readonly retention_last_updated: string | null
+}
+
+export interface PatchedTeamTracingConfigApi {
+    /**
+     * Span or resource attribute keys whose values should match a person's distinct_id — a span links to a person when any of these attributes holds one of their distinct IDs. Defaults to ['posthogDistinctId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the person identifier under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    tracing_distinct_id_attribute_keys?: string[]
+    /**
+     * Ordered list of span or resource attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the session ID under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    tracing_session_id_attribute_keys?: string[]
+    /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+    retention_days?: number
+    /** @nullable */
+    readonly retention_last_updated?: string | null
+}
+
+export interface TracesRetentionRuleApi {
+    /** Unique identifier for this retention rule. */
+    readonly id: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+    config: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version: number
+    readonly created_by: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedTracesRetentionRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TracesRetentionRuleApi[]
+}
+
+export interface PatchedTracesRetentionRuleApi {
+    /** Unique identifier for this retention rule. */
+    readonly id?: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name?: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+    config?: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version?: number
+    readonly created_by?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface LogsRetentionRuleReorderApi {
+    /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+    ordered_ids: string[]
+}
+
+export interface LogsRetentionRuleSuggestNameApi {
+    /** Retention tier the rule would assign, in days. */
+    retention_days: number
+    /** PropertyGroupFilter tree the rule would match on. */
+    filter_group: unknown
+}
+
+export interface LogsRetentionRuleNameSuggestionApi {
+    /** Suggested rule name. Empty when no suggestion could be generated — clients hide the hint. */
+    name: string
+}
+
 export interface _TracingDateRangeApi {
     /**
      * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.
@@ -129,12 +245,39 @@ export interface _TracingAggregationQueryBodyApi {
      * @minimum 0
      */
     offset?: number
+    /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
+    includeImpact?: boolean
+    /** Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `/users/1` and `/users/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out. */
+    groupByEndpoint?: boolean
+    /** Also return `health_status` and `health_reason` per row, comparing each row with the same row in the comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and thresholds as the service health check. Costs a second window query. */
+    includeHealth?: boolean
 }
 
 export interface _TracingAggregationRequestApi {
     /** The span aggregation query to execute. */
     query: _TracingAggregationQueryBodyApi
 }
+
+/**
+ * * `silent` - Silent
+ * * `regressed` - Regressed
+ * * `degraded` - Degraded
+ * * `new` - New
+ * * `recovered` - Recovered
+ * * `improved` - Improved
+ * * `ok` - Ok
+ */
+export type ServiceHealthStatusEnumApi = (typeof ServiceHealthStatusEnumApi)[keyof typeof ServiceHealthStatusEnumApi]
+
+export const ServiceHealthStatusEnumApi = {
+    Silent: 'silent',
+    Regressed: 'regressed',
+    Degraded: 'degraded',
+    New: 'new',
+    Recovered: 'recovered',
+    Improved: 'improved',
+    Ok: 'ok',
+} as const
 
 export interface _AggregatedSpanRowApi {
     /** Service that emitted the spans in this group. */
@@ -157,6 +300,41 @@ export interface _AggregatedSpanRowApi {
     p999_duration_nano: number
     /** Spans with OTel status code Error (status_code = 2). */
     error_count: number
+    /**
+     * Estimated unique session IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    sessions: number | null
+    /**
+     * Estimated unique person distinct IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    users: number | null
+    /**
+     * How many of this group's spans carry a session ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    spans_with_session_id: number | null
+    /**
+     * How many of this group's spans carry a person distinct ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    spans_with_distinct_id: number | null
+    /** How this group compares with its baseline: regressed (error rate or p95 jumped), degraded (high error rate), new (no spans in the baseline), recovered, improved, or ok. Null unless the query set `includeHealth`.
+     *
+     * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok */
+    health_status: ServiceHealthStatusEnumApi | null
+    /**
+     * Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is ok.
+     * @nullable
+     */
+    health_reason: string | null
 }
 
 export interface _TracingAggregationResponseApi {
@@ -279,6 +457,23 @@ export interface _TracingAttributesResponseApi {
     count: number
 }
 
+/**
+ * Property filters for the count. Either a flat list of filters or a nested filter group.
+ */
+export type _TracingCountBodyApiFilterGroup =
+    | _SpanPropertyFilterApi[]
+    | {
+          /** How the inner groups combine. */
+          type: 'AND' | 'OR'
+          /** The inner filter groups. */
+          values: {
+              /** How the filters in this group combine. */
+              type: 'AND' | 'OR'
+              /** The property filters in this group. */
+              values: _SpanPropertyFilterApi[]
+          }[]
+      }
+
 export interface _TracingCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
@@ -286,8 +481,8 @@ export interface _TracingCountBodyApi {
     serviceNames?: string[]
     /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
     statusCodes?: number[]
-    /** Property filters for the count. */
-    filterGroup?: _SpanPropertyFilterApi[]
+    /** Property filters for the count. Either a flat list of filters or a nested filter group. */
+    filterGroup?: _TracingCountBodyApiFilterGroup
 }
 
 export interface _TracingCountRequestApi {
@@ -320,9 +515,104 @@ export interface _TracingDurationHistogramRequestApi {
     query: _TracingDurationHistogramQueryBodyApi
 }
 
+export interface _TracingDurationHistogramRowApi {
+    /** Lower bound of the duration bucket in nanoseconds. */
+    bucket_ns: number
+    /** Service the count belongs to. */
+    service: string
+    /** Spans in this bucket for this service. */
+    count: number
+}
+
+export interface _TracingDurationHistogramResponseApi {
+    /** One row per duration bucket and service. */
+    results: _TracingDurationHistogramRowApi[]
+}
+
+export interface _TracingErrorCountsRequestApi {
+    /**
+     * Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` property. Case insensitive. At most 200 per request.
+     * @maxItems 200
+     */
+    traceIds?: string[]
+    /**
+     * Hex span IDs to count exceptions for, matched against the exception's `$span_id` property. Only counted within the requested traces, so `traceIds` is required alongside. At most 200 per request.
+     * @maxItems 200
+     */
+    spanIds?: string[]
+    /**
+     * Session IDs to count exceptions for. The fallback for exceptions that carry no trace ID. At most 200 per request.
+     * @maxItems 200
+     */
+    sessionIds?: string[]
+    /** Start of the window the exceptions must fall in. ISO 8601. */
+    dateFrom: string
+    /** End of the window the exceptions must fall in. ISO 8601. */
+    dateTo: string
+}
+
+export interface _TracingTraceErrorCountApi {
+    /** Exception events in the window that error tracking linked to an issue. */
+    exceptions: number
+    /** The trace the exceptions belong to, lowercase hex. */
+    trace_id: string
+}
+
+export interface _TracingSpanErrorCountApi {
+    /** Exception events in the window that error tracking linked to an issue. */
+    exceptions: number
+    /** The span the exceptions belong to, lowercase hex. */
+    span_id: string
+}
+
+export interface _TracingSessionErrorCountApi {
+    /** Exception events in the window that error tracking linked to an issue. */
+    exceptions: number
+    /** The session the exceptions belong to. */
+    session_id: string
+}
+
+export interface _TracingErrorCountsResponseApi {
+    /** One entry per requested trace that had exceptions. Traces with none are omitted. */
+    traceResults: _TracingTraceErrorCountApi[]
+    /** One entry per requested span that had exceptions. Spans with none are omitted. */
+    spanResults: _TracingSpanErrorCountApi[]
+    /** One entry per requested session that had exceptions. Sessions with none are omitted. */
+    sessionResults: _TracingSessionErrorCountApi[]
+}
+
 export interface _HasSpansResponseApi {
     /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
     hasSpans: boolean
+}
+
+export interface _TracingImpactRequestApi {
+    /** The impact query to execute. Takes the same filters as the count query. */
+    query: _TracingCountBodyApi
+}
+
+export interface _TracingImpactTopValueApi {
+    /** The session ID or person distinct ID. */
+    value: string
+    /** Approximate number of matching spans that carry this value (topK estimate). */
+    count: number
+}
+
+export interface _TracingImpactResponseApi {
+    /** Number of spans matching the filters. */
+    total: number
+    /** How many of the matching spans carry a session ID under the team's configured or conventional attribute keys. */
+    spansWithSessionId: number
+    /** Estimated number of unique session IDs across the matching spans (HyperLogLog, about 1-2% error). */
+    sessions: number
+    /** How many of the matching spans carry a person distinct ID under the team's configured or conventional attribute keys. */
+    spansWithDistinctId: number
+    /** Estimated number of unique distinct IDs across the matching spans (HyperLogLog, about 1-2% error). */
+    users: number
+    /** Top session IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+    topSessions: _TracingImpactTopValueApi[]
+    /** Top person distinct IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+    topUsers: _TracingImpactTopValueApi[]
 }
 
 export interface _TracingLatencyHeatmapRequestApi {
@@ -412,6 +702,317 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
+/**
+ * Span attributes. Keys are whatever the instrumentation set.
+ */
+export type _SpanApiAttributes = { [key: string]: string }
+
+/**
+ * Resource attributes of the emitting service. Keys are whatever the instrumentation set.
+ */
+export type _SpanApiResourceAttributes = { [key: string]: string }
+
+/**
+ * One span row as the query and trace actions return it.
+ *
+ * The runner assembles these from HogQL result columns by position, so the key set is fixed even
+ * though the values come from a query. `trace_start` and `trace_duration` are the sort keys the
+ * trace list orders on, carried in the row rather than recomputed by the caller.
+ */
+export interface _SpanApi {
+    /** Span's own UUID. */
+    uuid: string
+    /** Trace this span belongs to. */
+    trace_id: string
+    /** Span's ID within the trace. */
+    span_id: string
+    /** Parent span's ID. Empty for a root span. */
+    parent_span_id: string
+    /** Span name, which is the operation it represents. */
+    name: string
+    /** OpenTelemetry span kind. */
+    kind: number
+    /** Service that emitted the span. */
+    service_name: string
+    /** OpenTelemetry status code: 0 unset, 1 ok, 2 error. */
+    status_code: number
+    /** When the span started. */
+    timestamp: string
+    /** When the span ended. */
+    end_time: string
+    /** Span duration in nanoseconds. */
+    duration_nano: number
+    /** Whether the span has no parent in the trace. */
+    is_root_span: boolean
+    /** 1 when this span matched the request's filters, 0 when it is included as context. The query selects it as an expression, so it arrives as a number rather than a boolean. */
+    matched_filter: number
+    /** Start of the whole trace, for ordering traces by recency. */
+    trace_start: string
+    /** Duration of the whole trace in nanoseconds. Falls back to this span's duration. */
+    trace_duration: number
+    /** Span attributes. Keys are whatever the instrumentation set. */
+    attributes: _SpanApiAttributes
+    /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
+    resource_attributes: _SpanApiResourceAttributes
+}
+
+export interface _TracingQueryResponseApi {
+    /** Matching spans, ordered by the requested column. */
+    results: _SpanApi[]
+    /** Whether a further page exists. */
+    hasMore: boolean
+    /**
+     * Cursor for the next page, or null on the last page. Pass it back as the query's `after`. Always null when ordering by duration, which pages by offset instead.
+     * @nullable
+     */
+    nextCursor: string | null
+}
+
+export interface _TracingServiceNameApi {
+    /** Service name. */
+    name: string
+}
+
+export interface _TracingServiceNamesResponseApi {
+    /** Services that emitted spans in the window. */
+    results: _TracingServiceNameApi[]
+}
+
+export interface _ServiceHealthDateRangeApi {
+    /**
+     * Relative (-30m, -6h, -7d) or ISO 8601.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * Same format. Omit or null for "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
+/**
+ * * `none` - None
+ * * `previous_period` - Previous Period
+ * * `previous_day` - Previous Day
+ * * `previous_week` - Previous Week
+ */
+export type ServiceHealthBaselineEnumApi =
+    (typeof ServiceHealthBaselineEnumApi)[keyof typeof ServiceHealthBaselineEnumApi]
+
+export const ServiceHealthBaselineEnumApi = {
+    None: 'none',
+    PreviousPeriod: 'previous_period',
+    PreviousDay: 'previous_day',
+    PreviousWeek: 'previous_week',
+} as const
+
+/**
+ * * `entry` - Entry
+ * * `all` - All
+ */
+export type ServiceHealthSpanScopeEnumApi =
+    (typeof ServiceHealthSpanScopeEnumApi)[keyof typeof ServiceHealthSpanScopeEnumApi]
+
+export const ServiceHealthSpanScopeEnumApi = {
+    Entry: 'entry',
+    All: 'all',
+} as const
+
+/**
+ * * `status` - Status
+ * * `error_rate` - Error Rate
+ * * `p95` - P95
+ * * `throughput` - Throughput
+ * * `error_count` - Error Count
+ */
+export type ServiceHealthOrderByEnumApi = (typeof ServiceHealthOrderByEnumApi)[keyof typeof ServiceHealthOrderByEnumApi]
+
+export const ServiceHealthOrderByEnumApi = {
+    Status: 'status',
+    ErrorRate: 'error_rate',
+    P95: 'p95',
+    Throughput: 'throughput',
+    ErrorCount: 'error_count',
+} as const
+
+export interface _ServiceHealthQueryApi {
+    /** The window to score. Defaults to the last hour. */
+    dateRange?: _ServiceHealthDateRangeApi
+    /** The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.
+     *
+     * * `none` - None
+     * * `previous_period` - Previous Period
+     * * `previous_day` - Previous Day
+     * * `previous_week` - Previous Week */
+    compare?: ServiceHealthBaselineEnumApi
+    /**
+     * Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.
+     * @nullable
+     */
+    environment?: string | null
+    /**
+     * Only these services.
+     * @maxItems 100
+     */
+    serviceNames?: string[]
+    /** entry (default) counts root, server and consumer spans, one per request. all counts every span.
+     *
+     * * `entry` - Entry
+     * * `all` - All */
+    spanScope?: ServiceHealthSpanScopeEnumApi
+    /** status (default) puts silent, regressed and degraded first. The others sort high to low.
+     *
+     * * `status` - Status
+     * * `error_rate` - Error Rate
+     * * `p95` - P95
+     * * `throughput` - Throughput
+     * * `error_count` - Error Count */
+    orderBy?: ServiceHealthOrderByEnumApi
+    /**
+     * Max service rows, 1-200.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+}
+
+export interface ServiceHealthRequestApi {
+    /** The service health query. Every field is optional. */
+    query: _ServiceHealthQueryApi
+    /** An explicit baseline window. Overrides query.compare. */
+    baselineDateRange?: _ServiceHealthDateRangeApi
+}
+
+export interface _ServiceHealthTimeRangeApi {
+    /** Start, ISO 8601 UTC, inclusive. */
+    date_from: string
+    /** End, ISO 8601 UTC, exclusive. */
+    date_to: string
+}
+
+export interface _ServiceHealthWindowApi {
+    /** The scored window. Reuse it as dateRange in follow-up calls. */
+    current: _ServiceHealthTimeRangeApi
+    /** The baseline window. Null when compare is none. */
+    baseline: _ServiceHealthTimeRangeApi | null
+    /** Always UTC. */
+    timezone: string
+}
+
+export interface _ServiceHealthSummaryApi {
+    /** Services scored, before the limit. */
+    services: number
+    /** Requests over all scored services. */
+    requests: number
+    /** Services per status. */
+    ok: number
+    /** Services per status. */
+    degraded: number
+    /** Services per status. */
+    regressed: number
+    /** Services per status. */
+    silent: number
+    /** Services per status. */
+    new: number
+    /** Services per status. */
+    recovered: number
+    /** Services per status. */
+    improved: number
+}
+
+export interface _ServiceHealthRowApi {
+    /** Service name. */
+    service: string
+    /** silent: spans stopped. regressed: error rate or p95 worse than the baseline. degraded: error rate 5% or more. new: no spans in the baseline. recovered, improved: the reverse of regressed.
+     *
+     * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok */
+    status: ServiceHealthStatusEnumApi
+    /** Why the service has this status. Empty for ok. */
+    reason: string
+    /** Spans in the window, in the chosen spanScope. */
+    requests: number
+    /** Requests per minute. */
+    throughput_per_min: number
+    /** Requests with OTel status Error. */
+    error_count: number
+    /**
+     * Error share of requests, percent.
+     * @nullable
+     */
+    error_rate_pct: number | null
+    /**
+     * Change from the baseline, points.
+     * @nullable
+     */
+    error_rate_delta_pp: number | null
+    /**
+     * Median duration, ms.
+     * @nullable
+     */
+    p50_ms: number | null
+    /**
+     * 95th percentile duration, ms.
+     * @nullable
+     */
+    p95_ms: number | null
+    /**
+     * p95 change from the baseline, percent.
+     * @nullable
+     */
+    p95_change_pct: number | null
+    /**
+     * 99th percentile duration, ms.
+     * @nullable
+     */
+    p99_ms: number | null
+    /**
+     * Baseline requests. Null without one.
+     * @nullable
+     */
+    baseline_requests: number | null
+    /**
+     * Last span, ISO 8601 UTC.
+     * @nullable
+     */
+    last_seen: string | null
+}
+
+/**
+ * The prefilled query argument.
+ */
+export type _ServiceHealthNextCallApiQuery = { [key: string]: unknown }
+
+export interface _ServiceHealthNextCallApi {
+    /** The tool to call next. */
+    tool: string
+    /** What the call answers. */
+    why: string
+    /** The prefilled query argument. */
+    query: _ServiceHealthNextCallApiQuery
+}
+
+export interface ServiceHealthResponseApi {
+    /** The absolute UTC windows the server used. */
+    window: _ServiceHealthWindowApi
+    /** Counts over all scored services. */
+    summary: _ServiceHealthSummaryApi
+    /** One row per service, in orderBy order. */
+    services: _ServiceHealthRowApi[]
+    /** Prefilled follow-up calls. */
+    next: _ServiceHealthNextCallApi[]
+    /** True when more services matched than limit. */
+    truncated: boolean
+    /** Caveats about this result. */
+    notes: string[]
+}
+
 export interface _TracingSparklineQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
@@ -428,6 +1029,20 @@ export interface _TracingSparklineQueryBodyApi {
 export interface _TracingSparklineRequestApi {
     /** The sparkline query to execute. */
     query: _TracingSparklineQueryBodyApi
+}
+
+export interface _TracingSparklineRowApi {
+    /** Start of the time bucket. */
+    time: string
+    /** Service the count belongs to. */
+    service: string
+    /** Spans in this bucket for this service. */
+    count: number
+}
+
+export interface _TracingSparklineResponseApi {
+    /** One row per time bucket and service, ordered by time. */
+    results: _TracingSparklineRowApi[]
 }
 
 export interface _SymbolStatsSymbolApi {
@@ -554,15 +1169,165 @@ export interface _SymbolStatsResponseApi {
 }
 
 export interface _TracingTraceRequestApi {
-    /** Date range for the query. Defaults to last 24 hours. */
+    /** Date range for the query. Omit it to search all retained spans for this trace. */
     dateRange?: _TracingDateRangeApi
-    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
     /**
      * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
      * @minimum 0
      */
     offset?: number
+}
+
+/**
+ * Event attributes. Keys are whatever the instrumentation set.
+ */
+export type _SpanEventApiAttributes = { [key: string]: string }
+
+export interface _SpanEventApi {
+    /** Event name, for example `exception`. */
+    name: string
+    /**
+     * When the event occurred. Null when the SDK did not set a time.
+     * @nullable
+     */
+    timestamp: string | null
+    /** Event attributes. Keys are whatever the instrumentation set. */
+    attributes: _SpanEventApiAttributes
+}
+
+/**
+ * Span attributes. Keys are whatever the instrumentation set.
+ */
+export type _TraceSpanApiAttributes = { [key: string]: string }
+
+/**
+ * Resource attributes of the emitting service. Keys are whatever the instrumentation set.
+ */
+export type _TraceSpanApiResourceAttributes = { [key: string]: string }
+
+/**
+ * A span in a single trace. The trace action adds self time and span events, which the list does not return.
+ */
+export interface _TraceSpanApi {
+    /** Span's own UUID. */
+    uuid: string
+    /** Trace this span belongs to. */
+    trace_id: string
+    /** Span's ID within the trace. */
+    span_id: string
+    /** Parent span's ID. Empty for a root span. */
+    parent_span_id: string
+    /** Span name, which is the operation it represents. */
+    name: string
+    /** OpenTelemetry span kind. */
+    kind: number
+    /** Service that emitted the span. */
+    service_name: string
+    /** OpenTelemetry status code: 0 unset, 1 ok, 2 error. */
+    status_code: number
+    /** When the span started. */
+    timestamp: string
+    /** When the span ended. */
+    end_time: string
+    /** Span duration in nanoseconds. */
+    duration_nano: number
+    /** Whether the span has no parent in the trace. */
+    is_root_span: boolean
+    /** 1 when this span matched the request's filters, 0 when it is included as context. The query selects it as an expression, so it arrives as a number rather than a boolean. */
+    matched_filter: number
+    /** Start of the whole trace, for ordering traces by recency. */
+    trace_start: string
+    /** Duration of the whole trace in nanoseconds. Falls back to this span's duration. */
+    trace_duration: number
+    /** Span attributes. Keys are whatever the instrumentation set. */
+    attributes: _TraceSpanApiAttributes
+    /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
+    resource_attributes: _TraceSpanApiResourceAttributes
+    /** Span duration minus the time spent in its children, in nanoseconds. */
+    self_time_nano: number
+    /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
+    events?: _SpanEventApi[]
+}
+
+export interface _TracingTraceResponseApi {
+    /** Spans in the trace, earliest first. */
+    results: _TraceSpanApi[]
+    /** Whether a further page of spans exists. */
+    hasMore: boolean
+    /**
+     * Offset for the next page, or null on the last page.
+     * @nullable
+     */
+    nextOffset: number | null
+}
+
+export interface _TracingTraceAiEventApi {
+    /** Event UUID. */
+    uuid: string
+    /** The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`. */
+    event: string
+    /** When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish. */
+    started_at: string
+    /** The `$ai_trace_id` of the event, which opens it in LLM analytics. */
+    ai_trace_id: string
+    /**
+     * The `$ai_span_id` of the event.
+     * @nullable
+     */
+    ai_span_id: string | null
+    /**
+     * The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.
+     * @nullable
+     */
+    ai_parent_id: string | null
+    /**
+     * The `$ai_span_name`, set on `$ai_span` events.
+     * @nullable
+     */
+    span_name: string | null
+    /**
+     * How long the call took, in seconds.
+     * @nullable
+     */
+    latency_seconds: number | null
+    /**
+     * The model the call used.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * The provider the call went to.
+     * @nullable
+     */
+    provider: string | null
+    /**
+     * Prompt tokens.
+     * @nullable
+     */
+    input_tokens: number | null
+    /**
+     * Completion tokens.
+     * @nullable
+     */
+    output_tokens: number | null
+    /**
+     * Total cost of the call, in USD.
+     * @nullable
+     */
+    total_cost_usd: number | null
+    /** Whether the call failed. */
+    is_error: boolean
+}
+
+export interface _TracingTraceAiEventsResponseApi {
+    /** AI events in the trace, earliest start first, up to `limit` of them. */
+    results: _TracingTraceAiEventApi[]
+    /** The most AI events the lookup returns for one trace. */
+    limit: number
+    /** Whether the trace has more AI events than `results` holds. The full list is in AI observability under the events' `ai_trace_id`. */
+    has_more: boolean
 }
 
 export interface _TracingTreeQueryBodyApi {
@@ -583,6 +1348,53 @@ export interface _TracingTreeQueryBodyApi {
 export interface _TracingTreeRequestApi {
     /** The span call-tree aggregation query to execute. */
     query: _TracingTreeQueryBodyApi
+}
+
+/**
+ * One node of the aggregated call tree. Mirrors `SpanTreeNode` in posthog.schema.
+ */
+export interface _SpanTreeNodeApi {
+    /** Span name for this node. */
+    name: string
+    /** Service that emitted the spans. */
+    service_name: string
+    /** Parent node's span name. The literal `<ROOT>` for a root node, which is how a client finds the roots. */
+    parent_name: string
+    /** Parent node's service. Empty string at the root. */
+    parent_service: string
+    /** Spans aggregated into this node. */
+    count: number
+    /** How many of them reported an error status. */
+    error_count: number
+    /** Sum of durations in nanoseconds. */
+    total_duration_nano: number
+    /** Mean duration in nanoseconds. */
+    avg_duration_nano: number
+    /** Median duration in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th percentile duration in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th percentile duration in nanoseconds. */
+    p99_duration_nano: number
+    /** 99.9th percentile duration in nanoseconds. */
+    p999_duration_nano: number
+    /** Mean nanoseconds from the parent's start to this node's start. Zero at the root. */
+    avg_start_offset_nano: number
+    /**
+     * Mean calls per parent invocation. Null at the root.
+     * @nullable
+     */
+    calls_per_parent_invocation: number | null
+}
+
+export interface _TracingTreeResponseApi {
+    /** Call tree nodes for the requested window. */
+    results: _SpanTreeNodeApi[]
+    /**
+     * Nodes for the comparison window when compareFilter.compare is true. Null when no comparison was requested, and an empty list when one was requested and matched no spans.
+     * @nullable
+     */
+    compare: _SpanTreeNodeApi[] | null
 }
 
 /**
@@ -699,6 +1511,28 @@ export interface PatchedTracingViewApi {
     readonly updated_at?: string | null
 }
 
+export type TracingRetentionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TracingRetentionRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type TracingSpansAttributesRetrieveParams = {
     /**
      * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
@@ -708,6 +1542,21 @@ export type TracingSpansAttributesRetrieveParams = {
      * @minLength 1
      */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType
+    /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string
     /**
      * Max results (default: 100).
      * @minimum 1
@@ -721,7 +1570,6 @@ export type TracingSpansAttributesRetrieveParams = {
     offset?: number
     /**
      * Search filter for attribute names.
-     * @minLength 1
      */
     search?: string
     /**
@@ -740,10 +1588,20 @@ export const TracingSpansAttributesRetrieveAttributeType = {
 
 export type TracingSpansServiceNamesRetrieveParams = {
     /**
-     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
      * @minLength 1
      */
     dateRange?: string
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string
     /**
      * Search filter for service names.
      * @minLength 1
@@ -762,6 +1620,21 @@ export type TracingSpansValuesRetrieveParams = {
      */
     attribute_type?: TracingSpansValuesRetrieveAttributeType
     /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string
+    /**
      * The attribute key to get values for.
      * @minLength 1
      */
@@ -779,7 +1652,6 @@ export type TracingSpansValuesRetrieveParams = {
     offset?: number
     /**
      * Search filter for attribute values.
-     * @minLength 1
      */
     value?: string
 }

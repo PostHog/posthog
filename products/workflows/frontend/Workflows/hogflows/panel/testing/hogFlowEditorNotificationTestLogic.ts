@@ -8,17 +8,18 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
+import { hogql } from 'lib/utils/hogql'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, PropertyFilterType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogflowTestResult } from '../../steps/types'
+import { createExampleEvent } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
-import { createExampleEvent, createGlobalsFromResponse } from './hogFlowEditorTestLogic'
+import { createGlobalsFromResponse } from './hogFlowEditorTestLogic'
 import type { HogflowTestInvocation } from './hogFlowEditorTestLogic'
 
 // Time range constants for event search
@@ -388,10 +389,11 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                     }
 
                     actions.setTestResult(result)
-                    const nextActionId = result.nextActionId
-                    if (nextActionId && nextActionId !== values.selectedNodeId) {
-                        actions.setNextActionId(nextActionId)
-                    }
+                    actions.setNextActionId(
+                        result.nextActionId && result.nextActionId !== values.selectedNodeId
+                            ? result.nextActionId
+                            : null
+                    )
 
                     return values.testInvocation
                 } catch (error: any) {

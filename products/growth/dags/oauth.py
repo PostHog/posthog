@@ -9,7 +9,7 @@ from django.utils import timezone
 import dagster
 
 from posthog.dags.common import JobOwners
-from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthDeviceGrant, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 
 def batch_delete_model(queryset: QuerySet, query: Q, context: dagster.OpExecutionContext, token_type: str) -> int:
@@ -58,7 +58,7 @@ def clear_expired_tokens_by_type(
 def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
     """
     Clear expired OAuth tokens from the database.
-    This function deletes expired refresh tokens, access tokens, ID tokens, and grants
+    This function deletes expired refresh tokens, access tokens, ID tokens, grants and device grants
     """
     now = timezone.now()
     retention_cutoff = now - timedelta(seconds=settings.OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD)
@@ -76,6 +76,14 @@ def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
             {
                 "revoked": Q(revoked__lt=retention_cutoff),
                 "expired_via_access_token": Q(access_token__expires__lt=refresh_token_expiry_cutoff),
+                # Revoking an access token deletes the row, and this side of the OneToOne is
+                # SET_NULL, so a refresh token can lose the join the query above reaches it by
+                # while staying valid: validate_refresh_token never compares against created.
+                "expired_orphaned": Q(
+                    access_token__isnull=True,
+                    revoked__isnull=True,
+                    created__lt=refresh_token_expiry_cutoff,
+                ),
             },
         ),
         (
@@ -92,6 +100,12 @@ def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
         ),
         (
             OAuthGrant,
+            {
+                "expired": Q(expires__lt=retention_cutoff),
+            },
+        ),
+        (
+            OAuthDeviceGrant,
             {
                 "expired": Q(expires__lt=retention_cutoff),
             },
@@ -120,7 +134,7 @@ def oauth_clear_expired_oauth_tokens_job():
 
 oauth_clear_expired_oauth_tokens_schedule = dagster.ScheduleDefinition(
     job=oauth_clear_expired_oauth_tokens_job,
-    cron_schedule="0 2 * * *",
+    cron_schedule="19 2 * * *",
     execution_timezone="UTC",
     name="oauth_cleanup_daily_schedule",
 )

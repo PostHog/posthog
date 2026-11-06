@@ -7,11 +7,14 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { FeatureFlagKey, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { billingProductDisplayName } from 'lib/logic/billing/billingProductDisplayName'
+import { isUsageAtOrOverLimit } from 'lib/logic/billing/usageLimits'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -26,13 +29,13 @@ import {
     getProductUnitLabel,
     isProductVariantPrimary,
 } from './billing-utils'
+import { BillingCompanionSection } from './BillingCompanionSection'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
-import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
+import { DesktopUsageBreakdown } from './DesktopUsageBreakdown'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlatformAddonComparison } from './PlatformAddonComparison'
 import { ProductPricingModal } from './ProductPricingModal'
@@ -58,7 +61,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, isUnlicensedDebug, selfServeBillingDisabledReason } = useValues(billingLogic)
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -88,11 +91,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
-    const productDisplayNameOverrides: Record<string, string> = {
-        realtime_destinations: 'Data pipelines',
-        workflows_emails: 'Workflows',
-    }
-    const displayProductName = productDisplayNameOverrides[product.type] || product.name
+    const displayProductName = billingProductDisplayName(product)
     const isPlatformProduct = product.type === 'platform_and_support'
     const addonSectionLabel = isPlatformProduct ? 'Packages' : 'Add-ons'
 
@@ -148,15 +147,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     {displayProductName}{' '}
                                     {isTemporaryFreeProduct && (
                                         <LemonTag type="highlight">included with your plan</LemonTag>
-                                    )}
-                                    {product.type === 'realtime_destinations' && (
-                                        <Tooltip
-                                            title={`Data pipelines have moved to new usage-based pricing on ${REALTIME_DESTINATIONS_BILLING_START_DATE}.`}
-                                        >
-                                            <LemonTag type="success" icon={<IconInfo />}>
-                                                Migrated
-                                            </LemonTag>
-                                        </Tooltip>
                                     )}
                                 </h3>
                                 <div>{product.description}</div>
@@ -224,10 +214,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 </div>
                 <div className="px-8 pb-8 sm:pb-0">
-                    {/* Exceeded limit notice */}
-                    {product.percentage_usage > 1 && (
+                    {/* Reached limit notice */}
+                    {isUsageAtOrOverLimit(product.percentage_usage) && (
                         <LemonBanner className="mt-6" type="error">
-                            You have exceeded the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
+                            You have reached the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
                     )}
@@ -530,6 +520,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
 
+                    {product.type === 'posthog_code_usage' &&
+                        featureFlags[FEATURE_FLAGS.POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING] && (
+                            <DesktopUsageBreakdown summary={billing?.usage_summary} />
+                        )}
+
                     {product.price_description ? (
                         <LemonBanner type="info">
                             <span>{product.price_description}</span>
@@ -544,7 +539,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pb-8">
                             {/* Add-ons title */}
                             <h4 className="my-4">{addonSectionLabel}</h4>
-                            {billing?.subscription_level == 'free' && (
+                            {billing?.subscription_level == 'free' && !selfServeBillingDisabledReason && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
                                     <div className="flex justify-between items-center">
                                         <div>
@@ -583,6 +578,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <BillingLimit product={product} />
                     </div>
                 )}
+
+                <BillingCompanionSection
+                    product={product}
+                    cardShowsBillingLimit={!isTemporaryFreeProduct}
+                    // Same branches as the header: the variants' combined amounts or the usage-priced (tiered) layout.
+                    cardShowsProjection={isProductWithVariants || (!isTemporaryFreeProduct && product.tiered)}
+                />
 
                 {/* Feature flag usage notice */}
                 <FeatureFlagUsageNotice product={product} />

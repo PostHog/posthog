@@ -24,6 +24,7 @@ regression debugging, and materializing results as insights, dashboards, or aler
 
 | Tool                            | Purpose                                                             |
 | ------------------------------- | ------------------------------------------------------------------- |
+| `posthog:query-trends`          | Native cost trends with supported sums, breakdowns, and comparisons |
 | `posthog:execute-sql`           | Ad-hoc HogQL for any cost aggregation — the workhorse of this skill |
 | `posthog:query-llm-traces-list` | List traces with rolled-up cost, token, and error metrics           |
 | `posthog:query-llm-trace`       | Cost breakdown of a single trace across all its events              |
@@ -31,6 +32,7 @@ regression debugging, and materializing results as insights, dashboards, or aler
 | `posthog:insight-create`        | Materialize a cost chart as a saved insight                         |
 | `posthog:dashboard-create`      | Bundle cost insights into a dashboard                               |
 | `posthog:alert-create`          | Alert when cost crosses a threshold                                 |
+| `posthog:generate-app-url`      | Build region- and project-qualified links back to the UI            |
 
 ## Core rules
 
@@ -116,11 +118,25 @@ and `posthog:alert-create`.
 
 ## Constructing UI links
 
-- **Dashboard**: `https://app.posthog.com/ai-observability/dashboard`
-- **Traces list** (sort by cost): `https://app.posthog.com/ai-observability/traces`
-- **Generations list**: `https://app.posthog.com/ai-observability/generations`
-- **Users list** (per-user cost): `https://app.posthog.com/ai-observability/users`
-- **Single trace**: `https://app.posthog.com/ai-observability/traces/<trace_id>?timestamp=<url_encoded_iso>`
+Never hand-write `https://app.posthog.com/...` links. That host drops the region and the
+project prefix, so the user is redirected to login instead of the page you meant.
+
+- **Prefer the canonical URL the tool returns.** `query-llm-traces-list` and `query-llm-trace`
+  return `_posthogUrl` — surface that value. For a single trace, append
+  `?timestamp=<url_encoded_iso>` (the trace's earliest event time) to that URL; the returned link
+  carries no timestamp, and without one the trace page scans from a fixed early date instead of
+  the ten-minute window around the trace.
+- **Otherwise build the link with `generate-app-url`.** It resolves the correct region host and
+  `/project/<id>/` prefix (e.g. `https://us.posthog.com/project/2/ai-observability/traces`). Pass
+  concrete ids via `params`, never inline them into the path.
+  - **Dashboard**: `generate-app-url {url: "/ai-observability/dashboard"}`
+  - **Traces list** (sort by cost): `generate-app-url {url: "/ai-observability/traces"}`
+  - **Generations list**: `generate-app-url {url: "/ai-observability/generations"}`
+  - **Users list** (per-user cost): `generate-app-url {url: "/ai-observability/users"}`
+  - **Single trace**: `generate-app-url {url: "/ai-observability/traces/{id}", params: {id: "<trace_id>"}}`
+
+`generate-app-url` cannot express query params, so append the `?timestamp=<url_encoded_iso>`
+described above to a single-trace link yourself.
 
 Always surface a UI link so the user can verify visually.
 
@@ -132,8 +148,9 @@ versions for the same provider. To avoid rot:
 
 - Branch on event-level flags (`$ai_cache_reporting_exclusive`,
   `$ai_cost_model_source`) rather than hardcoded provider or model names.
-  Those flags are ingestion's resolved answer for the specific event and
-  are the right source of truth.
+  When set, those flags are ingestion's resolved answer for the specific
+  event. `$ai_cache_reporting_exclusive` is often missing; see
+  [cache accounting](./references/cache-accounting.md) for the fallback.
 - `$ai_total_cost_usd` is always authoritative for rollups — prefer it
   over summing components, which can drift as new cost categories are
   added.
@@ -147,14 +164,14 @@ versions for the same provider. To avoid rot:
 ## Tips
 
 - Always set a time range — cost queries without one scan the full events table
-- Token, cost, model, and `$ai_trace_id` properties are on `events` — but message _content_ (`$ai_input` / `$ai_output_choices`) lives only on the `posthog.ai_events` table; see the traces skill's [event reference](../exploring-llm-traces/references/events-and-properties.md) if you need content alongside cost
+- Token, cost, model, and `$ai_trace_id` properties are on `events` — but message _content_ (`$ai_input` / `$ai_output_choices`) lives only on the `posthog.ai_events` table; load the `exploring-llm-traces` skill if you need content alongside cost
 - Always include `$ai_embedding` alongside `$ai_generation` when summing cost; embeddings are cheap per-call but add up at scale
 - Costs are written at ingestion (see [Calculating LLM costs](https://posthog.com/docs/ai-observability/calculating-costs)) — if `$ai_total_cost_usd` is missing or zero, read `$ai_cost_model_source` first: `passthrough` means the SDK supplied costs; `custom` means custom token prices; `openrouter` / `manual` mean automatic lookup; missing means the model wasn't matched (unusual custom model, fine-tune). Grep: `countIf(properties.$ai_total_cost_usd IS NULL)` per `(model, source)`
 - Custom pricing uses **per-token** prices, not per-million — if a custom-priced model looks ~1M× too expensive or too cheap, that's almost always the bug
 - Exclude errored calls from cost totals only when explicitly asked — providers still charge for many error modes, and including them gives the truthful bill
 - For per-user totals, exclude rows where `distinct_id = properties.$ai_trace_id` — some SDKs default distinct_id to the trace ID when no user is set
 - Cost is additive across `$ai_generation` + `$ai_embedding` events within a trace; summing on `$ai_span` gives zero. `$ai_trace` may carry `$ai_total_cost_usd` from some SDK wrappers — don't include it in rollups or you'll double-count. `$ai_evaluation` events also carry cost but are not part of the stock UI rollups; include them only when the user explicitly wants evaluation spend in the total
-- Cache-hit rate depends on `$ai_cache_reporting_exclusive` — branch on the event-level flag rather than on provider or model name. Provider behavior and SDK versions drift; the flag is ingestion's resolved answer for that specific event
+- Cache-hit rate depends on `$ai_cache_reporting_exclusive` — resolve it per event, never per group. Most events with a precomputed cost carry no flag, so never default a missing flag to inclusive; use the fallback in [cache accounting](./references/cache-accounting.md)
 - When answering "why is X expensive?", show the cost **and** the token split — the user almost always wants to know whether to shrink prompts, shrink outputs, or switch models
 - Before building a custom dashboard, check whether the stock `/ai-observability/dashboard` tiles already answer the question — re-creating them is churn
 - For large tenants, materialize common cost queries as insights and reuse via `insight-query`; ad-hoc SQL is fine for one-offs but re-running it on every dashboard load is expensive

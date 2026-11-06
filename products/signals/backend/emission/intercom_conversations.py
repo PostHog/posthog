@@ -6,7 +6,7 @@ emitter (like Jira's):
   (`source.body`, HTML). `title` is often null, so we fall back to the stripped source body.
   The rest of the thread is in `conversation_parts` (a separate table we don't sync).
 - `created_at` is a Unix epoch (seconds), so the partition cursor wraps it in
-  `fromUnixTimestamp(...)`. Verify the stored type on the first real sync.
+  `fromUnixTimestamp(toInt(...))`. Verify the stored type on the first real sync.
 """
 
 import re
@@ -92,7 +92,7 @@ INTERCOM_CONFIG = SignalSourceTableConfig(
     record_fetcher=data_warehouse_record_fetcher,
     # created_at is a Unix epoch (seconds). Wrap so the cursor compares as a datetime; verify the
     # stored column type on the first real sync (it may already be a DateTime).
-    partition_field="fromUnixTimestamp(toUInt32(created_at))",
+    partition_field="fromUnixTimestamp(toInt(created_at))",
     fields=FIELDS,
     where_clause=f"state NOT IN ({', '.join(repr(s) for s in INTERCOM_IGNORED_STATES)})",
     max_records=200,

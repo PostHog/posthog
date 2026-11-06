@@ -10,11 +10,13 @@ import { AccessControlLevel, AvailableFeature } from '~/types'
 
 import { accessControlsLogic } from './accessControlsLogic'
 import { getLevelOptionsForResource } from './helpers'
+import { ObjectAccessRules } from './ObjectAccessRules'
+import { PropertyAccessRules } from './PropertyAccessRules'
 import { ScopeIcon } from './ScopeIcon'
 
 export function AccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
-    const { defaults, resourceKeys, loading } = useValues(logic)
+    const { defaults, resourceKeys, loading, accessDetailPanelEnabled, terraformDisabledReason } = useValues(logic)
     const { updateAccessControlDefault, updateResourceAccessControls } = useActions(logic)
 
     const {
@@ -24,7 +26,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
     } = defaults ?? {}
 
     return (
-        <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>
+        <PayGateMini feature={AvailableFeature.ACCESS_CONTROL} featureDetail="resource-access-control-default-settings">
             <div className="space-y-4">
                 <div className="p-3 bg-surface-primary rounded border border-border flex flex-row justify-between items-center">
                     <div>
@@ -42,7 +44,13 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                         <LemonSelect
                             dropdownPlacement="bottom-start"
                             value={defaults?.project_access_level ?? null}
-                            disabledReason={loading ? 'Loading...' : !canEdit ? 'Cannot edit' : undefined}
+                            disabledReason={
+                                loading
+                                    ? 'Loading...'
+                                    : !canEdit
+                                      ? (terraformDisabledReason ?? 'Cannot edit')
+                                      : undefined
+                            }
                             size="small"
                             className="w-36"
                             onChange={(newValue) => {
@@ -58,9 +66,9 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                     loading={loading}
                     columns={[
                         {
-                            title: 'Tool',
+                            title: 'Product',
                             key: 'label',
-                            render: function RenderTool(_, resource) {
+                            render: function RenderProduct(_, resource) {
                                 const tooltipText = getAccessControlTooltip(resource.key)
                                 return (
                                     <div className="font-medium flex items-center gap-2">
@@ -132,7 +140,11 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                                                 icon={<IconPlus />}
                                                 sideIcon={null}
                                                 disabledReason={
-                                                    loading ? 'Loading...' : !canEdit ? 'Cannot edit' : undefined
+                                                    loading
+                                                        ? 'Loading...'
+                                                        : !canEdit
+                                                          ? (terraformDisabledReason ?? 'Cannot edit')
+                                                          : undefined
                                                 }
                                                 className="ml-auto my-0.5 w-36"
                                             >
@@ -147,7 +159,13 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                                         dropdownPlacement="bottom-end"
                                         placeholder="No override"
                                         value={value}
-                                        disabledReason={loading ? 'Loading...' : !canEdit ? 'Cannot edit' : undefined}
+                                        disabledReason={
+                                            loading
+                                                ? 'Loading...'
+                                                : !canEdit
+                                                  ? (terraformDisabledReason ?? 'Cannot edit')
+                                                  : undefined
+                                        }
                                         size="small"
                                         className="ml-auto w-36 my-0.5"
                                         onChange={(newValue) => {
@@ -170,6 +188,27 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                         },
                     ]}
                 />
+
+                {accessDetailPanelEnabled && (
+                    <>
+                        <ObjectAccessRules
+                            projectId={projectId}
+                            scopeType="default"
+                            subjectId="default"
+                            subjectNoun="project"
+                            canEdit={canEdit}
+                            cannotEditReason={terraformDisabledReason}
+                        />
+
+                        <PropertyAccessRules
+                            projectId={projectId}
+                            scopeType="default"
+                            subjectId="default"
+                            subjectNoun="project"
+                            canEdit={canEdit}
+                        />
+                    </>
+                )}
             </div>
         </PayGateMini>
     )

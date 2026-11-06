@@ -1,5 +1,4 @@
 import typing
-import datetime as dt
 
 from django.conf import settings
 
@@ -17,7 +16,12 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 # Generic temporal metric helpers live in common so other subsystems (e.g. session-replay
 # delete-recordings) can import them without pulling this package's eager worker registration.
-from posthog.temporal.common.metrics import Attributes, ExecutionTimeRecorder, get_metric_meter
+from posthog.temporal.common.metrics import (
+    Attributes,
+    ExecutionTimeRecorder,
+    get_metric_meter,
+    record_schedule_to_start_latency,
+)
 
 __all__ = ["Attributes", "ExecutionTimeRecorder", "get_metric_meter"]
 
@@ -25,13 +29,13 @@ LOGGER = get_write_only_logger(__name__)
 
 EVAL_ACTIVITY_TYPES = {
     "fetch_evaluation_activity",
+    "run_local_evaluation_activity",
     "execute_llm_judge_activity",
     "execute_hog_eval_activity",
     "execute_sentiment_eval_activity",
     "emit_evaluation_event_activity",
     "emit_internal_telemetry_activity",
     "update_key_state_activity",
-    "emit_eval_signal_activity",
     # check_trace_settled_activity is deliberately excluded: its expected trace_not_settled
     # failures would otherwise count as activity errors.
 }
@@ -134,13 +138,6 @@ def increment_settle_poll(outcome: str, target: str = "trace") -> None:
     counter.add(1)
 
 
-def increment_eval_signal_outcome(outcome: str) -> None:
-    """Track eval signal activity outcomes (skipped_config_disabled, skipped_org_not_approved, skipped_low_significance, emitted, summarization_failed)."""
-    meter = get_metric_meter({"outcome": outcome})
-    counter = meter.create_counter("llma_eval_signal_outcome", "Eval signal activity outcome distribution")
-    counter.add(1)
-
-
 def increment_tokens(token_type: str, count: int) -> None:
     """Track token usage (input/output/total)."""
     meter = get_metric_meter({"token_type": token_type})
@@ -151,10 +148,10 @@ def increment_tokens(token_type: str, count: int) -> None:
 def increment_emit_event_outcome(outcome: str) -> None:
     """Track $ai_evaluation event emission outcomes (success/failed/dropped_billing_limited).
 
-    Distinguishes Activity 4 failures from other workflow failures so we can
-    measure and alert on dropped eval events specifically. `dropped_billing_limited`
-    is an expected billing condition, not a system failure, so it's kept out of
-    the `failed` bucket the error-rate alert watches.
+    Distinguishes emit failures from other workflow failures so we can measure dropped
+    eval events specifically, and the LLMAEvalsHighErrorRate alert divides llma_eval_errors
+    by this counter's total. `dropped_billing_limited` is an expected billing condition,
+    not a system failure, so it's kept out of the `failed` bucket.
     """
     if not activity.in_activity() and not workflow.in_workflow():
         return
@@ -166,15 +163,20 @@ def increment_emit_event_outcome(outcome: str) -> None:
     counter.add(1)
 
 
-def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> None:
-    """Record queue depth indicator for alerting."""
-    meter = get_metric_meter({"activity_type": activity_type})
-    hist = meter.create_histogram_timedelta(
-        name="llma_eval_activity_schedule_to_start_latency",
-        description="Time between activity scheduling and start (queue depth indicator)",
-        unit="ms",
+def increment_backfill_remainder_outcome(outcome: str) -> None:
+    """Track whether a backfill learned what its window still owed (success/failed).
+
+    The walk is done either way, so a failure here is swallowed rather than retried, and the row
+    keeps a null count. Without this counter the only trace is one workflow log line.
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"outcome": outcome})
+    counter = meter.create_counter(
+        "llma_eval_backfill_remainder_outcome",
+        "Outcome of the backfill remainder measurement (success/failed)",
     )
-    hist.record(dt.timedelta(milliseconds=latency_ms))
+    counter.add(1)
 
 
 class EvalsMetricsInterceptor(Interceptor):
@@ -200,11 +202,13 @@ class _EvalsMetricsActivityInboundInterceptor(ActivityInboundInterceptor):
             return await super().execute_activity(input)
 
         # Record schedule-to-start latency (queue depth indicator)
-        scheduled_time = activity_info.scheduled_time
-        started_time = activity_info.started_time
-        if scheduled_time and started_time:
-            schedule_to_start_ms = int((started_time - scheduled_time).total_seconds() * 1000)
-            record_schedule_to_start_latency(activity_type, schedule_to_start_ms)
+        record_schedule_to_start_latency(
+            "llma_eval_activity_schedule_to_start_latency",
+            scheduled_time=activity_info.scheduled_time,
+            started_time=activity_info.started_time,
+            description="Time between activity scheduling and start (queue depth indicator)",
+            attributes={"activity_type": activity_type},
+        )
 
         histogram_attributes: Attributes = {"activity_type": activity_type}
 

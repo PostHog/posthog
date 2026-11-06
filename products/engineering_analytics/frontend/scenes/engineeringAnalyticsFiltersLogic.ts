@@ -1,5 +1,8 @@
-import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { EngineeringAnalyticsWorkflowHealthRunScope } from '../generated/api.schemas'
 
@@ -7,41 +10,110 @@ import { EngineeringAnalyticsWorkflowHealthRunScope } from '../generated/api.sch
 // to the others. 7 days: long enough to read a week of spend, short enough that health reads as recent.
 export const SHARED_DEFAULT_DATE_FROM = '-7d'
 
-// The "non-default branch" lens: PR-attributed runs with the default branch (master/main) excluded.
-const PR_SCOPE = EngineeringAnalyticsWorkflowHealthRunScope.PullRequest
+/** Derived from the generated enum, so a backend rename breaks the typecheck here instead of sending a
+ *  value the API rejects. */
+export type RunScope = EngineeringAnalyticsWorkflowHealthRunScope
 
-// The workflow-health request params the active branch scope resolves to. `run_scope` is workflow_health's
-// alone; every other surface reads `appliedBranch` (which the PR lens leaves empty, so they fall back to
-// all branches). Owning the scope→params mapping here means no consumer re-derives which param to send.
-export interface BranchHealthParams {
-    branch?: string
-    run_scope?: typeof PR_SCOPE
+/** The request params the active scope resolves to. `all` sends nothing, because the backend already
+ *  reports every run when the param is absent. */
+export interface RunScopeParams {
+    run_scope?: RunScope
+}
+
+/** The scope picker's options, in display order. */
+export const RUN_SCOPE_OPTIONS: { value: RunScope; label: string; tooltip: string }[] = [
+    {
+        value: EngineeringAnalyticsWorkflowHealthRunScope.All,
+        label: 'All runs',
+        tooltip:
+            'Every run in the window, including branches with no pull request attribution such as fork pull requests.',
+    },
+    {
+        value: EngineeringAnalyticsWorkflowHealthRunScope.DefaultBranch,
+        label: 'Default branch',
+        tooltip: 'Runs on master or main.',
+    },
+    {
+        value: EngineeringAnalyticsWorkflowHealthRunScope.PullRequest,
+        label: 'Pull requests',
+        tooltip: 'Runs on pull request branches of this repository. Merge queue runs have their own scope.',
+    },
+    {
+        value: EngineeringAnalyticsWorkflowHealthRunScope.MergeQueue,
+        label: 'Merge queue',
+        tooltip: 'Runs on merge queue gate branches, the checks that run right before a pull request lands.',
+    },
+]
+
+const RUN_SCOPE_VALUES: RunScope[] = RUN_SCOPE_OPTIONS.map((option) => option.value)
+
+/** Resolve the scope a URL asks for. An unknown `run_scope` falls back to all runs. A legacy `?q=` of
+ *  master or main maps to the default branch; any other branch is dropped. */
+function runScopeFromUrl(runScope: string | undefined, legacyBranch: string | undefined): RunScope {
+    if (runScope) {
+        return RUN_SCOPE_VALUES.includes(runScope as RunScope)
+            ? (runScope as RunScope)
+            : EngineeringAnalyticsWorkflowHealthRunScope.All
+    }
+    if (legacyBranch === 'master' || legacyBranch === 'main') {
+        return EngineeringAnalyticsWorkflowHealthRunScope.DefaultBranch
+    }
+    return EngineeringAnalyticsWorkflowHealthRunScope.All
+}
+
+// The backend rejects a window longer than 366 days. One day less absorbs the offset between the team's
+// time zone and the UTC dates parsed here.
+export const MAX_WINDOW_DAYS = 365
+
+// A plain past offset such as -90d or -2y. The cap leaves every other relative form alone: the backend reads
+// an unsigned or `+` offset as time ago where the browser reads time ahead, and it resolves a -1wStart style
+// boundary in the team's time zone.
+const PAST_OFFSET = /^-\d+[dwmqy]$/
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}/
+
+// Null for a value the cap should not reason about. That includes a calendar date Dayjs rolls over, such as
+// 2024-02-31, which the backend does not read as March 2.
+function parseUrlDate(date: string): Dayjs | null {
+    if (PAST_OFFSET.test(date)) {
+        return dateStringToDayJs(date)
+    }
+    if (!ISO_DATE.test(date)) {
+        return null
+    }
+    try {
+        const parsed = dayjs.utc(date)
+        return parsed.isValid() && parsed.format('YYYY-MM-DD') === date.slice(0, 10) ? parsed : null
+    } catch {
+        return null
+    }
+}
+
+/** The start of a URL's window, moved up to MAX_WINDOW_DAYS before its end when the URL asks for more, so
+ *  a shared link with a long range still loads instead of failing every panel. A rolling window (a past offset
+ *  with no end or a past-offset end) stays rolling. Anything with a fixed date gets a fixed start: a relative
+ *  start against a fixed end would drift past the end over time. */
+export function windowStartFromUrl(dateFrom: string, dateTo: string | null): string {
+    const from = parseUrlDate(dateFrom)
+    const to = dateTo ? parseUrlDate(dateTo) : dayjs.utc()
+    if (!from || !to || to.diff(from, 'day') <= MAX_WINDOW_DAYS) {
+        return dateFrom
+    }
+    const start = to.utc().subtract(MAX_WINDOW_DAYS, 'day').startOf('day')
+    const rolling = PAST_OFFSET.test(dateFrom) && (!dateTo || PAST_OFFSET.test(dateTo))
+    const daysAgo = dayjs.utc().startOf('day').diff(start, 'day')
+    return rolling && daysAgo > 0 ? `-${daysAgo}d` : start.format('YYYY-MM-DD')
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface engineeringAnalyticsFiltersLogicValues {
-    appliedBranch: string
-    branchHealthParams: BranchHealthParams
-    branchInput: string
     dateFrom: string | null
     dateTo: string | null
-    pullRequestScope: boolean
+    runScope: RunScope
+    runScopeParams: RunScopeParams
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface engineeringAnalyticsFiltersLogicActions {
-    applyBranchFilter: () => {
-        value: true
-    }
-    scopeToPullRequests: () => {
-        value: true
-    }
-    setAppliedBranch: (branch: string) => {
-        branch: string
-    }
-    setBranchFilter: (branch: string) => {
-        branch: string
-    }
     setDateRange: (
         dateFrom: string | null,
         dateTo: string | null
@@ -49,12 +121,15 @@ export interface engineeringAnalyticsFiltersLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setRunScope: (scope: RunScope) => {
+        scope: EngineeringAnalyticsWorkflowHealthRunScope
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface engineeringAnalyticsFiltersLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        branchHealthParams: (appliedBranch: string, pullRequestScope: boolean) => BranchHealthParams
+        runScopeParams: (runScope: EngineeringAnalyticsWorkflowHealthRunScope) => RunScopeParams
     }
 }
 
@@ -65,75 +140,30 @@ export type engineeringAnalyticsFiltersLogicType = MakeLogicType<
     engineeringAnalyticsFiltersLogicMeta
 >
 
-// The branch scope is shared like the window. An exact branch is a server-side head_branch filter; the PR
-// lens is a run_scope. The two are mutually exclusive — the reducers keep an invalid "branch + lens" state
-// from ever existing — so a page only ever sees one of them.
 export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsFiltersLogic']),
 
     actions({
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setBranchFilter: (branch: string) => ({ branch }),
-        applyBranchFilter: true,
-        setAppliedBranch: (branch: string) => ({ branch }),
-        // The "non-default branch" lens: PR-attributed runs, default branch (master/main) excluded.
-        scopeToPullRequests: true,
+        setRunScope: (scope: RunScope) => ({ scope }),
     }),
 
     reducers({
         dateFrom: [SHARED_DEFAULT_DATE_FROM as string | null, { setDateRange: (_, { dateFrom }) => dateFrom }],
         dateTo: [null as string | null, { setDateRange: (_, { dateTo }) => dateTo }],
-        // branchInput is the staged text in the box; appliedBranch is what exact-branch consumers send. ''
-        // means all branches; the PR lens clears both, since it's mutually exclusive with an exact branch.
-        branchInput: [
-            '',
-            {
-                setBranchFilter: (_, { branch }) => branch,
-                scopeToPullRequests: () => '',
-            },
-        ],
-        appliedBranch: [
-            '',
-            {
-                setAppliedBranch: (_, { branch }) => branch,
-                scopeToPullRequests: () => '',
-            },
-        ],
-        // Applying any exact branch — including clearing to all — turns the PR lens off.
-        pullRequestScope: [
-            false,
-            {
-                scopeToPullRequests: () => true,
-                setAppliedBranch: () => false,
-            },
+        runScope: [
+            EngineeringAnalyticsWorkflowHealthRunScope.All as RunScope,
+            { setRunScope: (_, { scope }) => scope },
         ],
     }),
 
     selectors({
-        branchHealthParams: [
-            (s) => [s.appliedBranch, s.pullRequestScope],
-            (appliedBranch: string, pullRequestScope: boolean): BranchHealthParams =>
-                pullRequestScope ? { run_scope: PR_SCOPE } : appliedBranch ? { branch: appliedBranch } : {},
+        runScopeParams: [
+            (s) => [s.runScope],
+            (runScope: RunScope): RunScopeParams =>
+                runScope === EngineeringAnalyticsWorkflowHealthRunScope.All ? {} : { run_scope: runScope },
         ],
     }),
-
-    listeners(({ actions, values }) => ({
-        setBranchFilter: ({ branch }) => {
-            // The input's clear (×) only fires onChange('') — apply on empty so it resets to all branches.
-            if (branch.trim() === '') {
-                actions.applyBranchFilter()
-            }
-        },
-        applyBranchFilter: () => {
-            const next = values.branchInput.trim()
-            // Skip promoting (and the reload it triggers) when nothing changes — unless the PR lens is on,
-            // which an exact branch must clear.
-            if (next === values.appliedBranch && !values.pullRequestScope) {
-                return
-            }
-            actions.setAppliedBranch(next)
-        },
-    })),
 
     actionToUrl(({ values }) => ({
         // Replace, not push — nudging a scope shouldn't stack back-history. Defaults are omitted.
@@ -152,23 +182,15 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
             }
             return [pathname, next, hashParams, { replace: true }]
         },
-        // Mirror the exact branch into `?q=` so a branch-scoped view is shareable; drop the mutually
-        // exclusive PR lens.
-        setAppliedBranch: () => {
+        // Mirror the scope into `?run_scope=` so a scoped view is shareable, and drop the legacy `?q=` param.
+        setRunScope: () => {
             const { pathname, searchParams, hashParams } = router.values.currentLocation
             const next = { ...searchParams }
-            if (values.appliedBranch) {
-                next.q = values.appliedBranch
+            if (values.runScope === EngineeringAnalyticsWorkflowHealthRunScope.All) {
+                delete next.run_scope
             } else {
-                delete next.q
+                next.run_scope = values.runScope
             }
-            delete next.run_scope
-            return [pathname, next, hashParams, { replace: true }]
-        },
-        scopeToPullRequests: () => {
-            const { pathname, searchParams, hashParams } = router.values.currentLocation
-            const next = { ...searchParams }
-            next.run_scope = PR_SCOPE
             delete next.q
             return [pathname, next, hashParams, { replace: true }]
         },
@@ -178,24 +200,15 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
         // Hydrate from the URL, dispatching only on real change (also breaks the actionToUrl loop).
         // '*' is safe: the logic is only mounted while a CI-analytics scene connects it.
         '*': (_, searchParams) => {
-            const dateFrom = searchParams.date_from ?? SHARED_DEFAULT_DATE_FROM
             const dateTo = searchParams.date_to ?? null
+            const dateFrom = windowStartFromUrl(searchParams.date_from ?? SHARED_DEFAULT_DATE_FROM, dateTo)
             if (dateFrom !== values.dateFrom || dateTo !== values.dateTo) {
                 actions.setDateRange(dateFrom, dateTo)
             }
-            if (searchParams.run_scope === PR_SCOPE) {
-                if (!values.pullRequestScope) {
-                    actions.scopeToPullRequests()
-                }
-                return
-            }
-            const branch = (searchParams.q ?? '').trim()
-            if (branch !== values.appliedBranch || values.pullRequestScope) {
-                actions.setBranchFilter(branch)
-                // An empty value already applies via setBranchFilter's listener; a real branch needs the apply.
-                if (branch !== '') {
-                    actions.setAppliedBranch(branch)
-                }
+            const runScope = runScopeFromUrl(searchParams.run_scope, searchParams.q)
+            // A leftover `?q=` dispatches even when the scope is unchanged, so actionToUrl strips it.
+            if (runScope !== values.runScope || searchParams.q !== undefined) {
+                actions.setRunScope(runScope)
             }
         },
     })),

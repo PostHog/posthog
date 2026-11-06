@@ -7,7 +7,7 @@ import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { COMPARE_ALL_TIME_DISABLED_REASON, CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
@@ -19,7 +19,6 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { baseModifier } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
-import { SuppressTaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMenuToggle'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -31,11 +30,11 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { Scene } from 'scenes/sceneTypes'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { AnyPropertyFilter, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { INITIAL_DATE_FROM, INITIAL_DATE_TO, ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
@@ -105,15 +104,11 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
-        return (
-            <SuppressTaxonomicMenuToggle>
-                <CondensedWebAnalyticsFilterBar tabs={tabs} />
-            </SuppressTaxonomicMenuToggle>
-        )
+        return <CondensedWebAnalyticsFilterBar tabs={tabs} />
     }
 
     return (
-        <SuppressTaxonomicMenuToggle>
+        <>
             <IncompatibleFiltersWarning />
 
             <div data-attr="web-analytics-filters">
@@ -155,7 +150,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     }
                 />
             </div>
-        </SuppressTaxonomicMenuToggle>
+        </>
     )
 }
 
@@ -441,7 +436,7 @@ export const WebAnalyticsLiveReferrerSelector = ({ suggestions = [] }: { suggest
     )
 }
 
-const WebAnalyticsDeviceToggle = (): JSX.Element => {
+export const WebAnalyticsDeviceToggle = ({ variant }: { variant?: 'select' } = {}): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -464,12 +459,17 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
         scope: Scene.WebAnalytics,
     })
 
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
+    if (
+        variant === 'select' ||
+        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] ||
+        featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
+    ) {
         return (
             <LemonSelect
                 size="small"
                 value={deviceTypeFilter ?? undefined}
                 allowClear={true}
+                placeholder="All devices"
                 onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
                 options={DEVICE_TYPE_SELECT_OPTIONS}
             />
@@ -526,14 +526,20 @@ const WebVitalsPercentileToggle = (): JSX.Element | null => {
 }
 
 export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
-    const { compareFilter, productTab } = useValues(webAnalyticsLogic)
+    const { compareFilter, dateFilter, productTab } = useValues(webAnalyticsLogic)
     const { setCompareFilter } = useActions(webAnalyticsLogic)
 
     if (![ProductTab.ANALYTICS, ProductTab.PAGE_REPORTS].includes(productTab)) {
         return null
     }
 
-    return <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+    return (
+        <CompareFilter
+            compareFilter={compareFilter}
+            updateCompareFilter={setCompareFilter}
+            disableReason={dateFilter.dateFrom === 'all' ? COMPARE_ALL_TIME_DISABLED_REASON : null}
+        />
+    )
 }
 
 const ShareButton = (): JSX.Element => {
@@ -566,7 +572,7 @@ const ShareButton = (): JSX.Element => {
 
 function FiltersPopover(): JSX.Element {
     const [displayFilters, setDisplayFilters] = useState(false)
-    const { rawWebAnalyticsFilters, conversionGoal, preAggregatedEnabled, productTab } = useValues(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, conversionGoal, restrictedUiEnabled, productTab } = useValues(webAnalyticsLogic)
 
     const { setWebAnalyticsFilters, setConversionGoal } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -583,11 +589,11 @@ function FiltersPopover(): JSX.Element {
 
     const showConversionGoal =
         productTab === ProductTab.ANALYTICS &&
-        (!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
+        (!restrictedUiEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
 
     const cohortFilterEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]
-    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false, cohortFilterEnabled)
-    const propertyAllowList = preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
+    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(restrictedUiEnabled ?? false, cohortFilterEnabled)
+    const propertyAllowList = restrictedUiEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
 
     const activeFilterCount = rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0)
 
@@ -718,10 +724,10 @@ const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
 }
 
 const IncompatibleFiltersWarning = (): JSX.Element | null => {
-    const { hasIncompatibleFilters, incompatibleFilters, preAggregatedEnabled } = useValues(webAnalyticsLogic)
+    const { hasIncompatibleFilters, incompatibleFilters, restrictedUiEnabled } = useValues(webAnalyticsLogic)
     const { removeIncompatibleFilters } = useActions(webAnalyticsLogic)
 
-    if (!preAggregatedEnabled || !hasIncompatibleFilters) {
+    if (!restrictedUiEnabled || !hasIncompatibleFilters) {
         return null
     }
 

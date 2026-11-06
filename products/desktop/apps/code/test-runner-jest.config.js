@@ -5,6 +5,7 @@ const baseConfig = getJestConfig();
 
 module.exports = {
   ...baseConfig,
+  roots: [path.resolve(__dirname, "../..")],
   forceExit: true,
   // test-runner-globals.js must come first: Storybook 10 loads test-runner.ts
   // outside Jest's module scope, so `jest` has to be reachable via globalThis

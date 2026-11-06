@@ -8,15 +8,6 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 
-/*
- * These mirror the legacy `infiniteListLogic` context-filter selectors
- * (`contextFilteredRecentItems` / `contextFilteredPinnedItems`). It's a
- * deliberate fork, not a shared util: the rebuild and the legacy kea picker
- * are independent code paths, and the legacy one is being retired with the
- * rest of `infiniteListLogic`. Until then, behaviour changes here that should
- * also apply to the legacy picker must be made in both places.
- */
-
 /** Recents whose source group is one of the picker's groups, with operators the
  *  host can't represent filtered out, and (when selecting a key only) deduped by
  *  storage key, so the picker stops surfacing recents that belong to a
@@ -37,16 +28,20 @@ export function filterRecentsForContext(
             return false
         }
         // A group's excluded values (e.g. `message` for the logs group-by picker) must be dropped
-        // from the Recent tab too, not just the group's own option list.
+        // from the Recent tab too, not just the group's own option list. Otherwise an excluded key
+        // recorded elsewhere leaks back in as a selectable recent.
         const excludedValues = excludedProperties?.[item._recentContext.sourceGroupType]
         if (excludedValues?.length && excludedValues.includes(item._recentContext.sourceValue)) {
             return false
         }
         const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
-        if (excludedForGroup?.length) {
+        if (excludedForGroup) {
             const propertyFilter = item._recentContext.propertyFilter
             const operator = propertyFilter && 'operator' in propertyFilter ? propertyFilter.operator : undefined
-            if (operator && excludedForGroup.includes(operator)) {
+            if (typeof excludedForGroup === 'function' && propertyFilter && excludedForGroup(propertyFilter)) {
+                return false
+            }
+            if (Array.isArray(excludedForGroup) && operator && excludedForGroup.includes(operator)) {
                 return false
             }
         }
@@ -55,16 +50,24 @@ export function filterRecentsForContext(
     return expandRecentsForDisplay(inScope, selectingKeyOnly)
 }
 
-/** Pinned items whose source group is one of the picker's groups. */
+/** Pinned items whose source group is one of the picker's groups, with the group's
+ *  excluded values dropped. */
 export function filterPinnedForContext(
     pinnedFilterItems: TaxonomicDefinitionTypes[],
-    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes: TaxonomicFilterGroupType[],
+    excludedProperties?: ExcludedProperties
 ): TaxonomicDefinitionTypes[] {
     if (!pinnedFilterItems?.length) {
         return []
     }
     const availableTypes = new Set(taxonomicGroupTypes)
-    return pinnedFilterItems.filter(
-        (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
-    )
+    return pinnedFilterItems.filter((item) => {
+        if (!hasPinnedContext(item) || !availableTypes.has(item._pinnedContext.sourceGroupType)) {
+            return false
+        }
+        // A pin outlives the picker it was made in, so a value pinned elsewhere reaches a picker
+        // that forbids it. Recents drop excluded values for the same reason.
+        const excludedValues = excludedProperties?.[item._pinnedContext.sourceGroupType]
+        return !(excludedValues?.length && excludedValues.includes(item._pinnedContext.value))
+    })
 }

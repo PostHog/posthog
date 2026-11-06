@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
 
-from django.db.models import Case, Count, IntegerField, Sum, Value, When
+from django.db.models import Count, IntegerField, Sum
 from django.db.models.functions import Coalesce
 
 import structlog
@@ -22,10 +22,7 @@ logger = structlog.get_logger(__name__)
 
 CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 
-# Google's list prices, tracked from GEMINI_PRICING_URL (standard tier, prompts <= 200k tokens).
-GEMINI_PRICING_URL = "https://ai.google.dev/gemini-api/docs/pricing"
-
-
+# Google's list prices, tracked from https://ai.google.dev/gemini-api/docs/pricing (standard tier, prompts <= 200k tokens).
 GeminiTier = Literal["flash lite", "flash", "pro"]
 
 
@@ -40,14 +37,19 @@ class GeminiModelPricing:
 
 # Per-model source of truth. Non-retired rows are the selectable lineup and must mirror `ScannerModel`.
 # The flash tier has two options: the cheaper `gemini-3-flash-preview` (the default) and the stable
-# `gemini-3.6-flash`. `gemini-3-flash-preview` is a preview id, so watch for Google retiring it and
+# `gemini-3.8-flash`. `gemini-3-flash-preview` is a preview id, so watch for Google retiring it and
 # remap it like migration 0052 did if that happens. No pro option: Google's only pro model is a preview id.
+#
+# Prices are Google's standard rates; 3.8 Flash bills at half these rates until 2027-01-01
+# (launch promo), which we keep as extra headroom rather than repricing credits.
 #
 # | model                        | tier       | $/1M in | $/1M out | credits/observation |
 # |------------------------------|------------|---------|----------|---------------------|
 # | gemini-3.5-flash-lite        | flash lite |    0.30 |     2.50 |                   2 |
 # | gemini-3-flash-preview       | flash      |    0.50 |     3.00 |                   5 |
-# | gemini-3.6-flash             | flash      |    1.50 |     7.50 |                  15 |
+# | gemini-3.8-flash             | flash      |    1.50 |     7.50 |                  15 |
+# | gemini-3.7-flash             | (retired)  |    1.50 |     7.50 |                  15 |
+# | gemini-3.6-flash             | (retired)  |    1.50 |     7.50 |                  15 |
 # | gemini-2.5-flash             | (retired)  |    0.30 |     2.50 |                   2 |
 # | gemini-3.5-flash             | (retired)  |    1.50 |     9.00 |                  15 |
 # | gemini-3.1-flash-lite-preview| (retired)  |    0.25 |     1.50 |                   2 |
@@ -61,8 +63,14 @@ GEMINI_MODELS: dict[str, GeminiModelPricing] = {
     ScannerModel.GEMINI_3_FLASH_PREVIEW: GeminiModelPricing(
         tier="flash", input_usd_per_1m=0.50, output_usd_per_1m=3.00, credits_per_observation=5
     ),
-    ScannerModel.GEMINI_3_6_FLASH: GeminiModelPricing(
+    ScannerModel.GEMINI_3_8_FLASH: GeminiModelPricing(
         tier="flash", input_usd_per_1m=1.50, output_usd_per_1m=7.50, credits_per_observation=15
+    ),
+    "gemini-3.7-flash": GeminiModelPricing(
+        tier="flash", input_usd_per_1m=1.50, output_usd_per_1m=7.50, credits_per_observation=15, retired=True
+    ),
+    "gemini-3.6-flash": GeminiModelPricing(
+        tier="flash", input_usd_per_1m=1.50, output_usd_per_1m=7.50, credits_per_observation=15, retired=True
     ),
     "gemini-2.5-flash": GeminiModelPricing(
         tier="flash", input_usd_per_1m=0.30, output_usd_per_1m=2.50, credits_per_observation=2, retired=True
@@ -106,24 +114,24 @@ OBSERVATION_CREDITS_BY_MODEL: dict[str, int] = {
 _FALLBACK_CREDITS = max(OBSERVATION_CREDITS_BY_MODEL.values())
 
 
+# Scanner estimates are a rate per this many days, whatever the billing period's length.
+ESTIMATE_MONTH_DAYS = 30
+
+
+def projected_monthly_credits(model: str, estimated_observations: int | None, credit_limit: int | None) -> int | None:
+    """A scanner's 30-day credit rate, capped at its own limit; None while no estimate exists."""
+    if estimated_observations is None:
+        return None
+    credits = observation_credits_for_model(model) * estimated_observations
+    return credits if credit_limit is None else min(credits, credit_limit)
+
+
 def observation_credits_for_model(model: str) -> int:
     credits = OBSERVATION_CREDITS_BY_MODEL.get(model)
     if credits is None:
         logger.warning("replay_vision.unknown_model_credits", model=model, fallback=_FALLBACK_CREDITS)
         return _FALLBACK_CREDITS
     return credits
-
-
-def observation_credits_case() -> Case:
-    """SQL mirror of `observation_credits_for_model`, for pricing observations inside a query."""
-    return Case(
-        *(
-            When(scanner_snapshot__model=model, then=Value(credits))
-            for model, credits in OBSERVATION_CREDITS_BY_MODEL.items()
-        ),
-        default=Value(_FALLBACK_CREDITS),
-        output_field=IntegerField(),
-    )
 
 
 def get_replay_vision_credits_by_team(begin: datetime, end: datetime) -> list[tuple[int, int]]:

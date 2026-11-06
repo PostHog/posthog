@@ -296,9 +296,15 @@ resend — sending the link `id` attaches the wrong metric or fails validation.
 `metadata` is optional and defaults to `primary`. Pass an empty array to detach
 all shared metrics.
 
-To promote a one-off inline metric into a reusable shared metric, call
-`experiment-saved-metrics-create` with the same `query` (the `ExperimentMetric`
-object), then attach it via `saved_metrics_ids` as above.
+To promote a one-off inline metric into a reusable shared metric:
+
+1. Call `experiment-saved-metrics-create` with the inline metric's `query` (the
+   `ExperimentMetric` object) and leave out `query.uuid`. The API assigns the
+   shared metric a new uuid and ignores one you send.
+2. In a single `experiment-update` call, attach the new metric through
+   `saved_metrics_ids` as above, and resend `metrics` (or `metrics_secondary`)
+   without the inline metric. If you leave the inline metric in place, the
+   experiment measures the same thing twice.
 
 ## Property filters
 

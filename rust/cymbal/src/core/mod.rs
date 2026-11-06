@@ -4,6 +4,7 @@
 //! this subtree can later be lifted into its own `cymbal-core` crate.
 
 pub mod analytics;
+pub mod code_variables;
 pub mod config;
 pub mod error;
 pub mod ids;
@@ -13,3 +14,4 @@ pub mod sanitize;
 pub mod shutdown;
 pub mod symbolication;
 pub mod types;
+pub(crate) mod write_attribution;

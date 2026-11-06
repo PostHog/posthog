@@ -25,23 +25,18 @@ import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
 
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
+import { DiscoveredValuesQuickFilterSelect } from './DiscoveredValuesQuickFilterSelect'
 
 const ANY_OPTION = '__any__'
+const CONTEXT = QuickFilterContext.ErrorTrackingIssueFilters
 
-const QuickFilterSelect = ({ filter }: { filter: QuickFilter }): JSX.Element => {
-    const { selectedQuickFilters } = useValues(
-        quickFiltersSectionLogic({
-            context: QuickFilterContext.ErrorTrackingIssueFilters,
-            logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY,
-        })
-    )
-    const { setQuickFilterValue, clearQuickFilter } = useActions(
-        quickFiltersSectionLogic({
-            context: QuickFilterContext.ErrorTrackingIssueFilters,
-            logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY,
-        })
-    )
-    const selectedOptionId = selectedQuickFilters[filter.id]?.optionId ?? ANY_OPTION
+interface QuickFilterSelectProps {
+    filter: QuickFilter
+    selectedOptionId: string | null
+    onChange: (option: QuickFilterOption | null) => void
+}
+
+const ManualQuickFilterSelect = ({ filter, selectedOptionId, onChange }: QuickFilterSelectProps): JSX.Element => {
     const items = useMemo(
         () => [
             { value: ANY_OPTION, label: `Any ${filter.name.toLowerCase()}` },
@@ -53,16 +48,16 @@ const QuickFilterSelect = ({ filter }: { filter: QuickFilter }): JSX.Element => 
     return (
         <Select
             items={items}
-            value={selectedOptionId}
+            value={selectedOptionId ?? ANY_OPTION}
             onValueChange={(selectedId) => {
                 if (selectedId === ANY_OPTION) {
-                    clearQuickFilter(filter.id)
+                    onChange(null)
                     return
                 }
 
                 const selectedOption = filter.options.find((option: QuickFilterOption) => option.id === selectedId)
                 if (selectedOption) {
-                    setQuickFilterValue(filter.id, filter.property_name, selectedOption)
+                    onChange(selectedOption)
                 }
             }}
         >
@@ -80,8 +75,28 @@ const QuickFilterSelect = ({ filter }: { filter: QuickFilter }): JSX.Element => 
     )
 }
 
+const QuickFilterSelect = ({ filter }: { filter: QuickFilter }): JSX.Element => {
+    const sectionLogic = quickFiltersSectionLogic({ context: CONTEXT, logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY })
+    const { selectedQuickFilters } = useValues(sectionLogic)
+    const { setQuickFilterValue, clearQuickFilter } = useActions(sectionLogic)
+    const selectedOptionId = selectedQuickFilters[filter.id]?.optionId ?? null
+    const onChange = (option: QuickFilterOption | null): void =>
+        option ? setQuickFilterValue(filter.id, filter.property_name, option) : clearQuickFilter(filter.id)
+
+    return filter.type === 'auto-discovery' ? (
+        <DiscoveredValuesQuickFilterSelect
+            filter={filter}
+            context={CONTEXT}
+            selectedOptionId={selectedOptionId}
+            onChange={onChange}
+        />
+    ) : (
+        <ManualQuickFilterSelect filter={filter} selectedOptionId={selectedOptionId} onChange={onChange} />
+    )
+}
+
 export const ErrorTrackingQuickFilters = (): JSX.Element => {
-    const context = QuickFilterContext.ErrorTrackingIssueFilters
+    const context = CONTEXT
     const { quickFilters } = useValues(quickFiltersLogic({ context }))
     const modalProps = { context }
     const { openModal } = useActions(quickFiltersModalLogic(modalProps))

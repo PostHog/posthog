@@ -42,7 +42,6 @@ DataModelingJob
 DataWarehouseCredential
 DataWarehouseJoin
 DataWarehouseManagedViewSet
-DataWarehouseModelPath
 DataWarehouseSavedQuery
 DataWarehouseSavedQueryDraft
 DataWarehouseSavedQueryFolder
@@ -103,6 +102,7 @@ IntervieweeContext
 KernelRuntime
 LLMModelConfiguration
 LLMPrompt
+LLMPromptDependency
 LLMPromptLabel
 LLMProviderKey
 LLMSkill
@@ -124,12 +124,14 @@ Notebook
 NotificationEvent
 ObjectMediaPreview
 OptOutSyncConfig
-PersistedFolder
 PluginConfig
 ProductTour
 ProjectSecretAPIKey
 PropertyAccessControl
 QueryTabState
+QueueJob
+QueueSchedulerDecision
+QueueSchedulerState
 QuickFilter
 QuickFilterContext
 Reminder
@@ -137,7 +139,6 @@ ReplayObservation
 ReplayObservationLabel
 ReplayObservationUsage
 ReplayScanner
-ReplayScannerPromptSuggestion
 RepoRoutingRule
 ReviewQueue
 ReviewQueueItem
@@ -145,7 +146,6 @@ SandboxEnvironment
 SavedHeatmap
 ScheduledChange
 ScoreDefinition
-SessionGroupSummary
 SessionRecording
 SessionRecordingPlaylist
 SessionRecordingViewed
@@ -156,7 +156,6 @@ SignalReportArtefact
 SignalReportTask
 SignalSourceConfig
 SignalTeamConfig
-SingleSessionSummary
 SlackThreadTaskMapping
 SourceBatch
 SourceGroupLease
@@ -170,7 +169,6 @@ Task
 TaskRun
 TeamConversationsTeamsConfig
 TeamFeatureFlagDefaultsConfig
-TeamSessionSummariesConfig
 TeamWorkflowsConfig
 Text
 Threshold
@@ -182,7 +180,6 @@ UploadedMedia
 UserHomeSettings
 UserInterview
 UserInterviewTopic
-UserProductList
 UserRepoPreference
 UserScenePersonalisation
 WebAnalyticsFilterPreset

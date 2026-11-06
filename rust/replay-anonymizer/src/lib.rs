@@ -1,6 +1,6 @@
 //! Session-replay anonymizer: PII-scrubs rrweb events for PostHog's ml-mirror pipelines.
 //!
-//! The scrubbers cover text/URL redaction, native image blur, and `cv` de/recompression. Behavior
+//! The scrubbers cover text/URL redaction, image collection for an out-of-band scrub, and `cv` de/recompression. Behavior
 //! is pinned by the shared JSON fixtures under `tests/fixtures/`, which both `tests/parity.rs` and
 //! the Node addon's Jest suite (through `replay-anonymizer-node`) run against.
 //!
@@ -19,16 +19,14 @@
 //! The stable crates.io surface is what this page documents: [`AllowLists`], [`Ctx`], the event
 //! entry points ([`anonymize_message`], [`anonymize_event`], [`anonymize_line`] and friends), the
 //! byte-buffer snapshot pipeline ([`anonymize_kafka_payload`] and friends), the rrweb routing
-//! constants in [`event`], and — behind the default `typed-parse` feature — the typed rrweb parse
-//! in [`typed`] ([`parse_scrubbed_event`]). Everything `#[doc(hidden)]` stays `pub` only for this
-//! workspace (the Node addon, the parity tests) — it is internal and may change or disappear in
-//! any release.
+//! constants in [`event`], and — behind
+//! the default `typed-parse` feature — the typed rrweb parse in [`typed`]
+//! ([`parse_scrubbed_event`]). Everything `#[doc(hidden)]` stays `pub` only for this workspace
+//! (the Node addon, the parity tests) — it is internal and may change or disappear in any release.
 
 pub mod allow_lists;
 #[doc(hidden)]
 pub mod assets;
-#[doc(hidden)]
-pub mod blur;
 #[doc(hidden)]
 pub mod bytewalk;
 #[doc(hidden)]
@@ -43,14 +41,20 @@ pub mod css;
 #[doc(hidden)]
 pub mod cv;
 #[doc(hidden)]
+pub mod data_uri;
+#[doc(hidden)]
 pub mod dom;
 pub mod event;
-pub mod images;
 #[doc(hidden)]
 pub mod json;
+mod json_ld;
 #[doc(hidden)]
 pub mod scan;
 pub mod snapshot;
+#[doc(hidden)]
+pub mod srcset;
+#[doc(hidden)]
+pub mod svg;
 #[doc(hidden)]
 pub mod text;
 pub mod timings;
@@ -73,7 +77,6 @@ pub use event::{
     anonymize_event, anonymize_event_str, anonymize_line, anonymize_line_with_ctx,
     anonymize_message,
 };
-pub use images::ImagePolicy;
 pub use snapshot::{
     anonymize_kafka_payload, anonymize_kafka_payload_collecting, anonymize_kafka_payload_opts,
     anonymize_kafka_payload_timed, AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,
@@ -82,7 +85,10 @@ pub use timings::{PhaseTimings, PhaseTimingsSnapshot};
 #[cfg(feature = "typed-parse")]
 pub use typed::{parse_scrubbed_event, parse_scrubbed_event_with_ctx};
 pub use url_collect::{CollectedUrl, UrlCollection};
-pub use url_policy::{canonicalize, is_public_host, CanonicalUrl};
+pub use url_policy::{
+    canonicalize, is_public_host, is_tracking_beacon, politeness_key, try_canonicalize,
+    CanonicalUrl, Decline,
+};
 
 /// Shared helpers for the image-neutralization tests across modules.
 #[cfg(test)]
@@ -105,15 +111,5 @@ pub(crate) mod testkit {
 
     pub fn png_data_uri(w: u32, h: u32, color: [u8; 4]) -> String {
         format!("data:image/png;base64,{}", png_base64(w, h, color))
-    }
-
-    /// Base64 of `w*h` non-uniform RGBA pixels — e.g. for a canvas `ImageData` ArrayBuffer.
-    pub fn rgba_base64(w: u32, h: u32) -> String {
-        let mut raw = Vec::with_capacity((w * h * 4) as usize);
-        for i in 0..(w * h) {
-            let b = (i % 256) as u8;
-            raw.extend_from_slice(&[b, b.wrapping_add(50), b.wrapping_add(100), 255]);
-        }
-        base64::engine::general_purpose::STANDARD.encode(raw)
     }
 }

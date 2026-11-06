@@ -4,12 +4,15 @@ import { type ComponentType, type ReactNode } from 'react'
 
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import * as coffeeRunPng from '@posthog/brand/hoggies/png/coffee-run'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
+import * as heartPng from '@posthog/brand/hoggies/png/heart'
+import * as hooliganPng from '@posthog/brand/hoggies/png/hooligan'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as starPng from '@posthog/brand/hoggies/png/star'
 import { IconCheck, IconChevronDown, IconCrown, IconInfo, IconLock, IconPeople, IconPerson } from '@posthog/icons'
 import { LemonModal, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { ExplorerHog, HeartHog, StarHog, WavingHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -29,7 +32,11 @@ import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievem
 
 const HedgehogChart = pngHoggie(chartPng)
 const HedgehogCoffeeRun = pngHoggie(coffeeRunPng)
+const HedgehogExplorer = pngHoggie(explorerPng)
+const HedgehogHeart = pngHoggie(heartPng)
+const HedgehogHooligan = pngHoggie(hooliganPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogStar = pngHoggie(starPng)
 
 const RING_TRACK_COLOR = 'var(--border)'
 const TIER_COLORS = [
@@ -56,14 +63,14 @@ const TRACK_META: Record<string, TrackMeta> = {
             `${humanFriendlyLargeNumber(n)} ${pluralize(n, 'day', 'days', false)} until "${next}"`,
     },
     loyalty: {
-        hog: HeartHog,
+        hog: HedgehogHeart,
         objective: 'Open Web analytics on many separate days over time.',
         unit: 'days',
         effortPhrase: (n, next) =>
             `Visit ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'day', 'days', false)} to reach "${next}"`,
     },
     explorer: {
-        hog: ExplorerHog,
+        hog: HedgehogExplorer,
         objective: 'Slice your data by adding a filter or opening a breakdown on the Web analytics dashboard.',
         unit: 'explorations',
         effortPhrase: (n, next) =>
@@ -77,7 +84,7 @@ const TRACK_META: Record<string, TrackMeta> = {
             `Watch ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'recording', 'recordings', false)} to reach "${next}"`,
     },
     conversions: {
-        hog: StarHog,
+        hog: HedgehogStar,
         objective: 'Set up conversion goals in Web analytics.',
         unit: 'conversions',
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more to reach "${next}"`,
@@ -229,7 +236,7 @@ function AchievementTrackCard({
     pulsing: boolean
 }): JSX.Element {
     const trackMeta = TRACK_META[track.key]
-    const TrackHog = trackMeta?.hog ?? WavingHog
+    const TrackHog = trackMeta?.hog ?? HedgehogHooligan
     const { total, currentStage, value, maxed, currentName, nextStage, percent, remaining } = deriveTrackProgress(
         track,
         progress

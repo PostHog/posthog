@@ -1,3 +1,14 @@
+from products.error_tracking.backend.temporal.alerts import (
+    ACTIVITIES as ALERT_ACTIVITIES,
+    WORKFLOWS as ALERT_WORKFLOWS,
+    ErrorTrackingAlertDeliveryWorkflow,
+)
+from products.error_tracking.backend.temporal.built_in_filters_refresh import (
+    ACTIVITIES as BUILT_IN_FILTERS_REFRESH_ACTIVITIES,
+    WORKFLOWS as BUILT_IN_FILTERS_REFRESH_WORKFLOWS,
+    ErrorTrackingBuiltInFiltersRefreshWorkflow,
+    refresh_built_in_filter_rules_activity,
+)
 from products.error_tracking.backend.temporal.lifecycle import (
     ACTIVITIES as LIFECYCLE_ACTIVITIES,
     WORKFLOWS as LIFECYCLE_WORKFLOWS,
@@ -32,9 +43,23 @@ from products.error_tracking.backend.temporal.weekly_digest import (
     send_org_digest_activity,
 )
 
-WORKFLOWS = SYMBOL_SET_WORKFLOWS + SPIKE_EVENT_WORKFLOWS + RECOMMENDATIONS_REFRESH_WORKFLOWS + WEEKLY_DIGEST_WORKFLOWS
+# Alert delivery rides the error tracking queue, not the lifecycle one: outbound Slack
+# I/O must not share worker slots with issue-state work such as auto-merge.
+WORKFLOWS = (
+    SYMBOL_SET_WORKFLOWS
+    + SPIKE_EVENT_WORKFLOWS
+    + RECOMMENDATIONS_REFRESH_WORKFLOWS
+    + WEEKLY_DIGEST_WORKFLOWS
+    + ALERT_WORKFLOWS
+    + BUILT_IN_FILTERS_REFRESH_WORKFLOWS
+)
 ACTIVITIES = (
-    SYMBOL_SET_ACTIVITIES + SPIKE_EVENT_ACTIVITIES + RECOMMENDATIONS_REFRESH_ACTIVITIES + WEEKLY_DIGEST_ACTIVITIES
+    SYMBOL_SET_ACTIVITIES
+    + SPIKE_EVENT_ACTIVITIES
+    + RECOMMENDATIONS_REFRESH_ACTIVITIES
+    + WEEKLY_DIGEST_ACTIVITIES
+    + ALERT_ACTIVITIES
+    + BUILT_IN_FILTERS_REFRESH_ACTIVITIES
 )
 
 __all__ = [
@@ -42,6 +67,8 @@ __all__ = [
     "LIFECYCLE_ACTIVITIES",
     "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
+    "ErrorTrackingAlertDeliveryWorkflow",
+    "ErrorTrackingBuiltInFiltersRefreshWorkflow",
     "ErrorTrackingIssueCreatedWorkflow",
     "ErrorTrackingIssueReopenedWorkflow",
     "ErrorTrackingIssueSpikingWorkflow",
@@ -53,6 +80,7 @@ __all__ = [
     "cleanup_symbol_sets_activity",
     "get_digest_orgs_activity",
     "get_team_batches_activity",
+    "refresh_built_in_filter_rules_activity",
     "refresh_recommendations_batch_activity",
     "send_org_digest_activity",
 ]

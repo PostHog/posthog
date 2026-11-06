@@ -3,8 +3,10 @@
 // lives in exactly one place.
 
 const MAX_HEADLINE_LENGTH = 140
+const MAX_MARKDOWN_INPUT_LENGTH = 1_000
 const SENTENCE_END = /([.!?])[*_`]*(?=\s|$)/
 const EDGE_EMPHASIS = /^[*_`\s]+|[*_`\s]+$/g
+const INLINE_MARKDOWN_LINK = /!?\[([^\]]+)]\((?:[^()]|\([^()]*\))*\)/g
 const CONVENTIONAL_COMMIT_TITLE = /^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)$/
 
 /** Compact single-sentence headline derived from a report summary, for list rendering. */
@@ -16,7 +18,9 @@ export function deriveHeadline(summary: string | null | undefined): string | nul
     if (!trimmed) {
         return null
     }
-    const firstLine = trimmed.split(/\r?\n/, 1)[0] ?? ''
+    const firstLine = (trimmed.split(/\r?\n/, 1)[0] ?? '')
+        .slice(0, MAX_MARKDOWN_INPUT_LENGTH)
+        .replace(INLINE_MARKDOWN_LINK, '$1')
     let headline = firstLine
     const sentenceMatch = SENTENCE_END.exec(firstLine)
     if (sentenceMatch) {
@@ -93,10 +97,18 @@ export interface ParsedPrUrlParts {
     repoSlug: string
 }
 
-/** Parse a canonical GitHub PR URL into its owner / repo / number / repoSlug parts. */
+/**
+ * Parse a canonical GitHub PR URL (`https://github.com/<owner>/<repo>/pull/<number>`) into its parts.
+ * Any other host returns null: `implementation_pr_url` comes from task-run output, so a PR-shaped path
+ * on an arbitrary host would otherwise let a task label an attacker's site "Open in GitHub".
+ */
 export function parsePrUrlParts(prUrl: string): ParsedPrUrlParts | null {
     try {
-        const match = new URL(prUrl).pathname.match(PR_URL_PATH)
+        const url = new URL(prUrl)
+        if (url.protocol !== 'https:' || url.hostname !== 'github.com') {
+            return null
+        }
+        const match = url.pathname.match(PR_URL_PATH)
         if (!match) {
             return null
         }

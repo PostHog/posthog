@@ -1,5 +1,5 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './TooltipSurface'
@@ -38,10 +38,14 @@ export interface ReferenceLineProps {
     style?: ReferenceLineStyle
     /** Optional filled half-plane on one side of the line. */
     fillSide?: ReferenceLineFillSide
-    /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin grey). Defaults to `goal`. */
+    /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (thin dashed, axis label color). Defaults to `goal`. */
     variant?: ReferenceLineVariant
     /** Which y-axis this line references. Only used for horizontal lines. Defaults to the primary axis. */
     yAxisId?: string
+    /** Reveal the numeric value in the label bubble when the line or its label is hovered. Defaults to
+     *  true. `false` also drops the invisible hover target, so the line is inert to the pointer. Vertical
+     *  (label-positioned) lines never reveal a value. */
+    showValueOnHover?: boolean
     /** Chart axis orientation. When `'horizontal'`, a `'horizontal'`-orientation reference
      *  line at a numeric value is drawn as a vertical stripe at `scales.y(value)` — matching
      *  the value axis of horizontal bar charts. Defaults to the chart's own axis orientation
@@ -58,7 +62,7 @@ interface ResolvedStyle {
 const VARIANT_DEFAULTS: Record<ReferenceLineVariant, ResolvedStyle> = {
     goal: { color: 'rgba(0, 0, 0, 0.4)', stroke: 'dashed', width: 2 },
     alert: { color: '#db3707', stroke: 'dashed', width: 2 },
-    marker: { color: 'rgba(0, 0, 0, 0.5)', stroke: 'solid', width: 1 },
+    marker: { color: 'var(--color-graph-axis-label)', stroke: 'dashed', width: 1 },
 }
 
 /** Approximate rendered height of the label bubble — used only to keep it inside the plot near
@@ -98,11 +102,7 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
     const { axis } = useChartLayout()
     const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = axis.orientation } = props
-    const resolved = useMemo(
-        () => resolveStyle(variant, style),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [variant, style?.color, style?.stroke, style?.width]
-    )
+    const resolved = resolveStyle(variant, style)
 
     const common: ResolvedProps = {
         resolved,
@@ -112,7 +112,10 @@ export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | n
         label: props.label,
         labelPosition: props.labelPosition ?? 'end',
         // Numeric lines (goal thresholds) reveal their value on hover; vertical marker lines don't.
-        valueText: typeof props.value === 'number' ? props.value.toLocaleString() : undefined,
+        valueText:
+            typeof props.value === 'number' && props.showValueOnHover !== false
+                ? props.value.toLocaleString()
+                : undefined,
     }
 
     if (orientation === 'horizontal') {

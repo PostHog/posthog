@@ -34,14 +34,18 @@ import { Query } from '~/queries/Query/Query'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ExperimentBasicApi } from '../../../experiments/frontend/generated/api.schemas'
-import { useTracesQueryContext } from '../AIObservabilityTracesScene'
+import { toTraceDrawerRow, useTracesDrawerContext } from '../AIObservabilityTracesScene'
 import { MarkdownOutline } from '../components/MarkdownOutline'
+import { TraceDrawerQueryHost } from '../redesign/trace/TraceDrawerQueryHost'
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
+import { InsertPromptReferenceButton } from './InsertPromptReferenceButton'
 import { PromptAnalyticsScope, formatPromptConfig, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
 import { PromptLabelChip } from './PromptLabelChip'
 import { PromptLabelPicker } from './PromptLabelPicker'
+import { extractPromptReferences } from './promptReferences'
+import { PromptReferenceTags } from './PromptReferenceTags'
 import { LLMPrompt, LLMPromptVersionSummary } from './types'
 import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
@@ -74,9 +78,18 @@ function PromptOutline({
 }
 
 export function PromptViewDetails(): JSX.Element {
-    const { prompt, isRenderingMarkdown, isDiffVisible, canCompareVersions, compareVersionOptions } =
-        useValues(llmPromptLogic)
-    const { toggleMarkdownRendering, setCompareVersion } = useActions(llmPromptLogic)
+    const {
+        prompt,
+        isRenderingMarkdown,
+        isDiffVisible,
+        canCompareVersions,
+        compareVersionOptions,
+        isShowingResolvedPreview,
+        resolvedPreview,
+        resolvedPreviewLoading,
+        referencedBy,
+    } = useValues(llmPromptLogic)
+    const { toggleMarkdownRendering, setCompareVersion, toggleResolvedPreview } = useActions(llmPromptLogic)
     const markdownContainerRef = useRef<HTMLDivElement>(null)
 
     if (!prompt || !isPrompt(prompt)) {
@@ -86,7 +99,11 @@ export function PromptViewDetails(): JSX.Element {
     const configJson = prompt.config != null ? formatPromptConfig(prompt.config) : null
 
     const promptText = prompt.prompt
-    const variableMatches = promptText.match(/\{\{([^}]+)\}\}/g)
+    const references = extractPromptReferences(promptText)
+    const resolvedText =
+        isShowingResolvedPreview && typeof resolvedPreview?.prompt === 'string' ? resolvedPreview.prompt : null
+    const displayText = resolvedText ?? promptText
+    const variableMatches = displayText.match(/\{\{([^}]+)\}\}/g)
     const variables = variableMatches
         ? [...new Set(variableMatches.map((match: string) => match.slice(2, -2).trim()))]
         : []
@@ -97,6 +114,18 @@ export function PromptViewDetails(): JSX.Element {
                 <div className="mb-2 flex items-center justify-between gap-2">
                     <h3 className="m-0 font-semibold">Prompt</h3>
                     <div className="flex items-center gap-2">
+                        {!isDiffVisible && references.length > 0 && (
+                            <LemonButton
+                                size="xsmall"
+                                type={isShowingResolvedPreview ? 'primary' : 'secondary'}
+                                loading={resolvedPreviewLoading}
+                                tooltip="Show the content with referenced prompts spliced in, exactly as a fetch returns it"
+                                onClick={toggleResolvedPreview}
+                                data-attr="llma-prompt-resolved-preview-button"
+                            >
+                                Show resolved
+                            </LemonButton>
+                        )}
                         {!isDiffVisible && (
                             <LemonButton
                                 size="small"
@@ -135,17 +164,44 @@ export function PromptViewDetails(): JSX.Element {
                     <PromptDiffView />
                 ) : isRenderingMarkdown ? (
                     <>
-                        <PromptOutline promptText={promptText} containerRef={markdownContainerRef} className="mt-2" />
+                        <PromptOutline promptText={displayText} containerRef={markdownContainerRef} className="mt-2" />
                         <div ref={markdownContainerRef}>
                             <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
-                                {promptText}
+                                {displayText}
                             </LemonMarkdown>
                         </div>
                     </>
                 ) : (
-                    <pre className="mt-1 rounded border bg-bg-light p-3 whitespace-pre-wrap">{prompt.prompt}</pre>
+                    <pre className="mt-1 rounded border bg-bg-light p-3 whitespace-pre-wrap">{displayText}</pre>
                 )}
             </div>
+
+            {resolvedText !== null && (resolvedPreview?.resolved_references?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-xs text-secondary">Includes:</span>
+                    {resolvedPreview?.resolved_references?.map((reference) => (
+                        <LemonTag key={`${reference.name}-${reference.version}`} type="completion" size="small">
+                            {reference.name} v{reference.version}
+                            {reference.label ? ` (via ${reference.label})` : ''}
+                        </LemonTag>
+                    ))}
+                </div>
+            )}
+
+            {!isShowingResolvedPreview && <PromptReferenceTags text={promptText} />}
+
+            {referencedBy.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1" data-attr="llma-prompt-used-by">
+                    <span className="text-xs text-secondary">Used by:</span>
+                    {[...new Set(referencedBy.map((reference) => reference.name))].map((name) => (
+                        <Link key={name} to={urls.aiObservabilityPrompt(name)}>
+                            <LemonTag type="completion" size="small">
+                                {name}
+                            </LemonTag>
+                        </Link>
+                    ))}
+                </div>
+            )}
 
             {variables.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1">
@@ -457,10 +513,13 @@ function PromptDiffView(): JSX.Element {
     )
 }
 
+const PROMPT_TRACES_LIST_ID = 'prompt-traces'
+const PROMPT_TRACES_DATA_NODE_KEY = 'llm-analytics-prompt-traces'
+
 export function PromptRelatedTraces(): JSX.Element {
     const { prompt, relatedTracesQuery, viewAllTracesUrl, analyticsScope } = useValues(llmPromptLogic)
     const { setRelatedTracesQuery } = useActions(llmPromptLogic)
-    const tracesQueryContext = useTracesQueryContext()
+    const tracesQueryContext = useTracesDrawerContext(PROMPT_TRACES_LIST_ID, PROMPT_TRACES_DATA_NODE_KEY)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -496,13 +555,21 @@ export function PromptRelatedTraces(): JSX.Element {
             </div>
 
             {relatedTracesQuery && (
-                <DataTable
-                    query={relatedTracesQuery}
-                    setQuery={setRelatedTracesQuery}
-                    context={tracesQueryContext}
-                    uniqueKey="prompt-related-traces"
-                    attachTo={llmPromptLogic}
-                />
+                <>
+                    <DataTable
+                        query={relatedTracesQuery}
+                        setQuery={setRelatedTracesQuery}
+                        context={tracesQueryContext}
+                        uniqueKey="prompt-related-traces"
+                        attachTo={llmPromptLogic}
+                    />
+                    <TraceDrawerQueryHost
+                        listId={PROMPT_TRACES_LIST_ID}
+                        dataNodeKey={PROMPT_TRACES_DATA_NODE_KEY}
+                        query={relatedTracesQuery.source}
+                        toRow={toTraceDrawerRow}
+                    />
+                </>
             )}
         </div>
     )
@@ -653,11 +720,8 @@ export function PromptCode({ prompt }: { prompt: LLMPrompt }): JSX.Element {
             <PromptCodeSnippets prompt={prompt} />
 
             <LemonBanner type="info">
-                Each prompt fetch is charged as a Product analytics event. See the{' '}
-                <Link to="https://posthog.com/pricing" target="_blank">
-                    pricing page
-                </Link>
-                .
+                Each prompt fetch is captured as an event so you can track usage on the Usage tab. Prompt management is
+                free, so these events are not billed.
             </LemonBanner>
         </div>
     )
@@ -908,7 +972,16 @@ export function PromptEditForm({
     selectedVersion: number | null
 }): JSX.Element {
     const { promptVariables, isNewPrompt, isRenderingMarkdown, promptForm, publishConflict } = useValues(llmPromptLogic)
-    const { toggleMarkdownRendering } = useActions(llmPromptLogic)
+    const { toggleMarkdownRendering, setPromptFormValue } = useActions(llmPromptLogic)
+    const promptTextAreaRef = useRef<HTMLTextAreaElement>(null)
+
+    const insertReferenceTag = (tag: string): void => {
+        const textarea = promptTextAreaRef.current
+        const current = promptForm.prompt || ''
+        const start = textarea?.selectionStart ?? current.length
+        const end = textarea?.selectionEnd ?? current.length
+        setPromptFormValue('prompt', current.slice(0, start) + tag + current.slice(end))
+    }
 
     return (
         <div className="mt-4 max-w-3xl space-y-4">
@@ -960,6 +1033,12 @@ export function PromptEditForm({
                                 toggleMarkdownRendering()
                             }}
                         />
+                        {!isRenderingMarkdown && (
+                            <InsertPromptReferenceButton
+                                currentPromptName={promptForm.name}
+                                onInsert={insertReferenceTag}
+                            />
+                        )}
                     </div>
                 }
                 help="Use {{variable_name}} to define variables that will be replaced when fetching the prompt from your backend."
@@ -970,6 +1049,7 @@ export function PromptEditForm({
                     </LemonMarkdown>
                 ) : (
                     <LemonTextArea
+                        ref={promptTextAreaRef}
                         placeholder="You are a helpful assistant for {{company_name}}. Help the user with their question about {{topic}}."
                         minRows={10}
                         className="font-mono"
@@ -987,6 +1067,8 @@ export function PromptEditForm({
                     ))}
                 </div>
             )}
+
+            <PromptReferenceTags text={promptForm.prompt || ''} />
 
             <PromptConfigEditField />
         </div>

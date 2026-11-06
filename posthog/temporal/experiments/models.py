@@ -1,5 +1,7 @@
 import dataclasses
 
+from posthog.dataclasses import frozen
+
 # Temporal retry ceiling for the per-metric calc activities. Shared with the activity code, which emits the
 # terminal `experiment metric error` analytics event only on the final attempt — keep the RetryPolicy in
 # workflows.py and this constant in lockstep or terminal failures get emitted early / not at all.
@@ -13,16 +15,18 @@ class ExperimentRegularMetricsWorkflowInputs:
     hour: int  # 0-23, which hour's teams to process
 
 
-@dataclasses.dataclass
+@frozen
 class ExperimentRegularMetricInput:
     """Input to calculate a single experiment-metric."""
 
     experiment_id: int
     metric_uuid: str
     fingerprint: str
+    # Defaulted so histories recorded before the field existed still decode during replay.
+    team_id: int | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentRegularMetricResult:
     """Result from calculating a single experiment-metric."""
 
@@ -31,6 +35,7 @@ class ExperimentRegularMetricResult:
     fingerprint: str
     success: bool
     error_message: str | None = None
+    skipped: bool = False
 
 
 @dataclasses.dataclass
@@ -40,16 +45,17 @@ class ExperimentSavedMetricsWorkflowInputs:
     hour: int  # 0-23, which hour's teams to process
 
 
-@dataclasses.dataclass
+@frozen
 class ExperimentSavedMetricInput:
     """Input to calculate a single experiment-saved metric."""
 
     experiment_id: int
     metric_uuid: str
     fingerprint: str
+    team_id: int | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentSavedMetricResult:
     """Result from calculating a single experiment-saved metric."""
 
@@ -58,6 +64,7 @@ class ExperimentSavedMetricResult:
     fingerprint: str
     success: bool
     error_message: str | None = None
+    skipped: bool = False
 
 
 @dataclasses.dataclass

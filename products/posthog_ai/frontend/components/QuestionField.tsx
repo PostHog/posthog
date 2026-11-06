@@ -19,6 +19,10 @@ interface QuestionFieldProps {
     onSubmit: () => void
     onSkip?: () => void
     submitLabel?: string
+    disabled?: boolean
+    customPlaceholder?: string
+    initialCustomValue?: string
+    multiline?: boolean
 }
 
 export function QuestionField({
@@ -29,6 +33,10 @@ export function QuestionField({
     onSubmit,
     onSkip,
     submitLabel = 'Next',
+    disabled = false,
+    customPlaceholder,
+    initialCustomValue,
+    multiline,
 }: QuestionFieldProps): JSX.Element {
     const fieldType = question.type ?? 'select'
 
@@ -48,28 +56,40 @@ export function QuestionField({
         default:
             return (
                 <SelectField
+                    disabled={disabled}
                     question={question}
                     value={value as string | undefined}
                     onAnswer={onAnswer}
                     onSkip={onSkip}
                     submitLabel={submitLabel}
+                    customPlaceholder={customPlaceholder}
+                    initialCustomValue={initialCustomValue}
+                    multiline={multiline}
                 />
             )
     }
 }
 
 function SelectField({
+    disabled,
     question,
     value,
     onAnswer,
     onSkip,
     submitLabel,
+    customPlaceholder,
+    initialCustomValue,
+    multiline,
 }: {
+    disabled: boolean
     question: MultiQuestionFormQuestion
     value: string | undefined
     onAnswer: (value: string | null) => void
     onSkip?: () => void
     submitLabel: string
+    customPlaceholder?: string
+    initialCustomValue?: string
+    multiline?: boolean
 }): JSX.Element {
     const options: Option[] = (question.options ?? []).map((option) => ({
         label: option.value,
@@ -81,10 +101,13 @@ function SelectField({
 
     return (
         <OptionSelector
+            disabled={disabled}
             options={options}
             onSelect={onAnswer}
             allowCustom={allowCustomAnswer}
-            customPlaceholder="Type your answer..."
+            customPlaceholder={customPlaceholder ?? 'Type your answer...'}
+            initialCustomValue={initialCustomValue}
+            multiline={multiline}
             onCustomSubmit={onAnswer}
             selectedValue={value}
             submitLabel={submitLabel}

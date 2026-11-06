@@ -16,8 +16,7 @@ windows in parallel when set.
 """
 
 import datetime as dt
-import contextvars
-from concurrent.futures import ThreadPoolExecutor
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
@@ -29,6 +28,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     PropertyGroupsMode,
+    SpanHealthStatus,
     SpanPropertyFilter,
     SpanPropertyFilterType,
     SpanTreeNode,
@@ -48,14 +48,23 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
-from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
+from .logic import (
+    _ROW_LIMIT,
+    TIME_BUCKET_DATE_RANGE_WHERE,
+    translate_span_filter,
+    with_attribute_set_guards,
+    with_span_attribute_type_suffix,
+)
+from .models import TracingIdentityAttributeKeys
+from .service_health_query_runner import ServiceWindowStats, classify_service
+from .span_identity import identity_value_expr, str_attr_field
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -104,7 +113,7 @@ class _SpanAggregationMixin:
                     self.span_attribute_filters.append(cast(SpanPropertyFilter, prop))
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("tracing", "viewer")
 
@@ -162,25 +171,23 @@ class _SpanAggregationMixin:
         compare_range = self._compare_query_date_range()
 
         if compare_range is None:
-            return self._run_period(self.query_date_range), None
+            return self._run_period(self.query_date_range, self.timings), None
 
-        # Copy contextvars to worker threads so query tags (product/feature) set by the
-        # viewset propagate. ThreadPoolExecutor does not inherit contextvars by default.
-        primary_ctx = contextvars.copy_context()
-        compare_ctx = contextvars.copy_context()
+        # HogQLTimings is not thread safe, so each worker gets its own clone.
+        windows = [
+            (self.query_date_range, self.timings.clone_for_subquery(0)),
+            (compare_range, self.timings.clone_for_subquery(1)),
+        ]
 
-        def run_primary() -> list:
-            return primary_ctx.run(self._run_period, self.query_date_range)
+        def run_window(window: tuple[QueryDateRange, HogQLTimings]) -> list:
+            return self._run_period(*window)
 
-        def run_compare() -> list:
-            return compare_ctx.run(self._run_period, compare_range)
+        current, previous = map_in_caller_context(run_window, windows, thread_name_prefix="tracing_aggregation")
+        for _, timings in windows:
+            self.timings.timings.update(timings.timings)
+        return current, previous
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            current_future = pool.submit(run_primary)
-            previous_future = pool.submit(run_compare)
-            return current_future.result(), previous_future.result()
-
-    def _run_period(self, query_date_range: QueryDateRange) -> list:
+    def _run_period(self, query_date_range: QueryDateRange, timings: HogQLTimings) -> list:
         query = self._build_query(query_date_range)
         response = execute_hogql_query(
             query_type=self.query.kind,
@@ -188,7 +195,7 @@ class _SpanAggregationMixin:
             modifiers=self.modifiers,
             team=self.team,
             workload=Workload.LOGS,
-            timings=self.timings,
+            timings=timings,
             limit_context=self.limit_context,
             settings=self.settings,
             filters=query_date_range.to_hogql_filters(),
@@ -217,8 +224,8 @@ class _SpanAggregationMixin:
                 translate_span_filter(span_filter)
                 exprs.append(property_to_expr(span_filter, team=self.team))
             if self.span_attribute_filters:
-                exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))
-            for resource_filter in self.resource_attribute_filters:
+                exprs.append(property_to_expr(with_attribute_set_guards(self.span_attribute_filters), team=self.team))
+            for resource_filter in with_attribute_set_guards(self.resource_attribute_filters):
                 exprs.append(property_to_expr(resource_filter, team=self.team))
 
         return ast.And(exprs=exprs)
@@ -241,6 +248,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         *args,
         limit: int | None = None,
         offset: int = 0,
+        identity_keys: TracingIdentityAttributeKeys | None = None,
         **kwargs,
     ) -> None:
         super().__init__(query, *args, **kwargs)
@@ -249,23 +257,123 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         self._extract_filters()
         self._limit = _ROW_LIMIT if limit is None else max(1, min(limit, _ROW_LIMIT))
         self._offset = max(0, offset)
+        self._identity_keys = identity_keys
+        self._baseline_keys: list[tuple[str, str]] | None = None
+
+    def get_cache_payload(self) -> dict:
+        # Runner arguments, not query fields, so the base payload cannot see them.
+        return {**super().get_cache_payload(), "limit": self._limit, "offset": self._offset}
+
+    def _compare_query_date_range(self) -> QueryDateRange | None:
+        compare_range = super()._compare_query_date_range()
+        if compare_range is None and self.query.includeHealth:
+            # Health needs a baseline, so without a comparison it uses the previous period.
+            return QueryPreviousPeriodDateRange(
+                date_range=self.query.dateRange,
+                team=self.team,
+                interval=IntervalType.MINUTE,
+                timezone_info=ZoneInfo("UTC"),
+                now=dt.datetime.now(),
+            )
+        return compare_range
+
+    def _run_with_compare(self) -> tuple[list, list | None]:
+        if not self.query.includeHealth:
+            return super()._run_with_compare()
+        compare_range = self._compare_query_date_range()
+        assert compare_range is not None
+        # Sequential: the baseline reads only the current page's rows, because their rank in the baseline can differ.
+        current_rows = self._run_period(self.query_date_range, self.timings)
+        if not current_rows:
+            return current_rows, []
+        self._baseline_keys = [(row.service_name, row.name) for row in current_rows]
+        return current_rows, self._run_period(compare_range, self.timings)
 
     def _calculate(self) -> TraceSpansAggregationQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
+        if self.query.includeHealth:
+            self._classify(current_rows, previous_rows or [])
+            if not (self.query.compareFilter and self.query.compareFilter.compare):
+                previous_rows = None
         return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
+
+    def _classify(self, current_rows: list[AggregatedSpanRow], baseline_rows: list[AggregatedSpanRow]) -> None:
+        # shortcut: rows carry no last-seen time, so silent never fires. Add a last_seen column if per-endpoint
+        # silence detection is needed.
+        baseline = {(row.service_name, row.name): row for row in baseline_rows}
+        window_from = self.query_date_range.date_from()
+        window_to = min(self.query_date_range.date_to(), dt.datetime.now(tz=ZoneInfo("UTC")))
+        for row in current_rows:
+            before = baseline.get((row.service_name, row.name))
+            status, reason = classify_service(
+                current=_window_stats(row, window_to),
+                baseline=_window_stats(before, window_to) if before else None,
+                has_baseline=True,
+                window_from=window_from,
+                window_to=window_to,
+            )
+            row.health_status = SpanHealthStatus(status.value)
+            row.health_reason = reason
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         # Single table scan plus hash aggregate. Cheap enough to run unscoped.
+        where = self._where_without_date_range()
+        group_name: ast.Expr = ast.Field(chain=["name"])
+        if self.query.groupByEndpoint:
+            where = ast.And(exprs=[where, _endpoint_scope_expr()])
+            group_name = _endpoint_name_expr()
+        limit, offset = self._limit, self._offset
+        if self._baseline_keys is not None and query_date_range is not self.query_date_range:
+            keys = ast.Tuple(
+                exprs=[
+                    ast.Tuple(exprs=[ast.Constant(value=service), ast.Constant(value=name)])
+                    for service, name in self._baseline_keys
+                ]
+            )
+            where = ast.And(
+                exprs=[
+                    where,
+                    parse_expr(
+                        "tuple(service_name, {group_name}) IN {keys}",
+                        placeholders={"keys": keys, "group_name": group_name},
+                    ),
+                ]
+            )
+            limit, offset = len(self._baseline_keys), 0
+        placeholders: dict[str, ast.Expr] = {
+            "where": where,
+            "group_name": group_name,
+            "limit": ast.Constant(value=limit),
+            "offset": ast.Constant(value=offset),
+            **query_date_range.to_placeholders(),
+        }
+        # Appended rather than always present, because reading the attribute maps is the
+        # expensive part of this query and only the Operations columns need it. uniq() is
+        # HyperLogLog-based and skips NULLs. `_row_from_clickhouse` reads these by position.
+        impact_columns = ""
+        if self.query.includeImpact:
+            if self._identity_keys is None:
+                raise ValueError("includeImpact requires identity_keys")
+            placeholders["session_value"] = identity_value_expr(self._identity_keys.session)
+            placeholders["person_value"] = identity_value_expr(self._identity_keys.distinct_id)
+            impact_columns = """,
+                uniq({session_value}) AS sessions,
+                uniq({person_value}) AS users,
+                count({session_value}) AS spans_with_session_id,
+                count({person_value}) AS spans_with_distinct_id"""
+
         query = parse_select(
             """
             SELECT
                 service_name,
-                name,
+                {group_name} AS group_name,
                 count() AS count,
                 sum(duration_nano) AS total_duration_nano,
                 avg(duration_nano) AS avg_duration_nano,
                 quantiles(0.5, 0.95, 0.99, 0.999)(duration_nano) AS duration_quantiles,
-                countIf(status_code = 2) AS error_count
+                countIf(status_code = 2) AS error_count"""
+            + impact_columns
+            + """
             FROM posthog.trace_spans
             WHERE {where}
               AND """
@@ -273,23 +381,19 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             + """
               AND timestamp >= {date_from}
               AND timestamp < {date_to}
-            GROUP BY service_name, name
+            GROUP BY service_name, group_name
             ORDER BY total_duration_nano DESC
             LIMIT {limit}
             OFFSET {offset}
             """,
-            placeholders={
-                "where": self._where_without_date_range(),
-                "limit": ast.Constant(value=self._limit),
-                "offset": ast.Constant(value=self._offset),
-                **query_date_range.to_placeholders(),
-            },
+            placeholders=placeholders,
         )
         assert isinstance(query, ast.SelectQuery)
         return query
 
     def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow:
         p50, p95, p99, p999 = row[5] or (0.0, 0.0, 0.0, 0.0)
+        with_impact = self.query.includeImpact
         return AggregatedSpanRow(
             service_name=row[0] or "",
             name=row[1] or "",
@@ -301,12 +405,51 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             p99_duration_nano=float(p99 or 0),
             p999_duration_nano=float(p999 or 0),
             error_count=row[6] or 0,
+            sessions=row[7] if with_impact else None,
+            users=row[8] if with_impact else None,
+            spans_with_session_id=row[9] if with_impact else None,
+            spans_with_distinct_id=row[10] if with_impact else None,
         )
 
     def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
         response = super().run(*args, **kwargs)
         assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
         return response
+
+
+def _window_stats(row: AggregatedSpanRow, last_seen: dt.datetime) -> ServiceWindowStats:
+    return ServiceWindowStats(
+        requests=row.count,
+        errors=row.error_count,
+        p50_ms=row.p50_duration_nano / 1e6,
+        p95_ms=row.p95_duration_nano / 1e6,
+        p99_ms=row.p99_duration_nano / 1e6,
+        last_seen=last_seen,
+    )
+
+
+def _http_method_expr() -> ast.Expr:
+    # OTel renamed `http.method` to `http.request.method`; SDKs in the wild send either.
+    return parse_expr(
+        "coalesce(nullIf({new}, ''), nullIf({old}, ''))",
+        placeholders={"new": str_attr_field("http.request.method"), "old": str_attr_field("http.method")},
+    )
+
+
+def _endpoint_scope_expr() -> ast.Expr:
+    # Server spans alone include queue consumers and Temporal activities, which carry no HTTP method.
+    return parse_expr("kind = 2 AND {method} IS NOT NULL", placeholders={"method": _http_method_expr()})
+
+
+def _endpoint_name_expr() -> ast.Expr:
+    # Instrumentations may name a span after the raw path or the bare method, so the route is the stable key.
+    return parse_expr(
+        "if({route} IS NOT NULL, concat({method}, ' ', {route}), name)",
+        placeholders={
+            "route": ast.Call(name="nullIf", args=[str_attr_field("http.route"), ast.Constant(value="")]),
+            "method": _http_method_expr(),
+        },
+    )
 
 
 def _annotate_calls_per_parent_invocation(rows: list[SpanTreeNode]) -> None:

@@ -13,6 +13,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -24,10 +25,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def _make_oauth_app(organization, user, name="Toolbar Test App"):
@@ -340,7 +338,7 @@ class TestHedgehogConfigOAuthAuth(APIBaseTest):
         assert response.status_code in (401, 403)
 
 
-class TestToolbarOAuthScopesConfig(APIBaseTest):
+class TestToolbarOAuthScopesConfig(SimpleTestCase):
     """Verify TOOLBAR_OAUTH_SCOPES covers every toolbar endpoint scope."""
 
     EXPECTED_SCOPES = [

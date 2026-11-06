@@ -16,9 +16,12 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { DataQualityChecksPanel } from 'products/data_quality/frontend/DataQualityChecksPanel'
+import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
 import { shouldShowManagedSourceMetricsTab, shouldShowManagedSourceSyncsTab } from '../SourceScene/SourceScene'
+import { ReplaceFileModal } from '../SourceScene/tabs/ReplaceFileModal'
 import { SyncsTab } from '../SourceScene/tabs/SyncsTab'
 import { ConfigurationTab } from './ConfigurationTab'
 import { MetricsTab } from './MetricsTab'
@@ -44,9 +47,12 @@ const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
     'sync-method': 'Sync method',
     columns: 'Columns and filters',
     descriptions: 'Descriptions',
+    destinations: 'Destinations',
     schedule: 'Schedule',
     'danger-zone': 'Danger zone',
 }
+
+const FILE_UPLOAD_HIDDEN_SECTIONS: readonly SchemaConfigurationSection[] = ['sync-method', 'schedule', 'destinations']
 
 export function SchemaScene({ sourceId, schemaId }: SchemaSceneProps): JSX.Element {
     if (!sourceId || !schemaId) {
@@ -66,10 +72,19 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     const cleanedSourceId = cleanSourceId(sourceId)
     const showSyncs = shouldShowManagedSourceSyncsTab(source)
     const showMetrics = shouldShowManagedSourceMetricsTab(source, !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS])
-    const showDescriptions = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT]
+    // The warehouse table only exists once the schema has synced, and checks hang off that table.
+    const showDataQuality = !!schema?.table?.id
     const showColumnsSection = supportsColumnSelection
+    // Same gate as the source's Destinations tab. Without it a table offers a destination set that
+    // the sync ignores, because a run only snapshots destinations when the flag is on.
+    const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
+    // A file upload table has one schema that PostHog imports itself: no sync method, schedule or destinations.
+    const isFileUpload = isFileUploadSource(source)
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
-        (key) => (key !== 'columns' || showColumnsSection) && (key !== 'descriptions' || showDescriptions)
+        (key) =>
+            (key !== 'columns' || showColumnsSection) &&
+            (key !== 'destinations' || showDestinations) &&
+            !(isFileUpload && FILE_UPLOAD_HIDDEN_SECTIONS.includes(key))
     )
 
     useEffect(() => {
@@ -88,16 +103,23 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     }, [source, showSyncs, showMetrics, currentTab, setCurrentTab])
 
     useEffect(() => {
+        // Wait for the schema, for the same reason the tab check above waits for the source.
+        if (schema && !showDataQuality && currentTab === 'data-quality') {
+            setCurrentTab('configuration')
+        }
+    }, [schema, showDataQuality, currentTab, setCurrentTab])
+
+    useEffect(() => {
         if (!showColumnsSection && currentSection === 'columns') {
             setCurrentSection('details')
         }
     }, [showColumnsSection, currentSection, setCurrentSection])
 
     useEffect(() => {
-        if (!showDescriptions && currentSection === 'descriptions') {
+        if (isFileUpload && FILE_UPLOAD_HIDDEN_SECTIONS.includes(currentSection)) {
             setCurrentSection('details')
         }
-    }, [showDescriptions, currentSection, setCurrentSection])
+    }, [isFileUpload, currentSection, setCurrentSection])
 
     if (schemaDataLoading && !schema) {
         return (
@@ -163,6 +185,20 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         })
     }
 
+    if (showDataQuality && schema.table) {
+        tabs.push({
+            label: 'Data quality',
+            key: 'data-quality',
+            content: (
+                <DataQualityChecksPanel
+                    subjectType="table"
+                    subjectId={schema.table.id}
+                    columns={schema.table.columns ?? []}
+                />
+            ),
+        })
+    }
+
     tabs.push({
         label: 'History',
         key: 'history',
@@ -170,7 +206,9 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     })
 
     const activeTab =
-        (!showMetrics && currentTab === 'metrics') || (!showSyncs && currentTab === 'syncs')
+        (!showMetrics && currentTab === 'metrics') ||
+        (!showSyncs && currentTab === 'syncs') ||
+        (!showDataQuality && currentTab === 'data-quality')
             ? 'configuration'
             : currentTab
 
@@ -182,6 +220,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                 resourceType={{ type: 'data_pipeline' }}
             />
             <LemonTabs activeKey={activeTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+            {isFileUpload && <ReplaceFileModal sourceId={cleanedSourceId} />}
         </SceneContent>
     )
 }

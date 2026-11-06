@@ -14,10 +14,10 @@ from products.data_modeling.backend.models.data_modeling_job import DataModeling
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import saved_query_node
 
-# `posthog/apps.py` installs the lazy admin registry only `if not settings.TEST`, and that wrapper
-# is the sole caller of `register_all_admin()` — so under tests nothing ever registers a
-# product-local admin. (Autodiscovery itself is fine: this module is exactly what
-# `autodiscover_modules("admin")` imports for this app in a real process.)
+# `posthog/apps.py` installs the lazy admin registry only `if not settings.TEST`, so under tests
+# nothing registers a product-local admin until the admin URL conf loads. Register here, so the
+# assertions below do not depend on a URL being resolved first. (Autodiscovery itself is fine:
+# this module is what `autodiscover_modules("admin")` imports for this app in a real process.)
 register_all_admin()
 
 
@@ -83,11 +83,19 @@ class TestDataModelingDAGAdminTiers(BaseTest):
 
         assert response.status_code == 404
 
-    def test_changelist_and_add_form_render(self):
-        # both call into the display helpers that reverse other admin URLs, and the add form is the
-        # only caller of tiers_link with an unsaved object
+    def test_admin_shows_dags_but_cannot_create_change_or_delete_them(self):
         assert self.client.get(reverse("admin:data_modeling_dag_changelist")).status_code == 200
-        assert self.client.get(reverse("admin:data_modeling_dag_add")).status_code == 200
+        assert self.client.get(reverse("admin:data_modeling_dag_change", args=[self.dag.id])).status_code == 200
+        assert self.client.get(reverse("admin:data_modeling_dag_add")).status_code == 403
+        assert (
+            self.client.post(
+                reverse("admin:data_modeling_dag_change", args=[self.dag.id]), {"name": "Renamed"}
+            ).status_code
+            == 403
+        )
+        assert self.client.post(reverse("admin:data_modeling_dag_delete", args=[self.dag.id])).status_code == 403
+        self.dag.refresh_from_db()
+        assert self.dag.name == "Default"
 
     def test_tiers_page_requires_staff(self):
         self.user.is_staff = False

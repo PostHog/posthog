@@ -11,10 +11,12 @@ response post-processing, metrics, and failure signals. Kind-specific behavior
 import re
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Literal, Union, cast
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
 import structlog
@@ -23,7 +25,6 @@ from asgiref.sync import async_to_sync
 from dateutil.parser import isoparse
 from pydantic import BaseModel
 from rest_framework import status
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -38,11 +39,13 @@ from posthog.schema import (
     RefreshType,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.query import _process_query_request
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, _process_query_request
 from posthog.api.services.query import process_query_model
+from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import (
@@ -51,10 +54,17 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     is_api_key_access_method,
     tag_queries,
+    tags_context,
 )
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownTable,
+    CHQueryErrorUnsupportedMethod,
+    ExposedCHQueryError,
+)
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
+    APIQueriesBudgetExceeded,
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
@@ -62,22 +72,22 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.user_query_errors import USER_QUERY_ERRORS
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import saved_query_materialized_at
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
+from products.data_modeling.backend.facade.api import materialize_saved_query, saved_query_materialized_at
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
+from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
 from products.endpoints.backend.logic.pagination import EndpointPagination
+from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
-    ENDPOINT_CONCURRENCY_REJECTED_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
@@ -122,13 +132,67 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
 }
 
-# Cost guardrails + transient capacity: customer problems, not faults. Skipped from capture and
-# re-raised past the materialized/ducklake inline fallback.
-_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity)
+_ENDPOINT_USER_QUERY_ERRORS = tuple(
+    error for error in USER_QUERY_ERRORS if error not in (CHQueryErrorUnknownIdentifier, CHQueryErrorUnsupportedMethod)
+)
+
+_NON_REPORTABLE_QUERY_ERRORS: tuple[type[Exception], ...] = (
+    *_QUERY_PERFORMANCE_ERRORS,
+    *_ENDPOINT_USER_QUERY_ERRORS,
+    ClickHouseAtCapacity,
+    APIQueriesBudgetExceeded,
+    ConcurrencyLimitExceeded,
+)
 
 
-def _is_query_guardrail_error(error: BaseException) -> bool:
-    return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+def _is_non_reportable_query_error(error: Exception, *, materialized: bool) -> bool:
+    if materialized and isinstance(error, CHQueryErrorUnknownTable):
+        return False
+    return isinstance(error, _NON_REPORTABLE_QUERY_ERRORS)
+
+
+# Connection loss outside SQLSTATE class 08 (connection_exception).
+_CONNECTION_LOSS_SQLSTATES = frozenset(
+    {
+        "57P01",  # admin_shutdown
+        "57P02",  # crash_shutdown
+        "57P03",  # cannot_connect_now
+    }
+)
+
+
+def _pg_sqlstate(error: BaseException) -> str | None:
+    """The Postgres SQLSTATE behind a Django database error, when the server reported one.
+
+    psycopg3 exposes it as ``sqlstate`` and psycopg2 as ``pgcode``, and Django re-raises its
+    own wrapper ``from`` the driver error, so the code sits on the cause.
+    """
+    for candidate in (error, error.__cause__):
+        for attr in ("sqlstate", "pgcode"):
+            code = getattr(candidate, attr, None)
+            if isinstance(code, str):
+                return code
+    return None
+
+
+def _is_db_connection_error(error: BaseException) -> bool:
+    """Whether an error reflects a dropped/dead Postgres connection rather than a code fault.
+
+    Transient connection loss is an infra condition, not a bug — re-reporting it to error
+    tracking from the failure-handling path just adds noise to the real root cause.
+    """
+    if isinstance(error, InterfaceError):
+        return True
+    if not isinstance(error, OperationalError):
+        return False
+    sqlstate = _pg_sqlstate(error)
+    # A dropped connection is detected client-side, so libpq reports no SQLSTATE. When the
+    # server did answer, the connection was alive: only class 08 and the shutdown codes mean
+    # it went away. A statement timeout (57014) or a deadlock (40P01) is a real fault, and
+    # must keep reaching error tracking.
+    if sqlstate is None:
+        return True
+    return sqlstate.startswith("08") or sqlstate in _CONNECTION_LOSS_SQLSTATES
 
 
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
@@ -215,18 +279,25 @@ def _emit_endpoint_failure_signal(
             },
         )
     except Exception as signal_exc:
+        # endpoint.name / team_id are already-loaded scalars, so logging here can't itself
+        # touch the (possibly dead) connection. Pull team_id off the endpoint FK column to
+        # avoid lazily reloading endpoint.team.
         logger.exception(
             "Failed to emit endpoint failure signal",
             endpoint_name=endpoint.name,
-            team_id=team.id,
+            team_id=endpoint.team_id,
             signal_error_class=type(signal_exc).__name__,
             signal_error=str(signal_exc),
         )
+        # A dropped connection is the infra root cause, not a new fault — re-reporting it here
+        # just buries the real error under cascade noise. Log it and move on.
+        if _is_db_connection_error(signal_exc):
+            return
         capture_exception(
             signal_exc,
             {
                 "product": Product.ENDPOINTS,
-                "team_id": team.id,
+                "team_id": endpoint.team_id,
                 "endpoint_name": endpoint.name,
                 "signal_emission": True,
             },
@@ -245,6 +316,26 @@ def _endpoint_refresh_mode_to_refresh_type(
     if mode is None or mode == EndpointRefreshMode.CACHE:
         return RefreshType.BLOCKING
     return RefreshType.FORCE_BLOCKING
+
+
+def can_serve_from_materialized(
+    team: Team,
+    endpoint: Endpoint,
+    version: EndpointVersion,
+    data: EndpointRunRequest,
+    materialized_at: datetime | None,
+) -> bool:
+    """Whether this run request can be served from the version's materialized table.
+
+    Reads materialization state from the DB — the authoritative source. The throttle
+    caches the same snapshot in rate_limit.py; that cache is intentionally not consulted here.
+    """
+    if not version.is_materialized or not version.saved_query or not version.saved_query.table:
+        return False
+    state = serving_state_for_version(
+        version, strategy_for(endpoint, version, team), ready=True, materialized_at=materialized_at
+    )
+    return state.serves(data)
 
 
 class EndpointExecutionService(PydanticModelMixin):
@@ -351,48 +442,8 @@ class EndpointExecutionService(PydanticModelMixin):
         version: EndpointVersion,
         materialized_at: datetime | None,
     ) -> bool:
-        """
-        Decide whether to use materialized table or inline execution.
-
-        Reads materialization state from the DB — the authoritative source. (The redis
-        "materialization ready" cache in rate_limit.py only classifies requests for
-        throttling and is intentionally not consulted here.)
-
-        Returns False if:
-        - Not materialized
-        - Materialization incomplete/failed
-        - Materialized data is stale (older than the version's data freshness target)
-        - User overrides present (variables, query)
-        - 'direct' mode requested (explicitly bypass materialization)
-        """
-        if not version.is_materialized or not version.saved_query:
-            return False
-
-        saved_query = version.saved_query
-        if saved_query.status != DataWarehouseSavedQuery.Status.COMPLETED:
-            return False
-
-        if not saved_query.table:
-            return False
-
-        # Check if materialized data is stale. Keyed on the version's freshness target, not
-        # saved_query.sync_frequency_interval — the v2 schedule migration nulls that field.
-        if materialized_at and version.data_freshness_seconds:
-            next_refresh_due = materialized_at + timedelta(seconds=version.data_freshness_seconds)
-            if timezone.now() >= next_refresh_due:
-                return False
-
-        # 'direct' mode explicitly bypasses materialization to run the original query
-        if data.refresh == EndpointRefreshMode.DIRECT:
-            return False
-
-        # Check if variables are valid for materialized execution
-        if data.variables:
-            strategy = strategy_for(endpoint, version, self.team)
-            if not strategy.can_serve_variables_from_materialized(set(data.variables.keys())):
-                return False
-
-        return True
+        """Decide whether to use materialized table or inline execution."""
+        return can_serve_from_materialized(self.team, endpoint, version, data, materialized_at)
 
     def _should_shadow_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
         # Flag is scoped to orgs with a duckgres server; the worker re-checks before querying.
@@ -468,6 +519,7 @@ class EndpointExecutionService(PydanticModelMixin):
         version_obj: EndpointVersion | None,
         limit: int | None = None,
         offset: int | None = None,
+        before_inline_fallback: Callable[[], None] | None = None,
     ) -> Response:
         """Run an endpoint version and return the HTTP response.
 
@@ -540,7 +592,9 @@ class EndpointExecutionService(PydanticModelMixin):
                         limit=limit,
                         offset=offset,
                     )
-                except ConcurrencyLimitExceeded:
+                except (ConcurrencyLimitExceeded, APIQueriesBudgetExceeded):
+                    # A refusal is not a broken table. The inline path meets the same limiter
+                    # with the same balance, so falling back cannot succeed.
                     raise
                 except Exception:
                     # Already logged/captured/signaled inside the materialized path. Re-run
@@ -553,6 +607,8 @@ class EndpointExecutionService(PydanticModelMixin):
                     result = None
 
             if result is None:
+                if materialized_failed and before_inline_fallback is not None:
+                    before_inline_fallback()
                 result = self._execute_inline_endpoint(
                     endpoint,
                     data,
@@ -592,25 +648,52 @@ class EndpointExecutionService(PydanticModelMixin):
                 endpoint_name=endpoint.name,
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
+        except ValidationError:
+            execution_status = "user_error"
+            error_label = "ValidationError"
+            raise
         except ConcurrencyLimitExceeded:
-            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
-            raise Throttled(detail="Too many concurrent requests. Please try again later.")
+            record_endpoint_rate_limited(
+                team_id=self.team.pk,
+                endpoint_name=endpoint.name,
+                version=version_obj.version,
+                reason=EndpointRateLimitReason.CONCURRENCY,
+                scope=EndpointRateLimitReason.CONCURRENCY.value,
+            )
+            raise Throttled(
+                wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
+                detail="Too many concurrent requests. Please try again later.",
+            )
+        except APIQueriesBudgetExceeded:
+            # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
+            # execution counter alone: the budget path counts its own refusals.
+            record_endpoint_rate_limited(
+                team_id=self.team.pk,
+                endpoint_name=endpoint.name,
+                version=version_obj.version,
+                reason=EndpointRateLimitReason.READ_BUDGET,
+                scope=EndpointRateLimitReason.READ_BUDGET.value,
+            )
+            raise
         except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
             execution_status = "query_performance"
             error_label = type(e).__name__
             code, detail = _query_performance_code_and_detail(e)
             logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
             raise EndpointQueryTooExpensive(detail, code=code)
-        except ClickHouseAtCapacity:
+        except Throttled:
+            raise
+        except ClickHouseAtCapacity as e:
             execution_status = "capacity"
             error_label = "ClickHouseAtCapacity"
             logger.warning("Endpoint query hit shared ClickHouse capacity", endpoint_name=endpoint.name)
-            raise EndpointAtCapacity()
+            raise EndpointAtCapacity(wait=e.wait) from e
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
             raise
         finally:
+            self._track_last_executed(endpoint, version_obj)
             if execution_status is not None:
                 _duration = time.monotonic() - _start_time
                 ENDPOINT_EXECUTION_DURATION_SECONDS.labels(
@@ -648,7 +731,6 @@ class EndpointExecutionService(PydanticModelMixin):
                 version=version_obj.version,
             ),
         )
-        self._track_last_executed(endpoint, version_obj)
 
         self._maybe_shadow_ducklake(
             endpoint,
@@ -724,6 +806,7 @@ class EndpointExecutionService(PydanticModelMixin):
         try:
             if not saved_query:
                 raise ValidationError("No materialized query found for this endpoint")
+            data_freshness_seconds = version.data_freshness_seconds
 
             strategy = strategy_for(endpoint, version, self.team)
             query_kind = strategy.query_kind
@@ -758,56 +841,57 @@ class EndpointExecutionService(PydanticModelMixin):
                 "endpoint_materialized": True,
                 "endpoint_materialized_at": materialized_at.isoformat() if materialized_at else None,
             }
-            tag_queries(
+            with tags_context(
                 workload=Workload.ENDPOINTS,
                 warehouse_query=True,
                 endpoint_version=version.version,
-            )
+            ):
+                # Compute dynamic cache TTL: time remaining until data_freshness window expires
+                cache_ttl = None
+                if materialized_at and data_freshness_seconds:
+                    remaining = (
+                        materialized_at + timedelta(seconds=data_freshness_seconds) - timezone.now()
+                    ).total_seconds()
+                    if remaining <= 0:
+                        logger.warning(
+                            "endpoint_materialization_behind_sla",
+                            endpoint_name=endpoint.name,
+                            team_id=self.team.pk,
+                            data_freshness_seconds=data_freshness_seconds,
+                            last_run_at=materialized_at.isoformat(),
+                            remaining_seconds=remaining,
+                        )
+                        tag_queries(endpoint_materialization_behind=True)
+                    cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
 
-            # Compute dynamic cache TTL: time remaining until data_freshness window expires
-            cache_ttl = None
-            if materialized_at and version.data_freshness_seconds:
-                remaining = (
-                    materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
-                ).total_seconds()
-                if remaining <= 0:
-                    logger.warning(
-                        "endpoint_materialization_behind_sla",
-                        endpoint_name=endpoint.name,
-                        team_id=self.team.pk,
-                        data_freshness_seconds=version.data_freshness_seconds,
-                        last_run_at=materialized_at.isoformat(),
-                        remaining_seconds=remaining,
-                    )
-                    tag_queries(endpoint_materialization_behind=True)
-                cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
-
-            result = self._execute_query_and_respond(
-                query_request_data,
-                data.client_query_id,
-                cache_age_seconds=cache_ttl,
-                extra_result_fields=extra_fields,
-                debug=debug,
-                headers=deprecation_headers,
-                pagination=pagination,
-            )
-
-            if self._is_cache_stale(result, materialized_at):
-                query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
                 result = self._execute_query_and_respond(
                     query_request_data,
                     data.client_query_id,
+                    cache_age_seconds=cache_ttl,
                     extra_result_fields=extra_fields,
                     debug=debug,
                     headers=deprecation_headers,
                     pagination=pagination,
+                    limit_context=strategy.materialized_limit_context,
                 )
+
+                if self._is_cache_stale(result, materialized_at):
+                    query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
+                    result = self._execute_query_and_respond(
+                        query_request_data,
+                        data.client_query_id,
+                        extra_result_fields=extra_fields,
+                        debug=debug,
+                        headers=deprecation_headers,
+                        pagination=pagination,
+                        limit_context=strategy.materialized_limit_context,
+                    )
 
             if isinstance(result.data, dict):
                 strategy.clean_response_sentinels(result.data)
 
             try:
-                strategy.transform_materialized_response(result.data, saved_query)
+                strategy.transform_materialized_response(result.data, saved_query, materialized_at)
             except MaterializedSeriesMismatchError:
                 # Series drift: query was likely edited after materialization. Trigger a refresh
                 # so future materialized reads succeed; the caller serves this request inline.
@@ -816,19 +900,29 @@ class EndpointExecutionService(PydanticModelMixin):
                     endpoint_name=endpoint.name,
                     saved_query_id=saved_query.id,
                 )
-                trigger_saved_query_schedule(saved_query)
+                try:
+                    # Nobody asked for this run, so it must not clear the suspension or reset the
+                    # failure window that stopped a repeatedly failing model.
+                    materialize_saved_query(saved_query, resume=False)
+                except Exception:
+                    # The caller still has to see the mismatch to fall back to inline, so a refresh
+                    # we could not start must not replace it on the way out.
+                    logger.exception(
+                        "Failed to trigger re-materialization after series mismatch",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=saved_query.id,
+                    )
                 raise
 
             # Freshness relative to the configured target: >1.0 means behind SLA.
             # Absolute age is meaningless across endpoints with different frequencies.
-            if materialized_at and version.data_freshness_seconds:
+            if materialized_at and data_freshness_seconds:
                 age_seconds = max((timezone.now() - materialized_at).total_seconds(), 0.0)
-                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / version.data_freshness_seconds)
+                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / data_freshness_seconds)
 
             return result
         except Exception as e:
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            if _is_non_reportable_query_error(e, materialized=True):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -891,6 +985,8 @@ class EndpointExecutionService(PydanticModelMixin):
         offset: int | None = None,
     ) -> Response:
         """Execute query directly against ClickHouse."""
+        if is_api_key_access_method(get_query_tag_value("access_method")):
+            tag_queries(api_queries_budgeted=True)
         strategy: EndpointQueryStrategy | None = None
         try:
             strategy = strategy_for(endpoint, version, self.team)
@@ -935,8 +1031,7 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            if _is_non_reportable_query_error(e, materialized=False):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",
@@ -987,6 +1082,7 @@ class EndpointExecutionService(PydanticModelMixin):
         debug: bool = False,
         headers: dict[str, str] | None = None,
         pagination: EndpointPagination | None = None,
+        limit_context: LimitContext | None = None,
     ) -> Response:
         """Shared query execution logic."""
         merged_data = self.get_model(query_request_data, QueryRequest)
@@ -1002,6 +1098,7 @@ class EndpointExecutionService(PydanticModelMixin):
             self.team,
             query,
             variables_override=variables_override,
+            limit_context=limit_context,
             execution_mode=execution_mode,
             query_id=client_query_id,
             user=cast(User, self.request.user),
@@ -1033,7 +1130,8 @@ class EndpointExecutionService(PydanticModelMixin):
         if pagination and "results" in result:
             pagination.process_results(result)
         elif "results" in result:
-            result["hasMore"] = False
+            # The query runner truncates unpaginated results at its default limit and sets hasMore itself.
+            result["hasMore"] = bool(result.get("hasMore"))
 
         if "results" in result:
             result = {"results": result.pop("results"), **result}

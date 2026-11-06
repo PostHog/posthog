@@ -1,0 +1,257 @@
+# In every case the file under sub/ is invalid, so sub/x.py resolves as if that file did not exist.
+cases:
+    - name: a file without version counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              owners: team-b
+              status: deprecated
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a file with a version other than 1 counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              version: 2
+              owners: team-b
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a file with version as a string counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              version: '1'
+              owners: team-b
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a file with version true counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              version: true
+              owners: team-b
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a file with version 1.0 counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              version: 1.0
+              owners: team-b
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a file without owners counts as absent and its status has no effect
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              version: 1
+              status: deprecated
+              inherit: false
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a file that is a YAML list counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              - version: 1
+              - owners: team-b
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a file that is a YAML scalar counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              team-b
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: an empty file counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: ''
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a file that is not valid YAML counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              version: 1
+              owners: [team-b
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: an invalid root file counts as absent
+      files:
+          owners.yaml: |
+              owners: team-a
+          sub/owners.yaml: |
+              version: 1
+              owners: []
+      expect:
+          sub/x.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+
+    - name: a file with an unknown top-level field still applies
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              version: 1
+              owners: team-b
+              reviewers: team-c
+      expect:
+          sub/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: sub/owners.yaml
+              slack: '#team-b'
+
+    - name: a rule with a rejected pattern is ignored and the rest of the file applies
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              status: deprecated
+              rules:
+                - match: 'a***b'
+                  owners: team-bad
+                - match: ''
+                  owners: team-bad
+                - match: '*.md'
+                  owners: team-docs
+      expect:
+          aXb:
+              owners: [team-a]
+              unowned_by_design: false
+              status: deprecated
+              source: owners.yaml
+              slack: '#team-a'
+          'a***b':
+              owners: [team-a]
+              unowned_by_design: false
+              status: deprecated
+              source: owners.yaml
+              slack: '#team-a'
+          README.md:
+              owners: [team-docs]
+              unowned_by_design: false
+              status: deprecated
+              source: owners.yaml
+              slack: '#team-docs'
+
+    - name: a rule with one rejected pattern in its list is ignored for all its patterns
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: ['*.md', 'a***b']
+                  owners: team-docs
+      expect:
+          README.md:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: an owners value of the wrong type sets no owners and the other fields still apply
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          sub/owners.yaml: |
+              version: 1
+              owners: 5
+              status: generated
+      expect:
+          sub/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: generated
+              source: owners.yaml
+              slack: '#team-a'

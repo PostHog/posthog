@@ -6,12 +6,14 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from posthog.models import OrganizationInvite
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestOrganizationInvite(BaseTest):
@@ -41,6 +43,7 @@ class TestOrganizationInvite(BaseTest):
             organization=self.organization,
             target_email="test@posthog.com",
             private_project_access=[{"id": team.id, "level": "admin"}],
+            created_by=self.user,
         )
 
         # Use the invite
@@ -58,6 +61,8 @@ class TestOrganizationInvite(BaseTest):
             raise Exception("Access control not found")
 
         self.assertEqual(access_control.access_level, "admin")
+        grant_log = ActivityLog.objects.get(scope="AccessControl", item_id=str(access_control.id))
+        self.assertEqual((grant_log.activity, grant_log.user), ("created", self.user))
 
         # Verify the invite has been deleted
         self.assertFalse(OrganizationInvite.objects.filter(target_email="test@posthog.com").exists())

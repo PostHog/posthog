@@ -18,6 +18,7 @@ import { AnyPropertyFilter, type CohortType, PropertyOperator, type TeamPublicTy
 
 import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 
+import { ApplyTestAccountFilterToExistingInsights } from './ApplyTestAccountFilterToExistingInsights'
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
 
 function createTestAccountFilterWarningLabels(
@@ -93,9 +94,9 @@ function TestAccountFiltersConfig(): JSX.Element {
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
                         <p>
-                            You've added an <strong>inclusive</strong> filter, which means only matching events will be
-                            included. Filters are normally <strong>exclusive</strong>, such as <i>does not contain</i>,
-                            to filter out unwanted results.
+                            You've added an <strong>inclusive</strong> filter. It keeps only the matching events and
+                            removes everything else, also in destinations that use this filter. To remove internal
+                            users, use an <strong>exclusive</strong> operator such as <i>does not contain</i>.
                         </p>
                         <p>Inclusive filters are currently set for the following properties: </p>
                         <ul className="list-disc">
@@ -155,6 +156,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                 label="Filter out internal and test users from revenue analytics"
                 bordered
             />
+            <ApplyTestAccountFilterToExistingInsights />
         </div>
     )
 }

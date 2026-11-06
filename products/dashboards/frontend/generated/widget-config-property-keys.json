@@ -1,5 +1,6 @@
 {
     "configPropertyKeys": {
+        "notebook_widget": ["notebookShortId", "snapshotId"],
         "activity_events_list": [
             "dateRange",
             "eventName",
@@ -40,9 +41,28 @@
             "severityLevels",
             "timezone",
             "wrapLines"
-        ]
+        ],
+        "conversations_recent_tickets": [
+            "assignees",
+            "channel",
+            "limit",
+            "priorities",
+            "savedViewId",
+            "search",
+            "status"
+        ],
+        "canvas_app": ["canvasId"],
+        "metrics_table": ["columns", "dateRange", "groupBy", "interval", "limit", "orderByColumn", "orderDirection"]
     },
     "configPropertyTrees": {
+        "notebook_widget": {
+            "notebookShortId": {
+                "$type": "string"
+            },
+            "snapshotId": {
+                "$type": "string"
+            }
+        },
         "activity_events_list": {
             "dateRange": {
                 "date_from": {
@@ -75,6 +95,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -136,6 +157,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -207,6 +229,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -246,7 +269,7 @@
                 "$type": "integer"
             },
             "orderBy": {
-                "$enum": ["first_seen", "last_seen", "occurrences", "sessions", "users"]
+                "$enum": ["first_seen", "last_seen", "occurrences", "sessions", "severity", "users"]
             },
             "orderDirection": {
                 "$enum": ["ASC", "DESC"]
@@ -295,6 +318,7 @@
                             "icontains_multi",
                             "in",
                             "is_cleaned_path_exact",
+                            "is_cleaned_path_not_exact",
                             "is_date_after",
                             "is_date_before",
                             "is_date_exact",
@@ -418,6 +442,94 @@
             },
             "savedViewId": {
                 "$type": "string"
+            }
+        },
+        "conversations_recent_tickets": {
+            "limit": {
+                "$type": "integer"
+            },
+            "status": {
+                "$enum": ["all", "new", "on_hold", "open", "pending", "resolved"]
+            },
+            "priorities": {
+                "$array": {
+                    "$enum": ["critical", "high", "low", "medium"]
+                }
+            },
+            "channel": {
+                "$enum": ["all", "email", "github", "slack", "teams", "widget"]
+            },
+            "assignees": {
+                "$array": {
+                    "id": {
+                        "$types": ["integer", "string"]
+                    },
+                    "type": {
+                        "$enum": ["role", "user"]
+                    }
+                }
+            },
+            "search": {
+                "$type": "string"
+            },
+            "savedViewId": {
+                "$type": "string"
+            }
+        },
+        "canvas_app": {
+            "canvasId": {
+                "$type": "string"
+            }
+        },
+        "metrics_table": {
+            "dateRange": {
+                "date_from": {
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                }
+            },
+            "groupBy": {
+                "$type": "string"
+            },
+            "columns": {
+                "$array": {
+                    "label": {
+                        "$type": "string"
+                    },
+                    "metricName": {
+                        "$type": "string"
+                    },
+                    "aggregation": {
+                        "$enum": ["avg", "histogram_quantile", "increase", "max", "min", "rate", "sum"]
+                    },
+                    "quantile": {
+                        "$type": "number"
+                    },
+                    "filters": {
+                        "$array": {
+                            "key": {
+                                "$type": "string"
+                            },
+                            "op": {
+                                "$enum": ["eq", "neq", "not_regex", "regex"]
+                            },
+                            "value": {
+                                "$type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "interval": {
+                "$enum": ["day", "hour", "minute", "minute_15", "minute_5"]
+            },
+            "orderByColumn": {
+                "$type": "integer"
+            },
+            "orderDirection": {
+                "$enum": ["ASC", "DESC"]
+            },
+            "limit": {
+                "$type": "integer"
             }
         }
     }

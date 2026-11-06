@@ -150,11 +150,15 @@ describe('trendsChartTransforms', () => {
             expect(series.map((s) => s.key)).toEqual(['a', 'b'])
         })
 
-        it('assigns yAxisIds [left, y1, y2] across three results when showMultipleYAxes is true', () => {
-            const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        it('groups series onto shared y-axes by magnitude when showMultipleYAxes is true', () => {
+            const results = [
+                makeResult({ id: 'a', data: [1, 2, 3] }),
+                makeResult({ id: 'b', data: [1000, 2000, 3000] }),
+                makeResult({ id: 'c', data: [2, 4, 6] }),
+            ]
             const series = buildTrendsSeries(results, { getColor: () => RED, showMultipleYAxes: true })
 
-            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', 'y2'])
+            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', DEFAULT_Y_AXIS_ID])
         })
     })
 
@@ -415,6 +419,33 @@ describe('trendsChartTransforms', () => {
             }
         )
 
+        it.each([
+            { name: 'leaves axes visible by default', hideAxes: undefined, expectedHide: undefined },
+            { name: 'hides axes while preserving their configuration', hideAxes: true, expectedHide: true },
+        ])('$name', ({ hideAxes, expectedHide }) => {
+            const tickFormatter = (value: string): string => `tick:${value}`
+            const config = buildTrendsLineTimeSeriesConfig({
+                ...baseOpts,
+                hideAxes,
+                interval: 'week',
+                timezone: 'UTC',
+                allDays: ['2024-01-01', '2024-01-08'],
+                xAxisLabel: 'Signup date',
+                yAxisLabel: 'Unique users',
+                xAxisTickFormatter: tickFormatter,
+            })
+
+            expect(config.xAxis).toMatchObject({
+                label: 'Signup date',
+                timezone: 'UTC',
+                interval: 'week',
+                allDays: ['2024-01-01', '2024-01-08'],
+                tickFormatter,
+                hide: expectedHide,
+            })
+            expect(config.yAxis).toMatchObject({ label: 'Unique users', showGrid: true, hide: expectedHide })
+        })
+
         it('passes xAxisTickFormatter through to the x-axis', () => {
             const tickFormatter = (value: string): string => `tick:${value}`
             const config = buildTrendsLineTimeSeriesConfig({ ...baseOpts, xAxisTickFormatter: tickFormatter })
@@ -471,6 +502,16 @@ describe('trendsChartTransforms', () => {
             })
             expect(config.xAxis?.label).toBe('Signup date')
             expect((config.yAxis as YAxisConfig)?.label).toBe('Unique users')
+        })
+
+        it('forwards the y-axis range onto the axis config', () => {
+            const config = buildTrendsLineTimeSeriesConfig({
+                ...baseOpts,
+                yAxisStartAtZero: false,
+                yAxisMin: 40,
+                yAxisMax: 80,
+            })
+            expect(config.yAxis).toMatchObject({ startAtZero: false, min: 40, max: 80 })
         })
 
         it('derives yAxis from buildTrendsYAxisConfig when isPercentStackView is true and passes through tooltip / showCrosshair', () => {

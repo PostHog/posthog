@@ -1,32 +1,49 @@
-import { ArrowRight, SignOut } from "@phosphor-icons/react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle,
+  Lifebuoy,
+  SignOut,
+} from "@phosphor-icons/react";
 import {
   buildAbandonedProps,
   buildCompletedProps,
   buildStepCompletedProps,
   type StepCompletedContext,
 } from "@posthog/core/onboarding/analytics";
+import type { OnboardingStep } from "@posthog/core/onboarding/steps";
+import {
+  Button,
+  ButtonGroup,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemMedia,
+  ItemTitle,
+  Text,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { ConsentStep } from "@posthog/ui/features/consent/ConsentStep";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
-import { ImportConfigStep } from "@posthog/ui/features/onboarding/components/ImportConfigStep";
 import { InstallCliStep } from "@posthog/ui/features/onboarding/components/InstallCliStep";
-import { StepIndicator } from "@posthog/ui/features/onboarding/components/StepIndicator";
-import { WelcomeScreen } from "@posthog/ui/features/onboarding/components/WelcomeScreen";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
+import { ProductWordmark } from "@posthog/ui/primitives/ProductWordmark";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { Button, Flex } from "@radix-ui/themes";
-import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
-import { useEffect, useRef } from "react";
+import { isMac, isWindows } from "@posthog/ui/utils/platform";
+import { AnimatePresence, motion } from "framer-motion";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { InviteCodeStep } from "./InviteCodeStep";
 import { ProjectSelectStep } from "./ProjectSelectStep";
-import { SelectRepoStep } from "./SelectRepoStep";
 
 const IS_DEV = import.meta.env.DEV;
 
@@ -36,18 +53,180 @@ const stepVariants = {
   exit: (dir: number) => ({ opacity: 0, x: dir * -20 }),
 };
 
-export function OnboardingFlow() {
+interface OnboardingFlowProps {
+  onOpenSupport?: () => void;
+}
+
+function OnboardingAccount({
+  email,
+  isAuthenticated,
+  isLoggingOut,
+  onLogout,
+}: {
+  email?: string;
+  isAuthenticated: boolean;
+  isLoggingOut: boolean;
+  onLogout: () => void;
+}) {
+  if (!isAuthenticated) return null;
+
+  return (
+    <aside className="absolute right-8 bottom-6 z-[2] w-[380px] max-w-[calc(100%-4rem)]">
+      <Item
+        variant="muted"
+        size="sm"
+        className="w-full border border-border py-1"
+      >
+        <ItemMedia variant="icon">
+          <CheckCircle
+            size={14}
+            weight="fill"
+            className="text-success-foreground"
+          />
+        </ItemMedia>
+        <ItemContent>
+          <ItemTitle className="max-w-full truncate font-normal text-xs">
+            Signed in as {email ?? "your PostHog account"}
+          </ItemTitle>
+        </ItemContent>
+        <ItemActions>
+          <Button
+            size="xs"
+            variant="link-muted"
+            className="min-h-11"
+            onClick={onLogout}
+            loading={isLoggingOut}
+          >
+            <SignOut size={14} />
+            Log out
+          </Button>
+        </ItemActions>
+      </Item>
+    </aside>
+  );
+}
+
+function OnboardingDebugNavigation({
+  currentIndex,
+  totalSteps,
+  onBack,
+  onNext,
+}: {
+  currentIndex: number;
+  totalSteps: number;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  if (!IS_DEV) return null;
+
+  return (
+    <nav
+      aria-label="Onboarding debug navigation"
+      className="no-drag flex items-center gap-2"
+    >
+      <ButtonGroup aria-label="Onboarding step navigation">
+        <Button
+          size="icon-sm"
+          variant="outline"
+          aria-label="Previous onboarding step"
+          disabled={currentIndex <= 0}
+          onClick={onBack}
+        >
+          <ArrowLeft size={12} />
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="outline"
+          aria-label="Next onboarding step"
+          disabled={currentIndex < 0 || currentIndex >= totalSteps - 1}
+          onClick={onNext}
+        >
+          <ArrowRight size={12} />
+        </Button>
+      </ButtonGroup>
+      <Text size="xs" variant="muted">
+        {currentIndex + 1} / {totalSteps}
+      </Text>
+    </nav>
+  );
+}
+
+function OnboardingHeader({
+  currentIndex,
+  totalSteps,
+  onBack,
+  onNext,
+  onOpenSupport,
+  onSkip,
+  showSkipSetup,
+}: {
+  currentIndex: number;
+  totalSteps: number;
+  onBack: () => void;
+  onNext: () => void;
+  onOpenSupport?: () => void;
+  onSkip: () => void;
+  showSkipSetup: boolean;
+}) {
+  return (
+    <header
+      className="flex h-10 w-full items-center gap-3"
+      style={{
+        paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
+        paddingRight: isWindows ? "140px" : "12px",
+      }}
+    >
+      <div className="no-drag [&_p]:!text-md [&_svg]:!h-[18px] [&_svg]:!w-auto flex items-center">
+        <ProductWordmark />
+      </div>
+      <OnboardingDebugNavigation
+        currentIndex={currentIndex}
+        totalSteps={totalSteps}
+        onBack={onBack}
+        onNext={onNext}
+      />
+      <div className="no-drag ml-auto flex items-center gap-1">
+        <Button
+          size="xs"
+          variant="link-muted"
+          className="min-h-8 px-2 text-xs opacity-80 hover:opacity-100"
+          onClick={onOpenSupport}
+        >
+          <Lifebuoy size={12} />
+          Get support
+        </Button>
+        {showSkipSetup && (
+          <Button
+            size="xs"
+            variant="link-muted"
+            className="min-h-8 px-2 text-xs opacity-80 hover:opacity-100"
+            onClick={onSkip}
+          >
+            Skip setup
+            <ArrowRight size={12} weight="bold" />
+          </Button>
+        )}
+      </div>
+    </header>
+  );
+}
+
+export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
+  const [consentSubmitting, setConsentSubmitting] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
+  const completionStartedRef = useRef(false);
   const {
     currentStep,
     currentIndex,
     activeSteps,
     direction,
+    isLastStep,
+    finalActiveStepWasRemoved,
     next,
     back,
-    selectedDirectory,
-    detectedRepo,
-    isDetectingRepo,
-    handleDirectoryChange,
+    consentSatisfied,
+    consentRequirement,
+    currentStepPending,
   } = useOnboardingFlow();
   const completeOnboarding = useOnboardingStore(
     (state) => state.completeOnboarding,
@@ -58,19 +237,44 @@ export function OnboardingFlow() {
     (state) => state.status === "authenticated",
   );
   const { data: githubUserIntegrations = [] } = useUserGithubIntegrations();
-
+  const setLastUsedWorkspaceMode = useSettingsStore(
+    (state) => state.setLastUsedWorkspaceMode,
+  );
+  const apiClient = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client: apiClient });
   const flowStartedAtRef = useRef(Date.now());
   const stepEnteredAtRef = useRef(Date.now());
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fires once on mount; subsequent step views fire from handleNext/handleBack
   useEffect(() => {
     track(ANALYTICS_EVENTS.ONBOARDING_STARTED);
+  }, []);
+
+  // Entry is when the person arrives on the step, which is not always when the
+  // view is recorded: a pending gate delays the view but not the reading.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: currentStep is the trigger, not a value the body reads
+  useEffect(() => {
+    stepEnteredAtRef.current = Date.now();
+  }, [currentStep]);
+
+  const viewedStepRef = useRef<OnboardingStep | null>(null);
+  const recordStepViewed = useCallback(() => {
+    if (currentIndex < 0 || viewedStepRef.current === currentStep) return;
+    viewedStepRef.current = currentStep;
     track(ANALYTICS_EVENTS.ONBOARDING_STEP_VIEWED, {
       step_id: currentStep,
       step_index: currentIndex,
       total_steps: activeSteps.length,
     });
-  }, []);
+  }, [activeSteps.length, currentIndex, currentStep]);
+
+  // The ordinary path: the step settles while the person is reading it. This
+  // also covers a step entered by the self-heal in useOnboardingFlow, which
+  // reaches the person without passing through handleNext.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recordStepViewed reads the same values these deps carry
+  useEffect(() => {
+    if (currentStepPending) return;
+    recordStepViewed();
+  }, [currentStep, currentIndex, currentStepPending, activeSteps.length]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -87,72 +291,97 @@ export function OnboardingFlow() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [currentStep]);
 
-  const trackStepCompleted = (context?: StepCompletedContext) => {
-    track(
-      ANALYTICS_EVENTS.ONBOARDING_STEP_COMPLETED,
-      buildStepCompletedProps({
-        stepId: currentStep,
-        stepIndex: currentIndex,
-        totalSteps: activeSteps.length,
-        stepEnteredAtMs: stepEnteredAtRef.current,
-        nowMs: Date.now(),
-        context,
-      }),
-    );
-  };
+  const trackStepCompleted = useCallback(
+    (context?: StepCompletedContext) => {
+      track(
+        ANALYTICS_EVENTS.ONBOARDING_STEP_COMPLETED,
+        buildStepCompletedProps({
+          stepId: currentStep,
+          stepIndex: currentIndex,
+          totalSteps: activeSteps.length,
+          stepEnteredAtMs: stepEnteredAtRef.current,
+          nowMs: Date.now(),
+          context,
+        }),
+      );
+    },
+    [activeSteps.length, currentIndex, currentStep],
+  );
 
-  const trackStepViewed = (stepIndex: number) => {
-    const stepId = activeSteps[stepIndex];
-    if (!stepId) return;
-    track(ANALYTICS_EVENTS.ONBOARDING_STEP_VIEWED, {
-      step_id: stepId,
-      step_index: stepIndex,
-      total_steps: activeSteps.length,
-    });
-    stepEnteredAtRef.current = Date.now();
-  };
+  const handleComplete = useCallback(
+    (context?: StepCompletedContext, includeStepCompletion = true) => {
+      if (isCompleting || completionStartedRef.current) return;
+      completionStartedRef.current = true;
+      setIsCompleting(true);
+      const githubConnected =
+        context?.github_connected === true || githubUserIntegrations.length > 0;
+      if (includeStepCompletion) {
+        recordStepViewed();
+        trackStepCompleted(context);
+      }
+      track(
+        ANALYTICS_EVENTS.ONBOARDING_COMPLETED,
+        buildCompletedProps({
+          flowStartedAtMs: flowStartedAtRef.current,
+          nowMs: Date.now(),
+          githubConnected,
+        }),
+      );
+      if (githubConnected) {
+        setLastUsedWorkspaceMode("cloud");
+      }
+      shipIt();
+      completeOnboarding();
+      openTaskInput();
+    },
+    [
+      completeOnboarding,
+      githubUserIntegrations.length,
+      isCompleting,
+      recordStepViewed,
+      setLastUsedWorkspaceMode,
+      trackStepCompleted,
+    ],
+  );
 
   const handleNext = (context?: StepCompletedContext) => {
-    trackStepCompleted(context);
-    trackStepViewed(currentIndex + 1);
+    if (
+      currentStep === "consent" &&
+      (consentSatisfied !== true || consentSubmitting)
+    ) {
+      return;
+    }
+    const safeContext =
+      context && "nativeEvent" in context ? undefined : context;
+    if (isLastStep) {
+      handleComplete(safeContext);
+      return;
+    }
+    recordStepViewed();
+    trackStepCompleted(safeContext);
     next();
   };
 
+  useEffect(() => {
+    if (finalActiveStepWasRemoved) {
+      handleComplete(undefined, false);
+    }
+  }, [finalActiveStepWasRemoved, handleComplete]);
+
   const handleBack = () => {
-    trackStepViewed(currentIndex - 1);
+    if (currentStep === "consent" && consentSubmitting) return;
     back();
   };
+
+  const onBack = currentIndex <= 0 ? undefined : handleBack;
 
   useHotkeys("right", () => handleNext(), { enableOnFormTags: false }, [
     handleNext,
   ]);
   useHotkeys("left", handleBack, { enableOnFormTags: false }, [handleBack]);
 
-  const handleComplete = (repoSkipped: boolean) => {
-    if (repoSkipped) {
-      track(ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED, {
-        step_id: currentStep,
-        step_index: currentIndex,
-        reason: "no_repo_selected",
-      });
-    } else {
-      trackStepCompleted();
-    }
-    track(
-      ANALYTICS_EVENTS.ONBOARDING_COMPLETED,
-      buildCompletedProps({
-        flowStartedAtMs: flowStartedAtRef.current,
-        nowMs: Date.now(),
-        githubConnected: githubUserIntegrations.length > 0,
-        repoSkipped,
-      }),
-    );
-    shipIt();
-    completeOnboarding();
-    openTaskInput();
-  };
-
   const handleSkip = () => {
+    if (isCompleting) return;
     track(ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED, {
       step_id: currentStep,
       step_index: currentIndex,
@@ -175,154 +404,101 @@ export function OnboardingFlow() {
     resetOnboarding();
   };
 
-  const footerRight = (
-    <Flex gap="5">
-      {isAuthenticated && (
-        <Button
-          size="1"
-          variant="ghost"
-          color="gray"
-          onClick={handleLogout}
-          className="opacity-50"
-        >
-          <SignOut size={14} />
-          Log out
-        </Button>
-      )}
-      {IS_DEV && (
-        <Button
-          size="1"
-          variant="ghost"
-          color="gray"
-          onClick={handleSkip}
-          className="opacity-50"
-        >
-          <ArrowRight size={14} weight="bold" />
-          Skip setup
-        </Button>
-      )}
-    </Flex>
-  );
-
   return (
-    <FullScreenLayout footerRight={footerRight}>
-      <LayoutGroup>
-        <AnimatePresence mode="wait" custom={direction}>
-          {currentStep === "welcome" && (
-            <motion.div
-              key="welcome"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <WelcomeScreen onNext={handleNext} />
-            </motion.div>
-          )}
+    <FullScreenLayout
+      backgroundPattern="grid"
+      showFooter={false}
+      titleBarContent={
+        <OnboardingHeader
+          currentIndex={currentIndex}
+          totalSteps={activeSteps.length}
+          onBack={back}
+          onNext={next}
+          onOpenSupport={onOpenSupport}
+          onSkip={handleSkip}
+          showSkipSetup={IS_DEV && isAuthenticated}
+        />
+      }
+    >
+      <OnboardingAccount
+        email={currentUser?.email}
+        isAuthenticated={isAuthenticated}
+        isLoggingOut={logoutMutation.isPending}
+        onLogout={handleLogout}
+      />
+      <div className="h-full overflow-y-auto px-8 pt-16">
+        <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col items-center">
+          <div className="w-full">
+            <div aria-hidden="true" className="h-20 shrink-0" />
+            <AnimatePresence mode="wait" custom={direction}>
+              {currentStep === "project-select" && (
+                <motion.div
+                  key="project-select"
+                  custom={direction}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  variants={stepVariants}
+                  transition={{ duration: 0.3 }}
+                  className="w-full"
+                >
+                  <ProjectSelectStep onNext={handleNext} onBack={onBack} />
+                </motion.div>
+              )}
 
-          {currentStep === "project-select" && (
-            <motion.div
-              key="project-select"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <ProjectSelectStep onNext={handleNext} onBack={handleBack} />
-            </motion.div>
-          )}
+              {currentStep === "consent" && (
+                <motion.div
+                  key="consent"
+                  custom={direction}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  variants={stepVariants}
+                  transition={{ duration: 0.3 }}
+                  className="w-full"
+                >
+                  <ConsentStep
+                    onNext={handleNext}
+                    onBack={onBack}
+                    requirements={consentRequirement}
+                    onSubmittingChange={setConsentSubmitting}
+                  />
+                </motion.div>
+              )}
 
-          {currentStep === "invite-code" && (
-            <motion.div
-              key="invite-code"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <InviteCodeStep onNext={handleNext} onBack={handleBack} />
-            </motion.div>
-          )}
+              {currentStep === "connect-github" && (
+                <motion.div
+                  key="connect-github"
+                  custom={direction}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  variants={stepVariants}
+                  transition={{ duration: 0.3 }}
+                  className="w-full"
+                >
+                  <ConnectGitHubStep onNext={handleNext} onBack={onBack} />
+                </motion.div>
+              )}
 
-          {currentStep === "connect-github" && (
-            <motion.div
-              key="connect-github"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <ConnectGitHubStep onNext={handleNext} onBack={handleBack} />
-            </motion.div>
-          )}
-
-          {currentStep === "install-cli" && (
-            <motion.div
-              key="install-cli"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <InstallCliStep onNext={handleNext} onBack={handleBack} />
-            </motion.div>
-          )}
-
-          {currentStep === "import-config" && (
-            <motion.div
-              key="import-config"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <ImportConfigStep onNext={handleNext} onBack={handleBack} />
-            </motion.div>
-          )}
-
-          {currentStep === "select-repo" && (
-            <motion.div
-              key="select-repo"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <SelectRepoStep
-                onComplete={handleComplete}
-                onBack={handleBack}
-                selectedDirectory={selectedDirectory}
-                detectedRepo={detectedRepo}
-                isDetectingRepo={isDetectingRepo}
-                onDirectoryChange={handleDirectoryChange}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <StepIndicator currentStep={currentStep} activeSteps={activeSteps} />
-      </LayoutGroup>
+              {currentStep === "install-cli" && (
+                <motion.div
+                  key="install-cli"
+                  custom={direction}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  variants={stepVariants}
+                  transition={{ duration: 0.3 }}
+                  className="w-full"
+                >
+                  <InstallCliStep onNext={handleNext} onBack={handleBack} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
     </FullScreenLayout>
   );
 }

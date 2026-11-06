@@ -2,9 +2,9 @@ import numpy as np
 from scipy import stats
 
 from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.utils import get_mean, get_sample_size, get_variance
+from products.experiments.stats.shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 
-from ..shared.statistics import AnyStatistic, ProportionStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, QuantileStatistic, StatisticError
 
 
 def calculate_point_estimate(
@@ -28,7 +28,7 @@ def calculate_point_estimate(
         Point estimate value
 
     Raises:
-        StatisticError: If control mean is zero for relative calculations
+        StatisticError: If the baseline mean is zero for relative calculations
     """
     treatment_mean = get_mean(treatment_stat)
     control_mean = get_mean(control_stat)
@@ -39,8 +39,8 @@ def calculate_point_estimate(
     elif difference_type == DifferenceType.RELATIVE:
         denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
         if abs(denominator) < 1e-10:
-            raise StatisticError("Control mean cannot be zero for relative difference calculation")
-        return (treatment_mean - control_mean) / denominator
+            raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
+        return (treatment_mean - control_mean) / abs(denominator)
 
     else:
         raise StatisticError(f"Unknown difference type: {difference_type}")
@@ -84,7 +84,7 @@ def calculate_variance_pooled(
         denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
 
         if abs(denominator) < 1e-10:
-            raise StatisticError("Control mean cannot be zero for relative variance calculation")
+            raise StatisticError("Baseline mean is zero, so the relative variance is undefined")
 
         # Var(Y/X) ≈ Var(Y)/X² + Y²Var(X)/X⁴ - 2Y*Cov(X,Y)/X³
         # Since treatment and control are independent, Cov(X,Y) = 0
@@ -160,17 +160,13 @@ def calculate_p_value(t_statistic: float, degrees_of_freedom: float, test_type: 
     Args:
         t_statistic: Calculated t-statistic
         degrees_of_freedom: Degrees of freedom
-        test_type: Type of test ("two_sided", "greater", "less")
+        test_type: Type of test (only "two_sided" is supported)
 
     Returns:
         P-value
     """
     if test_type == "two_sided":
         return float(2 * (1 - stats.t.cdf(abs(t_statistic), degrees_of_freedom)))
-    elif test_type == "greater":
-        return float(1 - stats.t.cdf(t_statistic, degrees_of_freedom))
-    elif test_type == "less":
-        return float(stats.t.cdf(t_statistic, degrees_of_freedom))
     else:
         raise StatisticError(f"Unknown test type: {test_type}")
 
@@ -228,6 +224,22 @@ def validate_sample_sizes(treatment_stat: AnyStatistic, control_stat: AnyStatist
         raise StatisticError(f"Treatment sample size ({treatment_n}) below minimum ({min_sample_size})")
     if control_n < min_sample_size:
         raise StatisticError(f"Control sample size ({control_n}) below minimum ({min_sample_size})")
+
+
+def validate_quantile_inputs(treatment_stat: AnyStatistic, control_stat: AnyStatistic) -> None:
+    """
+    Run the shared statistic validation when either arm is a QuantileStatistic.
+
+    The variance floor turns a degenerate quantile into a small positive variance, so the
+    frequentist tests would report a result instead of an error. Other statistic types
+    skip this check because the shared validation also rejects proportions near 0 or 1,
+    which the frequentist tests accept.
+
+    Raises:
+        StatisticError: If a quantile statistic fails validation
+    """
+    if isinstance(treatment_stat, QuantileStatistic) or isinstance(control_stat, QuantileStatistic):
+        validate_test_inputs(treatment_stat, control_stat)
 
 
 def sequential_rho(alpha: float, sequential_tuning_parameter: float) -> float:
@@ -348,25 +360,3 @@ def sequential_p_value(
     if log_evalue <= 0:
         return 1.0
     return float(min(np.exp(-log_evalue), 1.0))
-
-
-def check_normal_approximation_validity(statistic: AnyStatistic) -> bool:
-    """
-    Check if normal approximation is valid for the given statistic.
-
-    For proportions: requires np > 5 and n(1-p) > 5
-    For other statistics: requires n >= 30 (rule of thumb)
-
-    Args:
-        statistic: Statistic to check
-
-    Returns:
-        True if normal approximation is likely valid
-    """
-    n = get_sample_size(statistic)
-
-    if isinstance(statistic, ProportionStatistic):
-        p = statistic.proportion
-        return n * p >= 5 and n * (1 - p) >= 5
-    else:
-        return n >= 30

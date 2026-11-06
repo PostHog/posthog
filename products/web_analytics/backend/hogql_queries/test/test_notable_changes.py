@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 from posthog.schema import (
@@ -36,7 +36,7 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_empty_results_without_preaggregated(self):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = self._create_query()
             runner = WebNotableChangesQueryRunner(
                 team=self.team,
@@ -153,7 +153,7 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = self._create_query(limit=50)
             runner = WebNotableChangesQueryRunner(
                 team=self.team,

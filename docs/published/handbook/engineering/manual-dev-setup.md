@@ -126,7 +126,7 @@ On Linux you often have separate packages: `postgres` for the tools, `postgres-s
 
 2. Install the Node.js version pinned in `.nvmrc` (the version used by PostHog in production) with `nvm install` (run from the repo root — nvm reads `.nvmrc`). Activate it in the current shell with `nvm use`.
 
-3. Install pnpm by running `corepack enable`. Corepack will activate the version pinned in the root `package.json`'s `packageManager` field on the next `pnpm` invocation. Validate with `pnpm --version`.
+3. Install pnpm by running `npm install -g corepack@0.36.0 && corepack enable`. Node.js 25 and later no longer bundle corepack. Corepack will activate the version pinned in the root `package.json`'s `packageManager` field on the next `pnpm` invocation. Validate with `pnpm --version`.
 
 4. Install Node packages by running `pnpm i`.
 
@@ -199,18 +199,18 @@ pnpm i
      sudo apt install -y libxml2 libxmlsec1-dev libffi-dev pkg-config
      ```
 
-1. Install Python 3.13.
-   - On macOS, you can do so with Homebrew: `brew install python@3.13`.
+1. Install Python 3.14.
+   - On macOS, you can do so with Homebrew: `brew install python@3.14`.
 
    - On Debian-based Linux:
 
      ```bash
      sudo add-apt-repository ppa:deadsnakes/ppa -y
      sudo apt update
-     sudo apt install python3.13 python3.13-venv python3.13-dev -y
+     sudo apt install python3.14 python3.14-venv python3.14-dev -y
      ```
 
-Make sure when outside the venv to always use `python3` instead of `python`, as the latter may point to Python 2.x on some systems. If installing multiple versions of Python 3, such as by using the `deadsnakes` PPA, use `python3.13` instead of `python3`.
+Make sure when outside the venv to always use `python3` instead of `python`, as the latter may point to Python 2.x on some systems. If installing multiple versions of Python 3, such as by using the `deadsnakes` PPA, use `python3.14` instead of `python3`.
 
 You can also use [pyenv](https://github.com/pyenv/pyenv) if you wish to manage multiple versions of Python 3 on the same machine.
 
@@ -242,7 +242,7 @@ You can also use [pyenv](https://github.com/pyenv/pyenv) if you wish to manage m
 
    ```bash
    brew install openssl
-   CFLAGS="-I /opt/homebrew/opt/openssl/include $(python3.13-config --includes)" LDFLAGS="-L /opt/homebrew/opt/openssl/lib" GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 GRPC_PYTHON_BUILD_SYSTEM_ZLIB=1 uv sync
+   CFLAGS="-I /opt/homebrew/opt/openssl/include $(python3.14-config --includes)" LDFLAGS="-L /opt/homebrew/opt/openssl/lib" GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 GRPC_PYTHON_BUILD_SYSTEM_ZLIB=1 uv sync
    ```
 
    > **Friendly tip:** If you see `ERROR: Could not build wheels for xmlsec`, refer to this [issue](https://github.com/xmlsec/python-xmlsec/issues/254).

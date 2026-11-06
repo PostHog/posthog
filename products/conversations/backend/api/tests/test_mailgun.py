@@ -6,6 +6,7 @@ import requests
 from products.conversations.backend.mailgun import (
     MailgunDomainConflict,
     MailgunDomainNotRegistered,
+    MailgunError,
     MailgunNotConfigured,
     MailgunPermanentError,
     MailgunTransientError,
@@ -29,8 +30,11 @@ class TestAddDomain:
     def test_already_exists_raises_instead_of_adopting(self, mock_post: MagicMock, _mock_key: MagicMock):
         mock_post.return_value = _mailgun_response(400, {"message": "domain example.com already exists"})
 
-        with pytest.raises(MailgunDomainConflict, match="already exists"):
+        with pytest.raises(MailgunDomainConflict, match="already exists") as error:
             add_domain("example.com")
+
+        assert error.value.provider_message == "domain example.com already exists"
+        assert error.value.status_code == 400
 
     def test_already_taken_still_raises(self, mock_post: MagicMock, _mock_key: MagicMock):
         mock_post.return_value = _mailgun_response(
@@ -86,12 +90,11 @@ class TestGetDomain:
         assert get_domain("example.com") is None
 
     @pytest.mark.parametrize("body", [{}, {"domain": {}}, {"domain": None}])
-    def test_returns_none_when_payload_has_no_domain_object(
-        self, mock_get: MagicMock, _mock_key: MagicMock, body: dict
-    ):
+    def test_raises_when_payload_has_no_domain_object(self, mock_get: MagicMock, _mock_key: MagicMock, body: dict):
         mock_get.return_value = _mailgun_response(200, body)
 
-        assert get_domain("example.com") is None
+        with pytest.raises(MailgunError, match="no domain data"):
+            get_domain("example.com")
 
 
 @patch("products.conversations.backend.mailgun.get_instance_setting", return_value="")

@@ -17,6 +17,8 @@ export default meta
 
 type Story = StoryObj<typeof LinkedReportsSection>
 
+const noop = (): void => {}
+
 function makeReport(overrides: Partial<SignalReportApi> = {}): SignalReportApi {
     return {
         id: '019f9582-93e7-77c1-8912-4f541d70cb13',
@@ -42,7 +44,7 @@ function Pane({ children }: { children: React.ReactNode }): JSX.Element {
 export const FixProposed: Story = {
     render: () => (
         <Pane>
-            <LinkedReportsSection reports={[makeReport()]} />
+            <LinkedReportsSection reports={[makeReport()]} open onToggle={noop} />
         </Pane>
     ),
 }
@@ -51,6 +53,8 @@ export const SeveralReportsAcrossStates: Story = {
     render: () => (
         <Pane>
             <LinkedReportsSection
+                open
+                onToggle={noop}
                 reports={[
                     makeReport(),
                     makeReport({
@@ -76,11 +80,52 @@ export const SeveralReportsAcrossStates: Story = {
     ),
 }
 
+/**
+ * More reports than the pane has room for. The section stops at half the pane and scrolls, so the
+ * exception card below it keeps the other half.
+ */
+export const ManyReports: Story = {
+    render: () => (
+        // Two boxes, because the cap is a percentage and only resolves against a parent that has a
+        // height. The outer box stands in for the scene, the inner one for the pane, which takes its
+        // height from the scene rather than declaring one.
+        <div className="w-[700px] h-[400px] flex flex-col">
+            <div className="flex flex-col flex-1 min-h-0">
+                <LinkedReportsSection
+                    open
+                    onToggle={noop}
+                    reports={Array.from({ length: 12 }, (_, index) =>
+                        makeReport({
+                            id: `019f9582-93e7-77c1-8912-4f541d70cb${String(index).padStart(2, '0')}`,
+                            title: `fix(replay): guard against a missing snapshot index (${index + 1})`,
+                        })
+                    )}
+                />
+                <div className="flex-1 min-h-0 border-t bg-surface-secondary px-2 py-1 text-xs text-muted">
+                    The exception card sits here
+                </div>
+            </div>
+        </div>
+    ),
+}
+
 /** The narrowest the pane gets, where the title and the fix state compete for width. */
 export const NarrowPane: Story = {
     render: () => (
         <div className="w-[375px]">
-            <LinkedReportsSection reports={[makeReport()]} />
+            <LinkedReportsSection reports={[makeReport()]} open onToggle={noop} />
         </div>
+    ),
+}
+
+export const Closed: Story = {
+    render: () => (
+        <Pane>
+            <LinkedReportsSection
+                reports={[makeReport(), makeReport({ id: '019f954a-8ed0-7a18-a198-3ffed1a2def0' })]}
+                open={false}
+                onToggle={noop}
+            />
+        </Pane>
     ),
 }

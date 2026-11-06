@@ -1,26 +1,21 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import {
-    AvailableFeature,
-    SurveyAppearance,
-    SurveyPosition,
-    SurveyQuestionBranchingType,
-    SurveyQuestionType,
-} from '~/types'
+import { AvailableFeature, SurveyAppearance, SurveyPosition, SurveyQuestionType } from '~/types'
 
 import {
+    INTRO_SCREEN_PAGE_INDEX,
     NewSurvey,
     SurveyTheme,
     WEB_SAFE_FONTS,
@@ -30,10 +25,11 @@ import {
 import { SurveyBehaviorOptions } from '../../survey-appearance/SurveyBehaviorOptions'
 import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 import { surveyLogic } from '../../surveyLogic'
+import { getNextPreviewPageIndex } from '../../surveyPreviewNavigation'
 import { surveysLogic } from '../../surveysLogic'
+import { getFirstPreviewPageIndex } from '../../utils'
 import { ColorInput } from '../ColorInput'
 import { SurveyThemeSelector } from '../SurveyThemeSelector'
-import { WizardSection } from '../WizardLayout'
 
 export function AppearanceStep(): JSX.Element {
     const { survey, hasBranchingLogic } = useValues(surveyLogic)
@@ -73,12 +69,13 @@ export function AppearanceStep(): JSX.Element {
     } as NewSurvey
 
     const totalPreviewPages = survey.questions.length + (appearance.displayThankYouMessage ? 1 : 0)
+    const minPreviewIndex = getFirstPreviewPageIndex(survey)
 
     return (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
             {/* Left: Controls */}
             <div className="space-y-3.5 lg:col-span-2">
-                <WizardSection
+                <GuidedWizardSection
                     title="How should it look?"
                     description="Customize colors and styling. You can use CSS variables (e.g. var(--brand-color)) for dynamic theming."
                     descriptionClassName="text-sm"
@@ -86,7 +83,7 @@ export function AppearanceStep(): JSX.Element {
 
                 {/* Paywall */}
                 {!surveysStylingAvailable && (
-                    <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
+                    <PayGateMini feature={AvailableFeature.SURVEYS_STYLING} featureDetail="survey-appearance-wizard">
                         <></>
                     </PayGateMini>
                 )}
@@ -99,7 +96,7 @@ export function AppearanceStep(): JSX.Element {
                 />
 
                 {/* Color customization */}
-                <WizardSection title="Fine-tune colors" titleClassName="text-sm font-medium">
+                <GuidedWizardSection title="Fine-tune colors" titleClassName="text-sm font-medium">
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                         <LemonField.Pure label="Background" className="gap-1">
                             <ColorInput
@@ -155,7 +152,7 @@ export function AppearanceStep(): JSX.Element {
                             </>
                         )}
                     </div>
-                </WizardSection>
+                </GuidedWizardSection>
 
                 {/* Branding */}
                 <LemonCheckbox
@@ -173,15 +170,14 @@ export function AppearanceStep(): JSX.Element {
                 />
 
                 {/* Question behavior */}
-                <WizardSection title="Behavior" titleClassName="text-sm font-medium">
+                <GuidedWizardSection title="Behavior" titleClassName="text-sm font-medium">
                     <SurveyBehaviorOptions
                         survey={survey}
                         onAppearanceChange={onAppearanceChange}
                         hasBranchingLogic={hasBranchingLogic}
                         deleteBranchingLogic={deleteBranchingLogic}
-                        onTranslationsChange={(translations) => setSurveyValue('translations', translations)}
                     />
-                </WizardSection>
+                </GuidedWizardSection>
 
                 {/* Advanced options */}
                 <LemonCollapse
@@ -272,31 +268,30 @@ export function AppearanceStep(): JSX.Element {
                             survey={previewSurvey}
                             previewPageIndex={previewPageIndex}
                             onPreviewSubmit={(response) => {
-                                const next = getNextSurveyStep(previewSurvey, previewPageIndex, response)
-                                if (next === SurveyQuestionBranchingType.End && !appearance.displayThankYouMessage) {
-                                    return
+                                const nextPageIndex = getNextPreviewPageIndex(previewSurvey, previewPageIndex, response)
+                                if (nextPageIndex !== null) {
+                                    setPreviewPageIndex(nextPageIndex)
                                 }
-                                setPreviewPageIndex(
-                                    next === SurveyQuestionBranchingType.End ? survey.questions.length : next
-                                )
                             }}
                         />
                     </div>
 
                     {/* Preview navigation */}
-                    {totalPreviewPages > 1 && (
+                    {(totalPreviewPages > 1 || appearance.displayIntroScreen) && (
                         <div className="flex items-center justify-center gap-2">
                             <LemonButton
                                 type="secondary"
                                 size="small"
                                 icon={<IconChevronLeft />}
-                                onClick={() => setPreviewPageIndex(Math.max(0, previewPageIndex - 1))}
-                                disabledReason={previewPageIndex === 0 ? 'First question' : undefined}
+                                onClick={() => setPreviewPageIndex(Math.max(minPreviewIndex, previewPageIndex - 1))}
+                                disabledReason={previewPageIndex <= minPreviewIndex ? 'First screen' : undefined}
                             />
                             <span className="text-muted text-sm min-w-[80px] text-center">
-                                {previewPageIndex < survey.questions.length
-                                    ? `${previewPageIndex + 1} of ${survey.questions.length}`
-                                    : 'Thank you'}
+                                {previewPageIndex === INTRO_SCREEN_PAGE_INDEX
+                                    ? 'Intro'
+                                    : previewPageIndex < survey.questions.length
+                                      ? `${previewPageIndex + 1} of ${survey.questions.length}`
+                                      : 'Thank you'}
                             </span>
                             <LemonButton
                                 type="secondary"

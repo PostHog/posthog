@@ -26,12 +26,20 @@ export function initializePrometheusLabels(
 }
 
 export interface SetupExpressAppOptions {
+    // Path prefixes exempt from the shared-secret middleware. Used by servers that own auth on those
+    // paths themselves, such as recording-api verifying a team-scoped JWT across the whole prefix.
+    internalApiAuthExcludedPathPrefixes?: string[]
     internalApiSecret?: string
     // Comma-separated previous secrets still accepted for verification during rotation.
     internalApiSecretFallbacks?: string
     // JSON body size limit, e.g. '20mb'. Overridable in tests.
     jsonBodyLimit?: string
+    // Path prefixes that only serve reads. Other methods get a 405 before the body parser buffers anything, so an
+    // unauthenticated caller cannot make the server parse a large body for a route that never reads one.
+    readOnlyPathPrefixes?: string[]
 }
+
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 export function setupCommonRoutes(
     app: express.Application,
@@ -63,8 +71,21 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
                 .split(',')
                 .map((s) => s.trim())
                 .filter(Boolean),
+            excludedPathPrefixes: options.internalApiAuthExcludedPathPrefixes,
         })
     )
+
+    const readOnlyPathPrefixes = options.readOnlyPathPrefixes ?? []
+    if (readOnlyPathPrefixes.length > 0) {
+        app.use((req: Request, res: Response, next: NextFunction) => {
+            if (!READ_METHODS.has(req.method) && readOnlyPathPrefixes.some((prefix) => req.path.startsWith(prefix))) {
+                res.set('Allow', 'GET, HEAD, OPTIONS')
+                res.status(405).json({ error: 'Method not allowed' })
+                return
+            }
+            next()
+        })
+    }
 
     app.use(
         express.json({

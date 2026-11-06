@@ -36,7 +36,9 @@ import structlog
 
 from posthog.hogql import ast
 
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import (
@@ -57,7 +59,7 @@ from products.engineering_analytics.backend.logic.queries import _curated
 from products.engineering_analytics.backend.logic.sources import list_github_sources
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +67,7 @@ QUARANTINE_FILENAME = ".test_quarantine.json"
 
 _SCHEMA_VERSION = 1
 _DEFAULT_RUNNER = "pytest"
-# Matches DEFAULT_GRACE_DAYS in the quarantine contract: an expired entry stays
+# Matches GRACE_DAYS in the quarantine contract: an expired entry stays
 # inert for this long before `quarantine check` makes its removal mandatory.
 _GRACE_DAYS = 7
 _EXPIRING_SOON_DAYS = 7
@@ -509,10 +511,10 @@ def _resolve_write_target(
             "connect it as a GitHub source to quarantine there."
         )
 
-    integration_row = Integration.objects.filter(team=team, kind="github").first()
+    integration_row = IntegrationManager.github.oauth.find(team.id)
     if integration_row is None:
         raise QuarantineWriteError("Connect a GitHub integration with write access to quarantine tests from here.")
-    github = GitHubIntegration(integration_row)
+    github = GitHubIntegration(integration_row, source="ci_quarantine", priority=Priority.CRITICAL)
     installed_org = github.organization()
     if installed_org.lower() != owner.lower():
         raise QuarantineWriteError(

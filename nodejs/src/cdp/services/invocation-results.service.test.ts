@@ -1,6 +1,8 @@
 import { CyclotronJobInvocationResult } from '../types'
 import { CapturedEventsService } from './captured-events/captured-events.service'
+import { ConversionWatchersService } from './conversion-watchers/conversion-watchers.service'
 import { InvocationResultsService } from './invocation-results.service'
+import { EmailStatusService } from './messaging/email-status.service'
 import { MessageAssetsService } from './messaging/message-assets.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
@@ -12,6 +14,8 @@ describe('InvocationResultsService', () => {
     let warehouseWebhooksService: jest.Mocked<WarehouseWebhooksService>
     let capturedEventsService: jest.Mocked<CapturedEventsService>
     let messageAssetsService: jest.Mocked<MessageAssetsService>
+    let conversionWatchersService: jest.Mocked<ConversionWatchersService>
+    let emailStatusService: jest.Mocked<EmailStatusService>
     let service: InvocationResultsService
 
     const results = [
@@ -45,12 +49,24 @@ describe('InvocationResultsService', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<MessageAssetsService>
 
+        conversionWatchersService = {
+            queueInvocationResults: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<ConversionWatchersService>
+
+        emailStatusService = {
+            queueInvocationResults: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<EmailStatusService>
+
         service = new InvocationResultsService(
             monitoringService,
             invocationResultsRowsService,
             warehouseWebhooksService,
             capturedEventsService,
-            messageAssetsService
+            messageAssetsService,
+            conversionWatchersService,
+            emailStatusService
         )
     })
 
@@ -68,6 +84,8 @@ describe('InvocationResultsService', () => {
             expect(capturedEventsService.queueInvocationResults).toHaveBeenCalledWith(results)
             expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledTimes(1)
             expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledWith(results)
+            expect(emailStatusService.queueInvocationResults).toHaveBeenCalledTimes(1)
+            expect(emailStatusService.queueInvocationResults).toHaveBeenCalledWith(results)
         })
 
         it('awaits the captured-events service (which is async)', async () => {
@@ -106,6 +124,7 @@ describe('InvocationResultsService', () => {
             expect(warehouseWebhooksService.flush).toHaveBeenCalledTimes(1)
             expect(capturedEventsService.flush).toHaveBeenCalledTimes(1)
             expect(messageAssetsService.flush).toHaveBeenCalledTimes(1)
+            expect(emailStatusService.flush).toHaveBeenCalledTimes(1)
         })
 
         it('flushes all in parallel (all start before any finish)', async () => {

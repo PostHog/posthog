@@ -37,14 +37,13 @@ import {
     LemonLabel,
     LemonMenu,
     LemonSelect,
-    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { cohortFilterName, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -71,21 +70,31 @@ import {
 } from '~/types'
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
+import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
+import { BlastRadiusSkeleton } from './BlastRadiusSkeleton'
+import {
+    CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP,
+    EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON,
+    MATCHING_ESTIMATE_TOOLTIP,
+} from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
 import { FeatureFlagLogicProps } from './featureFlagLogic'
 import {
+    BlastRadiusError,
     FeatureFlagReleaseConditionsLogicProps,
     FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
+    isBlastRadiusErrorRetryable,
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
@@ -98,6 +107,12 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     evaluationRuntime?: FeatureFlagEvaluationRuntime
     /** When true, hides the "Match by" User/Group selector. Use when the aggregation type is inherited from the parent flag. */
     hideMatchOptions?: boolean
+    /**
+     * When true, group targeting is disabled per condition set. Early access feature enrollment is
+     * held in the `$feature_enrollment/<key>` person property, which a group-aggregated condition
+     * cannot read, so the API rejects the save.
+     */
+    hasEarlyAccessFeatures?: boolean
     /** When true, hides the early exit toggle. Use in contexts where early_exit cannot be persisted (e.g. default release conditions). */
     hideEarlyExit?: boolean
 }
@@ -154,7 +169,7 @@ function summarizeProperties(
 
         let value: string | number
         if (property.type === PropertyFilterType.Cohort) {
-            value = property.cohort_name || `ID ${property.value}`
+            value = cohortFilterName(property)
         } else if (Array.isArray(property.value)) {
             const displayValues = property.value.map(resolveValue)
             value = displayValues.slice(0, 2).join(', ') + (displayValues.length > 2 ? '...' : '')
@@ -336,7 +351,7 @@ interface ConditionProps {
     totalGroups: number
     affectedCounts: Record<string, number | undefined>
     totalCounts: Record<string, number | undefined>
-    blastRadiusErrors: Record<string, boolean>
+    blastRadiusErrors: Record<string, BlastRadiusError | undefined>
     calculateBlastRadiusForCondition: (
         sortKey: string,
         properties: AnyPropertyFilter[] | undefined,
@@ -348,6 +363,7 @@ interface ConditionProps {
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
+    hasEarlyAccessFeatures?: boolean
     isDeviceTargeting: boolean
     onMoveUp: () => void
     onMoveDown: () => void
@@ -421,6 +437,7 @@ const ConditionContent = ({
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
+    hasEarlyAccessFeatures,
     isDeviceTargeting,
     onMoveUp,
     onMoveDown,
@@ -497,13 +514,12 @@ const ConditionContent = ({
     }
 
     const resolvedTargetName = aggregationTargetName(group.aggregation_group_type_index)
-    const resolvedSingularTargetName = aggregationLabel(
-        resolveAggregationGroupTypeIndex(
-            group.aggregation_group_type_index,
-            releaseFilters.aggregation_group_type_index
-        ),
-        true
-    ).singular
+    const resolvedGroupTypeIndex = resolveAggregationGroupTypeIndex(
+        group.aggregation_group_type_index,
+        releaseFilters.aggregation_group_type_index
+    )
+    const resolvedSingularTargetName = aggregationLabel(resolvedGroupTypeIndex, true).singular
+    const blastRadiusError = group.sort_key ? blastRadiusErrors[group.sort_key] : undefined
 
     return (
         <div
@@ -613,6 +629,9 @@ const ConditionContent = ({
                                                                     gt.group_type.slice(1) +
                                                                     's',
                                                             icon: <IconPeople />,
+                                                            disabledReason: hasEarlyAccessFeatures
+                                                                ? EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON
+                                                                : undefined,
                                                         })),
                                                     },
                                                 ]}
@@ -626,6 +645,7 @@ const ConditionContent = ({
                                             pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
                                             propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                             logicalRowDivider
+                                            logicalRowDividerTooltip={CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP}
                                             addText="Add filter"
                                             onChange={(properties) => {
                                                 updateConditionSet(index, undefined, properties)
@@ -635,8 +655,10 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
+                                            sendAllKeyUpdates
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                            showCohortFlagTargeting
                                         />
                                     </div>
 
@@ -675,30 +697,32 @@ const ConditionContent = ({
                                                 data-attr="rollout-percentage"
                                             />
                                         </div>
-                                        {group.sort_key && blastRadiusErrors[group.sort_key] ? (
+                                        {blastRadiusError ? (
                                             <div
                                                 role="status"
-                                                className="text-xs text-muted mt-2 flex items-center gap-2"
+                                                className="text-xs text-muted mt-2 flex items-start gap-2 min-h-[calc(3lh_+_0.25rem)]"
                                             >
-                                                <IconErrorOutline className="text-danger text-sm shrink-0" />
-                                                <span>Couldn't estimate how many {resolvedTargetName} match.</span>
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="xsmall"
-                                                    onClick={() =>
-                                                        group.sort_key &&
-                                                        calculateBlastRadiusForCondition(
-                                                            group.sort_key,
-                                                            group.properties,
-                                                            resolveAggregationGroupTypeIndex(
-                                                                group.aggregation_group_type_index,
-                                                                releaseFilters.aggregation_group_type_index
+                                                <IconErrorOutline className="text-danger text-sm shrink-0 mt-0.5" />
+                                                <BlastRadiusErrorMessage
+                                                    error={blastRadiusError}
+                                                    pluralName={resolvedTargetName}
+                                                />
+                                                {isBlastRadiusErrorRetryable(blastRadiusError) && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="xsmall"
+                                                        onClick={() =>
+                                                            group.sort_key &&
+                                                            calculateBlastRadiusForCondition(
+                                                                group.sort_key,
+                                                                group.properties,
+                                                                resolvedGroupTypeIndex
                                                             )
-                                                        )
-                                                    }
-                                                >
-                                                    Retry
-                                                </LemonButton>
+                                                        }
+                                                    >
+                                                        Retry
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                         ) : group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
                                             <div className="text-xs text-muted mt-2">
@@ -732,10 +756,7 @@ const ConditionContent = ({
                                                                         resolvedTargetName
                                                                     )}
                                                                 </b>
-                                                                {resolveAggregationGroupTypeIndex(
-                                                                    group.aggregation_group_type_index,
-                                                                    releaseFilters.aggregation_group_type_index
-                                                                ) == null && (
+                                                                {resolvedGroupTypeIndex == null && (
                                                                     <Tooltip
                                                                         title={MATCHING_ESTIMATE_TOOLTIP}
                                                                         interactive
@@ -756,14 +777,18 @@ const ConditionContent = ({
                                                                 </b>{' '}
                                                                 - <b className="tabular-nums">{rolloutPct}%</b>
                                                             </span>
+                                                            <MatchingActorsLink
+                                                                properties={group.properties}
+                                                                resolvedGroupTypeIndex={resolvedGroupTypeIndex}
+                                                                targetName={resolvedTargetName}
+                                                            />
                                                         </div>
                                                     )
                                                 })()}
                                             </div>
                                         ) : (
-                                            <div className="text-xs text-muted mt-2 flex items-center gap-1">
-                                                <Spinner className="text-sm" /> Calculating affected{' '}
-                                                {resolvedTargetName}…
+                                            <div className="text-xs text-muted mt-2">
+                                                <BlastRadiusSkeleton targetName={resolvedTargetName} />
                                             </div>
                                         )}
                                     </div>
@@ -862,6 +887,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     evaluationRuntime,
     hideMatchOptions,
     hideEarlyExit,
+    hasEarlyAccessFeatures,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -1110,6 +1136,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
+            <FractionalRolloutWarning filterGroups={filterGroups} />
+
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 
             {!hideMatchOptions && matchByOptions.length > 1 && (
@@ -1284,6 +1312,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                                 groupTypes={groupTypes}
                                                 setConditionAggregation={setConditionAggregation}
+                                                hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                                 isDeviceTargeting={isDeviceTargeting}
                                                 onMoveUp={() => moveConditionSetUp(index)}
                                                 onMoveDown={() => moveConditionSetDown(index)}
@@ -1364,6 +1393,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
+                                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                         isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
@@ -1418,6 +1448,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
+                                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                         isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
@@ -1454,6 +1485,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}
+                                hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                 isDeviceTargeting={isDeviceTargeting}
                                 onMoveUp={() => moveConditionSetUp(index)}
                                 onMoveDown={() => moveConditionSetDown(index)}

@@ -1,19 +1,23 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import React from 'react'
+import React, { useCallback } from 'react'
 
-import { LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
@@ -31,6 +35,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
@@ -48,9 +53,14 @@ import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
 import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyState'
 import { useSortableColumns } from './hooks/useSortableColumns'
+import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { toFullPageListParams } from './redesign/trace/adapter/toBackLink'
+import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
+import { withoutTraceDrawerParams } from './redesign/trace/traceDrawerRows'
+import { useTraceDrawerRows } from './redesign/trace/TraceDrawerRowsHost'
+import { TraceListRow } from './redesign/trace/traceListRows'
 import { AIObservabilitySelfDriving } from './selfDriving/AIObservabilitySelfDriving'
-import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
 import { getDefaultGenerationsColumns, aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
@@ -61,7 +71,7 @@ import { aiObservabilityToolsLogic } from './tabs/aiObservabilityToolsLogic'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { aiObservabilityUsersLogic } from './tabs/aiObservabilityUsersLogic'
 import { AIObservabilityHumanReviews } from './traceReviews/AIObservabilityHumanReviews'
-import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
+import { getTraceTimestamp, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: AIObservabilityScene,
@@ -78,7 +88,8 @@ const SENTIMENT_DATE_OPTIONS = dateMapping.filter(({ values }) =>
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
     const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab } =
         useValues(aiObservabilitySharedLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(aiObservabilitySharedLogic)
+    const { setDashboardDates, setDates, setShouldFilterTestAccounts, setPropertyFilters } =
+        useActions(aiObservabilitySharedLogic)
     const { generationsQuery } = useValues(aiObservabilityGenerationsLogic)
     const { selectedDashboardId } = useValues(aiObservabilityDashboardLogic)
 
@@ -90,7 +101,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
             <DateFilter
                 dateFrom={dateFrom}
                 dateTo={dateTo}
-                onChange={setDates}
+                onChange={activeTab === 'dashboard' ? setDashboardDates : setDates}
                 dateOptions={activeTab === 'sentiment' ? SENTIMENT_DATE_OPTIONS : undefined}
                 showRollingRangePicker={activeTab !== 'sentiment'}
                 showCustomRangeOptions={activeTab !== 'sentiment'}
@@ -110,9 +121,17 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                     resourceType={AccessControlResourceType.LlmAnalytics}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
-                        Edit dashboard
-                    </LemonButton>
+                    <Shortcut
+                        name="AIObservabilityEditDashboard"
+                        scope={Scene.AIObservability}
+                        keybind={[keyBinds.edit]}
+                        intent="Edit dashboard"
+                        interaction="click"
+                    >
+                        <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                            Edit dashboard
+                        </LemonButton>
+                    </Shortcut>
                 </AccessControlAction>
             )}
             {activeTab !== 'sentiment' && <AIObservabilityReloadAction />}
@@ -121,7 +140,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
 }
 
 function AIObservabilityDashboard(): JSX.Element {
-    const { dashboardDateFilter, propertyFilters } = useValues(aiObservabilitySharedLogic)
+    const { dashboardExternalDateFilters, propertyFilters } = useValues(aiObservabilitySharedLogic)
     const { selectedDashboardId, availableDashboardsLoading } = useValues(aiObservabilityDashboardLogic)
 
     const dashboardLogicInstance = React.useMemo(
@@ -144,17 +163,16 @@ function AIObservabilityDashboard(): JSX.Element {
 
     const nextExternalFilters = React.useMemo(
         () => ({
-            date_from: dashboardDateFilter.dateFrom,
-            date_to: dashboardDateFilter.dateTo,
+            ...dashboardExternalDateFilters,
             properties: propertyFilters.length > 0 ? propertyFilters : null,
         }),
-        [dashboardDateFilter.dateFrom, dashboardDateFilter.dateTo, propertyFilters]
+        [dashboardExternalDateFilters, propertyFilters]
     )
 
     const currentExternalFilters = React.useMemo(
         () => ({
-            date_from: externalFilters?.date_from ?? null,
-            date_to: externalFilters?.date_to ?? null,
+            date_from: externalFilters?.date_from,
+            date_to: externalFilters?.date_to,
             properties: externalFilters?.properties ?? null,
         }),
         [externalFilters?.date_from, externalFilters?.date_to, externalFilters?.properties]
@@ -171,6 +189,8 @@ function AIObservabilityDashboard(): JSX.Element {
         <div className="@container/dashboard" data-attr="llm-analytics-costs">
             <Filters />
 
+            <InstrumentationChecklistCard />
+
             {availableDashboardsLoading || !selectedDashboardId ? (
                 <div className="text-center p-8">
                     <Spinner captureTime />
@@ -186,10 +206,67 @@ function AIObservabilityDashboard(): JSX.Element {
     )
 }
 
-function AIObservabilityGenerations(): JSX.Element {
+const GENERATIONS_LIST_ID = 'generations'
+const GENERATIONS_DATA_NODE_KEY = 'llm-analytics-generations'
+const GENERATION_LINKS = '[data-attr="generation-id-link"], [data-attr="generation-trace-link"]'
+
+interface GenerationRowIds {
+    uuid: string
+    traceId: string
+    traceTimestamp?: string
+}
+
+function useGenerationRowIds(): (result: unknown) => GenerationRowIds | null {
+    const { generationsQuery } = useValues(aiObservabilityGenerationsLogic)
+
+    return useCallback(
+        (result: unknown): GenerationRowIds | null =>
+            isEventsQuery(generationsQuery.source)
+                ? toGenerationRowIds(result, generationsQuery.source.select || getDefaultGenerationsColumns())
+                : null,
+        [generationsQuery.source]
+    )
+}
+
+// The data table uses a column's `render` as a component type, so an inline render remounts every cell on each render
+// of the scene, and a focused link in the cell loses focus.
+function GenerationIdCell({ record, value }: { record: unknown; value: unknown }): JSX.Element | null {
+    const { searchParams } = useValues(router)
+    const getRowIds = useGenerationRowIds()
+
+    if (!value || typeof value !== 'string') {
+        return null
+    }
+
+    const ids = getRowIds(record)
+    const visualValue = truncateValue(value)
+
+    return !ids ? (
+        <strong>{visualValue}</strong>
+    ) : (
+        <strong>
+            <Tooltip title={value}>
+                <Link
+                    to={
+                        combineUrl(urls.aiObservabilityTrace(ids.traceId), {
+                            ...toFullPageListParams(searchParams),
+                            event: value,
+                            timestamp: ids.traceTimestamp,
+                            back_to: 'generations',
+                        }).url
+                    }
+                    data-attr="generation-id-link"
+                >
+                    {visualValue}
+                </Link>
+            </Tooltip>
+        </strong>
+    )
+}
+
+export function AIObservabilityGenerations(): JSX.Element {
     const { applyUrlState } = useActions(aiObservabilitySharedLogic)
     const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(aiObservabilitySharedLogic)
-    const { searchParams } = useValues(router)
     const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } = useActions(
         aiObservabilityGenerationsLogic
     )
@@ -200,207 +277,199 @@ function AIObservabilityGenerations(): JSX.Element {
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
 
     // Helper to safely extract uuid and traceId from a result row based on current column configuration
-    const getRowIds = (result: unknown): { uuid: string; traceId: string; traceTimestamp?: string } | null => {
-        if (!Array.isArray(result) || !isEventsQuery(generationsQuery.source)) {
-            return null
-        }
+    const getRowIds = useGenerationRowIds()
+    const toDrawerRow = useCallback(
+        (result: unknown): TraceListRow | null => {
+            const ids = getRowIds(result)
+            return ids && { traceId: ids.traceId, timestamp: ids.traceTimestamp ?? null, stepId: ids.uuid }
+        },
+        [getRowIds]
+    )
+    const { rowProps: toDrawerRowProps } = useTraceDrawerRows(GENERATIONS_LIST_ID, GENERATION_LINKS)
+    const rowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
+        (record) => {
+            const result = typeof record === 'object' && record && 'result' in record ? record.result : null
+            return toDrawerRowProps(toDrawerRow(result))
+        },
+        [toDrawerRow, toDrawerRowProps]
+    )
 
-        const columns = generationsQuery.source.select || getDefaultGenerationsColumns()
+    return (
+        <>
+            <DataTable
+                attachTo={aiObservabilitySharedLogic}
+                query={{
+                    ...generationsQuery,
+                    showSavedFilters: true,
+                    defaultColumns: getDefaultGenerationsColumns(),
+                }}
+                setQuery={(query) => {
+                    if (!isEventsQuery(query.source)) {
+                        throw new Error('Invalid query')
+                    }
+                    applyUrlState(
+                        buildApplyUrlStatePayload({
+                            dateFrom: query.source.after || null,
+                            dateTo: query.source.before || null,
+                            shouldFilterTestAccounts: query.source.filterTestAccounts || false,
+                            propertyFilters: query.source.properties || [],
+                            currentDateFilter: dateFilter,
+                            currentPropertyFilters,
+                        })
+                    )
 
-        const uuidIndex = columns.findIndex((col) => col === 'uuid')
-        const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
-        const timestampIndex = columns.findIndex((col) => col === 'timestamp')
+                    if (query.source.select) {
+                        setGenerationsColumns(query.source.select)
+                    }
+                }}
+                context={{
+                    dataNodeLogicKey: GENERATIONS_DATA_NODE_KEY,
+                    rowProps,
+                    emptyStateHeading: 'There were no generations in this period',
+                    emptyStateDetail: 'Try changing the date range or filters.',
+                    columns: {
+                        uuid: {
+                            title: 'ID',
+                            render: GenerationIdCell,
+                        },
+                        'properties.$ai_input[-1]': {
+                            ...aiObservabilityColumnRenderers['properties.$ai_input[-1]'],
+                            renderTitle: () => (
+                                <Tooltip title="The last message in the input array sent to the LLM for this generation.">
+                                    <span>Input</span>
+                                </Tooltip>
+                            ),
+                        },
+                        'properties.$ai_output_choices': {
+                            ...aiObservabilityColumnRenderers['properties.$ai_output_choices'],
+                            renderTitle: () => (
+                                <Tooltip title="The LLM's response for this generation.">
+                                    <span>Output</span>
+                                </Tooltip>
+                            ),
+                        },
+                        person: aiObservabilityColumnRenderers.person,
+                        'properties.$ai_tools_called': aiObservabilityColumnRenderers['properties.$ai_tools_called'],
+                        "f'{properties.$ai_model}' -- Model": {
+                            renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
+                        },
+                        "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency": {
+                            renderTitle: () => renderSortableColumnTitle('properties.$ai_latency', 'Latency'),
+                        },
+                        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Cost": {
+                            renderTitle: () => (
+                                <Tooltip title="Cost of this generation">
+                                    {renderSortableColumnTitle('properties.$ai_total_cost_usd', 'Cost')}
+                                </Tooltip>
+                            ),
+                        },
+                        timestamp: {
+                            renderTitle: () => renderSortableColumnTitle('timestamp', 'Time'),
+                        },
+                    },
+                    expandable: {
+                        expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
+                            const ids = getRowIds(result)
 
-        if (uuidIndex < 0 || traceIdIndex < 0) {
-            return null
-        }
+                            if (!ids) {
+                                return (
+                                    <div className="p-4 text-danger">
+                                        Cannot expand: required columns (uuid, properties.$ai_trace_id) are missing.
+                                        Please reset your column configuration.
+                                    </div>
+                                )
+                            }
 
-        const uuid = result[uuidIndex]
-        const traceId = result[traceIdIndex]
-        const timestampValue = timestampIndex >= 0 ? result[timestampIndex] : null
+                            const trace = loadedTraces[ids.traceId]
+                            const event = trace?.events.find((e) => e.id === ids.uuid)
 
-        if (typeof uuid === 'string' && typeof traceId === 'string') {
-            const parsedTimestamp =
-                timestampValue != null && dayjs(String(timestampValue)).isValid()
-                    ? getTraceTimestamp(String(timestampValue))
-                    : undefined
-            return { uuid, traceId, traceTimestamp: parsedTimestamp }
-        }
+                            if (!trace) {
+                                return (
+                                    <div className="p-4">
+                                        <Spinner />
+                                    </div>
+                                )
+                            }
 
+                            if (!event) {
+                                return <div className="p-4">Event not found in trace</div>
+                            }
+
+                            // Convert LLMTraceEvent to EventType format for EventDetails
+                            const eventForDetails: EventType = {
+                                id: event.id,
+                                uuid: event.id,
+                                distinct_id: '',
+                                properties: event.properties,
+                                event: event.event,
+                                timestamp: event.createdAt,
+                                elements: [],
+                            }
+
+                            return (
+                                <div className="pt-2 px-4 pb-4">
+                                    <EventDetails event={eventForDetails} />
+                                </div>
+                            )
+                        },
+                        rowExpandable: ({ result }: DataTableRow) => !!getRowIds(result),
+                        isRowExpanded: ({ result }: DataTableRow) => {
+                            const ids = getRowIds(result)
+                            return !!ids && expandedGenerationIds.has(ids.uuid)
+                        },
+                        onRowExpand: ({ result }: DataTableRow) => {
+                            const ids = getRowIds(result)
+                            if (ids) {
+                                toggleGenerationExpanded(ids.uuid, ids.traceId)
+                            }
+                        },
+                        onRowCollapse: ({ result }: DataTableRow) => {
+                            const ids = getRowIds(result)
+                            if (ids) {
+                                toggleGenerationExpanded(ids.uuid, ids.traceId)
+                            }
+                        },
+                        noIndent: true,
+                    },
+                }}
+                uniqueKey={GENERATIONS_DATA_NODE_KEY}
+            />
+            <TraceDrawerQueryHost
+                listId={GENERATIONS_LIST_ID}
+                dataNodeKey={GENERATIONS_DATA_NODE_KEY}
+                query={generationsQuery.source}
+                toRow={toDrawerRow}
+            />
+        </>
+    )
+}
+
+function toGenerationRowIds(result: unknown, columns: string[]): GenerationRowIds | null {
+    if (!Array.isArray(result)) {
         return null
     }
 
-    return (
-        <DataTable
-            attachTo={aiObservabilitySharedLogic}
-            query={{
-                ...generationsQuery,
-                showSavedFilters: true,
-                defaultColumns: getDefaultGenerationsColumns(),
-            }}
-            setQuery={(query) => {
-                if (!isEventsQuery(query.source)) {
-                    throw new Error('Invalid query')
-                }
-                applyUrlState(
-                    buildApplyUrlStatePayload({
-                        dateFrom: query.source.after || null,
-                        dateTo: query.source.before || null,
-                        shouldFilterTestAccounts: query.source.filterTestAccounts || false,
-                        propertyFilters: query.source.properties || [],
-                        currentDateFilter: dateFilter,
-                        currentPropertyFilters,
-                    })
-                )
+    const uuidIndex = columns.findIndex((col) => col === 'uuid')
+    const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
+    const timestampIndex = columns.findIndex((col) => col === 'timestamp')
 
-                if (query.source.select) {
-                    setGenerationsColumns(query.source.select)
-                }
-            }}
-            context={{
-                emptyStateHeading: 'There were no generations in this period',
-                emptyStateDetail: 'Try changing the date range or filters.',
-                columns: {
-                    uuid: {
-                        title: 'ID',
-                        render: ({ record, value }) => {
-                            if (!value || typeof value !== 'string') {
-                                return null
-                            }
+    if (uuidIndex < 0 || traceIdIndex < 0) {
+        return null
+    }
 
-                            const ids = getRowIds(record)
-                            const visualValue = truncateValue(value)
-                            const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, {
-                                removeSearch: true,
-                            })
+    const uuid = result[uuidIndex]
+    const traceId = result[traceIdIndex]
+    const timestampValue = timestampIndex >= 0 ? result[timestampIndex] : null
 
-                            return !ids ? (
-                                <strong>{visualValue}</strong>
-                            ) : (
-                                <strong>
-                                    <Tooltip title={value}>
-                                        <Link
-                                            to={
-                                                combineUrl(urls.aiObservabilityTrace(ids.traceId), {
-                                                    ...nonTraceSearchParams,
-                                                    event: value,
-                                                    timestamp: ids.traceTimestamp,
-                                                    back_to: 'generations',
-                                                }).url
-                                            }
-                                            data-attr="generation-id-link"
-                                        >
-                                            {visualValue}
-                                        </Link>
-                                    </Tooltip>
-                                </strong>
-                            )
-                        },
-                    },
-                    'properties.$ai_input[-1]': {
-                        ...aiObservabilityColumnRenderers['properties.$ai_input[-1]'],
-                        renderTitle: () => (
-                            <Tooltip title="The last message in the input array sent to the LLM for this generation.">
-                                <span>Input</span>
-                            </Tooltip>
-                        ),
-                    },
-                    'properties.$ai_output_choices': {
-                        ...aiObservabilityColumnRenderers['properties.$ai_output_choices'],
-                        renderTitle: () => (
-                            <Tooltip title="The LLM's response for this generation.">
-                                <span>Output</span>
-                            </Tooltip>
-                        ),
-                    },
-                    person: aiObservabilityColumnRenderers.person,
-                    [GENERATION_SENTIMENT_SELECT]: aiObservabilityColumnRenderers[GENERATION_SENTIMENT_SELECT],
-                    'properties.$ai_tools_called': aiObservabilityColumnRenderers['properties.$ai_tools_called'],
-                    "f'{properties.$ai_model}' -- Model": {
-                        renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
-                    },
-                    "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency": {
-                        renderTitle: () => renderSortableColumnTitle('properties.$ai_latency', 'Latency'),
-                    },
-                    "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Cost": {
-                        renderTitle: () => (
-                            <Tooltip title="Cost of this generation">
-                                {renderSortableColumnTitle('properties.$ai_total_cost_usd', 'Cost')}
-                            </Tooltip>
-                        ),
-                    },
-                    timestamp: {
-                        renderTitle: () => renderSortableColumnTitle('timestamp', 'Time'),
-                    },
-                },
-                expandable: {
-                    expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
-                        const ids = getRowIds(result)
+    if (typeof uuid === 'string' && typeof traceId === 'string') {
+        const parsedTimestamp =
+            timestampValue != null && dayjs(String(timestampValue)).isValid()
+                ? getTraceTimestamp(String(timestampValue))
+                : undefined
+        return { uuid, traceId, traceTimestamp: parsedTimestamp }
+    }
 
-                        if (!ids) {
-                            return (
-                                <div className="p-4 text-danger">
-                                    Cannot expand: required columns (uuid, properties.$ai_trace_id) are missing. Please
-                                    reset your column configuration.
-                                </div>
-                            )
-                        }
-
-                        const trace = loadedTraces[ids.traceId]
-                        const event = trace?.events.find((e) => e.id === ids.uuid)
-
-                        if (!trace) {
-                            return (
-                                <div className="p-4">
-                                    <Spinner />
-                                </div>
-                            )
-                        }
-
-                        if (!event) {
-                            return <div className="p-4">Event not found in trace</div>
-                        }
-
-                        // Convert LLMTraceEvent to EventType format for EventDetails
-                        const eventForDetails: EventType = {
-                            id: event.id,
-                            uuid: event.id,
-                            distinct_id: '',
-                            properties: event.properties,
-                            event: event.event,
-                            timestamp: event.createdAt,
-                            elements: [],
-                        }
-
-                        return (
-                            <div className="pt-2 px-4 pb-4">
-                                <EventDetails event={eventForDetails} />
-                            </div>
-                        )
-                    },
-                    rowExpandable: ({ result }: DataTableRow) => !!getRowIds(result),
-                    isRowExpanded: ({ result }: DataTableRow) => {
-                        const ids = getRowIds(result)
-                        return !!ids && expandedGenerationIds.has(ids.uuid)
-                    },
-                    onRowExpand: ({ result }: DataTableRow) => {
-                        const ids = getRowIds(result)
-                        if (ids) {
-                            toggleGenerationExpanded(ids.uuid, ids.traceId)
-                        }
-                    },
-                    onRowCollapse: ({ result }: DataTableRow) => {
-                        const ids = getRowIds(result)
-                        if (ids) {
-                            toggleGenerationExpanded(ids.uuid, ids.traceId)
-                        }
-                    },
-                    noIndent: true,
-                },
-            }}
-            uniqueKey="llm-analytics-generations"
-        />
-    )
+    return null
 }
 
 const DEFAULT_DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
@@ -417,14 +486,14 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your AI usage, costs, and performance metrics.',
-    'self-driving': 'Create and manage scouts that monitor your AI observability data.',
+    'self-driving': 'Manage scouts, eval reports, and anomaly alert investigations for your AI observability data.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
     reviews: 'Browse reviews, organize queues, and manage the scoring setup.',
     generations: 'View individual AI generations and their details.',
     users: 'Understand how users are interacting with your AI features.',
     errors: 'Monitor and debug errors in your AI pipeline.',
     tools: 'See which tools your LLMs are calling and how often.',
-    sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction.',
+    sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction. Works best in English.',
     sessions: 'Analyze user sessions containing AI interactions.',
 }
 
@@ -463,9 +532,11 @@ export function AIObservabilityScene(): JSX.Element {
 function AIObservabilitySceneContent(): JSX.Element {
     const { activeTab, featureFlags } = useValues(aiObservabilitySharedLogic)
     const { searchParams } = useValues(router)
+    const tabParams = withoutTraceDrawerParams(searchParams)
 
     const { push } = useActions(router)
     const selfDrivingEnabled = Boolean(featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING])
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Tab switching shortcuts
     useShortcut({
@@ -473,33 +544,27 @@ function AIObservabilitySceneContent(): JSX.Element {
         keybind: [keyBinds.tab1],
         intent: 'Go to Dashboard',
         interaction: 'function',
-        callback: () => push(combineUrl(urls.aiObservabilityDashboard(), searchParams).url),
+        callback: () => push(combineUrl(urls.aiObservabilityDashboard(), tabParams).url),
         scope: Scene.AIObservability,
     })
     useShortcut({
         name: 'AIObservabilityTab2',
         keybind: [keyBinds.tab2],
-        intent: selfDrivingEnabled ? 'Go to Self-driving' : 'Go to Traces',
+        intent: 'Go to Traces',
         interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilitySelfDriving() : urls.aiObservabilityTraces(),
-                    searchParams
-                ).url
-            ),
+        callback: () => push(combineUrl(urls.aiObservabilityTraces(), tabParams).url),
         scope: Scene.AIObservability,
     })
     useShortcut({
         name: 'AIObservabilityTab3',
         keybind: [keyBinds.tab3],
-        intent: selfDrivingEnabled ? 'Go to Traces' : 'Go to Generations',
+        intent: selfDrivingEnabled ? 'Go to Self-driving' : 'Go to Generations',
         interaction: 'function',
         callback: () =>
             push(
                 combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilityTraces() : urls.aiObservabilityGenerations(),
-                    searchParams
+                    selfDrivingEnabled ? urls.aiObservabilitySelfDriving() : urls.aiObservabilityGenerations(),
+                    tabParams
                 ).url
             ),
         scope: Scene.AIObservability,
@@ -513,7 +578,7 @@ function AIObservabilitySceneContent(): JSX.Element {
             push(
                 combineUrl(
                     selfDrivingEnabled ? urls.aiObservabilityGenerations() : urls.aiObservabilityUsers(),
-                    searchParams
+                    tabParams
                 ).url
             ),
         scope: Scene.AIObservability,
@@ -527,7 +592,7 @@ function AIObservabilitySceneContent(): JSX.Element {
             push(
                 combineUrl(
                     selfDrivingEnabled ? urls.aiObservabilitySessions() : urls.aiObservabilityErrors(),
-                    searchParams
+                    tabParams
                 ).url
             ),
         scope: Scene.AIObservability,
@@ -542,38 +607,45 @@ function AIObservabilitySceneContent(): JSX.Element {
             key: 'dashboard',
             label: 'Dashboard',
             content: <AIObservabilityDashboard />,
-            link: combineUrl(urls.aiObservabilityDashboard(), searchParams).url,
+            link: combineUrl(urls.aiObservabilityDashboard(), tabParams).url,
             'data-attr': 'dashboard-tab',
         },
         {
             key: 'traces',
             label: 'Traces',
             content: <AIObservabilityTraces />,
-            link: combineUrl(urls.aiObservabilityTraces(), searchParams).url,
+            link: combineUrl(urls.aiObservabilityTraces(), tabParams).url,
             'data-attr': 'traces-tab',
         },
         {
             key: 'generations',
             label: 'Generations',
             content: <AIObservabilityGenerations />,
-            link: combineUrl(urls.aiObservabilityGenerations(), searchParams).url,
+            link: combineUrl(urls.aiObservabilityGenerations(), tabParams).url,
             'data-attr': 'generations-tab',
         },
         {
             key: 'users',
             label: 'Users',
             content: <AIObservabilityUsers />,
-            link: combineUrl(urls.aiObservabilityUsers(), searchParams).url,
+            link: combineUrl(urls.aiObservabilityUsers(), tabParams).url,
             'data-attr': 'users-tab',
         },
     ]
 
     if (selfDrivingEnabled) {
-        tabs.splice(1, 0, {
+        tabs.splice(2, 0, {
             key: 'self-driving',
-            label: 'Self-driving',
+            label: (
+                <>
+                    Self-driving{' '}
+                    <LemonTag type="completion" size="small" className="ml-1">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: <AIObservabilitySelfDriving />,
-            link: combineUrl(urls.aiObservabilitySelfDriving(), searchParams).url,
+            link: combineUrl(urls.aiObservabilitySelfDriving(), tabParams).url,
             'data-attr': 'self-driving-tab',
         })
     }
@@ -582,7 +654,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         key: 'errors',
         label: 'Errors',
         content: <AIObservabilityErrors />,
-        link: combineUrl(urls.aiObservabilityErrors(), searchParams).url,
+        link: combineUrl(urls.aiObservabilityErrors(), tabParams).url,
         'data-attr': 'errors-tab',
     })
 
@@ -590,7 +662,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         key: 'tools',
         label: 'Tools',
         content: <AIObservabilityTools />,
-        link: combineUrl(urls.aiObservabilityTools(), searchParams).url,
+        link: combineUrl(urls.aiObservabilityTools(), tabParams).url,
         'data-attr': 'tools-tab',
     })
 
@@ -604,7 +676,7 @@ function AIObservabilitySceneContent(): JSX.Element {
                 <AIObservabilitySentiment />
             </>
         ),
-        link: combineUrl(urls.aiObservabilitySentiment(), searchParams).url,
+        link: combineUrl(urls.aiObservabilitySentiment(), tabParams).url,
         'data-attr': 'llma-sentiment-tab',
     })
 
@@ -617,7 +689,7 @@ function AIObservabilitySceneContent(): JSX.Element {
                 <AIObservabilitySessionsPlaylist />
             </>
         ),
-        link: combineUrl(urls.aiObservabilitySessions(), searchParams).url,
+        link: combineUrl(urls.aiObservabilitySessions(), tabParams).url,
         'data-attr': 'sessions-tab',
     })
 
@@ -625,7 +697,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         key: 'reviews',
         label: 'Reviews',
         content: <AIObservabilityHumanReviews />,
-        link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
+        link: combineUrl(urls.aiObservabilityReviews(), tabParams).url,
         'data-attr': 'llma-reviews-tab',
     })
 
@@ -645,14 +717,25 @@ function AIObservabilitySceneContent(): JSX.Element {
                     type: sceneConfigurations[Scene.AIObservability].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton
-                        to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
-                        type="secondary"
-                        targetBlank
-                        size="small"
-                    >
-                        Documentation
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="outline"
+                            render={
+                                <LinkPrimitive to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL} target="_blank" />
+                            }
+                        >
+                            Documentation
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
+                            type="secondary"
+                            targetBlank
+                            size="small"
+                        >
+                            Documentation
+                        </LemonButton>
+                    )
                 }
             />
 

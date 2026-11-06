@@ -42,10 +42,18 @@ TOPUP_RESOURCE_NAME = "Topup"
 REVIEW_RESOURCE_NAME = "Review"
 EARLY_FRAUD_WARNING_RESOURCE_NAME = "EarlyFraudWarning"
 SHIPPING_RATE_RESOURCE_NAME = "ShippingRate"
+OUTBOUND_PAYMENT_RESOURCE_NAME = "OutboundPayment"
+PAYOUT_INTENT_RESOURCE_NAME = "PayoutIntent"
+RECEIVED_CREDIT_RESOURCE_NAME = "ReceivedCredit"
+INBOUND_TRANSFER_RESOURCE_NAME = "InboundTransfer"
 
 # Vendor API version the sync pipeline pins by default. One constant so the source's version
 # declaration (`StripeSource.supported_versions`) and the request layer share a single label.
 STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
+STRIPE_API_VERSION_ENDIVE = "2026-10-28.endive"
+
+# Versions that serve the API v2 money-management lists, which Stripe first published in 2026-10-28.endive.
+STRIPE_V2_MONEY_MANAGEMENT_VERSIONS = (STRIPE_API_VERSION_ENDIVE,)
 
 # CustomerPaymentMethodHistory metadata columns. Every row is one observation of a payment
 # method: either a `payment_method.*` webhook event, or a row from the initial attached-payment-
@@ -77,7 +85,6 @@ PAYMENT_METHOD_HISTORY_MAPPING_KEY = "payment_method:history"
 # (see `StripeSource.webhook_mapping_key`).
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
     ACCOUNT_RESOURCE_NAME: "account",
-    BALANCE_TRANSACTION_RESOURCE_NAME: "balance_transaction",
     CHARGE_RESOURCE_NAME: "charge",
     CUSTOMER_RESOURCE_NAME: "customer",
     DISPUTE_RESOURCE_NAME: "dispute",
@@ -118,7 +125,6 @@ RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
 
 RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     ACCOUNT_RESOURCE_NAME: "account",
-    BALANCE_TRANSACTION_RESOURCE_NAME: "transfer",
     CHARGE_RESOURCE_NAME: "charge",
     CUSTOMER_RESOURCE_NAME: "customer",
     DISPUTE_RESOURCE_NAME: "dispute",
@@ -162,9 +168,6 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     INVOICE_PAYMENT_RESOURCE_NAME: "invoice_payment",
     SETUP_INTENT_RESOURCE_NAME: "setup_intent",
     PAYMENT_LINK_RESOURCE_NAME: "payment_link",
-    # Duplicates the "transfer" prefix BalanceTransaction already carries. Harmless: this map's
-    # values are collapsed to a set to build the subscription, and the two tables stay distinct
-    # because routing keys off the object type (`balance_transaction` vs `transfer`), not the event.
     TRANSFER_RESOURCE_NAME: "transfer",
     APPLICATION_FEE_RESOURCE_NAME: "application_fee",
     TOPUP_RESOURCE_NAME: "topup",
@@ -173,6 +176,8 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     # Deliberately absent, because Stripe emits no event carrying these objects. Verified against
     # the `enabled_events` literal in the pinned SDK, which is the same list `_all_known_webhook_events`
     # filters. They stay API-sweep-only:
+    #   BalanceTransaction   - no `balance_transaction.*` events exist; `transfer.*` events carry a
+    #       `transfer` object, so a webhook-mode BalanceTransaction table would never receive a row
     #   SubscriptionItem     - changes ride along on `customer.subscription.*` as nested `items`
     #   SetupAttempt         - no `setup_attempt.*` events exist
     #   ShippingRate         - no `shipping_rate.*` events exist
@@ -182,4 +187,6 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     #   EntitlementsActiveEntitlement - the one entitlements event carries an
     #       `entitlements.active_entitlement_summary` object (a per-customer summary), not an
     #       individual active entitlement, so routing it here would write the wrong shape.
+    #   OutboundPayment, PayoutIntent, ReceivedCredit, InboundTransfer - API v2 objects emit thin
+    #       events to event destinations, never snapshot events to a webhook endpoint.
 }

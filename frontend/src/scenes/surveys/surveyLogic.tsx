@@ -21,16 +21,18 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isApprovalRequiredError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isObject } from 'lib/utils/guards'
+import { HogQLQueryString } from 'lib/utils/hogql'
 import { hasFormErrors, objectClean } from 'lib/utils/objects'
 import { allOperatorsMapping } from 'lib/utils/operators'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -60,7 +62,6 @@ import {
     ProductKey,
 } from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
-import { HogQLQueryString } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -98,6 +99,7 @@ import {
 } from '~/types'
 
 import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
+import { reportSurveyCreated, reportSurveyEdited } from 'products/surveys/frontend/surveyUsage'
 
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type {
@@ -114,6 +116,9 @@ import type {
     UserType,
 } from '../../types'
 import {
+    BACK_BUTTON_DEFAULT_TEXT,
+    INTRO_SCREEN_DEFAULT_BUTTON_TEXT,
+    INTRO_SCREEN_TEXT_FIELDS,
     LOADING_SURVEY_RESULTS_TOAST_ID,
     NEW_SURVEY,
     NewSurvey,
@@ -132,26 +137,39 @@ import {
     DATE_FORMAT,
     type OpenEndedColumnMap,
     type SurveyQueryFilters,
+    type SurveyResponseColumn,
+    type SurveyResponseOutcome,
     buildAggregateQuery,
     buildOpenEndedQuery,
-    buildPartialResponsesFilter,
+    buildSurveyResponsesQuery,
+    buildSurveyResponsesExportQuery,
+    buildSurveyResponseStatsQuery,
+    buildSurveyRespondentQuery,
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
-    getExpressionCommentForQuestion,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
-    getSurveyResponse,
+    getSurveyResponseOutcomeBreakdown,
     getSurveyStartDateForQuery,
     isSurveyRunning,
     isThumbQuestion,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
+    surveyResponseColumnId,
     validateSurveyAppearance,
+    v1TargetingFlagFilters,
 } from './utils'
 
-export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
+export type SurveyBaseStatTuple = [
+    eventName: string,
+    totalCount: number,
+    uniquePersons: number,
+    firstSeen: string | null,
+    lastSeen: string | null,
+    outcomeCounts?: [number, number, number],
+] // [event_name, total_count, unique_persons, first_seen, last_seen, outcome_counts]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
 export type TranslationValidationError = {
@@ -184,6 +202,10 @@ type SurveyTranslationDraftPayload = {
         thankYouMessageHeader?: string
         thankYouMessageDescription?: string
         thankYouMessageCloseButtonText?: string
+        introScreenHeader?: string
+        introScreenDescription?: string
+        introScreenButtonText?: string
+        backButtonText?: string
     }
     questions?: SurveyTranslationDraftQuestion[]
     translations?: Survey['translations']
@@ -226,7 +248,7 @@ function getTranslationDraftQuestionId(question: SurveyQuestion, index: number):
     return question.id || `${DRAFT_TRANSLATION_QUESTION_ID_PREFIX}${index}`
 }
 
-function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTranslationDraftPayload {
+export function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTranslationDraftPayload {
     return {
         name: survey.name,
         description: survey.description,
@@ -235,6 +257,14 @@ function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTra
             thankYouMessageHeader: survey.appearance?.thankYouMessageHeader,
             thankYouMessageDescription: survey.appearance?.thankYouMessageDescription,
             thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText,
+            introScreenHeader: survey.appearance?.introScreenHeader,
+            introScreenDescription: survey.appearance?.introScreenDescription,
+            introScreenButtonText: survey.appearance?.displayIntroScreen
+                ? survey.appearance.introScreenButtonText || INTRO_SCREEN_DEFAULT_BUTTON_TEXT
+                : survey.appearance?.introScreenButtonText,
+            backButtonText: survey.appearance?.allowGoBack
+                ? survey.appearance.backButtonText || BACK_BUTTON_DEFAULT_TEXT
+                : undefined,
         },
         questions: survey.questions.map((question, index): SurveyTranslationDraftQuestion => {
             const draftQuestion: SurveyTranslationDraftQuestion = {
@@ -652,6 +682,8 @@ export interface surveyLogicValues {
     teamSdkVersions: TeamSdkVersions // surveysLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    activeAnswerFiltersCount: number
+    activeResultsFilterCount: number
     activeTab: SurveyTab
     aiGeneratedTranslationFields: string[]
     answerFilterHogQLExpression: string
@@ -703,11 +735,13 @@ export interface surveyLogicValues {
     isSurveyRunning: boolean
     isSurveySubmitting: boolean
     isSurveyValid: boolean
-    partialResponsesFilter: string
     personNames: Record<string, string>
     processedSurveyStats: SurveyStats | null
     projectTreeRef: ProjectTreeRef
     propertyFilters: AnyPropertyFilter[]
+    responseColumns: SurveyResponseColumn[]
+    responsesExportQuery: DataTableNode | null
+    resultsFiltersExpanded: boolean
     resultsRequeryInProgress: boolean
     reusableSurveyNotifications: HogFunctionType[]
     reusableSurveyNotificationsLoading: boolean
@@ -743,6 +777,7 @@ export interface surveyLogicValues {
     surveyNotificationsLoading: boolean
     surveyRates: SurveyRates | null
     surveyRepeatedActivationAvailable: boolean
+    surveyResponseOutcomes: SurveyResponseOutcome[] | null
     surveyShufflingQuestionsAvailable: boolean
     surveyTouched: boolean
     surveyTouches: Record<string, boolean>
@@ -767,58 +802,11 @@ export interface surveyLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface surveyLogicActions {
-    reportSurveyArchived: (survey: Survey) => {
-        survey: Survey
-    } // eventUsageLogic
-    reportSurveyConsolidatedResultsQuery: (
-        survey: Survey,
-        totalDurationMs: number,
-        queryDurations: {
-            aggregate: number
-            openEnded: number
-        }
-    ) => {
-        queryDurations: {
-            aggregate: number
-            openEnded: number
-        }
-        survey: Survey
-        totalDurationMs: number
-    } // eventUsageLogic
-    reportSurveyCreated: (
-        survey: Survey,
-        isDuplicate?: boolean | undefined,
-        creationSource?:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
-    ) => {
-        creationSource:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
-        isDuplicate: boolean | undefined
-        survey: Survey
-    } // eventUsageLogic
-    reportSurveyCycleDetected: (survey: NewSurvey | Survey) => {
-        survey: NewSurvey | Survey
-    } // eventUsageLogic
-    reportSurveyEdited: (survey: Survey) => {
-        survey: Survey
-    } // eventUsageLogic
-    reportSurveyViewed: (survey: Survey) => {
-        survey: Survey
-    } // eventUsageLogic
     loadSurveys: () => any // surveysLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    addResponseColumn: (column: SurveyResponseColumn) => {
+        column: SurveyResponseColumn
+    }
     archiveResponse: (responseUuid: string) => {
         responseUuid: string
     }
@@ -1041,6 +1029,9 @@ export interface surveyLogicActions {
                             string,
                             {
                                 backButtonText?: string | undefined
+                                introScreenButtonText?: string | undefined
+                                introScreenDescription?: string | undefined
+                                introScreenHeader?: string | undefined
                                 name?: string | undefined
                                 submitButtonText?: string | undefined
                                 thankYouMessageCloseButtonText?: string | undefined
@@ -1097,6 +1088,9 @@ export interface surveyLogicActions {
                             string,
                             {
                                 backButtonText?: string | undefined
+                                introScreenButtonText?: string | undefined
+                                introScreenDescription?: string | undefined
+                                introScreenHeader?: string | undefined
                                 name?: string | undefined
                                 submitButtonText?: string | undefined
                                 thankYouMessageCloseButtonText?: string | undefined
@@ -1123,6 +1117,9 @@ export interface surveyLogicActions {
     }
     removeQuestion: (questionIndex: number) => {
         questionIndex: number
+    }
+    removeResponseColumn: (column: SurveyResponseColumn) => {
+        column: SurveyResponseColumn
     }
     resetBranchingForQuestion: (questionIndex: any) => {
         questionIndex: any
@@ -1256,6 +1253,9 @@ export interface surveyLogicActions {
         expanded: boolean
         uuid: string
     }
+    setResultsFiltersExpanded: (expanded: boolean) => {
+        expanded: boolean
+    }
     setSelectedPageIndex: (idx: number | null) => {
         idx: number | null
     }
@@ -1370,7 +1370,6 @@ export interface surveyLogicMeta {
             personNames: Record<string, string>
         ) => ConsolidatedSurveyResults
         timestampFilter: (survey: NewSurvey | Survey, dateRange: SurveyDateRange | null) => string
-        partialResponsesFilter: (survey: NewSurvey | Survey, dateRange: SurveyDateRange | null) => string
         archivedResponsesFilter: (showArchivedResponses: boolean, archivedResponseUuids: Set<string>) => string
         archivedResponsesPropertyFilter: (
             showArchivedResponses: boolean,
@@ -1388,7 +1387,13 @@ export interface surveyLogicMeta {
             consolidatedSurveyResultsLoading: boolean
         ) => boolean
         defaultAnswerFilters: (survey: NewSurvey | Survey) => EventPropertyFilter[]
-        hasActiveAnswerFilters: (answerFilters: EventPropertyFilter[]) => boolean
+        activeAnswerFiltersCount: (answerFilters: EventPropertyFilter[]) => number
+        hasActiveAnswerFilters: (activeAnswerFiltersCount: number) => boolean
+        activeResultsFilterCount: (
+            activeAnswerFiltersCount: number,
+            propertyFilters: AnyPropertyFilter[],
+            showArchivedResponses: boolean
+        ) => number
         hasActiveDateRange: (dateRange: SurveyDateRange | null, survey: NewSurvey | Survey) => boolean
         hasActiveFilters: (
             hasActiveAnswerFilters: boolean,
@@ -1417,12 +1422,18 @@ export interface surveyLogicMeta {
         dataTableQuery: (
             survey: NewSurvey | Survey,
             propertyFilters: AnyPropertyFilter[],
-            answerFilterHogQLExpression: string,
-            partialResponsesFilter: string,
+            answerFilters: EventPropertyFilter[],
+            timestampFilter: string,
             archivedResponsesFilter: string,
-            dateRange: SurveyDateRange | null,
-            archivedResponseUuids: Set<string>,
-            showArchivedResponses: boolean
+            responseColumns: SurveyResponseColumn[]
+        ) => DataTableNode | null
+        responsesExportQuery: (
+            survey: NewSurvey | Survey,
+            propertyFilters: AnyPropertyFilter[],
+            answerFilters: EventPropertyFilter[],
+            timestampFilter: string,
+            archivedResponsesFilter: string,
+            responseColumns: SurveyResponseColumn[]
         ) => DataTableNode | null
         targetingFlagFilters: (survey: NewSurvey | Survey) => FeatureFlagFilters | undefined
         urlMatchTypeValidationError: (survey: NewSurvey | Survey) => string | null
@@ -1458,6 +1469,7 @@ export interface surveyLogicMeta {
         ) => (questionIndex: number, fieldPath: string) => TranslationValidationError | undefined
         surveyAsInsightURL: (survey: NewSurvey | Survey) => string
         defaultInterval: (survey: NewSurvey | Survey) => IntervalType
+        surveyResponseOutcomes: (surveyBaseStatsInternal: SurveyBaseStatsResult) => SurveyResponseOutcome[] | null
         processedSurveyStats: (
             surveyBaseStatsInternal: SurveyBaseStatsResult,
             surveyDismissedAndSentCountInternal: DismissedAndSentCountResult
@@ -1482,21 +1494,7 @@ export const surveyLogic = kea<surveyLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'surveys', 'surveyLogic', key]),
     connect(() => ({
-        actions: [
-            surveysLogic,
-            ['loadSurveys'],
-            eventUsageLogic,
-            [
-                'reportSurveyCreated',
-                'reportSurveyEdited',
-                'reportSurveyArchived',
-                'reportSurveyViewed',
-                'reportSurveyCycleDetected',
-                'reportSurveyConsolidatedResultsQuery',
-            ],
-            teamLogic,
-            ['addProductIntent'],
-        ],
+        actions: [surveysLogic, ['loadSurveys'], teamLogic, ['addProductIntent']],
         values: [
             enabledFlagLogic,
             ['featureFlags as enabledFlags'],
@@ -1567,9 +1565,12 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         setDateRange: (dateRange: SurveyDateRange, reloadResults: boolean = true) => ({ dateRange, reloadResults }),
         clearFilters: true,
+        setResultsFiltersExpanded: (expanded: boolean) => ({ expanded }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
+        addResponseColumn: (column: SurveyResponseColumn) => ({ column }),
+        removeResponseColumn: (column: SurveyResponseColumn) => ({ column }),
         setResponseExpanded: (uuid: string, expanded: boolean) => ({ uuid, expanded }),
         toggleResponseExpansion: (uuid: string) => ({ uuid }),
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
@@ -1618,7 +1619,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             survey.appearance = defaultSurveyAppearance
                         }
                         const currentFilters = values.answerFilters
-                        actions.reportSurveyViewed(survey)
+                        posthog.capture('survey viewed', {
+                            name: survey.name,
+                            id: survey.id,
+                            created_at: survey.created_at,
+                            start_date: survey.start_date,
+                            end_date: survey.end_date,
+                        })
                         // Initialize answer filters for all questions - first for index-based, then for id-based
                         actions.setAnswerFilters(
                             survey.questions.map((question) => {
@@ -1746,47 +1753,27 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return null
                 }
-                // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
-                const answerFilterCondition = values.answerFilterHogQLExpression
-                    ? values.answerFilterHogQLExpression.slice(4)
-                    : '1=1' // Use '1=1' for SQL TRUE
-
+                const responseStats = buildSurveyResponseStatsQuery(values.survey as Survey, {
+                    timestampFilter: values.timestampFilter,
+                    answerFilters: values.answerFilters,
+                    archivedResponsesFilter: values.archivedResponsesFilter,
+                })
                 const query = `
                     -- QUERYING BASE STATS
-                    SELECT
-                        event as event_name,
-                        count() as total_count,
+                    SELECT event as event_name, count() as total_count,
                         count(DISTINCT person_id) as unique_persons,
-                        if(count() > 0, min(timestamp), null) as first_seen,
-                        if(count() > 0, max(timestamp), null) as last_seen
+                        min(timestamp) as first_seen, max(timestamp) as last_seen,
+                        tuple(0, 0, 0) as outcome_counts
                     FROM events
-                    WHERE team_id = ${teamLogic.values.currentTeamId}
-                        AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
+                    WHERE event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}')
                         AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
                         ${values.timestampFilter}
                         ${values.archivedResponsesFilter}
-                        AND {filters} -- Apply property filters here to the main query
-                        -- Main condition for handling partial responses and answer filters:
-                        AND (
-                            event != '${SurveyEventName.DISMISSED}'
-                            OR
-                            ${buildSurveyOptionalBooleanPropertyFilter(
-                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
-                                'true'
-                            )}
-                        )
-                        AND (
-                            -- Include non-'sent' events directly
-                            event != '${SurveyEventName.SENT}'
-                            OR
-                            -- Include 'sent' events only if they meet the outer query's answer filter AND are in the unique list (old or latest partial/complete)
-                            (
-                                (${answerFilterCondition}) -- Apply answer filters ONLY to 'sent' events in the outer query
-                                -- Check if the event's UUID is in the list generated by the subquery
-                                ${values.partialResponsesFilter}
-                            )
-                        )
-                    GROUP BY event` as HogQLQueryString
+                        AND {filters}
+                        AND (event != '${SurveyEventName.DISMISSED}' OR ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED, 'true')})
+                    GROUP BY event
+                    UNION ALL
+                    ${responseStats}` as HogQLQueryString
 
                 const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.baseStats, {
                     queryParams: {
@@ -1806,36 +1793,22 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return null
                 }
-                // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
-                const answerFilterCondition =
-                    values.answerFilterHogQLExpression === ''
-                        ? '1=1' // Use '1=1' for SQL TRUE
-                        : values.answerFilterHogQLExpression.substring(4)
-
+                const respondents = buildSurveyRespondentQuery(values.survey as Survey, {
+                    timestampFilter: values.timestampFilter,
+                    answerFilters: values.answerFilters,
+                    archivedResponsesFilter: values.archivedResponsesFilter,
+                })
                 const query = `
                     -- QUERYING DISMISSED AND SENT COUNT
-                    SELECT count()
-                    FROM (
-                        SELECT person_id
-                        FROM events
-                        WHERE team_id = ${teamLogic.values.currentTeamId}
-                            AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                            AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
-                            ${values.timestampFilter}
-                            ${values.archivedResponsesFilter}
-                            AND (
-                            event != '${SurveyEventName.DISMISSED}'
-                            OR
-                            ${buildSurveyOptionalBooleanPropertyFilter(
-                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
-                                'true'
-                            )}
-                            )
-                            AND {filters} -- Apply property filters here to reduce initial events
-                        GROUP BY person_id
-                        HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0 -- Has at least one dismissed event (matching property filters)
-                            AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
-                    ) AS PersonsWithBothEvents` as HogQLQueryString
+                    SELECT count(DISTINCT person_id)
+                    FROM events
+                    WHERE event = '${SurveyEventName.DISMISSED}'
+                        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
+                        ${values.timestampFilter}
+                        ${values.archivedResponsesFilter}
+                        AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED, 'true')}
+                        AND {filters}
+                        AND person_id IN (${respondents})` as HogQLQueryString
 
                 const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.dismissedAndSent, {
                     queryParams: {
@@ -1858,14 +1831,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 const survey = values.survey as Survey
                 const queryFilters: SurveyQueryFilters = {
                     timestampFilter: values.timestampFilter,
-                    answerFilterHogQLExpression: values.answerFilterHogQLExpression,
+                    answerFilters: values.answerFilters,
                     archivedResponsesFilter: values.archivedResponsesFilter,
                 }
                 const queryParams = {
                     queryParams: { filters: { properties: values.propertyFilters } },
                 }
-                const aggregateQuery = buildAggregateQuery(survey, queryFilters, values.dateRange)
-                const openEndedResult = buildOpenEndedQuery(survey, queryFilters, values.dateRange)
+                const aggregateQuery = buildAggregateQuery(survey, queryFilters)
+                const openEndedResult = buildOpenEndedQuery(survey, queryFilters)
 
                 const startMs = performance.now()
                 let aggregateDuration = 0
@@ -1900,9 +1873,12 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const endMs = performance.now()
 
-                actions.reportSurveyConsolidatedResultsQuery(survey, endMs - startMs, {
-                    aggregate: aggregateDuration,
-                    openEnded: openEndedDuration,
+                posthog.capture('survey consolidated results query completed', {
+                    name: survey.name,
+                    id: survey.id,
+                    duration: endMs - startMs,
+                    aggregate_duration: aggregateDuration,
+                    open_ended_duration: openEndedDuration,
                 })
 
                 const aggregate = processResultsForSurveyQuestions(survey.questions, aggregateResponse.results)
@@ -2023,21 +1999,36 @@ export const surveyLogic = kea<surveyLogicType>([
         }
 
         return {
+            addResponseColumn: ({ column }) => {
+                posthog.capture('survey response column added', { column_type: column.type })
+            },
+            removeResponseColumn: ({ column }) => {
+                posthog.capture('survey response column removed', { column_type: column.type })
+            },
             createSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} created</>)
                 actions.loadSurveys()
                 router.actions.replace(urls.survey(survey.id))
-                actions.reportSurveyCreated(survey)
+                reportSurveyCreated(survey)
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSurvey)
                 const surveyType = survey.type ? `${survey.type} ` : ''
                 tryShowMCPHint('surveys.create', {
                     derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
                 })
             },
+            updateSurveyFailure: ({ errorObject }) => {
+                // The global error handler skips approval 409s, so without this a targeting change that
+                // waits for approval looks like a save that did nothing.
+                if (isApprovalRequiredError(errorObject)) {
+                    showApprovalRequiredToast(errorObject.data.change_request_id, undefined, errorObject.data.code)
+                    // The backend saved none of the edits, so drop the form state that shows them as saved.
+                    actions.loadSurvey()
+                }
+            },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
                 actions.editingSurvey(false)
-                actions.reportSurveyEdited(survey)
+                reportSurveyEdited(survey)
                 actions.loadSurveys()
             },
             launchSurveySuccess: ({ survey }) => {
@@ -2113,7 +2104,8 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
                         const batch = allIds.slice(i, i + BATCH_SIZE)
-                        const response = await api.create(`api/environments/${teamId}/persons/batch_by_distinct_ids/`, {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. personsBatchByDistinctIdsCreate() from 'products/persons/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                        const response = await api.create(`api/projects/${teamId}/persons/batch_by_distinct_ids/`, {
                             distinct_ids: batch,
                         })
 
@@ -2476,11 +2468,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 setGeneratingTranslationDrafts: (_, { generating }) => generating,
             },
         ],
+        resultsFiltersExpanded: [false, { setResultsFiltersExpanded: (_, { expanded }) => expanded }],
         showArchivedResponses: [
             false,
             { persist: true },
             {
                 setShowArchivedResponses: (_, { show }) => show,
+                clearFilters: () => false,
             },
         ],
         filterSurveyStatsByDistinctId: [
@@ -2488,6 +2482,18 @@ export const surveyLogic = kea<surveyLogicType>([
             { persist: true },
             {
                 setFilterSurveyStatsByDistinctId: (_, { filterByDistinctId }) => filterByDistinctId,
+            },
+        ],
+        responseColumns: [
+            [] as SurveyResponseColumn[],
+            { persist: true },
+            {
+                addResponseColumn: (state, { column }) =>
+                    state.some((existing) => surveyResponseColumnId(existing) === surveyResponseColumnId(column))
+                        ? state
+                        : [...state, column],
+                removeResponseColumn: (state, { column }) =>
+                    state.filter((existing) => surveyResponseColumnId(existing) !== surveyResponseColumnId(column)),
             },
         ],
         resultsRequeryInProgress: [
@@ -2840,23 +2846,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 return buildSurveyTimestampFilter(survey, dateRange)
             },
         ],
-        partialResponsesFilter: [
-            (s) => [s.survey, s.dateRange],
-            (survey: Survey, dateRange: SurveyDateRange): string => {
-                if (survey.enable_partial_responses) {
-                    return buildPartialResponsesFilter(survey, dateRange)
-                }
-                /**
-                 * Return only complete responses. For pre-partial responses, we didn't have the survey_completed property.
-                 * So we return all responses that don't have it.
-                 * For posthog-js > 1.240, we use the $survey_completed property.
-                 */
-                return `AND ${buildSurveyOptionalBooleanPropertyFilter(
-                    SurveyEventProperties.SURVEY_COMPLETED,
-                    'false'
-                )}`
-            },
-        ],
         archivedResponsesFilter: [
             (s) => [s.showArchivedResponses, s.archivedResponseUuids],
             (showArchivedResponses: boolean, archivedUuids: Set<string>): string => {
@@ -2940,16 +2929,27 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
             },
         ],
-        hasActiveAnswerFilters: [
+        activeAnswerFiltersCount: [
             (s) => [s.answerFilters],
-            (answerFilters: EventPropertyFilter[]): boolean => {
-                return answerFilters.some((filter) => {
-                    if (!filter?.value) {
+            (answerFilters: EventPropertyFilter[]): number =>
+                answerFilters.filter((filter) => {
+                    if (filter.value === undefined || filter.value === null || filter.value === '') {
                         return false
                     }
-                    return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
-                })
-            },
+                    return Array.isArray(filter.value) ? filter.value.length > 0 : true
+                }).length,
+        ],
+        hasActiveAnswerFilters: [
+            (s) => [s.activeAnswerFiltersCount],
+            (activeAnswerFiltersCount: number): boolean => activeAnswerFiltersCount > 0,
+        ],
+        activeResultsFilterCount: [
+            (s) => [s.activeAnswerFiltersCount, s.propertyFilters, s.showArchivedResponses],
+            (
+                activeAnswerFiltersCount: number,
+                propertyFilters: AnyPropertyFilter[],
+                showArchivedResponses: boolean
+            ): number => activeAnswerFiltersCount + propertyFilters.length + Number(showArchivedResponses),
         ],
         hasActiveDateRange: [
             (s) => [s.dateRange, s.survey],
@@ -3083,81 +3083,79 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [
                 s.survey,
                 s.propertyFilters,
-                s.answerFilterHogQLExpression,
-                s.partialResponsesFilter,
+                s.answerFilters,
+                s.timestampFilter,
                 s.archivedResponsesFilter,
-                s.dateRange,
-                s.archivedResponseUuids,
-                s.showArchivedResponses,
+                s.responseColumns,
             ],
             (
                 survey: Survey,
                 propertyFilters: AnyPropertyFilter[],
-                answerFilterHogQLExpression: string,
-                partialResponsesFilter: string,
+                answerFilters: EventPropertyFilter[],
+                timestampFilter: string,
                 archivedResponsesFilter: string,
-                dateRange: SurveyDateRange
+                responseColumns: SurveyResponseColumn[]
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
                 }
-                const startDate = getSurveyStartDateForQuery(survey)
-                const endDate = getSurveyEndDateForQuery(survey)
-
-                const where = [`event == '${SurveyEventName.SENT}'`, partialResponsesFilter.replace(/^AND\s+/, '')]
-
-                if (answerFilterHogQLExpression !== '') {
-                    // skip the 'AND ' prefix
-                    where.push(answerFilterHogQLExpression.substring(4))
-                }
-
-                if (archivedResponsesFilter !== '') {
-                    // skip the 'AND ' prefix
-                    where.push(archivedResponsesFilter.substring(4))
-                }
-
-                const defaultColumns = [
-                    '*',
-                    ...survey.questions.map((q, i) => {
-                        if (q.type === SurveyQuestionType.MultipleChoice) {
-                            return `arrayStringConcat(${getSurveyResponse(q, i)}, ', ') -- ${getExpressionCommentForQuestion(q, i)}`
-                        }
-                        return `${getSurveyResponse(q, i)} -- ${getExpressionCommentForQuestion(q, i)}`
-                    }),
-                    'timestamp',
-                    'person',
-                ]
-
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
-                        kind: NodeKind.EventsQuery,
-                        select: defaultColumns,
-                        orderBy: ['timestamp DESC'],
-                        where,
-                        after: dateRange?.date_from || startDate,
-                        before: dateRange?.date_to || endDate,
-                        properties: [
+                        kind: NodeKind.HogQLQuery,
+                        query: buildSurveyResponsesQuery(
+                            survey,
                             {
-                                type: PropertyFilterType.Event,
-                                key: SurveyEventProperties.SURVEY_ID,
-                                operator: PropertyOperator.Exact,
-                                value: survey.id,
+                                answerFilters,
+                                timestampFilter,
+                                archivedResponsesFilter,
                             },
-                            ...propertyFilters,
-                        ],
+                            responseColumns
+                        ),
+                        filters: { properties: propertyFilters },
                     },
-                    defaultColumns,
-                    propertiesViaUrl: true,
+                    hiddenColumns: ['response'],
                     showExport: true,
                     showReload: true,
+                    showOpenEditorButton: false,
                     showRecordingColumn: false,
                     showEventFilter: false,
                     showPropertyFilter: false,
                     showTimings: false,
-                    showPersistentColumnConfigurator: true,
                     contextKey: `survey:${survey.id}`,
                 }
+            },
+        ],
+        responsesExportQuery: [
+            (s) => [
+                s.survey,
+                s.propertyFilters,
+                s.answerFilters,
+                s.timestampFilter,
+                s.archivedResponsesFilter,
+                s.responseColumns,
+            ],
+            (
+                survey: Survey,
+                propertyFilters: AnyPropertyFilter[],
+                answerFilters: EventPropertyFilter[],
+                timestampFilter: string,
+                archivedResponsesFilter: string,
+                responseColumns: SurveyResponseColumn[]
+            ): DataTableNode | null => {
+                if (survey.id === 'new') {
+                    return null
+                }
+                const query = buildSurveyResponsesExportQuery(
+                    survey,
+                    {
+                        answerFilters,
+                        timestampFilter,
+                        archivedResponsesFilter,
+                    },
+                    responseColumns
+                )
+                return { ...query, source: { ...query.source, filters: { properties: propertyFilters } } }
             },
         ],
         targetingFlagFilters: [
@@ -3172,7 +3170,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         feature_enrollment: undefined,
                     }
                 }
-                return survey.targeting_flag?.filters || undefined
+                return v1TargetingFlagFilters(survey)
             },
         ],
         urlMatchTypeValidationError: [
@@ -3310,10 +3308,44 @@ export const surveyLogic = kea<surveyLogicType>([
                         question.branching?.type === SurveyQuestionBranchingType.ResponseBased &&
                         isObject(question.branching?.responseValues)
                     ) {
-                        for (const [_, toIndex] of Object.entries(question.branching?.responseValues)) {
+                        // The responses the SDK can select; a key outside this list routes nobody.
+                        let responses: (string | number)[] = []
+                        if (question.type === SurveyQuestionType.SingleChoice) {
+                            responses = question.choices.map((_, choiceIndex) => choiceIndex)
+                        } else if (isRatingSurveyQuestion(question)) {
+                            // The SDK keys rating responses by bucket. An unknown scale keeps every key.
+                            if (question.scale === 2) {
+                                responses = ['positive', 'negative']
+                            } else if (question.scale === 10) {
+                                responses = ['detractors', 'passives', 'promoters']
+                            } else if ([3, 5, 7].includes(question.scale)) {
+                                responses = ['negative', 'neutral', 'positive']
+                            }
+                        }
+
+                        const { responseValues } = question.branching
+                        const destinations =
+                            responses.length > 0
+                                ? responses.map((response) => responseValues[String(response)])
+                                : Object.values(responseValues)
+                        for (const toIndex of destinations) {
                             if (Number.isInteger(toIndex)) {
                                 graph.get(fromIndex).add(toIndex)
                             }
+                        }
+
+                        // The SDK falls through to the next question only when the selected response
+                        // has no destination, so a question that routes every response never gets
+                        // there. An optional question is the exception, because a skip routes nowhere.
+                        if (
+                            !question.optional &&
+                            responses.length > 0 &&
+                            responses.every((response) => {
+                                const destination = responseValues[String(response)]
+                                return Number.isInteger(destination) || destination === SurveyQuestionBranchingType.End
+                            })
+                        ) {
+                            return
                         }
                     }
 
@@ -3363,6 +3395,23 @@ export const surveyLogic = kea<surveyLogicType>([
                         key: 'thankYouMessageCloseButtonText',
                         defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
                     },
+                    ...(survey.appearance?.displayIntroScreen
+                        ? INTRO_SCREEN_TEXT_FIELDS.map((key) => ({
+                              key,
+                              defaultValue:
+                                  key === 'introScreenButtonText'
+                                      ? survey.appearance?.[key] || INTRO_SCREEN_DEFAULT_BUTTON_TEXT
+                                      : survey.appearance?.[key],
+                          }))
+                        : []),
+                    ...(survey.appearance?.allowGoBack
+                        ? [
+                              {
+                                  key: 'backButtonText' as const,
+                                  defaultValue: survey.appearance.backButtonText || BACK_BUTTON_DEFAULT_TEXT,
+                              },
+                          ]
+                        : []),
                 ]
 
                 // Get all languages
@@ -3714,6 +3763,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 return 'month'
             },
         ],
+        surveyResponseOutcomes: [
+            (s) => [s.surveyBaseStatsInternal],
+            (baseStats: SurveyBaseStatsResult): SurveyResponseOutcome[] | null => {
+                const counts = baseStats?.find(([eventName]) => eventName === SurveyEventName.SENT)?.[5]
+                return counts ? getSurveyResponseOutcomeBreakdown(counts) : null
+            },
+        ],
         processedSurveyStats: [
             (s) => [s.surveyBaseStatsInternal, s.surveyDismissedAndSentCountInternal],
             (
@@ -3973,7 +4029,12 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             submit: (surveyPayload) => {
                 if (values.hasCycle) {
-                    actions.reportSurveyCycleDetected(values.survey)
+                    posthog.capture('survey cycle detected', {
+                        name: values.survey.name,
+                        id: values.survey.id,
+                        start_date: values.survey.start_date,
+                        end_date: values.survey.end_date,
+                    })
                     lemonToast.error('Your survey contains an endless cycle. Please revisit your branching rules.')
                     return
                 }

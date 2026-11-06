@@ -25,12 +25,18 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import WorkflowRunActivity, WorkflowRunActivityPoint
+from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
+    WorkflowHealthRunScope,
+    WorkflowRunActivity,
+    WorkflowRunActivityPoint,
+)
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     NO_OP_RUN_FLAG,
     branch_filter_clause,
     date_to_filter_clause,
+    run_scope_filter_clause,
 )
 
 # The chart plots a point per run and needs enough span to cover the window: an order of magnitude
@@ -46,10 +52,10 @@ _MIN_REAL_RUNS = 2
 _SELECT = f"""
     SELECT
         id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha,
-        {NO_OP_RUN_FLAG} AS is_noop
+        {NO_OP_RUN_FLAG} AS is_noop, ci_engine
     FROM __RUNS_SOURCE__ AS r
     WHERE repo_owner = {{repo_owner}} AND repo_name = {{repo_name}} AND workflow_name = {{workflow_name}}
-        AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
+        AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     ORDER BY is_noop ASC, run_started_at DESC, run_attempt DESC
     LIMIT {_LIMIT + 1}
 """
@@ -64,6 +70,7 @@ def query_workflow_run_activity(
     date_from: datetime,
     date_to: datetime | None,
     branch: str | None = None,
+    run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
 ) -> WorkflowRunActivity:
     placeholders: dict[str, ast.Expr] = {
         "repo_owner": ast.Constant(value=repo_owner),
@@ -76,7 +83,8 @@ def query_workflow_run_activity(
     response = curated.run(
         _SELECT.replace("__RUNS_SOURCE__", curated.run_source())
         .replace("__DATE_TO__", date_to_clause)
-        .replace("__BRANCH__", branch_clause),
+        .replace("__BRANCH__", branch_clause)
+        .replace("__RUN_SCOPE__", run_scope_filter_clause(run_scope)),
         query_type="engineering_analytics.workflow_run_activity",
         placeholders=placeholders,
     )
@@ -96,7 +104,7 @@ def query_workflow_run_activity(
 
 
 def _to_point(row: tuple) -> WorkflowRunActivityPoint:
-    run_id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha, _is_noop = row
+    run_id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha, _is_noop, ci_engine = row
     return WorkflowRunActivityPoint(
         run_id=int(run_id),
         # Empty string means "no conclusion yet" (still running) — normalize to None for the contract.
@@ -106,4 +114,5 @@ def _to_point(row: tuple) -> WorkflowRunActivityPoint:
         head_branch=head_branch or "",
         pr_number=int(pr_number) if pr_number is not None else 0,
         head_sha=head_sha or "",
+        ci_engine=CIEngine(ci_engine),
     )

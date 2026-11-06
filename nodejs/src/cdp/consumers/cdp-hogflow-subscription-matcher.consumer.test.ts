@@ -1,11 +1,20 @@
+import '../../../tests/helpers/mocks/consumer.mock'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { KAFKA_CDP_INTERNAL_EVENTS, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
+import { createKafkaConsumer } from '~/common/kafka/consumer'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import * as posthogUtils from '~/common/utils/posthog'
 
 import { HogFunctionInvocationGlobals } from '../types'
 import * as hogExec from '../utils/hog-exec'
-import { CdpHogflowSubscriptionMatcherConsumer } from './cdp-hogflow-subscription-matcher.consumer'
+import {
+    CdpHogflowSubscriptionMatcherConsumer,
+    counterHogflowMatcherEventSkipped,
+} from './cdp-hogflow-subscription-matcher.consumer'
+import { counterParseError } from './metrics'
 
 jest.mock('./cdp-base.consumer', () => {
     return {
@@ -15,16 +24,6 @@ jest.mock('./cdp-base.consumer', () => {
         },
     }
 })
-
-jest.mock('~/common/kafka/consumer', () => ({
-    // Fresh stub per call: the matcher now constructs three consumers (events, person, internal
-    // events), and start()/stop()/isHealthy() touch all of them.
-    createKafkaConsumer: jest.fn(() => ({
-        connect: jest.fn().mockResolvedValue(undefined),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-        isHealthy: jest.fn(),
-    })),
-}))
 
 jest.mock('pg', () => {
     const Pool = jest.fn()
@@ -43,6 +42,22 @@ type MockRow = {
 }
 
 const eventBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
+
+const personPropertyBytecode = (key: string, value: string): any[] => [
+    '_H',
+    1,
+    32,
+    value,
+    32,
+    key,
+    32,
+    'properties',
+    32,
+    'person',
+    1,
+    3,
+    11,
+]
 
 const makeHogFlow = (overrides: Partial<HogFlow> & { id: string; waitUntil?: boolean }): HogFlow => {
     const { id, team_id, waitUntil = true, ...rest } = overrides
@@ -108,8 +123,14 @@ interface QueryCall {
 class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public calls: QueryCall[] = []
     public findRows: MockRow[] = []
+    // Conversion watchers are a separate table with its own lookup; default empty so the wake-path
+    // fixtures below aren't also served to it.
+    public watcherRows: MockRow[] = []
+    // null = every requested row is claimed; an array narrows it to those ids.
+    public claimedWatcherIds: string[] | null = null
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
+    public resumeRows: { id: string; status: string; state?: Buffer | null }[] = []
     public updateRowCount = 0
 
     constructor() {
@@ -122,11 +143,26 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 return Promise.resolve({ rows: [], rowCount: 0 })
             }
             this.calls.push({ sql, params })
+            if (sql.startsWith('DELETE FROM conversion_watchers')) {
+                // Deleting the row IS the claim, so only rows this DELETE removed may be counted.
+                // `claimedWatcherIds` models another instance having won some of them first.
+                const claimed = this.watcherRows
+                    .map((r: any) => ({ id: r.id }))
+                    .filter((r) => this.claimedWatcherIds === null || this.claimedWatcherIds.includes(r.id))
+                return Promise.resolve({ rows: claimed, rowCount: claimed.length })
+            }
+            // Checked before the parked-job lookup: both select `id, team_id, function_id`.
+            if (sql.includes('FROM conversion_watchers')) {
+                return Promise.resolve({ rows: this.watcherRows, rowCount: this.watcherRows.length })
+            }
             if (sql.includes('SELECT id, team_id, function_id')) {
                 return Promise.resolve({ rows: this.findRows, rowCount: this.findRows.length })
             }
             if (sql.includes('SELECT id, state FROM cyclotron_jobs')) {
                 return Promise.resolve({ rows: this.wakeRows, rowCount: this.wakeRows.length })
+            }
+            if (sql.includes('SELECT id, status, state FROM cyclotron_jobs')) {
+                return Promise.resolve({ rows: this.resumeRows, rowCount: this.resumeRows.length })
             }
             if (sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')) {
                 return Promise.resolve({ rows: this.moveRows, rowCount: this.moveRows.length })
@@ -145,6 +181,12 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 })
             ),
         }
+        ;(this as any).deps = {
+            teamManager: {
+                getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
+            },
+        }
+        ;(this as any).config = { SITE_URL: 'http://localhost:8000' }
         // Stub hogFlowManager
         ;(this as any).hogFlowManager = {
             getHogFlowsForTeams: jest.fn().mockResolvedValue({}),
@@ -185,12 +227,97 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
         )
     }
 
-    public async runWake(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
-        await (this as any).wakeMatchingWorkflows(invocationGlobals)
+    public async runWake(invocationGlobals: HogFunctionInvocationGlobals[], source?: string): Promise<void> {
+        await (this as any).wakeMatchingWorkflows(invocationGlobals, source)
+    }
+
+    // start() arms the watcher sweep and team-refresh intervals, and only stop() clears them. This
+    // suite starts a consumer without a matching stop, and CI runs the whole shard --runInBand, so a
+    // leaked pair keeps firing in that one process for the rest of the run — long after the mocks
+    // they call have been reset.
+    public clearWatcherTimers(): void {
+        clearInterval((this as any).watcherTeamsRefreshTimer)
     }
 }
 
 const stateBuffer = (state: any): Buffer => Buffer.from(JSON.stringify({ state }))
+
+const rawEvent = (overrides: Record<string, any>): any => ({
+    value: Buffer.from(
+        JSON.stringify({
+            uuid: 'e-uuid',
+            event: 'wuc_subscribed',
+            team_id: 1,
+            distinct_id: 'user-1',
+            person_id: 'person-uuid-1',
+            timestamp: '2024-01-01 00:00:00.000',
+            properties: '{}',
+            elements_chain: '',
+            ...overrides,
+        })
+    ),
+})
+
+const rawPerson = (overrides: Record<string, any>): any => ({
+    value: Buffer.from(
+        JSON.stringify({
+            id: 'person-uuid-1',
+            team_id: 1,
+            properties: JSON.stringify({ plan: 'enterprise' }),
+            is_deleted: 0,
+            timestamp: '2024-01-01 00:00:00.000',
+            ...overrides,
+        })
+    ),
+})
+
+const rawInternalEvent = (overrides: { team_id?: number; event?: Record<string, any>; person?: any } = {}): any => ({
+    value: Buffer.from(
+        JSON.stringify({
+            team_id: overrides.team_id ?? 1,
+            event: {
+                uuid: 'evt-uuid-1',
+                event: '$insight_alert_firing',
+                distinct_id: 'distinct-1',
+                properties: {},
+                timestamp: '2024-01-01T00:00:00Z',
+                ...overrides.event,
+            },
+            ...(overrides.person !== undefined ? { person: overrides.person } : {}),
+        })
+    ),
+})
+
+const MEMBER_PERSON_ID = '0190b0c4-0000-7000-8000-000000000001'
+
+const rawCohortMembershipChange = (overrides: Record<string, any> = {}): any => ({
+    value: Buffer.from(
+        JSON.stringify({
+            team_id: 1,
+            cohort_id: 42,
+            person_id: MEMBER_PERSON_ID,
+            status: 'entered',
+            last_updated: '2024-01-01 00:00:00.000000',
+            ...overrides,
+        })
+    ),
+})
+
+const cohortMembershipEvent = (): HogFunctionInvocationGlobals =>
+    makeGlobals({
+        event: {
+            ...makeGlobals({}).event,
+            event: '$cohort_membership_changed',
+            distinct_id: '',
+            properties: { cohort_id: 42, status: 'entered' },
+        },
+        person: { id: 'person-uuid-1', properties: {}, name: '', url: '' },
+    })
+
+// person.properties.email == null, which an empty person satisfies.
+const personEmailIsNotSetBytecode = ['_H', 1, 31, 32, 'email', 32, 'properties', 32, 'person', 1, 3, 11]
+
+const invalidTeamIds = [undefined, null, 'abc', 1.5, 3_000_000_000]
 
 describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     let matcher: MatcherUnderTest
@@ -199,12 +326,59 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         matcher = new MatcherUnderTest()
     })
 
+    afterEach(() => {
+        matcher.clearWatcherTimers()
+    })
+
+    describe('consumer wiring', () => {
+        it('reads internal events from the cluster the wakes are produced to, not the events cluster', () => {
+            const createConsumer = jest.mocked(createKafkaConsumer)
+            createConsumer.mockClear()
+            new CdpHogflowSubscriptionMatcherConsumer(
+                {
+                    CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
+                    CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: 'cyclotron:9092',
+                } as any,
+                {} as any
+            )
+            const byTopic = Object.fromEntries(
+                createConsumer.mock.calls.map(([config, rdKafka]) => [config.topic, rdKafka])
+            )
+            expect(byTopic[KAFKA_CDP_INTERNAL_EVENTS]).toMatchObject({ 'metadata.broker.list': 'cyclotron:9092' })
+            expect(byTopic[KAFKA_EVENTS_JSON]?.['metadata.broker.list']).toBeUndefined()
+        })
+
+        it.each(['', 'realtime_only_events_json'])(
+            'creates the realtime-only events consumer only when its topic is configured (%j)',
+            (topic) => {
+                const createConsumer = jest.mocked(createKafkaConsumer)
+                createConsumer.mockClear()
+                new CdpHogflowSubscriptionMatcherConsumer(
+                    {
+                        CYCLOTRON_NODE_DATABASE_URL: 'postgres://test',
+                        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: topic,
+                    } as any,
+                    {} as any
+                )
+                const realtimeOnlyTopics = createConsumer.mock.calls
+                    .filter(
+                        ([config]) =>
+                            config.groupId === 'cdp-hogflow-subscription-matcher-realtime-only-events-consumer'
+                    )
+                    .map(([config]) => config.topic)
+                expect(realtimeOnlyTopics).toEqual(topic ? [topic] : [])
+            }
+        )
+    })
+
     describe('wakeMatchingWorkflows', () => {
         it('is a no-op when no events have person_id', async () => {
             await matcher.runWake([
                 makeGlobals({ person: undefined as any, event: { ...makeGlobals({}).event, distinct_id: '' } }),
             ])
-            expect(matcher.calls).toHaveLength(0)
+            // The watcher lookup still runs: a watcher's run may have finished long ago, so gating it
+            // on the team having a live actionable flow would restore the blind spot watchers remove.
+            expect(matcher.calls.filter((c) => c.sql.includes('FROM cyclotron_jobs')).map((c) => c.sql)).toHaveLength(0)
         })
 
         it('passes both distinct_ids and person_ids to the lookup query', async () => {
@@ -217,7 +391,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     person: { id: 'person-uuid-2', properties: {}, name: '', url: '' },
                 }),
             ])
-            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find(
+                (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+            )!
             expect(lookup).not.toBeUndefined()
             // Params are correlated (team, id) pairs: distinctTeamIds/distinctIds zip row-wise,
             // and personTeamIds/personIds zip row-wise. Both events are team 1.
@@ -234,7 +410,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // already scopes the results to hogflow jobs.
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
             await matcher.runWake([makeGlobals({})])
-            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find(
+                (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+            )!
             expect(lookup).not.toBeUndefined()
             expect(lookup.sql).not.toContain('queue_name')
         })
@@ -279,7 +457,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             // The correlated lookup params zip (team, distinct_id) row-wise: {(1,alice),(2,bob)}.
             // (1,bob) must not appear — that's the cross-team combination that doesn't exist.
-            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find(
+                (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+            )!
             expect(lookup).not.toBeUndefined()
             const pairs = lookup.params[0].map((teamId: number, i: number) => `${teamId}:${lookup.params[1][i]}`)
             expect(pairs).toEqual(['1:alice', '2:bob'])
@@ -298,7 +478,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 'flow-2': makeHogFlow({ id: 'flow-2', waitUntil: false }),
             })
             await matcher.runWake([makeGlobals({})])
-            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find(
+                (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+            )!
             expect(lookup).not.toBeUndefined()
             expect(lookup.params[4]).toEqual(['flow-1'])
         })
@@ -307,7 +489,11 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // Default: no hogflows configured → team has nothing the matcher could wake.
             // The cyclotron lookup must NOT fire.
             await matcher.runWake([makeGlobals({})])
-            expect(matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))).toBeUndefined()
+            expect(
+                matcher.calls.find(
+                    (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+                )
+            ).toBeUndefined()
         })
 
         it('wakes when the matching event is not the first event in the batch for a distinct_id', async () => {
@@ -470,7 +656,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     id: 'flow-1',
                     exit_condition: 'exit_on_conversion',
                     conversion: {
-                        window_minutes: null,
                         filters: {},
                         bytecode: [],
                         events: [
@@ -491,7 +676,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(update).not.toBeUndefined()
             const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
             expect(newState.state.conversionMatched).toBe(true)
-            expect(newState.state.conversionCounted).toBe(true)
             // currentAction is missing in input state, so eventMatched must not have been set
             expect(newState.state.currentAction).toBeUndefined()
         })
@@ -571,97 +755,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(wake).not.toBeUndefined()
             const newState = parseJSON(wake!.params[1][0].toString('utf-8')) as any
             expect(newState.state.conversionMatched).toBe(true)
-            expect(newState.state.conversionCounted).toBe(true)
-            // The conversion is also counted as a metric exactly once.
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    app_source_id: 'flow-1',
-                    metric_name: 'conversion',
-                    count: 1,
-                    app_source_version: { id: expect.any(String), version: 1 },
-                }),
-                'hog_flow'
-            )
-            // ...and emitted once as a billable $workflows_conversion event for the converting person.
-            expect(matcher.queueConversionEventMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    team_id: 1,
-                    event: '$workflows_conversion',
-                    distinct_id: 'user-1',
-                    properties: expect.objectContaining({
-                        $workflow_id: 'flow-1',
-                        $workflow_version: 1,
-                        $workflow_conversion_type: 'event',
-                        $workflow_conversion_event: 'wuc_cancelled',
-                    }),
-                })
-            )
-        })
-
-        // The whole point of the versioned series: "did conversion rate drop after we changed the
-        // email?" is only answerable if a conversion is credited to the version that sent to that
-        // person. Reading it off the freshly loaded flow credits whatever is live when they convert,
-        // so a broadcast under v1 followed by a republish silently moves all of v1's conversions to v2.
-        it.each([
-            {
-                name: 'the version the run started under, not the one live at conversion time',
-                parkedState: { currentAction: { id: 'wait_node' }, flowVersion: 1 },
-                expectedVersion: { id: 'flow-1', version: 1 },
-                expectedEventVersion: 1,
-            },
-            {
-                name: 'no version at all when the run predates the stamp',
-                parkedState: { currentAction: { id: 'wait_node' } },
-                expectedVersion: undefined,
-                expectedEventVersion: undefined,
-            },
-        ])('attributes a conversion to $name', async ({ parkedState, expectedVersion, expectedEventVersion }) => {
-            // The published flow has moved on to v2 since this run started.
-            const flow = makeHogFlow({
-                id: 'flow-1',
-                version: 2,
-                exit_condition: 'exit_on_conversion',
-                conversion: {
-                    events: [
-                        {
-                            filters: {
-                                bytecode: eventBytecode('wuc_cancelled'),
-                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
-                            },
-                        },
-                    ],
-                } as any,
-            } as any)
-            matcher.findRows = [
-                {
-                    id: 'job-c',
-                    team_id: 1,
-                    function_id: 'flow-1',
-                    action_id: 'wait_node',
-                    distinct_id: 'user-1',
-                    person_id: null,
-                },
-            ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer(parkedState) }]
-            matcher.updateRowCount = 1
-            matcher.setHogFlows({ 'flow-1': flow })
-
-            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
-
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    metric_name: 'conversion',
-                    app_source_version: expectedVersion,
-                }),
-                'hog_flow'
-            )
-            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    properties: expect.objectContaining({ $workflow_version: expectedEventVersion }),
-                })
-            )
         })
 
         it('does not wake on a conversion match when the workflow does not exit on conversion', async () => {
@@ -706,77 +799,11 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
             )
             expect(wake).toBeUndefined()
-            // But a state-only `SET state = u.state` UPDATE persists conversionCounted.
-            const stateOnly = matcher.calls.find(
-                (c) =>
-                    c.sql.startsWith('UPDATE cyclotron_jobs') &&
-                    c.sql.includes('SET state = u.state') &&
-                    !c.sql.includes('scheduled')
-            )
-            expect(stateOnly).not.toBeUndefined()
-            const newState = parseJSON(stateOnly!.params[1][0].toString('utf-8')) as any
-            expect(newState.state.conversionCounted).toBe(true)
-            expect(newState.state.conversionMatched).toBeUndefined()
-            // ...and the conversion is counted once (measurement-only).
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
-                'hog_flow'
-            )
-        })
-
-        it('counts a conversion (without waking) for a conversion-only flow that has no wait step', async () => {
-            // Broadened gating: a flow whose only actionable feature is an event-based conversion goal
-            // (no wait_until_condition) is now evaluated regardless of exit condition, so the metric is
-            // tracked. exit_only_at_end means it must not be woken.
-            const flow = makeHogFlow({
-                id: 'flow-1',
-                waitUntil: false,
-                exit_condition: 'exit_only_at_end',
-                conversion: {
-                    events: [
-                        {
-                            filters: {
-                                bytecode: eventBytecode('wuc_cancelled'),
-                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
-                            },
-                        },
-                    ],
-                } as any,
-            } as any)
-            matcher.findRows = [
-                {
-                    id: 'job-c',
-                    team_id: 1,
-                    function_id: 'flow-1',
-                    action_id: null,
-                    distinct_id: 'user-1',
-                    person_id: null,
-                },
-            ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({}) }]
-            matcher.updateRowCount = 1
-            matcher.setHogFlows({ 'flow-1': flow })
-
-            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
-
-            // No wake, but a state-only UPDATE persists conversionCounted.
-            const wake = matcher.calls.find(
-                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
-            )
-            expect(wake).toBeUndefined()
-            const stateOnly = matcher.calls.find(
-                (c) =>
-                    c.sql.startsWith('UPDATE cyclotron_jobs') &&
-                    c.sql.includes('SET state = u.state') &&
-                    !c.sql.includes('scheduled')
-            )
-            expect(stateOnly).not.toBeUndefined()
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
-                'hog_flow'
-            )
+            // No state write either: with counting on the watcher there is no flag left to
+            // persist, so a measurement-only match must leave the parked job completely untouched.
+            const stateOnly = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(stateOnly).toBeUndefined()
+            expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
         })
 
         it('does not re-count or update a conversion already counted this run (per-run dedup)', async () => {
@@ -822,57 +849,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             expect(update).toBeUndefined()
             expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
-        })
-
-        it('attributes a conversion to the batch parent_run_id when set', async () => {
-            // Batch-workflow jobs carry a parent_run_id (the batch job). The emitted conversion metric
-            // must key app_source_id by that run id, not the function id, so it lands under the batch.
-            const flow = makeHogFlow({
-                id: 'flow-1',
-                waitUntil: false,
-                exit_condition: 'exit_only_at_end',
-                conversion: {
-                    events: [
-                        {
-                            filters: {
-                                bytecode: eventBytecode('wuc_cancelled'),
-                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
-                            },
-                        },
-                    ],
-                } as any,
-            } as any)
-            matcher.findRows = [
-                {
-                    id: 'job-c',
-                    team_id: 1,
-                    function_id: 'flow-1',
-                    parent_run_id: 'batch-run-1',
-                    action_id: null,
-                    distinct_id: 'user-1',
-                    person_id: null,
-                },
-            ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ flowVersion: 2 }) }]
-            matcher.updateRowCount = 1
-            matcher.setHogFlows({ 'flow-1': flow })
-
-            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
-
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    app_source_id: 'batch-run-1',
-                    instance_id: 'flow-1',
-                    metric_name: 'conversion',
-                    count: 1,
-                    // The run id keys app_source_id, but the versioned mirror keys on the flow —
-                    // otherwise every batch run mints its own key and a broadcast's versions never
-                    // aggregate.
-                    app_source_version: { id: 'flow-1', version: 2 },
-                }),
-                'hog_flow'
-            )
         })
 
         it('does not wake on an empty conversion "events" entry (always-true bytecode)', async () => {
@@ -1083,7 +1059,11 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             await matcher.runWake([makeGlobals({})])
 
-            expect(matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))).not.toBeUndefined()
+            expect(
+                matcher.calls.find(
+                    (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+                )
+            ).not.toBeUndefined()
             expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
         })
 
@@ -1214,29 +1194,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     })
 
     describe('_parseKafkaBatch', () => {
-        const rawMessage = (overrides: Record<string, any>): any => ({
-            value: Buffer.from(
-                JSON.stringify({
-                    uuid: 'e-uuid',
-                    event: 'wuc_subscribed',
-                    team_id: 1,
-                    distinct_id: 'user-1',
-                    person_id: 'person-uuid-1',
-                    timestamp: '2024-01-01 00:00:00.000',
-                    properties: '{}',
-                    elements_chain: '',
-                    ...overrides,
-                })
-            ),
-        })
-
         beforeEach(() => {
-            ;(matcher as any).deps = {
-                teamManager: {
-                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
-                },
-            }
-            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
             // Team 1 has an actionable (wait_until_condition) flow so events reach conversion.
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
@@ -1245,9 +1203,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // A job can be parked by distinct_id alone (the lookup has a (team_id, distinct_id)
             // branch), so an event carrying only a distinct_id must still flow into matching.
             const result = await (matcher as any)._parseKafkaBatch([
-                rawMessage({ person_id: '', distinct_id: 'only-distinct' }),
-                rawMessage({ person_id: '', distinct_id: '' }),
-                rawMessage({ person_id: 'person-uuid-1', distinct_id: 'user-1' }),
+                rawEvent({ person_id: '', distinct_id: 'only-distinct' }),
+                rawEvent({ person_id: '', distinct_id: '' }),
+                rawEvent({ person_id: 'person-uuid-1', distinct_id: 'user-1' }),
             ])
 
             const distinctIds = result.map((g: HogFunctionInvocationGlobals) => g.event.distinct_id).sort()
@@ -1266,8 +1224,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const getTeam = (matcher as any).deps.teamManager.getTeam
 
             const result = await (matcher as any)._parseKafkaBatch([
-                rawMessage({ team_id: 2, distinct_id: 'user-2' }),
-                rawMessage({ team_id: 1, distinct_id: 'user-1' }),
+                rawEvent({ team_id: 2, distinct_id: 'user-2' }),
+                rawEvent({ team_id: 1, distinct_id: 'user-1' }),
             ])
 
             expect(result.map((g: HogFunctionInvocationGlobals) => g.project.id)).toEqual([1])
@@ -1275,29 +1233,41 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(getTeam).toHaveBeenCalledTimes(1)
             expect(getTeam).toHaveBeenCalledWith(1)
         })
+
+        it('drops a captured $cohort_membership_changed event, so a client cannot fake a cohort join', async () => {
+            const result = await (matcher as any)._parseKafkaBatch([
+                rawEvent({ event: '$cohort_membership_changed' }),
+                rawEvent({}),
+            ])
+
+            expect(result.map((g: HogFunctionInvocationGlobals) => g.event.event)).toEqual(['wuc_subscribed'])
+        })
+    })
+
+    describe('_parseCohortMembershipBatch', () => {
+        beforeEach(() => {
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        it('maps a join to a $cohort_membership_changed event keyed on person_id, and skips backfills', async () => {
+            const result = await (matcher as any)._parseCohortMembershipBatch([
+                rawCohortMembershipChange({ origin: 'seed' }),
+                rawCohortMembershipChange(),
+            ])
+
+            expect(result).toHaveLength(1)
+            const globals = result[0] as HogFunctionInvocationGlobals
+            expect(globals.event).toMatchObject({
+                event: '$cohort_membership_changed',
+                distinct_id: '',
+                properties: { cohort_id: 42, status: 'entered' },
+            })
+            expect(globals.person?.id).toBe(MEMBER_PERSON_ID)
+        })
     })
 
     describe('_parsePersonBatch', () => {
-        const rawPerson = (overrides: Record<string, any>): any => ({
-            value: Buffer.from(
-                JSON.stringify({
-                    id: 'person-uuid-1',
-                    team_id: 1,
-                    properties: JSON.stringify({ plan: 'enterprise' }),
-                    is_deleted: 0,
-                    timestamp: '2024-01-01 00:00:00.000',
-                    ...overrides,
-                })
-            ),
-        })
-
         beforeEach(() => {
-            ;(matcher as any).deps = {
-                teamManager: {
-                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
-                },
-            }
-            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
 
@@ -1341,32 +1311,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     })
 
     describe('_parseInternalEventsBatch', () => {
-        const rawInternalEvent = (
-            overrides: { team_id?: number; event?: Record<string, any>; person?: any } = {}
-        ): any => ({
-            value: Buffer.from(
-                JSON.stringify({
-                    team_id: overrides.team_id ?? 1,
-                    event: {
-                        uuid: 'evt-uuid-1',
-                        event: '$insight_alert_firing',
-                        distinct_id: 'distinct-1',
-                        properties: {},
-                        timestamp: '2024-01-01T00:00:00Z',
-                        ...overrides.event,
-                    },
-                    ...(overrides.person !== undefined ? { person: overrides.person } : {}),
-                })
-            ),
-        })
-
         beforeEach(() => {
-            ;(matcher as any).deps = {
-                teamManager: {
-                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
-                },
-            }
-            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
 
@@ -1398,17 +1343,159 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             expect(result).toEqual([])
         })
+    })
 
-        it('drops a malformed message (schema parse failure) without throwing', async () => {
-            const result = await (matcher as any)._parseInternalEventsBatch([
-                { value: Buffer.from(JSON.stringify({ team_id: 1 })) }, // missing required `event`
-                rawInternalEvent(),
-            ])
+    describe('message and lookup failures', () => {
+        const invalidTeamIdParseErrors = async (): Promise<number> =>
+            (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
+        const invalidTeamIdSkips = async (): Promise<number> =>
+            (await counterHogflowMatcherEventSkipped.get()).values.find((v) => v.labels.reason === 'invalid_team_id')
+                ?.value ?? 0
 
-            // The bad message is dropped; the valid one still parses.
-            expect(result).toHaveLength(1)
-            expect((result[0] as HogFunctionInvocationGlobals).event.event).toBe('$insight_alert_firing')
+        beforeEach(() => {
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+            // Postgres rejects a team id outside int4 on every read. The valid messages here all use team 1.
+            // The mock rejects every other team id.
+            const getHogFlowsForTeam = (matcher as any).hogFlowManager.getHogFlowsForTeam
+            const flowsForTeam = getHogFlowsForTeam.getMockImplementation()
+            getHogFlowsForTeam.mockImplementation((teamId: unknown) =>
+                teamId === 1 ? flowsForTeam(teamId) : Promise.reject(new Error('invalid input syntax for type integer'))
+            )
         })
+
+        it.each([
+            ...invalidTeamIds.flatMap((teamId) => [
+                {
+                    name: `an event with team_id ${teamId}`,
+                    parse: '_parseKafkaBatch',
+                    bad: rawEvent({ team_id: teamId }),
+                    good: rawEvent({}),
+                    expectedInvalidTeamIdSkips: 1,
+                },
+                {
+                    name: `a person with team_id ${teamId}`,
+                    parse: '_parsePersonBatch',
+                    bad: rawPerson({ team_id: teamId }),
+                    good: rawPerson({}),
+                    expectedInvalidTeamIdSkips: 1,
+                },
+            ]),
+            // The schema already rejects a missing, null or string team_id.
+            ...invalidTeamIds
+                .filter((teamId) => typeof teamId === 'number')
+                .flatMap((teamId) => [
+                    {
+                        name: `an internal event with team_id ${teamId}`,
+                        parse: '_parseInternalEventsBatch',
+                        bad: rawInternalEvent({ team_id: teamId }),
+                        good: rawInternalEvent(),
+                        expectedInvalidTeamIdSkips: 1,
+                    },
+                    {
+                        name: `a cohort membership change with team_id ${teamId}`,
+                        parse: '_parseCohortMembershipBatch',
+                        bad: rawCohortMembershipChange({ team_id: teamId }),
+                        good: rawCohortMembershipChange(),
+                        expectedInvalidTeamIdSkips: 1,
+                    },
+                ]),
+            {
+                name: 'an event that is not JSON',
+                parse: '_parseKafkaBatch',
+                bad: { value: Buffer.from('not json') },
+                good: rawEvent({}),
+                expectedInvalidTeamIdSkips: 0,
+            },
+            {
+                name: 'an event whose properties are not JSON',
+                parse: '_parseKafkaBatch',
+                bad: rawEvent({ properties: 'not json' }),
+                good: rawEvent({}),
+                expectedInvalidTeamIdSkips: 0,
+            },
+            {
+                name: 'a person whose properties are not JSON',
+                parse: '_parsePersonBatch',
+                bad: rawPerson({ properties: 'not json' }),
+                good: rawPerson({}),
+                expectedInvalidTeamIdSkips: 0,
+            },
+            {
+                name: 'an internal event without its required event',
+                parse: '_parseInternalEventsBatch',
+                bad: { value: Buffer.from(JSON.stringify({ team_id: 1 })) },
+                good: rawInternalEvent(),
+                expectedInvalidTeamIdSkips: 0,
+            },
+        ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good, expectedInvalidTeamIdSkips }) => {
+            const parseErrorsBefore = await invalidTeamIdParseErrors()
+            const skipsBefore = await invalidTeamIdSkips()
+
+            const result = await (matcher as any)[parse]([bad, good])
+
+            expect(result).toHaveLength(1)
+            expect(await invalidTeamIdParseErrors()).toBe(parseErrorsBefore)
+            expect(await invalidTeamIdSkips()).toBe(skipsBefore + expectedInvalidTeamIdSkips)
+        })
+
+        const streams = [
+            { stream: 'events', consumer: 'kafkaConsumer', message: rawEvent({}) },
+            { stream: 'realtime-only events', consumer: 'realtimeOnlyEventsKafkaConsumer', message: rawEvent({}) },
+            { stream: 'person', consumer: 'personKafkaConsumer', message: rawPerson({}) },
+            { stream: 'internal events', consumer: 'internalEventsKafkaConsumer', message: rawInternalEvent() },
+            {
+                stream: 'cohort membership',
+                consumer: 'cohortMembershipKafkaConsumer',
+                message: rawCohortMembershipChange(),
+            },
+        ]
+        const lookupFailures = [
+            {
+                lookup: 'the team lookup hits a retriable Postgres error',
+                fail: (m: MatcherUnderTest): Error => {
+                    const error = new DependencyUnavailableError(
+                        'connection reset',
+                        'Postgres',
+                        new Error('ECONNRESET')
+                    )
+                    ;(m as any).deps.teamManager.getTeam.mockRejectedValueOnce(error)
+                    return error
+                },
+            },
+            {
+                // handlePostgresError does not mark a statement timeout as retriable.
+                lookup: 'the hog flow lookup hits a statement timeout',
+                fail: (m: MatcherUnderTest): Error => {
+                    const error = new Error('canceling statement due to statement timeout')
+                    ;(m as any).hogFlowManager.getHogFlowsForTeam.mockRejectedValueOnce(error)
+                    return error
+                },
+            },
+        ]
+
+        it.each(streams.flatMap((s) => lookupFailures.map((f) => ({ ...s, ...f }))))(
+            'fails the $stream batch when $lookup, and processes the event when the batch is read again',
+            async ({ consumer, message, fail }) => {
+                const connect = jest.fn().mockResolvedValue(undefined)
+                ;(matcher as any)[consumer] = { connect }
+                await matcher.start()
+                const handleBatch = connect.mock.calls[0][0]
+                const processBatch = jest.spyOn(matcher, 'processBatch')
+                const error = fail(matcher)
+
+                // The consumer stores a batch's offsets only after its handler resolves. A rejection
+                // leaves them uncommitted. The pod then reads the batch again after it restarts.
+                await expect(handleBatch([message])).rejects.toBe(error)
+                expect(processBatch).not.toHaveBeenCalled()
+
+                const { backgroundTask } = await handleBatch([message])
+                await backgroundTask
+                expect(processBatch).toHaveBeenCalledWith(
+                    [expect.objectContaining({ project: expect.objectContaining({ id: 1 }) })],
+                    expect.any(String)
+                )
+            }
+        )
     })
 
     describe('_parsePersonDistinctIdBatch', () => {
@@ -1435,11 +1522,13 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 0 }])
         })
 
-        it('drops deletions, missing-id, versionless and malformed messages', () => {
+        it('drops deletions, missing-id, versionless, invalid-team and malformed messages', () => {
             const result = (matcher as any)._parsePersonDistinctIdBatch([
                 rawMove({ is_deleted: 1 }), // distinct_id being deleted
                 rawMove({ person_id: '' }), // no person to point at
                 rawMove({ version: null }), // no version to order against
+                // The move lookups send team_id to int4 columns, which reject these on every read.
+                ...invalidTeamIds.map((teamId) => rawMove({ team_id: teamId })),
                 { value: Buffer.from('not json') }, // malformed
                 rawMove(),
             ])
@@ -1571,6 +1660,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // Not attributed as a merge re-key: counterHogflowRekeyWake measures whether waking on a merge
             // is wasted churn, so a first-mapping fill must stay out of that ratio.
             expect(newState.state.currentAction?.rekeyWake).toBeUndefined()
+            // Flagged as a matcher wake instead, which is what keeps the poll-only counter off it.
+            expect(newState.state.currentAction?.anchorWake).toBe(true)
         })
 
         it('scopes a first mapping to jobs with no anchor, leaving anchored waits alone', async () => {
@@ -1617,10 +1708,185 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const newState = parseJSON((update.params[2][0] as Buffer).toString('utf-8')) as any
             expect(newState.state.currentAction.rekeyWake).toBe(true)
         })
+
+        it('scopes the watcher re-key so a first mapping only fills an empty anchor', async () => {
+            // The watcher path needs the same null-anchor scope the parked-job path has: a first mapping
+            // (version 0) may fill an empty watcher anchor but must not overwrite one a merge already set,
+            // so the re-key UPDATE gates the version-0 fill on `person_id IS NULL` and threads the move
+            // version through so the DB can tell a first mapping from a repoint.
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'first-person-uuid', version: 0 },
+            ])
+
+            const rekey = matcher.calls.find((c) => c.sql.startsWith('UPDATE conversion_watchers'))
+            expect(rekey).toBeDefined()
+            expect(rekey!.sql).toContain('w.person_id IS NULL')
+            expect(rekey!.params[3]).toEqual([0])
+        })
+
+        it('propagates a watcher re-key failure instead of swallowing it', async () => {
+            // The re-key must fail the batch like applyMoves and the read/wake path do, so the Kafka
+            // offset doesn't advance and the pod replays; the UPDATE is idempotent, so replay is safe.
+            // Swallowing the error would strand the batch's watchers on their pre-merge person.
+            const failure = new Error('connection refused')
+            ;(matcher as any).cyclotronPool.query = jest.fn().mockRejectedValue(failure)
+
+            // version 0 → no repoint applyMoves runs before the re-key, so the rejection is the re-key's.
+            await expect(
+                matcher.processMoveBatch([
+                    { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 0 },
+                ])
+            ).rejects.toBe(failure)
+        })
     })
 
     // The full combination matrix lives here (mocked pg, ~ms each) rather than in the E2E suite:
     // it exercises the same wake decision the matcher makes for every events/property/action shape.
+    describe('conversion watchers', () => {
+        const watcher = (overrides: Record<string, any> = {}): any => ({
+            id: 'watcher-1',
+            team_id: 1,
+            function_id: 'flow-1',
+            run_id: 'run-1',
+            parent_run_id: null,
+            distinct_id: 'user-1',
+            person_id: null,
+            flow_version: 1,
+            goal: { events: [eventBytecode('wuc_cancelled')] },
+            ...overrides,
+        })
+
+        const cancelledEvent = (): HogFunctionInvocationGlobals =>
+            makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })
+
+        it('counts a claimed watcher and emits the conversion event with its run id', async () => {
+            matcher.watcherRows = [watcher()]
+
+            await matcher.runWake([cancelledEvent()])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    team_id: 1,
+                    app_source_id: 'flow-1',
+                    metric_name: 'conversion',
+                    count: 1,
+                    app_source_version: { id: 'flow-1', version: 1 },
+                }),
+                'hog_flow'
+            )
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    event: '$workflows_conversion',
+                    distinct_id: 'user-1',
+                    properties: expect.objectContaining({
+                        $workflow_id: 'flow-1',
+                        // Joins the conversion to the enrollment that earned it.
+                        $workflow_run_id: 'run-1',
+                        $workflow_version: 1,
+                        $workflow_conversion_type: 'event',
+                    }),
+                })
+            )
+        })
+
+        it('counts only the watchers the delete actually claimed', async () => {
+            // Two instances can evaluate the same watcher in the same moment; the one whose DELETE
+            // removed the row owns the count. Counting an unclaimed row would double-count the run.
+            matcher.watcherRows = [watcher(), watcher({ id: 'watcher-2', run_id: 'run-2' })]
+            matcher.claimedWatcherIds = ['watcher-2']
+
+            await matcher.runWake([cancelledEvent()])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({ properties: expect.objectContaining({ $workflow_run_id: 'run-2' }) })
+            )
+        })
+
+        it('attributes a batch child conversion to its parent run', async () => {
+            // Batch runs report every other metric under the parent job, so a conversion filed under
+            // the flow id instead would be missing from the batch's own numbers.
+            matcher.watcherRows = [watcher({ parent_run_id: 'batch-1' })]
+
+            await matcher.runWake([cancelledEvent()])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'batch-1', metric_name: 'conversion' }),
+                'hog_flow'
+            )
+        })
+
+        it('counts a property goal from a person-property change', async () => {
+            // Property goals are the half a ClickHouse query cannot reach, and they arrive on the
+            // person stream with no distinct_id — so they can only ever match by person_id.
+            matcher.watcherRows = [
+                watcher({
+                    distinct_id: null,
+                    person_id: 'person-uuid-1',
+                    goal: { properties: personPropertyBytecode('plan', 'enterprise') },
+                }),
+            ]
+
+            await matcher.runWake([
+                makeGlobals({
+                    event: { ...makeGlobals({}).event, event: '$person_updated', distinct_id: '' },
+                    person: { id: 'person-uuid-1', properties: { plan: 'enterprise' }, name: '', url: '' },
+                }),
+            ])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            // No billable event: a person-triggered run has no distinct_id, and a person-property
+            // change carries none, so there is nothing to attribute a capture event to. The metric
+            // counts, but anything reading conversions off the event stream misses these.
+            expect(matcher.queueConversionEventMock).not.toHaveBeenCalled()
+        })
+
+        it('counts only event goals from a cohort membership change, and attributes them to the run', async () => {
+            // A membership change has no person properties, so a negative person filter such as "email is
+            // not set" would match the empty person, in a property goal or inside an event goal.
+            matcher.watcherRows = [
+                watcher({
+                    person_id: 'person-uuid-1',
+                    goal: { events: [eventBytecode('$cohort_membership_changed')] },
+                }),
+                watcher({
+                    id: 'watcher-2',
+                    run_id: 'run-2',
+                    person_id: 'person-uuid-1',
+                    goal: { properties: ['_H', 1, 29] },
+                }),
+                watcher({
+                    id: 'watcher-3',
+                    run_id: 'run-3',
+                    person_id: 'person-uuid-1',
+                    goal: { events: [personEmailIsNotSetBytecode] },
+                }),
+            ]
+
+            await matcher.runWake([cohortMembershipEvent()], 'cohort_membership')
+
+            const claim = matcher.calls.find((c) => c.sql.startsWith('DELETE FROM conversion_watchers'))
+            expect(claim?.params).toEqual([['watcher-1']])
+            // The change has no distinct_id, so the conversion event takes the run's.
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    distinct_id: 'user-1',
+                    properties: expect.objectContaining({ $workflow_run_id: 'run-1' }),
+                })
+            )
+        })
+
+        it('does not count a watcher whose goal does not match', async () => {
+            matcher.watcherRows = [watcher()]
+
+            await matcher.runWake([makeGlobals({})])
+
+            expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
+            expect(matcher.calls.find((c) => c.sql.startsWith('DELETE FROM conversion_watchers'))).toBeUndefined()
+        })
+    })
+
     describe('wake matrix: events / property / action combinations', () => {
         const ALWAYS_TRUE = ['_H', 1, 29]
         // Real, serializer-compiled bytecode for event.properties.plan == 'growth'.
@@ -1655,6 +1921,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             name: string
             config: Record<string, any>
             event: () => HogFunctionInvocationGlobals
+            source?: string
             woken: boolean
         }
 
@@ -1757,6 +2024,54 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 event: unrelatedEvent,
                 woken: false,
             },
+            // ---- cohort membership changes ----
+            {
+                name: 'cohort join entry + cohort membership change',
+                config: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: eventBytecode('$cohort_membership_changed'),
+                                events: [{ id: '$cohort_membership_changed' }],
+                            },
+                        },
+                    ],
+                },
+                event: cohortMembershipEvent,
+                source: 'cohort_membership',
+                woken: true,
+            },
+            {
+                // The change has no person properties, so a negative person filter would match it.
+                name: 'person property condition + cohort membership change',
+                config: {
+                    condition: {
+                        filters: {
+                            bytecode: ALWAYS_TRUE,
+                            properties: [{ key: 'email', type: 'person', operator: 'is_not_set' }],
+                        },
+                    },
+                },
+                event: cohortMembershipEvent,
+                source: 'cohort_membership',
+                woken: false,
+            },
+            {
+                name: 'event entry that reads the person + cohort membership change',
+                config: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: personEmailIsNotSetBytecode,
+                                events: [{ id: '$cohort_membership_changed' }],
+                            },
+                        },
+                    ],
+                },
+                event: cohortMembershipEvent,
+                source: 'cohort_membership',
+                woken: false,
+            },
         ]
 
         // Follow-live contract: a parked job carries no copy of its wait condition - the matcher
@@ -1817,7 +2132,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeDefined()
         })
 
-        it.each(cases)('$name -> woken: $woken', async ({ config, event, woken }) => {
+        it.each(cases)('$name -> woken: $woken', async ({ config, event, source, woken }) => {
             matcher.findRows = [
                 {
                     id: 'job-1',
@@ -1825,7 +2140,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     function_id: 'flow-1',
                     action_id: 'wait_node',
                     distinct_id: 'user-1',
-                    person_id: null,
+                    person_id: 'person-uuid-1',
                 },
             ]
             // Wire the wake path so that IF the job is woken, an UPDATE is produced.
@@ -1852,7 +2167,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 } as any),
             })
 
-            await matcher.runWake([event()])
+            await matcher.runWake([event()], source)
 
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             if (woken) {
@@ -1860,6 +2175,101 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             } else {
                 expect(update).toBeUndefined()
             }
+        })
+    })
+
+    describe('step resumes', () => {
+        const jobId = 'b1f0c2d4-0000-4000-8000-000000000001'
+        const originKey = `${jobId}:task_node:3`
+        const rawResume = (properties: Record<string, any>, team_id = 2): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id,
+                    event: {
+                        uuid: 'evt-uuid-resume',
+                        event: '$workflow_step_resume',
+                        distinct_id: `team_${team_id}`,
+                        properties,
+                        timestamp: '2024-01-01T00:00:00Z',
+                    },
+                })
+            ),
+        })
+        const parkedState = (key = originKey): Buffer =>
+            stateBuffer({
+                actionStepCount: 3,
+                currentAction: {
+                    id: 'task_node',
+                    startedAtTimestamp: 1,
+                    awaitingResume: { key, deadlineAt: 'x', dispatch: {} },
+                },
+            })
+        const resume = { origin_key: originKey, status: 'completed', result: { final_message: 'done' } }
+        const resumeUpdate = () =>
+            matcher.calls.find(
+                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW(), state')
+            )
+        const writtenState = (): any => parseJSON(resumeUpdate()!.params[1][0].toString('utf-8'))
+
+        it('routes a resume out of the events stream even for a team with no wait steps', () => {
+            const other = { value: Buffer.from(JSON.stringify({ team_id: 2, event: { event: 'other' } })) }
+
+            const { resumes, rest } = matcher._splitStepResumes([rawResume(resume), other])
+
+            expect(resumes).toEqual([{ ...resume, jobId, actionId: 'task_node' }])
+            expect(rest).toEqual([other])
+        })
+
+        it.each([
+            'nope',
+            'not-a-uuid:task:3',
+            `${jobId}::3`,
+            `${jobId}:task:-1`,
+            `${jobId}:task:3.r0`,
+            `${jobId}:task:NaN`,
+        ])('drops an invalid key: %s', (origin_key) => {
+            const { resumes, rest } = matcher._splitStepResumes([rawResume({ ...resume, origin_key })])
+
+            expect(resumes).toEqual([])
+            expect(rest).toEqual([])
+        })
+
+        it('wakes a parked job and stamps the result on its step', async () => {
+            matcher.resumeRows = [{ id: jobId, status: 'available', state: parkedState() }]
+
+            await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
+
+            expect(resumeUpdate()!.params[0]).toEqual([jobId])
+            expect(writtenState().state.currentAction.resumeResult).toEqual({
+                key: originKey,
+                status: 'completed',
+                result: { final_message: 'done' },
+            })
+        })
+
+        it.each([
+            ['the job is still running', 'running', parkedState()],
+            ['the job already finished', 'completed', parkedState()],
+            ['the job failed', 'failed', parkedState()],
+            ['the wake belongs to an earlier visit', 'available', parkedState(`${jobId}:task_node:2`)],
+        ])('wakes nothing when %s', async (_, status, state) => {
+            matcher.resumeRows = [{ id: jobId, status, state }]
+
+            await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
+
+            expect(resumeUpdate()).toBeUndefined()
+        })
+
+        it('applies the current wake when a stale one shares the batch', async () => {
+            matcher.resumeRows = [{ id: jobId, status: 'available', state: parkedState() }]
+            const parsedResume = { ...resume, status: 'completed' as const, jobId, actionId: 'task_node' }
+
+            await matcher.processStepResumes([
+                { ...parsedResume, origin_key: `${jobId}:task_node:2`, status: 'failed' },
+                parsedResume,
+            ])
+
+            expect(writtenState().state.currentAction.resumeResult.key).toBe(originKey)
         })
     })
 })

@@ -6,7 +6,6 @@ and scraped by the Prometheus endpoint on the worker pod.
 """
 
 import typing
-import datetime as dt
 
 from django.conf import settings
 
@@ -21,6 +20,7 @@ from temporalio.worker import (
 )
 
 from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder, get_metric_meter
+from posthog.temporal.common.metrics import record_schedule_to_start_latency
 
 # ---------------------------------------------------------------------------
 # Histogram bucket config (imported by common/worker.py for PrometheusConfig)
@@ -106,6 +106,15 @@ def increment_report_generated(outcome: str) -> None:
     ).add(1)
 
 
+def increment_dead_ids_unwrapped(count: int) -> None:
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    get_metric_meter().create_counter(
+        "llma_eval_reports_dead_ids_unwrapped",
+        "Dead identifiers unwrapped before delivery",
+    ).add(count)
+
+
 def increment_delivery(delivery_type: str, status: str) -> None:
     if not activity.in_activity() and not workflow.in_workflow():
         return
@@ -166,16 +175,13 @@ class _EvalReportsActivityInterceptor(ActivityInboundInterceptor):
             return await super().execute_activity(input)
 
         # Schedule-to-start latency (queue depth indicator)
-        scheduled_time = activity_info.scheduled_time
-        started_time = activity_info.started_time
-        if scheduled_time and started_time:
-            schedule_to_start_ms = int((started_time - scheduled_time).total_seconds() * 1000)
-            meter = get_metric_meter({"activity_type": activity_type})
-            meter.create_histogram_timedelta(
-                name="llma_eval_reports_activity_schedule_to_start_latency",
-                description="Time between activity scheduling and start",
-                unit="ms",
-            ).record(dt.timedelta(milliseconds=schedule_to_start_ms))
+        record_schedule_to_start_latency(
+            "llma_eval_reports_activity_schedule_to_start_latency",
+            scheduled_time=activity_info.scheduled_time,
+            started_time=activity_info.started_time,
+            description="Time between activity scheduling and start",
+            attributes={"activity_type": activity_type},
+        )
 
         with ExecutionTimeRecorder(
             "llma_eval_reports_activity_execution_latency",

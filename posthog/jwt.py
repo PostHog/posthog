@@ -8,6 +8,11 @@ from django.conf import settings
 import jwt
 from cryptography.hazmat.primitives import serialization
 
+# For JWTs a third party signs with keys it publishes. Asymmetric signatures only: an HMAC
+# family would let anyone holding the published key sign with it as a shared secret, and
+# "none" carries no signature at all.
+ASYMMETRIC_SIGNING_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
+
 JWT_ALGORITHM = "HS256"
 
 
@@ -15,9 +20,31 @@ class PosthogJwtAudience(Enum):
     UNSUBSCRIBE = "posthog:unsubscribe"
     EXPORTED_ASSET = "posthog:exported_asset"
     IMPERSONATED_USER = "posthog:impersonted_user"
+    DELEGATED_USER = "posthog:delegated_user"
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
+    RECORDING_API = "posthog:recording_api"
+    REPLAY_PROXY = "posthog:replay_proxy"
+    REPLAY_BLOCKS = "posthog:replay:blocks"
+    WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
+    WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
+    WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
+    WORKFLOWS_STEP_RESUME = "posthog:workflows:step_resume"
+    WORKFLOWS_SEND_TRANSACTIONAL_EMAIL = "posthog:workflows:send_transactional_email"
+    WORKFLOWS_RESUME_BATCH = "posthog:workflows:resume_batch"
+    CREDENTIALS_SERVICE = "posthog:credentials_service"
+    TASKS_CREATE = "posthog:tasks:create"
+    CUSTOMER_TASKS_CREATE = "posthog:customer-tasks:create"
+    WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
+    WORKFLOW_CLASSIFY = "posthog:workflows:classify"
+    WORKFLOW_VISION_REQUEST = "posthog:workflows:vision_request"
+    WORKFLOW_ADD_TO_STATIC_COHORT = "posthog:workflows:add_to_static_cohort"
+    WORKFLOW_MESSAGE_OPT_OUT = "posthog:workflows:message_opt_out"
+    CONVERSATIONS_TICKETS = "posthog:conversations:tickets"
+    CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"
+    SECURITY_HUB_RULES = "posthog:security_hub:rules"
+    SECURITY_HUB_INTERNAL = "posthog:security_hub:internal"
 
 
 def signing_key_fingerprint(key: str) -> str:
@@ -32,9 +59,15 @@ def _verification_keys() -> list[str]:
     return [_signing_key(), *settings.JWT_SIGNING_KEY_FALLBACKS]
 
 
-def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience) -> str:
+def encode_jwt(
+    payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience, signing_key: str | None = None
+) -> str:
     """
-    Create a JWT ensuring that the correct audience and signing token is used
+    Create a JWT ensuring that the correct audience and signing token is used.
+
+    `signing_key` overrides the fleet-wide JWT_SIGNING_KEY with a per-audience key, so a
+    leak of one audience's key cannot mint tokens for another. New service-to-service
+    audiences should always pass one.
     """
     if not isinstance(audience, PosthogJwtAudience):
         raise Exception("Audience must be in the list of PostHog-supported audiences")
@@ -45,14 +78,14 @@ def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudie
             "exp": datetime.now(tz=UTC) + expiry_delta,
             "aud": audience.value,
         },
-        _signing_key(),
+        signing_key or _signing_key(),
         algorithm=JWT_ALGORITHM,
     )
 
 
-def decode_jwt(token: str, audience: PosthogJwtAudience) -> dict[str, Any]:
+def decode_jwt(token: str, audience: PosthogJwtAudience, verification_keys: list[str] | None = None) -> dict[str, Any]:
     last_error: jwt.InvalidSignatureError | None = None
-    for key in _verification_keys():
+    for key in verification_keys if verification_keys is not None else _verification_keys():
         try:
             return jwt.decode(token, key, audience=audience.value, algorithms=[JWT_ALGORITHM])
         except jwt.InvalidSignatureError as error:
@@ -67,8 +100,22 @@ def get_oidc_verification_keys() -> list[Any]:
     in the JWKS). A token minted under a key being rotated out keeps verifying until
     it expires, instead of breaking the moment the active key is swapped.
     """
-    pems = [
+    pems = (
         getattr(settings, "OIDC_RSA_PRIVATE_KEY", None),
         *(getattr(settings, "OIDC_RSA_PRIVATE_KEYS_INACTIVE", None) or []),
-    ]
-    return [serialization.load_pem_private_key(pem.encode(), password=None).public_key() for pem in pems if pem]
+    )
+    return list(_public_keys_from_pems(tuple(pem for pem in pems if pem)))
+
+
+# Parsing a private key validates it, which is slow enough to matter on every request a stateless
+# token authenticates, so the keys are parsed once. The PEMs they came from are kept to notice a change
+# of settings, such as a key rotation or a test that overrides the keys.
+_loaded_public_keys: tuple[tuple[str, ...], tuple[Any, ...]] | None = None
+
+
+def _public_keys_from_pems(pems: tuple[str, ...]) -> tuple[Any, ...]:
+    global _loaded_public_keys
+    if _loaded_public_keys is None or _loaded_public_keys[0] != pems:
+        keys = tuple(serialization.load_pem_private_key(pem.encode(), password=None).public_key() for pem in pems)
+        _loaded_public_keys = (pems, keys)
+    return _loaded_public_keys[1]

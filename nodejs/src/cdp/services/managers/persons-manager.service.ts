@@ -1,7 +1,7 @@
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
-import { TeamManager } from '~/common/utils/team-manager'
+import { TeamManager, isValidTeamId } from '~/common/utils/team-manager'
 
 import { CyclotronPerson } from '../../types'
 import { getPersonDisplayName } from '../../utils'
@@ -15,8 +15,11 @@ const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.id}`
 
 const fromKey = (key: string): PersonGetArgs => {
     const [teamId, ...idParts] = key.split(':')
-    return { teamId: parseInt(teamId), id: idParts.join(':') }
+    return { teamId: Number(teamId), id: idParts.join(':') }
 }
+
+const fromValidKeys = (keys: string[]): PersonGetArgs[] =>
+    keys.map(fromKey).filter(({ teamId }) => isValidTeamId(teamId))
 
 export type PersonManagerPerson = {
     id: string
@@ -59,9 +62,19 @@ export class PersonsManagerService {
     public async getCyclotronPerson(
         teamId: number,
         id: string,
-        kind: 'distinct_id' | 'person_id'
+        kind: 'distinct_id' | 'person_id',
+        options?: { forceFresh?: boolean }
     ): Promise<CyclotronPerson | null> {
         const key = toKey({ teamId, id })
+
+        if (options?.forceFresh) {
+            // Callers that would otherwise act on a stale read in a way nothing can correct later.
+            if (kind === 'distinct_id') {
+                this.lazyLoaderByDistinctId.markForRefresh(key)
+            } else {
+                this.lazyLoaderByPersonId.markForRefresh(key)
+            }
+        }
 
         const [team, dbPerson] = await Promise.all([
             this.teamManager.getTeam(teamId),
@@ -84,7 +97,7 @@ export class PersonsManagerService {
     private async fetchPersonsByDistinctIds(
         ids: string[]
     ): Promise<Record<string, PersonManagerPersonWithDistinctId | undefined>> {
-        const teamPersons = ids.map(fromKey)
+        const teamPersons = fromValidKeys(ids)
 
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
@@ -111,7 +124,7 @@ export class PersonsManagerService {
     }
 
     private async fetchPersonsByPersonIds(ids: string[]): Promise<Record<string, PersonManagerPerson | undefined>> {
-        const teamPersons = ids.map(fromKey)
+        const teamPersons = fromValidKeys(ids)
 
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 

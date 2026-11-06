@@ -7,14 +7,23 @@ from unittest.mock import AsyncMock, patch
 from asgiref.sync import async_to_sync
 from pydantic import BaseModel
 
-from products.signals.backend.artefact_schemas import ArtefactContentValidationError, CodeReference, NoteArtefact
+from posthog.models import OrganizationMembership, User
+
+import products.signals.backend.temporal.custom_agent  # noqa: F401  (warms the base<->temporal import cycle so standalone collection works)
+from products.signals.backend.artefact_schemas import (
+    ArtefactContentValidationError,
+    CodeReference,
+    NoteArtefact,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
+)
 from products.signals.backend.custom_agent.base import NO_REPO, CustomSignalAgent
 from products.signals.backend.custom_agent.persistence import (
     PersistedCustomAgentReport,
     create_custom_agent_ready_report,
 )
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
-from products.signals.backend.models import SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -22,9 +31,10 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 
 class _StubAgent(CustomSignalAgent):
@@ -60,6 +70,39 @@ class TestCustomAgentLogArtefacts(BaseTest):
             assignees=[],
             priority=PriorityAssessment(explanation="e", priority=Priority.P1),
         )
+
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
+    def test_registered_reviewers_use_shared_writer(self, _writer) -> None:
+        member = User.objects.create(email="agent-reviewer@example.com")
+        OrganizationMembership.objects.create(user=member, organization=self.organization)
+        result = create_custom_agent_ready_report(
+            team_id=self.team.id,
+            final_report=self._final_report(),
+            repo_selection=RepoSelectionResult(repository=None, reason="No repository"),
+            agent_identifier=("billing", "anomaly_scan"),
+            registered_artefacts=[
+                SuggestedReviewers(
+                    root=[
+                        SuggestedReviewerEntry(user_uuid=str(member.uuid), reason="Maintains the affected feature."),
+                        SuggestedReviewerEntry(user_uuid=str(self.user.uuid)),
+                        SuggestedReviewerEntry(github_login="unlinked-example"),
+                    ]
+                )
+            ],
+        )
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=result.report_id, model=SuggestedReviewers
+        )
+        assert reviewers is not None and [entry.user_uuid for entry in reviewers.root] == [
+            str(member.uuid),
+            str(self.user.uuid),
+        ]
+        assert reviewers.root[0].reason == "Maintains the affected feature."
+        assert resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
+            member.id,
+            self.user.id,
+        }
+        assert SignalReportArtefact.objects.filter(report_id=result.report_id, type="reviewer_corrections").count() == 1
 
     def test_register_artefact_queues_any_content_model(self):
         agent = self._agent()
@@ -179,3 +222,17 @@ class TestCustomAgentLogArtefacts(BaseTest):
         )
         assert len(rows) == 2
         assert json.loads(rows[-1].content)["priority"] == "P0"
+
+    def test_registered_uuid_only_reviewer_is_included_in_telemetry(self):
+        reviewer_uuid = uuid.uuid4()
+        with patch("products.signals.backend.custom_agent.persistence.capture_suggested_reviewers_resolved") as capture:
+            create_custom_agent_ready_report(
+                team_id=self.team.id,
+                final_report=self._final_report(),
+                repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
+                agent_identifier=("billing", "anomaly_scan"),
+                registered_artefacts=[SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(reviewer_uuid))])],
+            )
+
+        assert capture.call_args.kwargs["github_logins"] == []
+        assert capture.call_args.kwargs["user_uuids"] == [str(reviewer_uuid)]

@@ -3,6 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconInfo, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSnack } from '@posthog/lemon-ui'
 
+import { GuidedWizardPanel } from 'lib/components/GuidedWizard/GuidedWizardPanel'
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
+import { GuidedWizardStepLayout } from 'lib/components/GuidedWizard/GuidedWizardStepLayout'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -27,7 +30,6 @@ import {
 } from '../../SurveyEventTrigger'
 import { surveyLogic } from '../../surveyLogic'
 import { surveyWizardLogic } from '../surveyWizardLogic'
-import { WizardPanel, WizardSection, WizardStepLayout } from '../WizardLayout'
 
 const DEFAULT_ITERATION_COUNT = 10
 const MIN_ITERATION_COUNT = 2
@@ -193,8 +195,8 @@ export function WhenStep(): JSX.Element {
     }
 
     return (
-        <WizardStepLayout>
-            <WizardSection
+        <GuidedWizardStepLayout>
+            <GuidedWizardSection
                 title="When should this appear?"
                 description="Choose when to show this survey to your users"
                 descriptionClassName="text-sm"
@@ -227,7 +229,7 @@ export function WhenStep(): JSX.Element {
                                     const propertyFilterCount = getEventPropertyFilterCount(event.propertyFilters)
 
                                     return (
-                                        <WizardPanel key={event.name} className="bg-bg-light">
+                                        <GuidedWizardPanel key={event.name} className="bg-bg-light">
                                             <div className="flex items-start justify-between gap-3 mb-3">
                                                 <div className="space-y-1">
                                                     <div className="flex flex-wrap items-center gap-2">
@@ -267,7 +269,7 @@ export function WhenStep(): JSX.Element {
                                                 Only primitive types are supported here. Array and object properties are
                                                 excluded.
                                             </div>
-                                        </WizardPanel>
+                                        </GuidedWizardPanel>
                                     )
                                 })}
                             </div>
@@ -294,9 +296,9 @@ export function WhenStep(): JSX.Element {
                     />
                     <span className="text-secondary">seconds before showing it.</span>
                 </div>
-            </WizardSection>
+            </GuidedWizardSection>
 
-            <WizardSection
+            <GuidedWizardSection
                 title="How often should this survey show?"
                 description="How many times this survey repeats, and how often. Repeats count from the launch date, so all users become eligible again at the same time."
                 descriptionClassName="text-sm"
@@ -379,7 +381,7 @@ export function WhenStep(): JSX.Element {
                     />
                     <span className="text-secondary">completed responses.</span>
                 </div>
-            </WizardSection>
-        </WizardStepLayout>
+            </GuidedWizardSection>
+        </GuidedWizardStepLayout>
     )
 }

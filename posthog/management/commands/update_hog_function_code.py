@@ -1,14 +1,13 @@
 import time
-from typing import TypedDict
+from typing import NotRequired, TypedDict, cast
 
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
 
 import structlog
 
-from posthog.cdp.validation import compile_hog
-
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.validation import compile_hog
 
 logger = structlog.get_logger(__name__)
 
@@ -21,6 +20,10 @@ class _Replacement(TypedDict):
 class _ReplaceOption(TypedDict):
     template_id: str
     replacements: list[_Replacement]
+    # Skip a destination entirely unless its hog contains this string. For options whose replacements
+    # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
+    # purpose), this pins the run to the intended cohort.
+    only_if_contains: NotRequired[str]
 
 
 class Command(BaseCommand):
@@ -49,6 +52,46 @@ class Command(BaseCommand):
                     {
                         "from_string": "'LinkedIn-Version': '202409'",
                         "to_string": "'LinkedIn-Version': '202508'",
+                    },
+                ],
+            },
+            # LinkedIn supports each dated version for a minimum of one year, then rejects it with a
+            # 426 NONEXISTENT_VERSION on every call. 202508 passed that mark on 2026-08-01. 202409 is
+            # deliberately excluded: those destinations have been failing for a year already, so
+            # bumping them would abruptly revive dormant-but-enabled destinations and resume
+            # conversions into customers' LinkedIn Ads accounts without warning. Reviving those is
+            # handled separately with customer awareness.
+            #
+            # 202607 also enforces firstName and lastName within userInfo, so the version bump alone
+            # would turn the 426 into a 422 for any event lacking a name. The header bump and a
+            # userInfo guard have to land together for a destination to send successfully.
+            #
+            # Two hog shapes carry the 202508 header. Destinations created since Oct 2025 collect
+            # userInfo into a local and guard on its length; the guard just needs tightening to
+            # require both names. Older destinations (including those bumped from 202409 by
+            # linked-api-version-update) instead build body.user.userInfo in place with no guard and
+            # always send userInfo, even empty, so their whole userInfo section is replaced with the
+            # collect-and-guard form. only_if_contains keeps the userInfo replacements, which match
+            # both eras' code, from touching the excluded 202409 destinations.
+            "linkedin-api-version-update-202607": {
+                "template_id": "template-linkedin-ads",
+                "only_if_contains": "'LinkedIn-Version': '202508'",
+                "replacements": [
+                    {
+                        "from_string": "'LinkedIn-Version': '202508'",
+                        "to_string": "'LinkedIn-Version': '202607'",
+                    },
+                    {
+                        "from_string": "if (length(keys(userInfo)) >= 1) {",
+                        "to_string": "if (not empty(userInfo['firstName']) and not empty(userInfo['lastName'])) {",
+                    },
+                    {
+                        "from_string": "'userIds': [],\n        'userInfo': {}\n     },",
+                        "to_string": "'userIds': []\n     },",
+                    },
+                    {
+                        "from_string": "for (let key, value in inputs.userInfo) {\n    if (not empty(value)) {\n        body.user.userInfo[key] := value\n    }\n}",
+                        "to_string": "let userInfo := {}\nfor (let key, value in inputs.userInfo) {\n    if (not empty(value)) {\n        userInfo[key] := value\n    }\n}\nif (not empty(userInfo['firstName']) and not empty(userInfo['lastName'])) {\n    body.user['userInfo'] := userInfo\n}",
                     },
                 ],
             },
@@ -143,6 +186,10 @@ class Command(BaseCommand):
                 if not destination.hog:
                     continue
 
+                required_marker = replaceOption.get("only_if_contains")
+                if required_marker and required_marker not in destination.hog:
+                    continue
+
                 new_hog = destination.hog
                 for replacement in replaceOption["replacements"]:
                     if replacement["from_string"] in new_hog:
@@ -153,7 +200,8 @@ class Command(BaseCommand):
 
                 # A single destination with uncompilable (e.g. hand-edited) hog must not abort the whole run.
                 try:
-                    new_bytecode = compile_hog(new_hog, destination.type)
+                    # The queryset filters on type="destination", so the type is set.
+                    new_bytecode = compile_hog(new_hog, cast(str, destination.type))
                 except Exception as e:
                     failed.append((str(destination.id), destination.team_id, destination.enabled, str(e)))
                     continue

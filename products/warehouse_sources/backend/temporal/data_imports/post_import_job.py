@@ -40,9 +40,13 @@ from products.managed_warehouse.backend.facade.temporal import (
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    DataQualitySuiteTriggerInputs,
     EmitSignalsActivityInputs,
+    data_quality_checks_needed_for,
     emit_signals_enabled_for,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
@@ -50,7 +54,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (
     ComputeTableStatisticsInputs,
     ComputeTableStatisticsWorkflow,
-    statistics_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _enrichment_pending,
@@ -59,7 +62,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
     EnrichTableSemanticsInputs,
     EnrichTableSemanticsWorkflow,
-    enrichment_enabled,
 )
 
 LOGGER = get_logger(__name__)
@@ -77,6 +79,9 @@ class PostImportWorkflowInputs:
     job_id: str
     schema_id: str
     source_id: str
+    # True when the load consumer recorded the table size at post-load. The default keeps the size
+    # activity for a run that a starter without this field began.
+    table_size_written: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -108,6 +113,7 @@ class PostImportContext:
     enrichment_needed: bool = False
     statistics_needed: bool = False
     steps: list[str] | None = None
+    table_id: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -122,6 +128,7 @@ class PostImportGateContext:
     source_type: str
     team: Team | None
     ai_data_processing_approved: bool
+    table_size_written: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,30 +155,57 @@ def _enrichment_gate(gate: PostImportGateContext) -> bool:
     # Same gates create_external_data_job_model_activity applies for V2, but evaluated
     # post-register: columns this sync added are already visible, so enrichment picks
     # them up now instead of on the next sync. Both children re-check and are idempotent.
-    return bool(
-        gate.ai_data_processing_approved
-        and gate.team is not None
-        and enrichment_enabled(gate.team)
-        and _enrichment_pending(gate.team_id, gate.schema.table, gate.schema)
-    )
+    return gate.ai_data_processing_approved and _enrichment_pending(gate.team_id, gate.schema.table, gate.schema)
 
 
 def _statistics_gate(gate: PostImportGateContext) -> bool:
-    return bool(
-        gate.team is not None and statistics_enabled(gate.team) and _statistics_stale(gate.team_id, gate.schema.table)
-    )
+    return bool(gate.team is not None and _statistics_stale(gate.team_id, gate.schema.table))
 
 
 def _always(gate: PostImportGateContext) -> bool:
     return True
 
 
+def _table_size_gate(gate: PostImportGateContext) -> bool:
+    """The load consumer records the table size from the Delta snapshot it publishes, so this step
+    is the fallback for a run where it did not: an older consumer, or a log that could not give a
+    size for each file. The fallback follows the rows written. Table size describes the rows this
+    run loaded, so a run that wrote none leaves it unchanged. `None` predates row counting, so it
+    runs the step.
+
+    The step stays in POST_IMPORT_STEPS because recorded runs name its key.
+    """
+    return not gate.table_size_written and gate.job.rows_synced != 0
+
+
+def _data_quality_gate(gate: PostImportGateContext) -> bool:
+    return data_quality_checks_needed_for(gate.team_id, gate.schema.table_id)
+
+
+def _source_cleanup_gate(gate: PostImportGateContext) -> bool:
+    try:
+        source = SourceRegistry.get_source(gate.source_type)
+    except (KeyError, ValueError):
+        return False
+    return source.has_cleanup_after_sync(gate.schema.source) is True
+
+
+@activity.defn
+@with_internal_db_retries
+def cleanup_source_after_sync_activity(inputs: PostImportWorkflowInputs) -> None:
+    """Run the source's own cleanup for a completed sync, such as deleting a replaced upload."""
+    close_old_connections()
+    job = ExternalDataJob.objects.select_related("pipeline").filter(id=inputs.job_id, team_id=inputs.team_id).first()
+    if job is None or job.pipeline.deleted:
+        return
+    source_model = job.pipeline
+    SourceRegistry.get_source(source_model.source_type).cleanup_after_sync(source_model, job)
+
+
 async def _start_emit_signals(inputs: PostImportWorkflowInputs, ctx: PostImportContext) -> None:
     # The gate guarantees these when the key is recorded; the guard is type narrowing only.
     if ctx.source_type is None or ctx.schema_name is None:
         return
-    # Started by registered workflow name (not class import) so warehouse_sources
-    # doesn't import the signals product, which depends on it. See external_product_hooks.
     try:
         await workflow.start_child_workflow(
             "emit-data-import-signals",
@@ -267,11 +301,45 @@ async def _start_ducklake_copy(inputs: PostImportWorkflowInputs, ctx: PostImport
         )
 
 
+async def _start_data_quality_checks(inputs: PostImportWorkflowInputs, ctx: PostImportContext) -> None:
+    if ctx.table_id is None:
+        return
+    try:
+        await workflow.start_child_workflow(
+            "data-quality-run-suite",
+            DataQualitySuiteTriggerInputs(
+                team_id=inputs.team_id,
+                trigger="source_sync",
+                table_ids=[ctx.table_id],
+            ),
+            id=f"data-quality-source-sync-{inputs.schema_id}-{inputs.job_id}",
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
+            parent_close_policy=ParentClosePolicy.ABANDON,
+        )
+    except WorkflowAlreadyStartedError:
+        workflow.logger.info(
+            "Data quality checks already started for this sync, skipping",
+            extra={"schema_id": inputs.schema_id, "job_id": inputs.job_id},
+        )
+
+
+async def _start_source_cleanup(inputs: PostImportWorkflowInputs, ctx: PostImportContext) -> None:
+    await workflow.execute_activity(
+        cleanup_source_after_sync_activity,
+        inputs,
+        start_to_close_timeout=dt.timedelta(minutes=5),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+
 EMIT_SIGNALS_STEP = "emit-signals"
 SEMANTIC_ENRICHMENT_STEP = "semantic-enrichment"
 TABLE_STATISTICS_STEP = "table-statistics"
 TABLE_SIZE_STEP = "table-size"
 DUCKLAKE_COPY_STEP = "ducklake-copy"
+DATA_QUALITY_CHECKS_STEP = "data-quality-checks"
+SOURCE_CLEANUP_STEP = "source-cleanup"
 
 # Ordered registry of every post-import step. This is the future registration point for
 # product-owned steps (external_product_hooks-style), so entries stay self-contained:
@@ -280,8 +348,10 @@ POST_IMPORT_STEPS: tuple[PostImportStep, ...] = (
     PostImportStep(key=EMIT_SIGNALS_STEP, enabled=_emit_signals_gate, start=_start_emit_signals),
     PostImportStep(key=SEMANTIC_ENRICHMENT_STEP, enabled=_enrichment_gate, start=_start_semantic_enrichment),
     PostImportStep(key=TABLE_STATISTICS_STEP, enabled=_statistics_gate, start=_start_table_statistics),
-    PostImportStep(key=TABLE_SIZE_STEP, enabled=_always, start=_start_table_size),
+    PostImportStep(key=TABLE_SIZE_STEP, enabled=_table_size_gate, start=_start_table_size),
     PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_always, start=_start_ducklake_copy),
+    PostImportStep(key=DATA_QUALITY_CHECKS_STEP, enabled=_data_quality_gate, start=_start_data_quality_checks),
+    PostImportStep(key=SOURCE_CLEANUP_STEP, enabled=_source_cleanup_gate, start=_start_source_cleanup),
 )
 
 _STEP_BY_KEY = {step.key: step for step in POST_IMPORT_STEPS}
@@ -305,6 +375,7 @@ def _legacy_step_keys(ctx: PostImportContext) -> list[str]:
 
 
 @activity.defn
+@with_internal_db_retries
 def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> PostImportContext:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
@@ -353,6 +424,7 @@ def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> Po
         source_type=source_type,
         team=team,
         ai_data_processing_approved=ai_data_processing_approved,
+        table_size_written=inputs.table_size_written,
     )
     steps = [step.key for step in POST_IMPORT_STEPS if step.enabled(gate_ctx)]
 
@@ -364,6 +436,7 @@ def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> Po
         enrichment_needed=SEMANTIC_ENRICHMENT_STEP in steps,
         statistics_needed=TABLE_STATISTICS_STEP in steps,
         steps=steps,
+        table_id=str(schema.table_id) if schema.table_id else None,
     )
 
 

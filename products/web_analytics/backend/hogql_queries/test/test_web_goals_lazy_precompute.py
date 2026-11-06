@@ -1,5 +1,5 @@
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -19,7 +19,9 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import list_actions
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action, delete_action
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import can_use_lazy_precompute
@@ -30,7 +32,8 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
-        Action.objects.filter(team__project_id=self.team.project_id).delete()
+        for action in list_actions(project_id=self.team.project_id, include_deleted=True):
+            delete_action(action)
 
     def _enable_lazy(self):
         # Same flag the paths/frustration tests patch — the gate evaluates the
@@ -41,7 +44,7 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _create_action(self, name: str, event: str = "$pageview") -> Action:
-        return Action.objects.create(
+        return create_action(
             team=self.team,
             name=name,
             steps_json=[{"event": event}],
@@ -179,7 +182,7 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     # read-after-write visibility issue tracked on the paths tests is open.
     # ----------------------------------------------------------------------
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_round_trip_creates_precompute_job(self):
         self._create_action("Pageview")
         self._seed_goal_events()
@@ -201,7 +204,7 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "lazy path returns empty rows despite READY job. Re-enable once the "
         "read-after-write visibility issue tracked there is resolved."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_response_matches_live(self):
         """Compare the goals response between the live and lazy paths."""
         action = self._create_action("Pageview")
@@ -229,7 +232,7 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # The live slice is hard-coded `[:5]` in `web_goals.py`'s `to_query`.
         assert MAX_ACTIONS == 5
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_stale_served_enqueues_background_revalidation(self):
         # Without the `result.stale` hook this family would serve stale for the whole
         # 6h grace and never refresh (the revalidate half of stale-while-revalidate).

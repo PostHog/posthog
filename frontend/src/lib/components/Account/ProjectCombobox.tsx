@@ -26,7 +26,8 @@ export function ProjectCombobox(): JSX.Element | null {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationProjectCount, projectCreationForbiddenReason } =
+        useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
 
     if (!isAuthenticatedTeam(currentTeam)) {
@@ -181,7 +182,7 @@ export function ProjectCombobox(): JSX.Element | null {
                                 return
                             }
                             guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                                currentUsage: currentOrganization?.teams?.length,
+                                currentUsage: currentOrganizationProjectCount,
                             })
                         }}
                     >
@@ -191,7 +192,9 @@ export function ProjectCombobox(): JSX.Element | null {
                             tooltip="Create a new project"
                             tooltipPlacement="right"
                             className="shrink-0"
-                            disabled={!!projectCreationForbiddenReason}
+                            disabledReasons={
+                                projectCreationForbiddenReason ? { [projectCreationForbiddenReason]: true } : undefined
+                            }
                         >
                             <IconPlusSmall className="text-tertiary" />
                             New project

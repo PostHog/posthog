@@ -9,30 +9,78 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AEOPromptApi,
+    AEOPromptBulkImportRequestApi,
+    AEOPromptImportResultApi,
+    AEOPromptSetOverviewApi,
+    AEOPromptStatsApi,
+    AEOPromptSuggestRequestApi,
+    AEOPromptSuggestionJobApi,
+    AEOPromptTopicApi,
+    AEOPromptVersionApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
+    AeoPromptsChecksParams,
+    AeoPromptsListParams,
+    AeoPromptsOverviewParams,
     ApplyPathCleaningSuggestionResponseApi,
+    ContentAutopilotExportResponseApi,
+    ContentAutopilotOpportunityApi,
+    ContentAutopilotOpportunityDraftRequestApi,
+    ContentAutopilotOpportunityRefreshRequestApi,
+    ContentAutopilotProposalApi,
+    ContentAutopilotProposalEditRequestApi,
+    ContentAutopilotRunApi,
+    ContentAutopilotRunStartRequestApi,
+    ContentAutopilotSiteDiscoveryRequestApi,
+    ContentAutopilotSiteDiscoveryResponseApi,
+    ContentAutopilotSiteProfileApi,
     GeneratePathCleaningSuggestionResponseApi,
+    HeatmapCapturePagesApi,
+    HeatmapCaptureRequestApi,
+    HeatmapCaptureSettingsApi,
     HeatmapEventsResponseApi,
     HeatmapPreflightRequestApi,
     HeatmapPreflightResponseApi,
     HeatmapPrewarmRequestApi,
+    HeatmapScreenshotHistoryCaptureResponseApi,
+    HeatmapScreenshotHistoryResponseApi,
     HeatmapScreenshotResponseApi,
+    HeatmapScreenshotSettingsApi,
     HeatmapScreenshotsContentRetrieveParams,
     HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
     HeatmapsResponseApi,
+    LlmsTxtFetchRequestApi,
+    LlmsTxtFetchResponseApi,
+    PaginatedAEOPromptCheckListApi,
+    PaginatedAEOPromptListApi,
+    PaginatedContentAutopilotOpportunityListApi,
+    PaginatedContentAutopilotProposalListListApi,
+    PaginatedContentAutopilotRunListApi,
+    PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
+    PatchedAEOPromptUpdateRequestApi,
+    PatchedContentAutopilotSiteProfileApi,
+    PatchedHeatmapCaptureSettingsRequestApi,
+    PatchedHeatmapScreenshotSettingsRequestApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
     PreviewPathCleaningSuggestionResponseApi,
     RecordInteractionRequestApi,
     RecordInteractionResponseApi,
     RecordVisitResponseApi,
+    SavedHeatmapCaptureRequestApi,
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
+    SavedScreenshotHistoryContentRetrieveParams,
+    WebAnalyticsBotRuleApi,
+    WebAnalyticsContentAutopilotOpportunitiesListParams,
+    WebAnalyticsContentAutopilotProfilesListParams,
+    WebAnalyticsContentAutopilotProposalsListParams,
+    WebAnalyticsContentAutopilotRunsListParams,
     WebAnalyticsFilterPresetApi,
     WebAnalyticsFilterPresetsListParams,
     WebAnalyticsRecapParams,
@@ -58,6 +106,346 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/`
+}
+
+/**
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
+ * @summary List AEO prompts
+ */
+export const aeoPromptsList = async (
+    projectId: string,
+    params?: AeoPromptsListParams,
+    options?: RequestInit
+): Promise<PaginatedAEOPromptListApi> => {
+    return apiMutator<PaginatedAEOPromptListApi>(getAeoPromptsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/${id}/`
+}
+
+/**
+ * Gets one prompt from the project's AEO prompt set, archived ones included, with its latest check per answer engine.
+ * @summary Get an AEO prompt
+ */
+export const aeoPromptsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOPromptApi> => {
+    return apiMutator<AEOPromptApi>(getAeoPromptsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/${id}/`
+}
+
+/**
+ * Turns a prompt on or off, changes its topic, archives or restores it, or changes its text. A text change adds the next version and makes it current, and current_version moves back to an earlier one. The prompt keeps its id, and past checks are always kept.
+ * @summary Update an AEO prompt
+ */
+export const aeoPromptsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAEOPromptUpdateRequestApi?: PatchedAEOPromptUpdateRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptApi> => {
+    return apiMutator<AEOPromptApi>(getAeoPromptsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAEOPromptUpdateRequestApi),
+    })
+}
+
+export const getAeoPromptsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/${id}/`
+}
+
+/**
+ * Archives a prompt: it is turned off and never runs again. Nothing is deleted, and its versions and checks are kept. Restore it with a PATCH of archived=false.
+ * @summary Archive an AEO prompt
+ */
+export const aeoPromptsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getAeoPromptsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getAeoPromptsChecksUrl = (projectId: string, id: string, params?: AeoPromptsChecksParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/${id}/checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/${id}/checks/`
+}
+
+/**
+ * Lists every check of one prompt, newest first, one page at a time. Filter by engine, by prompt version, or with since to see only checks from a point in time on. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran. Set include_answer_text=false to leave the answers out and page through history with smaller responses.
+ * @summary List an AEO prompt's checks
+ */
+export const aeoPromptsChecks = async (
+    projectId: string,
+    id: string,
+    params?: AeoPromptsChecksParams,
+    options?: RequestInit
+): Promise<PaginatedAEOPromptCheckListApi> => {
+    return apiMutator<PaginatedAEOPromptCheckListApi>(getAeoPromptsChecksUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsStatsUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/${id}/stats/`
+}
+
+/**
+ * Gets citation and brand-mention totals per answer engine for one prompt, plus, for the last 30 days in the project's timezone, per-day counts, which engines cite which domains, brand sentiment per engine, and the words of the web searches the engines ran.
+ * @summary Get an AEO prompt's citation stats
+ */
+export const aeoPromptsStats = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOPromptStatsApi> => {
+    return apiMutator<AEOPromptStatsApi>(getAeoPromptsStatsUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsVersionsUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/${id}/versions/`
+}
+
+/**
+ * Lists every version of a prompt's text, newest first. A text edit adds a version, and one of them is current.
+ * @summary List an AEO prompt's versions
+ */
+export const aeoPromptsVersions = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AEOPromptVersionApi[]> => {
+    return apiMutator<AEOPromptVersionApi[]>(getAeoPromptsVersionsUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsBulkImportUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/bulk_import/`
+}
+
+/**
+ * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.
+ * @summary Import AEO prompts
+ */
+export const aeoPromptsBulkImport = async (
+    projectId: string,
+    aEOPromptBulkImportRequestApi: AEOPromptBulkImportRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptImportResultApi> => {
+    return apiMutator<AEOPromptImportResultApi>(getAeoPromptsBulkImportUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOPromptBulkImportRequestApi),
+    })
+}
+
+export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsOverviewParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/overview/`
+}
+
+/**
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most.
+ * @summary Get the AEO prompt set overview
+ */
+export const aeoPromptsOverview = async (
+    projectId: string,
+    params?: AeoPromptsOverviewParams,
+    options?: RequestInit
+): Promise<AEOPromptSetOverviewApi> => {
+    return apiMutator<AEOPromptSetOverviewApi>(getAeoPromptsOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsSuggestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/suggest/`
+}
+
+/**
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO prompts
+ */
+export const aeoPromptsSuggest = async (
+    projectId: string,
+    aEOPromptSuggestRequestApi: AEOPromptSuggestRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptSuggestionJobApi> => {
+    return apiMutator<AEOPromptSuggestionJobApi>(getAeoPromptsSuggestUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOPromptSuggestRequestApi),
+    })
+}
+
+export const getAeoPromptsSuggestionRetrieveUrl = (projectId: string, jobId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/suggest/${jobId}/`
+}
+
+/**
+ * Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
+ * @summary Get AEO prompt suggestions
+ */
+export const aeoPromptsSuggestionRetrieve = async (
+    projectId: string,
+    jobId: string,
+    options?: RequestInit
+): Promise<AEOPromptSuggestionJobApi> => {
+    return apiMutator<AEOPromptSuggestionJobApi>(getAeoPromptsSuggestionRetrieveUrl(projectId, jobId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsTopicsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/topics/`
+}
+
+/**
+ * Lists the topics in the project's AEO prompt set, with the number of prompts in each.
+ * @summary List AEO prompt topics
+ */
+export const aeoPromptsTopics = async (projectId: string, options?: RequestInit): Promise<AEOPromptTopicApi[]> => {
+    return apiMutator<AEOPromptTopicApi[]>(getAeoPromptsTopicsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapCapturePagesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_capture/pages/`
+}
+
+export const heatmapCapturePagesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapCapturePagesApi> => {
+    return apiMutator<HeatmapCapturePagesApi>(getHeatmapCapturePagesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapCaptureSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_capture/settings/`
+}
+
+export const heatmapCaptureSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapCaptureSettingsApi> => {
+    return apiMutator<HeatmapCaptureSettingsApi>(getHeatmapCaptureSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapCaptureSettingsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_capture/settings/`
+}
+
+export const heatmapCaptureSettingsUpdate = async (
+    projectId: string,
+    patchedHeatmapCaptureSettingsRequestApi?: PatchedHeatmapCaptureSettingsRequestApi,
+    options?: RequestInit
+): Promise<HeatmapCaptureSettingsApi> => {
+    return apiMutator<HeatmapCaptureSettingsApi>(getHeatmapCaptureSettingsUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHeatmapCaptureSettingsRequestApi),
+    })
+}
+
+export const getHeatmapScreenshotSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_screenshot/settings/`
+}
+
+export const heatmapScreenshotSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotSettingsApi> => {
+    return apiMutator<HeatmapScreenshotSettingsApi>(getHeatmapScreenshotSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapScreenshotSettingsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_screenshot/settings/`
+}
+
+export const heatmapScreenshotSettingsUpdate = async (
+    projectId: string,
+    patchedHeatmapScreenshotSettingsRequestApi?: PatchedHeatmapScreenshotSettingsRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotSettingsApi> => {
+    return apiMutator<HeatmapScreenshotSettingsApi>(getHeatmapScreenshotSettingsUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHeatmapScreenshotSettingsRequestApi),
+    })
+}
 
 export const getHeatmapScreenshotsContentRetrieveUrl = (
     projectId: string,
@@ -278,6 +666,144 @@ export const savedRegenerateCreate = async (
     })
 }
 
+export const getSavedScreenshotHistoryRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/screenshot_history/`
+}
+
+/**
+ * List the daily screenshot captures kept for a saved heatmap, newest first. Each capture is a render of the page on that day at one viewport width, so the clicks of a day or a range can be viewed over the background that matches it. Captures older than the retention window are deleted.
+ */
+export const savedScreenshotHistoryRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotHistoryResponseApi> => {
+    return apiMutator<HeatmapScreenshotHistoryResponseApi>(getSavedScreenshotHistoryRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSavedScreenshotHistoryContentRetrieveUrl = (
+    projectId: string,
+    shortId: string,
+    historyId: string,
+    params: SavedScreenshotHistoryContentRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/saved/${shortId}/screenshot_history/${historyId}/content/?${stringifiedParams}`
+        : `/api/projects/${projectId}/saved/${shortId}/screenshot_history/${historyId}/content/`
+}
+
+/**
+ * Fetch the JPEG for one daily capture, or its thumbnail. The list endpoint hands out versioned URLs, so the response carries a private day-long cache lifetime and an ETag that changes when the day is captured again.
+ */
+export const savedScreenshotHistoryContentRetrieve = async (
+    projectId: string,
+    shortId: string,
+    historyId: string,
+    params: SavedScreenshotHistoryContentRetrieveParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getSavedScreenshotHistoryContentRetrieveUrl(projectId, shortId, historyId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSavedScreenshotHistoryCaptureCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/screenshot_history/capture/`
+}
+
+/**
+ * Render and keep a capture of the page now, instead of waiting for the daily run, for example right after a deploy. The render runs in the background; poll the history list for the new capture. A capture requested on a day that already has one replaces that day's image.
+ */
+export const savedScreenshotHistoryCaptureCreate = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotHistoryCaptureResponseApi> => {
+    return apiMutator<HeatmapScreenshotHistoryCaptureResponseApi>(
+        getSavedScreenshotHistoryCaptureCreateUrl(projectId, shortId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getSavedScreenshotHistoryRequestsRetrieveUrl = (projectId: string, shortId: string, requestId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/screenshot_history/requests/${requestId}/`
+}
+
+/**
+ * Read the outcome of a capture request.
+ */
+export const savedScreenshotHistoryRequestsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    requestId: string,
+    options?: RequestInit
+): Promise<HeatmapCaptureRequestApi> => {
+    return apiMutator<HeatmapCaptureRequestApi>(
+        getSavedScreenshotHistoryRequestsRetrieveUrl(projectId, shortId, requestId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSavedCaptureCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/capture/`
+}
+
+/**
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The optional data URL selects which pages supply the overlay data and defaults to the captured URL.
+ */
+export const savedCaptureCreate = async (
+    projectId: string,
+    savedHeatmapCaptureRequestApi: SavedHeatmapCaptureRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    const formData = new FormData()
+    if (savedHeatmapCaptureRequestApi.image !== undefined && savedHeatmapCaptureRequestApi.image !== null) {
+        formData.append(`image`, savedHeatmapCaptureRequestApi.image)
+    }
+    if (savedHeatmapCaptureRequestApi.width !== undefined) {
+        formData.append(`width`, savedHeatmapCaptureRequestApi.width.toString())
+    }
+    if (savedHeatmapCaptureRequestApi.images !== undefined) {
+        savedHeatmapCaptureRequestApi.images.forEach((value) => formData.append(`images`, value))
+    }
+    if (savedHeatmapCaptureRequestApi.widths !== undefined) {
+        savedHeatmapCaptureRequestApi.widths.forEach((value) => formData.append(`widths`, value.toString()))
+    }
+    formData.append(`url`, savedHeatmapCaptureRequestApi.url)
+    if (savedHeatmapCaptureRequestApi.data_url !== undefined) {
+        formData.append(`data_url`, savedHeatmapCaptureRequestApi.data_url)
+    }
+    if (savedHeatmapCaptureRequestApi.name !== undefined) {
+        formData.append(`name`, savedHeatmapCaptureRequestApi.name)
+    }
+
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedCaptureCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
 export const getSavedPreflightCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/saved/preflight/`
 }
@@ -316,6 +842,27 @@ export const savedPrewarmCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(heatmapPrewarmRequestApi),
+    })
+}
+
+export const getWebAnalyticsFetchLlmsTxtUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics/llms_txt/`
+}
+
+/**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxt = async (
+    projectId: string,
+    llmsTxtFetchRequestApi: LlmsTxtFetchRequestApi,
+    options?: RequestInit
+): Promise<LlmsTxtFetchResponseApi> => {
+    return apiMutator<LlmsTxtFetchResponseApi>(getWebAnalyticsFetchLlmsTxtUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(llmsTxtFetchRequestApi),
     })
 }
 
@@ -488,7 +1035,7 @@ export const getWebAnalyticsAchievementsRecordVisitUrl = (projectId: string) => 
 }
 
 /**
- * Idempotently records that the requesting user opened Web analytics today (team-local date) and schedules a debounced achievement recompute. Intended to be called once per session.
+ * Idempotently records that the requesting user opened Web analytics today (team-local date) and refreshes the user's per-user achievement tracks. Intended to be called once per session.
  * @summary Record a Web analytics visit
  */
 export const webAnalyticsAchievementsRecordVisit = async (
@@ -498,6 +1045,531 @@ export const webAnalyticsAchievementsRecordVisit = async (
     return apiMutator<RecordVisitResponseApi>(getWebAnalyticsAchievementsRecordVisitUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getWebAnalyticsBotRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_bot_rules/`
+}
+
+/**
+ * The project's own bot rules, in the order they are checked at query time.
+ * @summary List custom bot rules
+ */
+export const webAnalyticsBotRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WebAnalyticsBotRuleApi[]> => {
+    return apiMutator<WebAnalyticsBotRuleApi[]>(getWebAnalyticsBotRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsBotRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_bot_rules/`
+}
+
+/**
+ * Add one bot rule to the project. A rule combines one or more single-property conditions with AND or OR. A pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
+ * @summary Create a custom bot rule
+ */
+export const webAnalyticsBotRulesCreate = async (
+    projectId: string,
+    webAnalyticsBotRuleApi: NonReadonly<WebAnalyticsBotRuleApi>,
+    options?: RequestInit
+): Promise<WebAnalyticsBotRuleApi> => {
+    return apiMutator<WebAnalyticsBotRuleApi>(getWebAnalyticsBotRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(webAnalyticsBotRuleApi),
+    })
+}
+
+export const getWebAnalyticsBotRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_bot_rules/${id}/`
+}
+
+/**
+ * Remove one bot rule by its id. The built-in bot list is unaffected.
+ * @summary Delete a custom bot rule
+ */
+export const webAnalyticsBotRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWebAnalyticsBotRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesListUrl = (
+    projectId: string,
+    params: WebAnalyticsContentAutopilotOpportunitiesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/`
+}
+
+export const webAnalyticsContentAutopilotOpportunitiesList = async (
+    projectId: string,
+    params: WebAnalyticsContentAutopilotOpportunitiesListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotOpportunityListApi> => {
+    return apiMutator<PaginatedContentAutopilotOpportunityListApi>(
+        getWebAnalyticsContentAutopilotOpportunitiesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/${id}/`
+}
+
+export const webAnalyticsContentAutopilotOpportunitiesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotOpportunityApi> => {
+    return apiMutator<ContentAutopilotOpportunityApi>(
+        getWebAnalyticsContentAutopilotOpportunitiesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesDismissUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/${id}/dismiss/`
+}
+
+/**
+ * Marks an opportunity as dismissed. It stays dismissed across refreshes, and list responses still include it with status `dismissed`.
+ * @summary Dismiss a content opportunity
+ */
+export const webAnalyticsContentAutopilotOpportunitiesDismiss = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotOpportunityApi> => {
+    return apiMutator<ContentAutopilotOpportunityApi>(
+        getWebAnalyticsContentAutopilotOpportunitiesDismissUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesDraftUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/draft/`
+}
+
+/**
+ * Starts a run that researches and drafts content for the selected opportunities.
+ * @summary Draft content for opportunities
+ */
+export const webAnalyticsContentAutopilotOpportunitiesDraft = async (
+    projectId: string,
+    contentAutopilotOpportunityDraftRequestApi: ContentAutopilotOpportunityDraftRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotOpportunitiesDraftUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotOpportunityDraftRequestApi),
+    })
+}
+
+export const getWebAnalyticsContentAutopilotOpportunitiesRefreshUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_opportunities/refresh/`
+}
+
+/**
+ * Re-reads AI citation checks and updates the site's content opportunities. Makes no model calls.
+ * @summary Refresh content opportunities
+ */
+export const webAnalyticsContentAutopilotOpportunitiesRefresh = async (
+    projectId: string,
+    contentAutopilotOpportunityRefreshRequestApi: ContentAutopilotOpportunityRefreshRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotOpportunityApi[]> => {
+    return apiMutator<ContentAutopilotOpportunityApi[]>(
+        getWebAnalyticsContentAutopilotOpportunitiesRefreshUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(contentAutopilotOpportunityRefreshRequestApi),
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProfilesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/`
+}
+
+export const webAnalyticsContentAutopilotProfilesList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProfilesListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotSiteProfileListApi> => {
+    return apiMutator<PaginatedContentAutopilotSiteProfileListApi>(
+        getWebAnalyticsContentAutopilotProfilesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/`
+}
+
+export const webAnalyticsContentAutopilotProfilesCreate = async (
+    projectId: string,
+    contentAutopilotSiteProfileApi: NonReadonly<ContentAutopilotSiteProfileApi>,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(getWebAnalyticsContentAutopilotProfilesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotSiteProfileApi),
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProfilesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(
+        getWebAnalyticsContentAutopilotProfilesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedContentAutopilotSiteProfileApi?: NonReadonly<PatchedContentAutopilotSiteProfileApi>,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(
+        getWebAnalyticsContentAutopilotProfilesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedContentAutopilotSiteProfileApi),
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWebAnalyticsContentAutopilotProfilesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProfilesDiscoverUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/discover/`
+}
+
+/**
+ * Inspects a public site for its canonical origin, name, and sitemap URLs.
+ * @summary Discover content autopilot site settings
+ */
+export const webAnalyticsContentAutopilotProfilesDiscover = async (
+    projectId: string,
+    contentAutopilotSiteDiscoveryRequestApi: ContentAutopilotSiteDiscoveryRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteDiscoveryResponseApi> => {
+    return apiMutator<ContentAutopilotSiteDiscoveryResponseApi>(
+        getWebAnalyticsContentAutopilotProfilesDiscoverUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(contentAutopilotSiteDiscoveryRequestApi),
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProposalsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/`
+}
+
+export const webAnalyticsContentAutopilotProposalsList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProposalsListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotProposalListListApi> => {
+    return apiMutator<PaginatedContentAutopilotProposalListListApi>(
+        getWebAnalyticsContentAutopilotProposalsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProposalsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(getWebAnalyticsContentAutopilotProposalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProposalsEditUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/edit/`
+}
+
+/**
+ * Saves reviewed Markdown and its structured package without publishing it.
+ * @summary Edit a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsEdit = async (
+    projectId: string,
+    id: string,
+    contentAutopilotProposalEditRequestApi: ContentAutopilotProposalEditRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(getWebAnalyticsContentAutopilotProposalsEditUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotProposalEditRequestApi),
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProposalsExportUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/export/`
+}
+
+/**
+ * Returns validated Markdown and structured JSON without publishing it.
+ * @summary Export a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsExport = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotExportResponseApi> => {
+    return apiMutator<ContentAutopilotExportResponseApi>(
+        getWebAnalyticsContentAutopilotProposalsExportUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsRegenerateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/regenerate/`
+}
+
+/**
+ * Returns a proposal to generation while keeping its previous result inspectable in history.
+ * @summary Regenerate a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsRegenerate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(
+        getWebAnalyticsContentAutopilotProposalsRegenerateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsRejectUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/reject/`
+}
+
+/**
+ * Rejects a proposal without changing the public site.
+ * @summary Reject a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsReject = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(getWebAnalyticsContentAutopilotProposalsRejectUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotRunsListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_runs/`
+}
+
+export const webAnalyticsContentAutopilotRunsList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotRunListApi> => {
+    return apiMutator<PaginatedContentAutopilotRunListApi>(
+        getWebAnalyticsContentAutopilotRunsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotRunsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/${id}/`
+}
+
+export const webAnalyticsContentAutopilotRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotRunsCancelUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/${id}/cancel/`
+}
+
+/**
+ * Stops a pending or generating run without creating content writes.
+ * @summary Cancel a content autopilot run
+ */
+export const webAnalyticsContentAutopilotRunsCancel = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotRunsCancelUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotRunsStartUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/start/`
+}
+
+/**
+ * Captures the current profile and creates one pending on-demand content research run.
+ * @summary Start a content autopilot run
+ */
+export const webAnalyticsContentAutopilotRunsStart = async (
+    projectId: string,
+    contentAutopilotRunStartRequestApi: ContentAutopilotRunStartRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotRunsStartUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotRunStartRequestApi),
     })
 }
 

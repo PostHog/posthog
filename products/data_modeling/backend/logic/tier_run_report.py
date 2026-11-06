@@ -27,8 +27,7 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     tier_schedule_id,
     tier_sort_key,
 )
-from products.data_modeling.backend.logic.freshness import clamp_to_source_floor, compute_effective_cadences
-from products.data_modeling.backend.logic.node_frequency import build_frequency_graph
+from products.data_modeling.backend.logic.node_frequency import build_frequency_graph, scheduled_cadences
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
@@ -150,10 +149,7 @@ def untargeted_nodes(dag: DAG) -> list[Node]:
 def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:
     """The cohorts the reconciler would build, mirroring its propagation + clamp + bucketing."""
     graph = build_frequency_graph(dag)
-    effective = compute_effective_cadences(
-        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
-    )
-    effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    effective, _clamped = scheduled_cadences(graph)
     return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 
@@ -161,9 +157,11 @@ def _reportable_nodes(dag: DAG) -> list[Node]:
     """Every node a run could act on. Mirrors `schedulable_nodes`' exclusion of soft-deleted saved
     queries — those keep their target but the scheduler never sees them, so reporting them would
     manufacture permanent phantom rows. Source (TABLE) nodes are kept so the page can show them.
+    METRIC nodes are dropped: nothing ever runs them.
     """
     return list(
         Node.objects.filter(team_id=dag.team_id, dag=dag)
+        .exclude(type=NodeType.METRIC)
         .exclude(saved_query__deleted=True)
         .select_related("saved_query")
     )
@@ -293,7 +291,7 @@ def _latest_run_for_prefix(team_id: int, prefix: str) -> tuple[str, datetime] | 
 def _jobs_by_saved_query(team_id: int, parent_workflow_id: str | None) -> dict[str, DataModelingJob]:
     if parent_workflow_id is None:
         return {}
-    # the duckgres shadow writes its own row per node in the same run; the serving engine is the
+    # The managed warehouse shadow writes its own row per node in the same run. The serving engine is the
     # one a reader cares about, so filter rather than relying on which row was written last
     return {
         str(job.saved_query_id): job
@@ -327,10 +325,8 @@ def _suspension_detail(node: Node) -> str:
     """Why the serving engine skips this node, if it does.
 
     Only the serving engine's marker blocks a run (`execute_dag` reads one engine's list), and the
-    duckgres shadow suspends independently and often — reporting its marker would turn healthy
-    nodes and their whole subtree into false `suspended` / `blocked` rows. Note a marker is written
-    whether or not `data-modeling-suspend-failing-nodes` is on for the team, so on a team without
-    that flag a marker here is decorative and the node still runs.
+    managed warehouse shadow suspends independently and often. Reporting its marker would turn healthy
+    nodes and their whole subtree into false `suspended` / `blocked` rows.
     """
     suspended = ((node.properties or {}).get("system") or {}).get("suspended") or {}
     entry = suspended.get(DataModelingJobEngine.CLICKHOUSE.value)

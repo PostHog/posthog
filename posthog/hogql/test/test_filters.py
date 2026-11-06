@@ -1,7 +1,9 @@
+from datetime import datetime
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -9,6 +11,7 @@ from posthog.schema import (
     Breakdown,
     BreakdownFilter,
     CohortPropertyFilter,
+    CompareFilter,
     DateRange,
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
@@ -28,11 +31,76 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestFilters(BaseTest):
     maxDiff = None
+
+    @parameterized.expand([("gap", False), ("zero", True)])
+    def test_fill_date_bounds_before_window_calculations(self, _name: str, zero: bool) -> None:
+        query = parse_select(
+            """
+            WITH observed AS (
+                SELECT toDateTime('2026-01-01') AS day, 'a' AS series, 10 AS amount
+                UNION ALL SELECT toDateTime('2026-01-03'), 'a', 30
+                UNION ALL SELECT toDateTime('2026-01-02'), 'b', 8
+            ), filled AS (
+                SELECT day, series, toNullable(toFloat(amount)) AS amount FROM observed
+                ORDER BY series, day WITH FILL
+                    FROM toStartOfDay({filters.dateRange.from})
+                    TO toStartOfDay({filters.dateRange.to}) + INTERVAL 1 DAY
+                    STEP INTERVAL 1 DAY
+            )
+            SELECT series, toString(toDate(day)), amount,
+                avg(amount) OVER (PARTITION BY series ORDER BY day ROWS BETWEEN 2 PRECEDING AND CURRENT ROW),
+                if(count(amount) OVER (PARTITION BY series ORDER BY day ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) = 3,
+                    avg(amount) OVER (PARTITION BY series ORDER BY day ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), NULL)
+            FROM filled ORDER BY series, day
+            """
+        )
+        if zero:
+            assert isinstance(query, ast.SelectQuery)
+            assert query.ctes is not None
+            filled = query.ctes["filled"].expr
+            assert isinstance(filled, ast.SelectQuery)
+            filled.interpolate = [ast.InterpolateExpr(expr=ast.Field(chain=["amount"]), value=ast.Constant(value=0))]
+        query = replace_filters(
+            query,
+            HogQLFilters(dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-03")),
+            self.team,
+        )
+        result = execute_hogql_query(query, team=self.team)
+        assert len(result.results) == 6
+        assert result.results[1][:3] == ("a", "2026-01-02", 0 if zero else None)
+        assert result.results[2][3] == (40 / 3 if zero else 20)
+        assert result.results[2][4] == (40 / 3 if zero else None)
+        assert result.results[4][3] == (4 if zero else 8)
+
+    @parameterized.expand(["from", "to"])
+    def test_date_bound_value_requires_filters(self, bound: str) -> None:
+        query = parse_select(
+            "SELECT {bound}",
+            placeholders={"bound": ast.Placeholder(expr=ast.Field(chain=["filters", "dateRange", bound]))},
+        )
+        with self.assertRaisesMessage(QueryError, "Select a"):
+            replace_filters(query, None, self.team)
+
+    def test_comparison_window_bounds_use_the_same_range_as_previous_rows(self) -> None:
+        filters = HogQLFilters(dateRange=DateRange(date_from="2026-01-08", date_to="2026-01-14"))
+        query = replace_filters(
+            parse_select("SELECT {filters.previous.dateRange.from}, {filters.previous.dateRange.to}"),
+            filters,
+            self.team,
+        )
+        assert isinstance(query, ast.SelectQuery)
+        for expression, expected in zip(query.select, ["2026-01-01", "2026-01-08"], strict=True):
+            assert isinstance(expression, ast.Constant)
+            assert isinstance(expression.value, datetime)
+            assert expression.value.strftime("%Y-%m-%d") == expected
 
     def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
@@ -46,6 +114,84 @@ class TestFilters(BaseTest):
             dialect="hogql",
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
         )[0]
+
+    @parameterized.expand(
+        [
+            ("native_previous", "{filters.previous}", None, "2020-01-01", 31),
+            ("custom_native_previous", "{filters.previous.native(timestamp)}", None, "2020-01-01", 31),
+            (
+                "bound_previous",
+                "{filters.previous(timestamp AS timestamp, properties.plan AS 'plan')}",
+                None,
+                "2020-01-01",
+                31,
+            ),
+            ("previous_year", "{filters.previous}", "-1y", "2019-02-01", 365),
+        ]
+    )
+    @time_machine.travel("2020-02-15T12:00:00Z", tick=False)
+    def test_comparison_filters(
+        self, _name: str, placeholder: str, compare_to: str | None, previous_start: str, days: int
+    ) -> None:
+        filters = HogQLFilters(
+            dateRange=DateRange(date_from="mStart"),
+            compareFilter=CompareFilter(compare=True, compare_to=compare_to),
+            properties=[EventPropertyFilter(key="plan", value="pro", operator="exact")],
+        )
+        query = self._parse_select("SELECT {filters.compareDate(timestamp)} FROM events WHERE " + placeholder)
+        sql = self._print_ast(replace_filters(query, filters, self.team))
+        self.assertIn(f"addDays(timestamp, {days})", sql)
+        self.assertIn(previous_start, sql)
+        self.assertIn("properties.plan", sql)
+        self.assertIn("'pro'", sql)
+        self.assertNotIn("{filters", sql)
+        assert filters.dateRange is not None
+        self.assertEqual(filters.dateRange.date_from, "mStart")
+
+    @parameterized.expand(
+        [
+            ("leap_february", "2020-02-15", "mStart", None, "month", "2020-01-30", "2020-02-01"),
+            ("february", "2021-02-15", "mStart", None, "month", "2021-01-31", "2021-02-01"),
+            ("quarter", "2020-05-15", "qStart", None, "quarter", "2020-01-31", "2020-04-01"),
+            ("year", "2021-05-15", "yStart", "-1y", "year", "2020-02-29", "2021-01-01"),
+        ]
+    )
+    def test_calendar_comparison_buckets(
+        self, _name: str, now: str, date_from: str, compare_to: str | None, bucket: str, previous: str, expected: str
+    ) -> None:
+        filters = HogQLFilters(
+            dateRange=DateRange(date_from=date_from), compareFilter=CompareFilter(compare=True, compare_to=compare_to)
+        )
+        date = ast.Placeholder(
+            expr=ast.ExprCall(
+                expr=ast.Field(chain=["filters", "compareDate"]),
+                args=[ast.Call(name="toDateTime", args=[ast.Constant(value=previous)]), ast.Constant(value=bucket)],
+            )
+        )
+        query = self._parse_select(
+            "SELECT toString(toDate(dateTrunc({bucket}, {date})))",
+            placeholders={"bucket": ast.Constant(value=bucket), "date": date},
+        )
+        with time_machine.travel(now, tick=False):
+            query = replace_filters(query, filters, self.team)
+        result = execute_hogql_query(query, team=self.team)
+        assert result.results == [(expected,)]
+
+    def test_comparison_rejects_unbounded_dates(self) -> None:
+        with self.assertRaisesMessage(QueryError, "Period comparisons require a bounded date range"):
+            replace_filters(
+                self._parse_select("SELECT count() FROM events WHERE {filters.previous}"),
+                HogQLFilters(dateRange=DateRange(date_from="all")),
+                self.team,
+            )
+
+    @time_machine.travel("2020-02-15T12:00:00Z", tick=False)
+    def test_comparison_preserves_subday_boundaries(self) -> None:
+        query = self._parse_select("SELECT {filters.compareDate(timestamp)} FROM events WHERE {filters.previous}")
+        sql = self._print_ast(replace_filters(query, HogQLFilters(dateRange=DateRange(date_from="-1h")), self.team))
+        self.assertIn("addSeconds(timestamp, 3600)", sql)
+        self.assertIn("less(timestamp, toDateTime('2020-02-15 11:00:00.000000'))", sql)
+        self.assertIn("greaterOrEquals(timestamp, toDateTime('2020-02-15 10:00:00.000000'))", sql)
 
     def test_replace_filters_empty(self):
         select = replace_filters(self._parse_select("SELECT event FROM events"), HogQLFilters(), self.team)
@@ -70,7 +216,7 @@ class TestFilters(BaseTest):
         )
 
     def test_raises_when_filters_empty_and_not_events_or_sessions(self):
-        select = self._parse_select("SELECT person FROM persons where {filters}")
+        select = self._parse_select("SELECT type FROM heatmaps where {filters}")
 
         with self.assertRaisesMessage(
             QueryError,
@@ -85,7 +231,7 @@ class TestFilters(BaseTest):
             replace_filters(select, HogQLFilters(), self.team)
 
     def test_raises_when_filters_and_not_events_or_sessions(self):
-        select = self._parse_select("SELECT person FROM persons where {filters}")
+        select = self._parse_select("SELECT type FROM heatmaps where {filters}")
 
         with self.assertRaisesMessage(
             QueryError,
@@ -94,7 +240,7 @@ class TestFilters(BaseTest):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
 
     def test_replace_filters_date_range(self):
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             # open-ended range: bounded at the end of today instead of including future-dated rows
             select = replace_filters(
                 self._parse_select("SELECT event FROM events where {filters}"),
@@ -176,7 +322,7 @@ class TestFilters(BaseTest):
     def test_replace_filters_relative_date_from_snaps_to_start_of_day(self, date_from: str, expected: str):
         # Regression: relative presets used to keep the wall-clock time of day, so "This month" on a
         # dashboard silently dropped rows between midnight and the current time on the first day
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(
                 self._parse_select("SELECT event FROM events WHERE timestamp >= {filters.dateRange.from}"),
                 HogQLFilters(dateRange=DateRange(date_from=date_from)),
@@ -190,7 +336,7 @@ class TestFilters(BaseTest):
     def test_replace_filters_date_from_respects_week_start_day(self):
         self.team.week_start_day = 1
         self.team.save()
-        with freeze_time("2020-02-15T13:37:42Z"):  # a Saturday
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):  # a Saturday
             select = replace_filters(
                 self._parse_select("SELECT event FROM events WHERE timestamp >= {filters.dateRange.from}"),
                 HogQLFilters(dateRange=DateRange(date_from="wStart")),
@@ -204,7 +350,7 @@ class TestFilters(BaseTest):
     def test_replace_filters_sub_day_date_from_stays_rolling(self):
         # Sub-day ranges ("last 1 hour" in logs/traces) must keep their exact lower bound and stay
         # open-ended — snapping them to calendar boundaries would change the window's meaning
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(
                 self._parse_select("SELECT event FROM events where {filters}"),
                 HogQLFilters(dateRange=DateRange(date_from="-1h")),
@@ -227,7 +373,7 @@ class TestFilters(BaseTest):
     def test_replace_filters_date_to_resolution(self, date_to: Optional[str], expected: str):
         # Regression: an unset date_to used to drop the upper bound entirely, so "This month" and
         # "Last 7 days" included future-dated rows
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(
                 self._parse_select("SELECT event FROM events WHERE timestamp <= {filters.dateRange.to}"),
                 HogQLFilters(dateRange=DateRange(date_from="-7d", date_to=date_to)),
@@ -241,7 +387,7 @@ class TestFilters(BaseTest):
     def test_replace_filters_open_ended_date_to_uses_team_timezone(self):
         self.team.timezone = "America/New_York"
         self.team.save()
-        with freeze_time("2020-02-15T03:00:00Z"):  # still Feb 14 in New York
+        with time_machine.travel("2020-02-15T03:00:00Z", tick=False):  # still Feb 14 in New York
             select = replace_filters(
                 self._parse_select("SELECT event FROM events WHERE timestamp <= {filters.dateRange.to}"),
                 HogQLFilters(dateRange=DateRange(date_from="-7d")),
@@ -259,7 +405,7 @@ class TestFilters(BaseTest):
         ]
     )
     def test_replace_filters_date_to_with_explicit_date(self, date_to: Optional[str], expected: str):
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(
                 self._parse_select("SELECT event FROM events WHERE timestamp <= {filters.dateRange.to}"),
                 HogQLFilters(dateRange=DateRange(date_from="2020-02-01", date_to=date_to, explicitDate=True)),
@@ -293,7 +439,7 @@ class TestFilters(BaseTest):
         # "All time" must not gain an end-of-today cap: unlike QueryDateRange (where "all" means
         # "since the first event"), here it promises the whole table, including future-dated
         # warehouse rows
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(
                 self._parse_select("SELECT event FROM events where {filters}"),
                 HogQLFilters(dateRange=DateRange(date_from="all")),
@@ -306,7 +452,7 @@ class TestFilters(BaseTest):
 
     def test_replace_filters_this_month_preset(self):
         # The exact shape a dashboard's "This month" filter produces: date_from="mStart", no date_to
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(
                 self._parse_select("SELECT event FROM events where {filters}"),
                 HogQLFilters(dateRange=DateRange(date_from="mStart")),
@@ -404,7 +550,7 @@ class TestFilters(BaseTest):
         )
 
     def test_replace_filters_groups_date_range(self):
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(
                 self._parse_select("SELECT group_key FROM groups where {filters}"),
                 HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
@@ -478,7 +624,7 @@ class TestFilters(BaseTest):
         )
 
     def test_replace_filters_groups_date_and_properties(self):
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(
                 self._parse_select("SELECT group_key FROM groups where {filters}"),
                 HogQLFilters(
@@ -500,13 +646,215 @@ class TestFilters(BaseTest):
         )
 
     def test_raises_when_filters_and_not_supported_table_includes_groups(self):
-        select = self._parse_select("SELECT person FROM persons where {filters}")
+        select = self._parse_select("SELECT type FROM heatmaps where {filters}")
 
         with self.assertRaisesMessage(
             QueryError,
             "Cannot use 'filters' placeholder in a SELECT clause that does not select from",
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+
+    def test_replace_filters_persons_empty(self):
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            HogQLFilters(),
+            self.team,
+        )
+        self.assertEqual(self._print_ast(select), f"SELECT id FROM persons WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}")
+
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            None,
+            self.team,
+        )
+        self.assertEqual(self._print_ast(select), f"SELECT id FROM persons WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}")
+
+    def test_replace_filters_persons_date_range(self):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
+            select = replace_filters(
+                self._parse_select("SELECT id FROM persons where {filters}"),
+                HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
+                self.team,
+            )
+            self.assertEqual(
+                self._print_ast(select),
+                "SELECT id FROM persons WHERE "
+                "and(lessOrEquals(created_at, toDateTime('2020-02-15 23:59:59.999999')), "
+                f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
+
+    def test_replace_filters_persons_property(self):
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            HogQLFilters(
+                properties=[PersonPropertyFilter(key="email", operator="exact", value="max@example.com", type="person")]
+            ),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT id FROM persons WHERE equals(properties.email, 'max@example.com') LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_persons_event_property_raises(self):
+        select = self._parse_select("SELECT id FROM persons where {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "The 'event' property filter does not work in 'person' scope",
+        ):
+            replace_filters(
+                select,
+                HogQLFilters(
+                    properties=[EventPropertyFilter(key="$browser", operator="exact", value="Chrome", type="event")]
+                ),
+                self.team,
+            )
+
+    def test_replace_filters_persons_test_accounts(self):
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "type": "person",
+                "value": "posthog.com",
+                "operator": "not_icontains",
+            }
+        ]
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            HogQLFilters(filterTestAccounts=True),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT id FROM persons WHERE notILike(toString(properties.email), '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_persons_test_accounts_cohort(self):
+        # The default test account filter on a new project excludes a cohort, and the cohort branch of
+        # property_to_expr picks the right column per scope, so person scope resolves it fine.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "value": "posthog.com", "type": "person"}]}],
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"}]
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT id FROM persons where {filters}"),
+            HogQLFilters(filterTestAccounts=True),
+            self.team,
+        )
+        # Printing expands the cohort into a subquery. The point of the assertion is the left side:
+        # person scope binds the membership check to persons.id, and it resolves.
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT id FROM persons WHERE notIn(id, (SELECT person_id FROM raw_cohort_people "
+            f"WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version "
+            f"HAVING greater(sum(sign), 0))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_persons_test_accounts_event_property_raises(self):
+        self.team.test_account_filters = [
+            {
+                "key": "$host",
+                "type": "event",
+                "value": "localhost",
+                "operator": "not_icontains",
+            }
+        ]
+        self.team.save()
+
+        select = self._parse_select("SELECT id FROM persons where {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "A test account filter in your project settings (the event property filter on '$host') "
+            "can't apply to a query that selects only from persons.",
+        ):
+            replace_filters(select, HogQLFilters(filterTestAccounts=True), self.team)
+
+    def test_replace_filters_events_joined_with_persons_keep_event_scope(self):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
+            select = replace_filters(
+                self._parse_select(
+                    "SELECT event FROM events JOIN persons ON events.person_id = persons.id where {filters}"
+                ),
+                HogQLFilters(
+                    dateRange=DateRange(date_from="2020-02-02"),
+                    properties=[
+                        PersonPropertyFilter(key="email", operator="exact", value="max@example.com", type="person")
+                    ],
+                ),
+                self.team,
+            )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events JOIN persons ON equals(events.person_id, persons.id) WHERE "
+            "and(equals(person.properties.email, 'max@example.com'), "
+            "lessOrEquals(timestamp, toDateTime('2020-02-15 23:59:59.999999')), "
+            f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def _print_flag_evaluations_filters(self, filters: HogQLFilters) -> str:
+        # The org gate reads false under the test runner. A false gate prunes posthog.flag_evaluations
+        # from the database. replace_filters and the printer each build their own database. The patch
+        # must cover both builds.
+        with patch(
+            "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+            return_value=True,
+        ):
+            select = replace_filters(
+                self._parse_select("SELECT flag_key FROM posthog.flag_evaluations WHERE {filters}"),
+                filters,
+                self.team,
+            )
+            return self._print_ast(select)
+
+    @parameterized.expand(
+        [
+            ("no_filters", HogQLFilters(), "true"),
+            (
+                "date_range",
+                HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
+                "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+                "greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000')))",
+            ),
+            (
+                "event_property",
+                HogQLFilters(
+                    properties=[
+                        EventPropertyFilter(key="$feature_flag_response", operator="exact", value="test", type="event")
+                    ]
+                ),
+                "equals(properties.$feature_flag_response, 'test')",
+            ),
+        ]
+    )
+    def test_replace_filters_flag_evaluations(self, _name: str, filters: HogQLFilters, expected_where: str) -> None:
+        self.assertEqual(
+            self._print_flag_evaluations_filters(filters),
+            f"SELECT flag_key FROM flag_evaluations WHERE {expected_where} LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_flag_evaluations_cohort(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "value": "posthog.com", "type": "person"}]}],
+        )
+
+        printed = self._print_flag_evaluations_filters(
+            HogQLFilters(properties=[CohortPropertyFilter(key="id", value=cohort.pk, type="cohort")])
+        )
+
+        self.assertEqual(
+            printed,
+            "SELECT flag_key FROM flag_evaluations WHERE in(person_id, (SELECT person_id FROM raw_cohort_people "
+            f"WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version "
+            f"HAVING greater(sum(sign), 0))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
 
     def test_raises_for_unsupported_filters_placeholder(self):
         select = self._parse_select("SELECT dateTrunc({filters.granularity}, timestamp) FROM events WHERE {filters}")
@@ -517,9 +865,25 @@ class TestFilters(BaseTest):
         ):
             replace_filters(select, HogQLFilters(), self.team)
 
+    @parameterized.expand([("none", "null"), ("custom", "created_at")])
+    def test_native_filters_preserve_properties_with_custom_date_column(self, _name: str, expression: str) -> None:
+        query = self._parse_select("SELECT event FROM events WHERE {filters.native(" + expression + ")}")
+        filters = HogQLFilters(
+            dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-31"),
+            properties=[EventPropertyFilter(key="plan", value="pro", operator="exact")],
+        )
+        sql = self._print_ast(replace_filters(query, filters, self.team))
+        assert "properties.plan" in sql and "'pro'" in sql
+        assert "timestamp" not in sql
+        if expression == "null":
+            assert "2026-01" not in sql
+        else:
+            assert "greaterOrEquals(created_at" in sql
+            assert "2026-01-01" in sql and "2026-01-31" in sql
+
     def test_bound_filters_date_range_and_property(self):
         # persons is a table the plain {filters} placeholder rejects, so this exercises the unlock
-        with freeze_time("2020-02-15T13:37:42Z"):
+        with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(
                 self._parse_select(
                     "SELECT id FROM persons WHERE {filters(created_at AS timestamp, properties.plan AS 'plan')}"
@@ -575,6 +939,11 @@ class TestFilters(BaseTest):
                 "multi_value_is_not",
                 EventPropertyFilter(key="plan", operator="is_not", value=["hobby", "scale"], type="event"),
                 "notIn(properties.plan, tuple('hobby', 'scale'))",
+            ),
+            (
+                "multi_value_not_icontains_multi",
+                EventPropertyFilter(key="plan", operator="not_icontains_multi", value=["hobby", "scale"], type="event"),
+                "not(greater(multiSearchAnyCaseInsensitive(toString(properties.plan), ['hobby', 'scale']), 0))",
             ),
             (
                 "person_property_binds_by_key",

@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import Any, Optional, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.utils import timezone
 
 import dateutil.parser
@@ -23,7 +24,7 @@ from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
 
 
-@freeze_time("2020-01-02")
+@time_machine.travel("2020-01-02", tick=False)
 class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
     user: User = None  # type: ignore
@@ -542,7 +543,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] == "2020-01-02T00:00:00Z"
         assert response.json()["updated_at"] == "2020-01-02T00:00:00Z"
 
-        with freeze_time("2020-01-02T00:01:00Z"):
+        with time_machine.travel("2020-01-02T00:01:00Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/event_definitions/{event.id}",
                 {"verified": True},
@@ -568,7 +569,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
-        with freeze_time("2020-01-02T00:01:00Z"):
+        with time_machine.travel("2020-01-02T00:01:00Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/event_definitions/{event.id}",
                 {
@@ -698,6 +699,35 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert event_def.verified is True
         assert event_def.verified_by == self.user
         assert event_def.verified_at is not None
+
+    def test_clear_owner(self):
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="owned_event", owner=self.user)
+
+        response = self.client.patch(f"/api/projects/@current/event_definitions/{event.id}/", {"owner": None})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["owner"] is None
+        event.refresh_from_db()
+        assert event.owner is None
+
+    def test_list_filters_stay_unambiguous_when_both_tables_have_the_columns(self):
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="checkout_completed", verified=True)
+        with connection.cursor() as cursor:
+            # Run the deferred FK checks of the inserts above, or Postgres refuses the ALTER TABLE.
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            cursor.execute(
+                "ALTER TABLE posthog_eventdefinition ADD COLUMN IF NOT EXISTS description text,"
+                " ADD COLUMN IF NOT EXISTS verified boolean, ADD COLUMN IF NOT EXISTS hidden boolean"
+            )
+
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/?verified=true&exclude_hidden=true&search=checkout_completed"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["checkout_completed"]
 
     def test_cannot_assign_owner_from_another_organization(self):
         """Owner must belong to the current organization (PATCH)."""

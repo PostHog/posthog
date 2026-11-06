@@ -6,10 +6,10 @@ runs:
     steps:
         - name: Build agent and workspace dependencies
           shell: bash
-          working-directory: products/desktop
+          working-directory: packages/agent
           run: pnpm --filter @posthog/agent... run build
 
         - name: Run agent tests
           shell: bash
-          working-directory: products/desktop
+          working-directory: packages/agent
           run: pnpm --filter @posthog/agent run test

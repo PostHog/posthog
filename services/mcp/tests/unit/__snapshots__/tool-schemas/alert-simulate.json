@@ -1,6 +1,17 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "alert": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert."
+        },
         "config": {
             "anyOf": [
                 {
@@ -123,6 +134,43 @@
                                     "default": "MetricsAlertConfig",
                                     "enum": ["MetricsAlertConfig"],
                                     "type": "string"
+                                },
+                                "variables": {
+                                    "anyOf": [
+                                        {
+                                            "additionalProperties": {
+                                                "properties": {
+                                                    "all": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "boolean"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "values": {
+                                                        "description": "The selected values. Empty when `all` is true: All stands for every option of the variable.",
+                                                        "items": {
+                                                            "type": "string"
+                                                        },
+                                                        "type": "array"
+                                                    }
+                                                },
+                                                "required": ["values"],
+                                                "type": "object"
+                                            },
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Values for the `$name` variables in the insight's query."
                                 }
                             },
                             "type": "object"
@@ -2200,13 +2248,49 @@
                         }
                     },
                     "type": "object"
+                },
+                {
+                    "properties": {
+                        "instructions": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 2000,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "What counts as unusual or interesting for this metric, in your own words. Optional."
+                        },
+                        "type": {
+                            "default": "llm",
+                            "enum": ["llm"],
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
                 }
             ],
-            "description": "Detector configuration to simulate."
+            "description": "Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing)."
+        },
+        "evaluation_delay_intervals": {
+            "default": 0,
+            "description": "Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
         },
         "insight": {
-            "description": "Insight ID to simulate the detector on.",
-            "type": "number"
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "string"
+                }
+            ],
+            "description": "Numeric insight ID or saved insight short ID to simulate the detector on."
         },
         "series_index": {
             "default": 0,
@@ -2214,6 +2298,6 @@
             "type": "number"
         }
     },
-    "required": ["insight", "detector_config"],
+    "required": ["insight"],
     "type": "object"
 }

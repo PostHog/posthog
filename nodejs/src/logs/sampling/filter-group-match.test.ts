@@ -182,6 +182,138 @@ describe('matchFilterGroup', () => {
             const g = group({ values: [{ key: 'http.route', operator: 'exact', value: '/healthz' }] })
             expect(matchFilterGroup(g, baseRecord())).toBe(false)
         })
+
+        // Regression for the span top-level branches in lookupRecordValue: they must be
+        // gated on `span_attribute` so an existing `log_attribute` rule keyed `status_code`
+        // / `name` keeps resolving through the attribute map instead of reading the absent
+        // span column and silently stopping.
+        it('log_attribute status_code reads the attribute map, not the absent span column', () => {
+            const g = group({
+                values: [{ key: 'status_code', type: 'log_attribute', operator: 'exact', value: '500' }],
+            })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { status_code: '500' } }))).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ attributes: { status_code: '200' } }))).toBe(false)
+        })
+        it('log_attribute name reads the attribute map, not the absent span column', () => {
+            const g = group({ values: [{ key: 'name', type: 'log_attribute', operator: 'exact', value: 'api' }] })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { name: 'api' } }))).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ attributes: { name: 'other' } }))).toBe(false)
+        })
+        it('span_attribute status_code reads the span column', () => {
+            const g = group({ values: [{ key: 'status_code', type: 'span_attribute', operator: 'exact', value: '2' }] })
+            const span = baseRecord({ attributes: { status_code: '9' } }) as LogRecord & { status_code: number }
+            span.status_code = 2
+            expect(matchFilterGroup(g, span)).toBe(true)
+            const okSpan = baseRecord({}) as LogRecord & { status_code: number }
+            okSpan.status_code = 1
+            expect(matchFilterGroup(g, okSpan)).toBe(false)
+        })
+        it('span_attribute status_code falls back to the attribute map when the column is unset', () => {
+            const g = group({ values: [{ key: 'status_code', type: 'span_attribute', operator: 'exact', value: '2' }] })
+            // Span record whose status_code column is unset but the attribute is present.
+            expect(matchFilterGroup(g, baseRecord({ attributes: { status_code: '2' } }))).toBe(true)
+        })
+        it('span_attribute name reads the span column', () => {
+            const g = group({ values: [{ key: 'name', type: 'span_attribute', operator: 'exact', value: 'GET /x' }] })
+            const span = baseRecord({}) as LogRecord & { name: string }
+            span.name = 'GET /x'
+            expect(matchFilterGroup(g, span)).toBe(true)
+            const other = baseRecord({}) as LogRecord & { name: string }
+            other.name = 'POST /y'
+            expect(matchFilterGroup(g, other)).toBe(false)
+        })
+        it('span_attribute name falls back to the attribute map when the column is unset', () => {
+            const g = group({ values: [{ key: 'name', type: 'span_attribute', operator: 'exact', value: 'GET /x' }] })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { name: 'GET /x' } }))).toBe(true)
+        })
+        it('span_attribute kind reads the span column', () => {
+            const g = group({ values: [{ key: 'kind', type: 'span_attribute', operator: 'exact', value: '2' }] })
+            const span = baseRecord({}) as LogRecord & { kind: number }
+            span.kind = 2
+            expect(matchFilterGroup(g, span)).toBe(true)
+            const other = baseRecord({}) as LogRecord & { kind: number }
+            other.kind = 3
+            expect(matchFilterGroup(g, other)).toBe(false)
+        })
+        it('span_attribute kind falls back to the attribute map when the column is unset', () => {
+            const g = group({ values: [{ key: 'kind', type: 'span_attribute', operator: 'exact', value: '2' }] })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { kind: '2' } }))).toBe(true)
+        })
+        it('span_resource_attribute reads the resource map only, not a same-named span attribute', () => {
+            // Regression: without a dedicated branch this leaf fell through to the untyped
+            // fallback, which reads span attributes first — so a span attribute named like
+            // the resource attribute shadowed it.
+            const g = group({
+                values: [
+                    {
+                        key: 'deployment.environment',
+                        type: 'span_resource_attribute',
+                        operator: 'exact',
+                        value: 'staging',
+                    },
+                ],
+            })
+            expect(
+                matchFilterGroup(g, baseRecord({ resource_attributes: { 'deployment.environment': 'staging' } }))
+            ).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ attributes: { 'deployment.environment': 'staging' } }))).toBe(false)
+        })
+    })
+
+    describe('wire-encoded attribute values', () => {
+        // Capture JSON-encodes attribute values onto the Avro wire, so a string
+        // attribute reaches this matcher as `"production"` — quotes included. The
+        // ClickHouse sink and the transformation path both decode before they
+        // compare. The matcher must see the same decoded values: without decoding,
+        // an enabled rule silently never fires, and a negated operator fires on
+        // exactly the lines it was meant to keep.
+        const wireRecord = () =>
+            baseRecord({
+                resource_attributes: { 'deployment.environment': '"production"' },
+                attributes: { 'http.status_code': '500', ratio: '"12.5"' },
+            })
+
+        it.each<[string, string | string[], boolean]>([
+            ['exact', ['production'], true],
+            ['in', ['staging', 'production'], true],
+            // Negation must not fire on the value it names — that would drop
+            // the lines the rule was written to keep.
+            ['is_not', ['production'], false],
+            ['starts_with', 'prod', true],
+            ['ends_with', 'tion', true],
+            ['regex', '^production$', true],
+            ['icontains', 'production', true],
+        ])('%s %j sees the decoded resource attribute → %s', (operator, value, expected) => {
+            const g = group({
+                values: [{ key: 'deployment.environment', type: 'log_resource_attribute', operator, value }],
+            })
+            expect(matchFilterGroup(g, wireRecord())).toBe(expected)
+        })
+
+        it('numeric comparison parses a JSON-encoded numeric string', () => {
+            const g = group({ values: [{ key: 'ratio', type: 'log_attribute', operator: 'gt', value: 10 }] })
+            expect(matchFilterGroup(g, wireRecord())).toBe(true)
+        })
+        it('unquoted JSON numbers pass through unchanged', () => {
+            const g = group({
+                values: [{ key: 'http.status_code', type: 'log_attribute', operator: 'exact', value: '500' }],
+            })
+            expect(matchFilterGroup(g, wireRecord())).toBe(true)
+        })
+        it('severity fallback through the attribute map is decoded', () => {
+            const g = group({ values: [{ key: 'severity_text', operator: 'exact', value: ['error'] }] })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { level: '"error"' } }))).toBe(true)
+        })
+        it('service.name fallback through the resource map is decoded', () => {
+            const g = group({ values: [{ key: 'service.name', operator: 'exact', value: 'api' }] })
+            expect(matchFilterGroup(g, baseRecord({ resource_attributes: { 'service.name': '"api"' } }))).toBe(true)
+        })
+        it('a quoted-but-invalid-JSON value is compared as-is', () => {
+            const g = group({
+                values: [{ key: 'raw', type: 'log_attribute', operator: 'exact', value: '"a"b"' }],
+            })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { raw: '"a"b"' } }))).toBe(true)
+        })
     })
 
     describe('recursion depth cap', () => {

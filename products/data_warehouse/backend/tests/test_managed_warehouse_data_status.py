@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import cast
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 
 from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase
@@ -10,8 +10,8 @@ from django.test import SimpleTestCase, TestCase
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_warehouse.backend.logic.managed_warehouse_data_status import (
     ReadinessState,
     SourceTableStatus,
@@ -87,7 +87,7 @@ class TestSourceTableReadiness(SimpleTestCase):
         assert readiness == "waiting"
 
 
-@freeze_time("2026-07-13")
+@time_machine.travel("2026-07-13", tick=False)
 class TestDatasetStatus(SimpleTestCase):
     def _partition(
         self,
@@ -189,6 +189,7 @@ def _table(
     applied: bool = True,
     last_applied_at: datetime | None = None,
     last_synced_at: datetime | None = None,
+    workflow_status: ManagedWarehouseSourceJobStatus = ManagedWarehouseSourceJobStatus.COMPLETED,
 ) -> SourceTableStatus:
     return {
         "schema_id": str(uuid4()),
@@ -199,7 +200,7 @@ def _table(
         "readiness_state": readiness_state,
         "detail": "",
         "workflow_type": ManagedWarehouseSourceJobWorkflow.COPY,
-        "workflow_status": ManagedWarehouseSourceJobStatus.COMPLETED,
+        "workflow_status": workflow_status,
         "workflow_started_at": datetime(2026, 8, 1, tzinfo=UTC),
         "applied": applied,
         "last_applied_at": last_applied_at,
@@ -290,6 +291,58 @@ class TestRollupSources(SimpleTestCase):
         assert {s["source_name"]: s["total_schemas"] for s in summaries} == {"Stripe": 2, "Postgres": 1}
         # needs_attention outranks up_to_date, so Postgres sorts first despite the alphabet.
         assert [s["source_name"] for s in summaries] == ["Postgres", "Stripe"]
+
+    @parameterized.expand(
+        [
+            ("one_table", ["orders"], "The latest workflow failed for 1 table: orders. Select the source for details."),
+            (
+                "two_tables",
+                ["refunds", "orders"],
+                "The latest workflow failed for 2 tables: orders and refunds. Select the source for details.",
+            ),
+            (
+                "exactly_as_many_as_fit",
+                ["refunds", "orders", "charges"],
+                "The latest workflow failed for 3 tables: charges, orders and refunds. Select the source for details.",
+            ),
+            (
+                "more_than_fit",
+                ["refunds", "orders", "Invoices", "charges", "payouts"],
+                "The latest workflow failed for 5 tables: charges, Invoices, orders and 2 more. Select the source for details.",
+            ),
+            (
+                "attention_without_a_failed_workflow",
+                ["orders"],
+                "One or more schemas need attention.",
+                ManagedWarehouseSourceJobStatus.RUNNING,
+            ),
+        ]
+    )
+    def test_needs_attention_detail_names_the_failing_tables(
+        self,
+        _name: str,
+        failing_tables: list[str],
+        expected_detail: str,
+        workflow_status: ManagedWarehouseSourceJobStatus = ManagedWarehouseSourceJobStatus.FAILED,
+    ) -> None:
+        source_id = str(uuid4())
+        tables = [
+            _table(
+                source_id=source_id,
+                source_name="Stripe",
+                table_name=name,
+                readiness_state="needs_attention",
+                workflow_status=workflow_status,
+            )
+            for name in failing_tables
+        ]
+        tables.append(
+            _table(source_id=source_id, source_name="Stripe", table_name="customers", readiness_state="up_to_date")
+        )
+
+        [summary] = _rollup_sources(tables)
+
+        assert summary["detail"] == expected_detail
 
     def test_timestamps_roll_up_to_the_most_recent_across_schemas(self) -> None:
         # Both event timestamps summarize a source as "the latest time this happened anywhere in

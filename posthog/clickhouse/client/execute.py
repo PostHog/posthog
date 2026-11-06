@@ -19,8 +19,13 @@ from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
 
+from posthog.hogql import query_stats
+
+from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
+    MAX_QUERY_SIZE_BYTES,
     ClickHouseUser,
+    QuerySummary,
     Workload,
     get_client_from_pool,
     get_default_clickhouse_workload_type,
@@ -38,7 +43,9 @@ from posthog.clickhouse.query_tagging import (
     get_query_tags,
     is_api_key_access_method,
 )
+from posthog.dataclasses import frozen
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -132,26 +139,12 @@ def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
     else OFF. This is independent of the global `CLICKHOUSE_KILL_SWITCH` — callers
     that want the combined effect should take the more severe of the two levels.
     """
-    full_teams, light_teams = _get_kill_switch_team_sets(round(time.time() / 60))
-    if team_id in full_teams:
+    team_sets = _get_kill_switch_team_sets(round(time.time() / 60))
+    if team_id in team_sets.full_teams:
         return KillSwitchLevel.FULL
-    if team_id in light_teams:
+    if team_id in team_sets.light_teams:
         return KillSwitchLevel.LIGHT
     return KillSwitchLevel.OFF
-
-
-def get_hedged_app_queries_enabled() -> bool:
-    return _get_hedged_app_queries_enabled(round(time.time() / 60))
-
-
-@lru_cache(maxsize=1)
-def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
-    except Exception:
-        return False
 
 
 @lru_cache(maxsize=1)
@@ -166,8 +159,14 @@ def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
         return KillSwitchLevel.OFF
 
 
+@frozen
+class KillSwitchTeamSets:
+    full_teams: frozenset[int]
+    light_teams: frozenset[int]
+
+
 @lru_cache(maxsize=1)
-def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int]]:
+def _get_kill_switch_team_sets(_ttl: int) -> KillSwitchTeamSets:
     from posthog.models.instance_setting import get_instance_setting
 
     try:
@@ -184,7 +183,7 @@ def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int
     except Exception:
         logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS; per-team kill switch disabled for light")
         light_teams = frozenset()
-    return full_teams, light_teams
+    return KillSwitchTeamSets(full_teams=full_teams, light_teams=light_teams)
 
 
 def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
@@ -207,6 +206,91 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     return level
 
 
+def _meter_budgeted_query(team_id: str, query_info: Any) -> None:
+    # Runs after the pooled connection is released, and must never raise: a metering failure
+    # is an error counter, not a failed query.
+    try:
+        bytes_read = int(query_info.progress.bytes or 0)
+        remaining = debit(team_id, bytes_read)
+        record_request_query_cost(QueryCost(bytes_read=bytes_read, remaining_bytes=remaining))
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="meter").inc()
+        capture_exception(e)
+
+
+def _query_info_to_meter(client: Any, query_info_before: Any) -> Optional[Any]:
+    """The query info to meter for the query that just ran on `client`, or None.
+
+    The driver only creates a new query info once the connection is established, so the identity
+    check keeps a pooled client's previous query from being re-metered when connecting fails.
+    The driver also clears `last_query` when it disconnects after a server-side error, so a query
+    the server killed is not metered.
+    """
+    query_info = getattr(client, "last_query", None)
+    if query_info is None or query_info is query_info_before or not query_info.progress:
+        return None
+    return query_info
+
+
+def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QuerySummary]:
+    """What the query that just ran on `client` read, or None when nothing was recorded.
+
+    A stopped query's record is taken from the stash, because the reconnect after the error cleared
+    it. A record unchanged since before the call belongs to an earlier query on the same pooled client.
+    """
+    if not hasattr(client, "last_query"):
+        return getattr(client, "last_query_summary", None)
+    query_info = client.last_query
+    if query_info is None:
+        take_stashed = getattr(client, "take_last_query_before_reset", None)
+        query_info = take_stashed() if take_stashed is not None else None
+    if query_info is None or query_info is query_info_before or not query_info.progress:
+        return None
+    progress = query_info.progress
+    return QuerySummary(
+        rows=int(progress.rows or 0),
+        elapsed_ns=int(progress.elapsed_ns or 0),
+    )
+
+
+def _record_query_stats(client: Any, query_info_before: Any, execute_start_time: float, workload: Workload) -> None:
+    """Add what this query read to the request's totals.
+
+    Also runs after a failure, since a stopped query has still read rows. Never raises: the totals
+    are advisory.
+    """
+    try:
+        summary = _query_stats_summary(client, query_info_before)
+        if summary is None:
+            return
+        # elapsed_ns is 0 on old protocol revisions; fall back to the client-side round trip.
+        duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - execute_start_time) * 1000
+        query_stats.record(
+            rows_read=summary.rows,
+            duration_ms=duration_ms,
+            lookup=get_query_tags().lookup is not None,
+            workload=workload.value,
+        )
+    except Exception:
+        logger.warning("query_stats_record_failed", exc_info=True)
+
+
+def kill_switch_overrides(team_id: Optional[int], ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dict[str, int]:
+    """The ClickHouse setting ceilings the kill switch imposes right now, empty when it is off.
+
+    Public because not every path to ClickHouse goes through `sync_execute` — the notebook frame
+    materializer streams over raw HTTP and has to apply these itself. Merge with `min()` against
+    your own settings, and treat an unset setting as taking the ceiling: the kill switch only
+    ever tightens.
+    """
+    if TEST:
+        return {}
+    level = resolve_kill_switch_level(team_id)
+    if level == KillSwitchLevel.OFF or ch_user in _KILL_SWITCH_EXEMPT_USERS:
+        return {}
+    return dict(_KILL_SWITCH_SETTINGS[level])
+
+
 @lru_cache(maxsize=1)
 def default_settings() -> dict:
     # https://clickhouse.com/blog/clickhouse-fully-supports-joins-how-to-choose-the-right-algorithm-part5
@@ -215,9 +299,7 @@ def default_settings() -> dict:
     return {
         "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
-        # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
-        # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
-        "max_query_size": 1048576,
+        "max_query_size": MAX_QUERY_SIZE_BYTES,
     }
 
 
@@ -350,10 +432,16 @@ def sync_execute(
     # traffic stays on the online cluster. See is_api_key_access_method for the exact set.
     is_api_key_auth = is_api_key_access_method(tags.access_method)
 
-    # When someone uses an API key, always put their query to the offline cluster
-    # Execute all celery tasks not directly set to be online on the offline cluster
-    if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
-        workload = Workload.OFFLINE
+    if workload == Workload.DEFAULT:
+        # When someone uses an API key, always put their query to the offline cluster
+        if is_api_key_auth:
+            workload = Workload.OFFLINE
+        # Cache warming runs on the online cluster
+        elif tags.kind == "celery" and tags.feature == Feature.CACHE_WARMUP:
+            workload = Workload.ONLINE
+        # Execute all other celery tasks not directly set to be online on the offline cluster
+        elif tags.kind == "celery":
+            workload = Workload.OFFLINE
 
     # Make sure we always have app traffic through process_query_task on the online cluster.
     # API-key traffic stays offline here too, so an async query lands on the same cluster its
@@ -387,8 +475,8 @@ def sync_execute(
     }
 
     kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
-    if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
-        overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
+    overrides = kill_switch_overrides(team_id, ch_user)
+    if overrides:
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
         tags.kill_switch = kill_switch_level.value
 
@@ -400,7 +488,8 @@ def sync_execute(
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
             ch_user = ClickHouseUser.APP
-        elif tags.feature == Feature.CACHE_WARMUP:
+        # A ch_user tag wins, so warming work such as experiment recalculation can run as its own user.
+        elif tags.feature == Feature.CACHE_WARMUP and not tags.ch_user:
             ch_user = ClickHouseUser.CACHE_WARMUP
 
     # update tags if inside temporal (should not). Only meaningful inside a Temporal activity,
@@ -413,7 +502,9 @@ def sync_execute(
 
     add_fallback_query_tags(tags)
 
-    if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
+    # A ch_user tag wins on the Max AI worker, because the worker also hosts work with its own
+    # ClickHouse user and concurrency budget, such as the alerts platform's AI insight checks.
+    if tags.product == Product.MAX_AI or (tags.service_name == "temporal-worker-max-ai" and not tags.ch_user):
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
@@ -424,6 +515,8 @@ def sync_execute(
         # belongs on APP rather than behind a batch concurrency budget. Callers that named a user
         # keep it, so HogQL's own metadata lookups don't spend the budget meant for real queries.
         ch_user = ClickHouseUser.LLM_ANALYTICS
+    elif ch_user == ClickHouseUser.DEFAULT and tags.ch_user:
+        ch_user = ClickHouseUser(tags.ch_user)
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries
@@ -471,18 +564,8 @@ def sync_execute(
         **core_settings,
         "log_comment": query_log_tags.to_json(),
     }
-    if workload == Workload.OFFLINE:
-        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
-        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
-        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
-        # these disruptions
-        settings["use_hedged_requests"] = "0"
-    elif workload == Workload.ONLINE and ch_user == ClickHouseUser.APP:
-        if kill_switch_level != KillSwitchLevel.OFF:
-            settings["use_hedged_requests"] = "0"
-        else:
-            settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
+    budgeted_query_info: Optional[Any] = None
 
     try:
         QUERY_STARTED_COUNTER.labels(
@@ -494,14 +577,26 @@ def sync_execute(
             _llm_analytics_concurrency_slot(ch_user, team_id),
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
-            result = client.execute(
-                prepared_sql,
-                params=prepared_args,
-                settings=settings,
-                with_column_types=with_column_types,
-                query_id=query_id,
-                external_tables=external_tables,
-            )
+            query_info_before = getattr(client, "last_query", None)
+            # Taken after the concurrency slot and the pool checkout, so the fallback does not count
+            # the queue wait.
+            execute_start_time = perf_counter()
+            try:
+                result = client.execute(
+                    prepared_sql,
+                    params=prepared_args,
+                    settings=settings,
+                    with_column_types=with_column_types,
+                    query_id=query_id,
+                    external_tables=external_tables,
+                )
+            finally:
+                # A query killed mid-scan (timeout, memory limit) has already cost the read, so
+                # keep the progress the server reported before it died. The Redis write happens
+                # in the outer finally, once the connection is back in the pool.
+                if tags.api_queries_budgeted and tags.team_id:
+                    budgeted_query_info = _query_info_to_meter(client, query_info_before)
+                _record_query_stats(client, query_info_before, execute_start_time, workload)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
@@ -517,9 +612,15 @@ def sync_execute(
             chargeable=str(tags.chargeable or "0"),
         ).inc()
         err = wrap_clickhouse_query_error(e)
+        # The wrapper returns the same object for anything that is not a ServerException. Raising
+        # that with `from e` makes the exception its own __cause__.
+        if err is e:
+            raise
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
+        if budgeted_query_info is not None:
+            _meter_budgeted_query(str(tags.team_id), budgeted_query_info)
 
         QUERY_FINISHED_COUNTER.labels(
             team_id=str(team_id or ""),
@@ -542,6 +643,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[dict[str, str]] = None,
     *,
+    column_types_to_remove: Optional[Sequence[str]] = None,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
     settings: Optional[dict[str, Any]] = None,
@@ -550,6 +652,8 @@ def query_with_columns(
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
+    if column_types_to_remove is None:
+        column_types_to_remove = []
     metrics, types = sync_execute(
         query,
         args,
@@ -558,14 +662,19 @@ def query_with_columns(
         workload=workload,
         team_id=team_id,
     )
-    type_names = [key for key, _type in types]
+    column_names = [key for key, _type in types]
+    # A `SELECT *` over a system table gains columns as ClickHouse versions land, so a caller
+    # that must exclude a whole class of column matches on the type instead of naming each one.
+    dropped = set(columns_to_remove) | {
+        name for name, type_name in types if any(unwanted in str(type_name) for unwanted in column_types_to_remove)
+    }
 
     rows = []
     for row in metrics:
         result = {}
-        for type_name, value in zip(type_names, row):
-            if type_name not in columns_to_remove:
-                result[columns_to_rename.get(type_name, type_name)] = value
+        for column_name, value in zip(column_names, row):
+            if column_name not in dropped:
+                result[columns_to_rename.get(column_name, column_name)] = value
 
         rows.append(result)
 

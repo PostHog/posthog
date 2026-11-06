@@ -29,6 +29,10 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 # Add to .env as OIDC_RSA_PRIVATE_KEY="<generated_key>"
 ```
 
+Without this key, PostHog cannot create OAuth applications.
+Django's system checks print warning `posthog.oauth.W001` at startup.
+Client ID metadata document clients, dynamic client registration and toolbar sign-in get an OAuth `server_error` that names the missing setting.
+
 ### 2. Set Up Your Environment
 
 First, generate demo data which includes a test OAuth application:
@@ -228,7 +232,7 @@ See [Client Types](#client-types) section for detailed explanation.
    {
      "access_token": "...",
      "token_type": "Bearer",
-     "expires_in": 36000,
+     "expires_in": 3600,
      "refresh_token": "...",
      "id_token": "...",
      "scope": "openid experiment:read query:read",
@@ -237,9 +241,14 @@ See [Client Types](#client-types) section for detailed explanation.
    }
    ```
 
+   An access token expires after 1 hour.
+   Before it expires, use the refresh token to get a new one.
+
 ## Available Scopes
 
 OAuth supports all the same scopes as Personal API Keys. Each scope has a `read` and/or `write` action (e.g., `experiment:read`, `experiment:write`).
+
+Project and environment detail responses return `live_events_token` only when the authenticated caller can read queries. For scoped credentials, this requires `query:read`, `query:write`, or `*`. A key with only `project:read` receives `null` for this field. List responses do not include `live_events_token`.
 
 For a complete list of available scopes, see [frontend/src/lib/scopes.tsx](https://github.com/PostHog/posthog/blob/master/frontend/src/lib/scopes.tsx#L15).
 
@@ -322,6 +331,42 @@ tokens = token_response.json()
 print(tokens)
 ```
 
+## First-party client metadata documents
+
+PostHog's own public clients (hogli, the Visual Review Chrome extension, and internal tools) authenticate with client ID metadata documents (CIMD) rather than a registered application or dynamic client registration. Their documents live in the [posthog.com repo](https://github.com/PostHog/posthog.com) at `static/.well-known/oauth/<app>/client-metadata.json`, served at `https://posthog.com/.well-known/oauth/<app>/client-metadata.json`. That URL is the `client_id`, so one ID works on US, EU, and self-hosted.
+
+To add one, create a JSON file there with `client_id` set to its own URL. The CIMD fetcher follows no redirects, so the URL has to answer with a 200 directly. Put the scope ceiling in `com.posthog.scopes`. A client that only signs people in can list only `openid`, `profile`, and `email`, and gets no resource scope. A new document is an unverified, not-first-party client until someone sets `is_verified` or `is_first_party` on its application in Django admin, in each region.
+
+## Self-registered client logos
+
+Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client without a logo gets the first letter of its name instead.
+
+- Dynamic client registration (`POST /oauth/register/`, RFC 7591): send `logo_uri` alongside `redirect_uris`. The response echoes it back.
+- Client ID metadata documents: put `logo_uri` in the document. A document without one gets `https://<client_id host>/apple-touch-icon.png`, the touch icon of the host that serves the document. It never comes from `client_uri`, which the document asserts about itself, so a client cannot borrow another site's icon. Where the host has no such icon, the screens fall back to the first letter. A refresh keeps a stored logo when the document still has none.
+
+The URI must be `https` and must pass `is_url_allowed`, the same SSRF guard the rest of the codebase uses. That rejects a loopback, private, metadata or internal-domain host, and it resolves the name, so a public hostname pointing at a private address is rejected too. A URI that fails either check is dropped and left out of the registration response. It never fails the registration, since a client can complete every OAuth flow without a logo.
+
+The host check protects the visitor rather than PostHog. PostHog never fetches a logo: the browser does, and a self-hosted deployment renders these pages to people inside a trusted network. An unchecked logo would make each of those browsers probe its own network from a PostHog page.
+
+## Signed-out visitors
+
+`/oauth/authorize/` needs a session. A visitor without one is redirected to `/login?next=<the authorize URL>`. The login, signup, and email verification screens keep `next`, so the visitor lands on the consent screen once they have a session, and `/oauth` paths are exempt from the onboarding redirect.
+
+The redirect also sets the `ph_pending_oauth_connection` cookie so those screens can name the application:
+
+- Value: percent-encoded JSON with `client_name` and `client_id`, plus `logo_uri` and `redirect_host` (host of the registered redirect URI, web redirects only) when known. It holds public application metadata only, the same the consent screen shows.
+- Scope: `Domain=posthog.com` on PostHog Cloud, so the website can read it too. Host-only on any other host. `SameSite=Lax`, readable by JavaScript, lifetime 60 minutes.
+- Cleared when the person grants or denies the authorization.
+- A CIMD client seen for the first time has no application row yet, so the cookie carries the host of its `client_id` URL as the name.
+
+An account created while the cookie is present skips in-app onboarding. Signup sets `onboarding_skipped_reason` to `connector`, pinned to the signup organization, so another organization the person joins later still shows onboarding. A delegated invitee keeps onboarding, because running it is the reason for the invite. Until the project ingests its first event, opening the project homepage sends that person to `/welcome`. Other pages open as linked, so a deep link from the connecting application still works.
+
+While the cookie is present, the auth page pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
+
+To try these screens locally, run `generate_demo_data`. It registers the Claude and ChatGPT connectors from their public client ID metadata documents, the same way production registers them. Then open **Login tools** on `/login` and pick a connector under **Start an OAuth connection**. That sets the cookie and a `next` link to the consent screen, as the redirect above does. **Clear** deletes the cookie again.
+
+Analytics: `/login` and `/signup` render the same page, which asks for the email first and then opens the login or the signup password under it. The frontend captures `auth step viewed` for every step, with `step` (`email`, `login`, `login_code`, `signup_credentials`, `signup_profile`, `signup_pending_invite`, or `verify_email`), `entry` (`login` or `signup`), and `oauth_client_name` and `oauth_client_id` while the cookie is present. `auth email submitted` records the routing decision with `routed_to` and `account_exists`. `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it. When the signup creates a new organization, the project group also gets `created_via_oauth_client` and `created_via_oauth_client_id`.
+
 ## Endpoints
 
 - **Authorization**: `/oauth/authorize/`
@@ -371,7 +416,7 @@ curl -X POST http://localhost:8010/oauth/introspect/ \
 - **Client Authentication (HTTP Basic or Credentials)**: No scope required
 - **Bearer Token Authentication**: Requires `introspection` scope
 
-This means you can introspect any token using your application's client credentials, regardless of what scopes the token being introspected has. However, if you want to use an access token to introspect other tokens, that access token must have been granted the `introspection` scope.
+You only see tokens that belong to your own application, whichever method you use. The `introspection` scope lets an access token introspect other tokens from the same application. A token can always introspect itself, with or without the scope.
 
 ### Response Format
 
@@ -380,6 +425,7 @@ This means you can introspect any token using your application's client credenti
 ```json
 {
   "active": true,
+  "is_impersonated": false,
   "scope": "openid experiment:read query:read",
   "client_id": "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
   "scoped_teams": [1, 2],
@@ -387,6 +433,9 @@ This means you can introspect any token using your application's client credenti
   "exp": 1704067200
 }
 ```
+
+`is_impersonated` is `true` when a staff member issued the access token during impersonation.
+This field describes the token, not the browser session.
 
 **Inactive/Invalid Token Response**:
 

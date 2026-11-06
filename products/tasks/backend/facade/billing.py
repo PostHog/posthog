@@ -4,6 +4,16 @@ The usage reporter (posthog/tasks/usage_report.py) lives in the ``posthog`` modu
 which may only import ``products.tasks`` through the facade (see tach.toml).
 """
 
+from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunTokenUsage
+from products.tasks.backend.logic.services.gateway_usage import (
+    get_task_cost,
+    get_task_run_cost,
+    get_task_run_token_cost_microusd,
+    get_task_run_token_usage,
+    get_task_runs_spend,
+    locked_task_run_spend,
+    process_pending_gateway_usage,
+)
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCardConfigurationError
 from products.tasks.backend.logic.services.sandbox_usage import (
     SandboxComputeUsageByTeam,
@@ -11,11 +21,36 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
 )
+from products.tasks.backend.logic.services.task_usage import (
+    TASK_USAGE_SIGNATURE_HEADER,
+    TASK_USAGE_TIMESTAMP_HEADER,
+    TaskTokenUsageUnavailable,
+    TaskUsage,
+    get_local_task_run_token_costs,
+    get_local_task_token_cost,
+    get_task_usage,
+)
 
 __all__ = [
     "ComputeRateCardConfigurationError",
+    "TaskRunCost",
+    "TaskRunTokenUsage",
     "SandboxComputeUsageByTeam",
     "SandboxUsageByTeam",
+    "TaskUsage",
+    "TaskTokenUsageUnavailable",
+    "TASK_USAGE_SIGNATURE_HEADER",
+    "TASK_USAGE_TIMESTAMP_HEADER",
     "get_billable_sandbox_compute_usage_by_team",
+    "get_local_task_run_token_costs",
+    "get_local_task_token_cost",
     "get_task_sandbox_usage_by_team",
+    "get_task_usage",
+    "get_task_run_cost",
+    "get_task_cost",
+    "get_task_run_token_cost_microusd",
+    "get_task_run_token_usage",
+    "get_task_runs_spend",
+    "locked_task_run_spend",
+    "process_pending_gateway_usage",
 ]

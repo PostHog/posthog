@@ -6,6 +6,7 @@ import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 
 import { AccessControlLevel, UserBasicType } from '~/types'
 
+import { HogFlowOriginProductEnumApi } from '../../generated/api.schemas'
 import { CyclotronJobInputSchemaTypeSchema, HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
 
 const HogFlowEdgeSchema = z.object({
@@ -35,7 +36,7 @@ export const HogFlowSchema = z.object({
         .nullable(),
     conversion: z
         .object({
-            window_minutes: z.number().nullable(),
+            window: z.string().optional(),
             filters: z.any(),
             events: z
                 .array(
@@ -54,6 +55,14 @@ export const HogFlowSchema = z.object({
         'exit_on_trigger_not_matched_or_conversion',
         'exit_only_at_end',
     ]),
+    // Optional email pacing: the email worker delays sends over the limit instead of dropping them
+    email_sending_rate_limit: z
+        .object({
+            count: z.number(),
+            period: z.enum(['minute', 'hour']),
+        })
+        .optional()
+        .nullable(),
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
@@ -72,7 +81,7 @@ export const HogFlowBatchJobSchema = z.object({
     id: z.string(),
     hog_flow: z.string(),
     variables: z.record(z.string(), z.any()),
-    status: z.enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed']),
+    status: z.enum(['waiting', 'queued', 'active', 'completed', 'partially_failed', 'cancelled', 'failed']),
     filters: z.any(),
     created_at: z.string(),
     updated_at: z.string(),
@@ -81,11 +90,33 @@ export const HogFlowBatchJobSchema = z.object({
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
+    // UX discriminator set by purpose-built surfaces; 'broadcast' rows are managed via the
+    // broadcasts UI and hidden from the ordinary workflows list.
+    // Product surface that owns this workflow (e.g. `loops` for Desktop loops). Null when built directly in the workflows UI.
+    origin_product?: HogFlowOriginProductEnumApi | null
     // Effective access level of the current user for this workflow (resource access control).
     user_access_level?: AccessControlLevel
+    // Staged content changes awaiting publish (active workflows only). A full snapshot of the
+    // content fields; null when nothing is staged. Read-only server state.
+    draft?: Partial<HogFlow> | null
+    draft_updated_at?: string | null
+    // Set when PostHog paused this workflow's email because its spam complaint or hard bounce rate
+    // crossed a threshold. Read-only server state: only the resume endpoint clears it.
+    email_sending_paused_at?: string | null
+    email_sending_paused_reason?: string
+    // "auto" (detector) or "staff"; a staff pause has no customer resume. Empty when not paused.
+    email_sending_paused_by?: string
+    // True when only PostHog can lift the pause: staff placed it, or it re-tripped soon after a resume.
+    email_sending_pause_requires_support?: boolean
+    email_sending_resumed_at?: string | null
+    // Suggested changes waiting for a person. Only the list endpoint counts it.
+    pending_suggestions?: number | null
+    suggestions_enabled?: boolean | null
+    tags?: string[]
 }
+
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
-export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}
+export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge }> {}
 
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
 export interface HogFlowActionNode extends Node<HogFlowAction> {}

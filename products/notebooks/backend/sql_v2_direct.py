@@ -221,6 +221,21 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
         )
 
 
+def direct_run_was_enqueued(run: NotebookNodeRun) -> bool:
+    """Whether the query manager has ever heard of this run's query.
+
+    A dispatch commits its row before enqueueing, so a row alone does not prove the query
+    was submitted. This distinguishes the two, which is what lets a retry finish a lost
+    handoff without re-running a query that did land — `enqueue_direct_run` asks for a
+    refresh, so it would execute a second time rather than join the one in flight.
+    """
+    try:
+        get_query_status(team_id=run.team_id, query_id=notebook_direct_query_id(str(run.id)))
+    except QueryNotFoundError:
+        return False
+    return True
+
+
 def cancel_direct_run(run: NotebookNodeRun) -> None:
     """Stop a direct (hogql) run's query: revoke it if still queued, else KILL it on ClickHouse.
 
@@ -240,8 +255,7 @@ def _query_status_timings(status: Any) -> dict[str, float]:
 
     `queued_s` is enqueue -> Celery pickup (slot/queue wait); `clickhouse_s` is pickup ->
     completion — HogQL compile plus the ClickHouse execution, the closest server-side
-    proxy for "how long the query itself took". Both are the decomposition fields
-    sql_v2_observability.md gap 1 called for.
+    proxy for "how long the query itself took".
     """
     timings: dict[str, float] = {}
     start_time = getattr(status, "start_time", None)
@@ -273,8 +287,8 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
     except QueryNotFoundError:
         age_seconds = (timezone.now() - run.created_at).total_seconds()
         if run.status == NotebookNodeRun.Status.RUNNING and age_seconds > DIRECT_RUN_RESULT_GRACE_SECONDS:
-            # The watchdog the kernel lane never had: with no status left to complete
-            # this run, waiting longer cannot help.
+            # With no status left to complete this run, waiting longer cannot help.
+            # `expire_stale_kernel_run` is the kernel lane's counterpart.
             finish_node_run(
                 run,
                 NotebookNodeRun.Status.FAILED,

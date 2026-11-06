@@ -1,0 +1,147 @@
+import type { SignalReport } from "@posthog/shared/types";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  updateReviewers: vi.fn(),
+  trackAction: vi.fn(),
+  trackResult: vi.fn(),
+  refetchAvailable: vi.fn(),
+  availableError: false,
+  reviewerQueries: [] as string[],
+}));
+
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => ({}),
+}));
+
+vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { uuid: "current-user" } }),
+}));
+
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
+  useInboxReportArtefacts: () => ({
+    data: { count: 0, results: [] },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }),
+  useInboxAvailableSuggestedReviewers: (options: { query: string }) => {
+    mocks.reviewerQueries.push(options.query);
+    return {
+      data: mocks.availableError
+        ? undefined
+        : {
+            count: 1,
+            results: [
+              {
+                uuid: "reviewer-1",
+                name: "Ada Lovelace",
+                email: "ada@example.com",
+                github_login: "ada",
+              },
+            ],
+          },
+      isFetching: false,
+      isError: mocks.availableError,
+      refetch: mocks.refetchAvailable,
+    };
+  },
+  useUpdateSuggestedReviewers: () => ({
+    mutate: mocks.updateReviewers,
+    isPending: false,
+  }),
+}));
+
+vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
+  useReportActionTracker: () => mocks.trackAction,
+  useReportActionResultTracker: () => mocks.trackResult,
+}));
+
+import { ReviewerSearchList } from "./ReviewerSearchList";
+
+const report: SignalReport = {
+  id: "report-1",
+  title: "Report one",
+  summary: "Summary",
+  status: "ready",
+  total_weight: 1,
+  signal_count: 1,
+  artefact_count: 0,
+  created_at: "2026-08-20T09:00:00Z",
+  updated_at: "2026-08-20T09:00:00Z",
+};
+
+describe("ReviewerSearchList", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.availableError = false;
+    mocks.reviewerQueries = [];
+  });
+
+  it("assigns the first reviewer when the report has no reviewer artefact", async () => {
+    render(<ReviewerSearchList report={report} surface="context_menu" />);
+
+    await userEvent.click(screen.getByText("Ada Lovelace"));
+
+    expect(mocks.updateReviewers).toHaveBeenCalledWith(
+      {
+        content: [{ user_uuid: "reviewer-1" }],
+        action: "add",
+        targets: [{ user_uuid: "reviewer-1" }],
+        optimisticReviewers: [
+          expect.objectContaining({
+            github_login: "ada",
+            // The row shows this source until the refetch lands, so it must match the
+            // source the server settles a manual add on.
+            source_label: "Added by teammate",
+            user: expect.objectContaining({ uuid: "reviewer-1" }),
+          }),
+        ],
+      },
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
+    );
+
+    const callbacks = mocks.updateReviewers.mock.calls[0][1];
+    callbacks.onSuccess();
+    expect(mocks.trackResult).toHaveBeenCalledWith(
+      "add_suggested_reviewer",
+      "succeeded",
+      expect.any(Number),
+    );
+  });
+
+  it("shows reviewer load failures with a retry action", async () => {
+    mocks.availableError = true;
+    render(<ReviewerSearchList report={report} surface="context_menu" />);
+
+    expect(
+      screen.getByText("Couldn't load reviewers. Try again."),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByText("Retry"));
+
+    expect(mocks.refetchAvailable).toHaveBeenCalledOnce();
+    expect(screen.queryByText("No users found.")).toBeNull();
+  });
+
+  it("debounces server-side reviewer searches", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ReviewerSearchList report={report} surface="context_menu" />);
+
+      fireEvent.change(screen.getByLabelText("Search users"), {
+        target: { value: "Ada" },
+      });
+      expect(mocks.reviewerQueries).not.toContain("Ada");
+
+      act(() => vi.advanceTimersByTime(300));
+      expect(mocks.reviewerQueries).toContain("Ada");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

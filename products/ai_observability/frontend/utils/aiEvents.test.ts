@@ -189,6 +189,27 @@ describe('aiEventsUtils', () => {
             expect(result).toBe(false)
         })
 
+        // A rejection from either request files one error tracking issue per poll tick.
+        it.each([
+            [
+                'the event definitions request fails',
+                (): void => {
+                    jest.spyOn(api.eventDefinitions, 'list').mockRejectedValue(new Error('Failed to fetch'))
+                },
+            ],
+            [
+                'the ClickHouse probe fails',
+                (): void => {
+                    jest.spyOn(api.eventDefinitions, 'list').mockResolvedValue({ results: [], count: 0 } as any)
+                    jest.spyOn(api, 'query').mockRejectedValue(new Error('Failed to fetch'))
+                },
+            ],
+        ])('answers null rather than rejecting when %s', async (_, arrange) => {
+            arrange()
+
+            await expect(hasRecentAIEvents()).resolves.toBeNull()
+        })
+
         it('handles undefined results from ClickHouse gracefully', async () => {
             useMocks({
                 get: {

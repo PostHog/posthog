@@ -4,7 +4,8 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { InsightLegendRow } from './InsightLegendRow'
 

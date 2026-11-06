@@ -1,41 +1,80 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
-import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
-import { captureScoutDetailViewed } from '../../../inboxAnalytics'
-import { inboxSceneLogic } from '../../../inboxSceneLogic'
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
+import { captureScoutAction, captureScoutDetailViewed } from '../../../inboxAnalytics'
+import { inboxSceneLogic, ScoutDetailTab } from '../../../inboxSceneLogic'
+import { scoutAiContextItems } from '../../../logics/scoutAiLogic'
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { SCOUT_RUNS_WINDOW_SPAN, scoutRunsWindowLabel } from '../../../utils/scoutRunsWindow'
+import { scoutNotesLogic } from '../../../logics/scoutNotesLogic'
+import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
+import { ScoutRunFilter, SCOUT_RUNS_PER_SCOUT_LABEL, scoutDisplayName } from '../../../utils/scoutRunsWindow'
+import { ScoutAskAiComposer } from './ScoutAskAiComposer'
+import { ScoutAttentionBanner, ScoutDetailHeader } from './ScoutDetailHeader'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
+import { ScoutLearnedPanel } from './ScoutLearnedPanel'
+import { ScoutNotesPanel } from './ScoutNotesPanel'
 import { ScoutReportCard } from './ScoutReportCard'
-import { ScoutRowCard } from './ScoutRowCard'
-import { ScoutRunHistorySection } from './ScoutRunHistorySection'
+import { ScoutRunFilterPills, ScoutRunHistorySection } from './ScoutRunHistorySection'
+import { ScoutTrials } from './trials/ScoutTrials'
 
 /**
- * Full-width scout detail surface, rendered over the inbox list at `/inbox/scouts/:skillName`.
- * Skeleton (W1): back link, the shared `ScoutRowCard` as the header, and the recent-window
- * rollup line. The Signals section (emission cards) and per-scout run history land next (W2/W3).
+ * One scout's page, at `/inbox/scouts/:skillName`. The header says whether the scout is worth
+ * keeping on; tabs below it hold what it produced (Reports, Runs, Signals) and what it carries
+ * (Told, Learned). Configuration lives behind the header's settings modal — this page is for
+ * reading the scout, not adjusting it.
+ *
+ * Tabs rather than stacked sections because the sections restated each other's numbers and an
+ * uncapped report list pushed the run history — the reason most people open the page — off the
+ * first screen.
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, rollups, runsWindowComplete, updatingScoutIds } = useValues(scoutFleetLogic)
-    const { updateScoutConfig, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
-    const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
+    const { scoutConfigs, scoutConfigsLoading, rollups } = useValues(scoutFleetLogic)
+    const { startRunsPolling, stopRunsPolling, loadScoutConfigs } = useActions(scoutFleetLogic)
+    const { scoutEntries } = useValues(scratchpadLogic)
+    const { loadScoutEntries } = useActions(scratchpadLogic)
+    const { toldCount } = useValues(scoutNotesLogic({ skillName }))
+    const { touchedReports, emissionRows, scoutRunsLoadedOnce } = useValues(scoutDetailLogic({ skillName }))
+    const { scoutDetailTab, isStaff } = useValues(inboxSceneLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { setScoutDetailTab } = useActions(inboxSceneLogic)
+    const [runFilter, setRunFilter] = useState<ScoutRunFilter>('all')
 
-    // Deep-linking straight to a scout (or a narrow viewport where the fleet list isn't mounted)
+    // Deep-linking straight to a scout (or a narrow viewport where the roster isn't mounted)
     // means nobody else is polling the runs window, so the header + rollup would read empty
-    // defaults. Drive the same start/stop lifecycle the fleet section uses.
+    // defaults. Drive the same start/stop lifecycle the roster uses.
     useEffect(() => {
         startRunsPolling()
         return () => stopRunsPolling()
     }, [startRunsPolling, stopRunsPolling])
 
+    useEffect(() => {
+        loadScoutEntries(skillName)
+    }, [skillName, loadScoutEntries])
+
     const config = scoutConfigs?.find((c) => c.skill_name === skillName) ?? null
     const rollup = rollups.get(skillName)
+    const learnedCount = entriesForSkill(scoutEntries, skillName)?.length ?? 0
+    const reportCount = touchedReports.length
+    const canAccessTrials = isStaff && currentTeamId === 2
+    // Reports leads for a scout that files them, because that is what the scout is for; Runs leads
+    // for the rest. Held until the runs window settles, so the default doesn't move under a reader
+    // a beat after the page opens.
+    const defaultTab: ScoutDetailTab = !scoutRunsLoadedOnce || reportCount > 0 ? 'reports' : 'runs'
+    const tab = (scoutDetailTab === 'trials' && !canAccessTrials ? null : scoutDetailTab) ?? defaultTab
+    const scoutName = config ? scoutDisplayName(config) : null
+
+    // Registered by the page as well as the AI panel, so the scout is already attached when the
+    // panel composer mounts and sends the question at once. Any PostHog AI chat opened here gets it.
+    useAttachedContext(config && scoutName ? scoutAiContextItems({ scoutId: config.id, skillName, scoutName }) : null)
 
     // Once per scout opened, as soon as its config resolves — the run rollup fills in a beat later
     // off the polled window, so the counts are whatever had loaded by then.
@@ -57,187 +96,280 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         })
     }, [skillName, config, rollup])
 
-    return (
-        <div className="flex flex-col min-h-0 flex-1 overflow-auto gap-4 px-4 py-3">
-            <LemonButton
-                type="tertiary"
-                size="small"
-                icon={<IconArrowLeft />}
-                onClick={() => setSelectedScoutSkillName(null)}
-                className="self-start"
-            >
-                Scouts
-            </LemonButton>
+    // A scout that files nothing opens Runs with no click, so counting switch_detail_tab alone
+    // would miss the pane most readers land on. Held until the runs window settles, because the
+    // default reads Reports until then. Same property key as the switch, so one breakdown covers
+    // both ways of arriving at a pane.
+    const openTabCapturedForRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!config || !scoutRunsLoadedOnce || openTabCapturedForRef.current === skillName) {
+            return
+        }
+        openTabCapturedForRef.current = skillName
+        captureScoutAction({
+            actionType: 'open_detail_tab',
+            surface: 'scout_detail',
+            skillName,
+            extra: { filter: tab },
+        })
+    }, [skillName, config, scoutRunsLoadedOnce, tab])
 
-            {scoutConfigs === null ? (
-                // Configs unresolved (loading, not-yet-fetched on a fresh deep-link mount, or a failed
-                // load — never an empty fleet, which is `[]`). Hold the skeleton so "Scout not found"
-                // can't flash before we actually have the fleet to look in.
-                <LemonSkeleton className="h-16 w-full rounded" />
-            ) : config === null ? (
-                <div className="flex flex-1 items-center justify-center text-sm text-tertiary">Scout not found.</div>
-            ) : (
-                <>
-                    <ScoutRowCard
-                        config={config}
-                        rollup={rollup}
-                        onUpdate={updateScoutConfig}
-                        updating={updatingScoutIds.includes(config.id)}
-                        asHeader
-                    />
-
-                    {config.description ? (
-                        <p className="text-sm text-secondary leading-snug mb-0">{config.description}</p>
-                    ) : null}
-
-                    <div className="flex flex-col gap-1">
-                        <span className="text-xs font-medium text-default uppercase tracking-wide">
-                            Last {SCOUT_RUNS_WINDOW_SPAN}
+    if (scoutConfigs === null) {
+        // Configs unresolved — never an empty fleet, which is `[]`. While the fetch is in flight
+        // (the fleet logic starts it on mount, so a fresh deep link is loading from its first
+        // render), hold a skeleton so "Scout not found" can't flash before we have the fleet to
+        // look in. Once it has failed, say so and offer a retry. The back link stays either way.
+        return (
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-4 py-3">
+                <div className="flex">
+                    <BackToScouts />
+                </div>
+                {scoutConfigsLoading ? (
+                    <>
+                        <LemonSkeleton className="h-24 w-full rounded" />
+                        <LemonSkeleton className="h-40 w-full rounded" />
+                    </>
+                ) : (
+                    <div className="flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
+                        <span className="flex-1 text-xs text-danger">
+                            Couldn't load this scout. The scout API may be unavailable or this project may not be
+                            enrolled yet.
                         </span>
-                        <span className="text-sm text-secondary">
-                            {rollup && rollup.runCount > 0 ? (
-                                <>
-                                    {pluralize(rollup.runCount, 'run')} · {rollup.completedCount} completed ·{' '}
-                                    {rollup.failedCount} failed · {pluralize(rollup.emittedCount, 'signal')} emitted
-                                    {rollup.authoredReportIds.size > 0 && (
-                                        <> · {pluralize(rollup.authoredReportIds.size, 'report')} authored</>
-                                    )}
-                                    {rollup.editedReportIds.size > 0 && (
-                                        <> · {pluralize(rollup.editedReportIds.size, 'report')} edited</>
-                                    )}
-                                </>
-                            ) : (
-                                'No runs in this window.'
-                            )}
-                            {!runsWindowComplete && (
-                                <span className="text-muted"> · {scoutRunsWindowLabel(runsWindowComplete)}</span>
-                            )}
-                        </span>
+                        <LemonButton type="secondary" size="small" status="danger" onClick={() => loadScoutConfigs()}>
+                            Retry
+                        </LemonButton>
                     </div>
+                )}
+            </div>
+        )
+    }
 
-                    <ScoutReportsSection skillName={skillName} />
+    if (config === null) {
+        return (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-3">
+                <div className="flex">
+                    <BackToScouts />
+                </div>
+                <div className="flex flex-1 items-center justify-center text-sm text-tertiary">Scout not found.</div>
+            </div>
+        )
+    }
 
-                    <ScoutSignalsSection skillName={skillName} />
+    const signalCount = emissionRows.length
+    const runCount = rollup?.runs.length ?? 0
+    const windowEmittedCount = rollup?.emittedCount ?? 0
 
-                    <ScoutRunHistorySection skillName={skillName} />
-                </>
-            )}
+    const switchTab = (next: ScoutDetailTab): void => {
+        captureScoutAction({
+            actionType: 'switch_detail_tab',
+            surface: 'scout_detail',
+            skillName,
+            extra: { filter: next },
+        })
+        setScoutDetailTab(next)
+    }
+
+    // Reports and Signals hide once the window has settled and says the scout has none of them —
+    // the same rule the stacked sections used, now applied to the tab rather than the section.
+    // Signals asks the runs window, not the emissions fetched per run: those land a beat later and
+    // can fail outright, and hiding the tab then would say the scout emitted nothing while its
+    // panel is the only place that reports the failed fetch. Whichever pane is open also keeps its
+    // tab, so a link naming a pane this scout has none of still has a tab to select.
+    const tabs = [
+        (!scoutRunsLoadedOnce || reportCount > 0 || tab === 'reports') && {
+            key: 'reports' as ScoutDetailTab,
+            label: `Reports ${reportCount}`,
+        },
+        { key: 'runs' as ScoutDetailTab, label: `Runs ${runCount}` },
+        (!scoutRunsLoadedOnce || windowEmittedCount > 0 || tab === 'signals') && {
+            key: 'signals' as ScoutDetailTab,
+            // The window's count stands in until the rows land, so a failed fetch is not labelled
+            // zero beside a panel that says the fetch failed.
+            label: `Signals ${signalCount > 0 ? signalCount : windowEmittedCount}`,
+        },
+        { key: 'told' as ScoutDetailTab, label: `Told ${toldCount}` },
+        { key: 'learned' as ScoutDetailTab, label: `Learned ${learnedCount}` },
+        canAccessTrials && {
+            key: 'trials' as ScoutDetailTab,
+            label: 'Trials',
+            'data-attr': 'scout-detail-trials-tab',
+        },
+    ]
+
+    const runFilterPills = <ScoutRunFilterPills skillName={skillName} filter={runFilter} onChange={setRunFilter} />
+
+    return (
+        <div className="@container flex min-h-0 flex-1 flex-col overflow-auto">
+            <ScoutDetailHeader config={config} rollup={rollup} noteCount={toldCount} learnedCount={learnedCount} />
+            <ScoutAskAiComposer scoutId={config.id} skillName={skillName} scoutName={scoutDisplayName(config)} />
+
+            <div className="flex min-w-0 flex-col gap-4 px-4 py-4">
+                <ScoutAttentionBanner config={config} />
+
+                <div className="flex flex-col gap-1">
+                    {/* The right slot does not shrink. In a narrow pane it would pin over the tab
+                        strip and hide the last tabs, so there the pills get their own row. */}
+                    <LemonTabs
+                        activeKey={tab}
+                        onChange={switchTab}
+                        size="small"
+                        tabs={tabs}
+                        rightSlot={tab === 'runs' ? runFilterPills : undefined}
+                        rightSlotClassName="hidden @4xl:flex"
+                    />
+                    {tab === 'runs' && <div className="@4xl:hidden">{runFilterPills}</div>}
+                </div>
+
+                {tab === 'runs' ? (
+                    <ScoutRunHistorySection skillName={skillName} filter={runFilter} />
+                ) : tab === 'trials' && canAccessTrials ? (
+                    <ScoutTrials configId={config.id} />
+                ) : tab === 'signals' ? (
+                    <ScoutSignalsPanel skillName={skillName} />
+                ) : tab === 'told' ? (
+                    <ScoutNotesPanel skillName={skillName} />
+                ) : tab === 'learned' ? (
+                    <ScoutLearnedPanel skillName={skillName} />
+                ) : (
+                    <ScoutReportsPanel skillName={skillName} />
+                )}
+            </div>
         </div>
     )
 }
 
+/** Navigation only: the scouts URL handler clears the selected scout, so no action is dispatched here. */
+function BackToScouts(): JSX.Element {
+    return (
+        <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.inbox('scouts')} className="w-fit">
+            Scouts
+        </LemonButton>
+    )
+}
+
 /**
- * The Reports section: the inbox reports this scout authored or edited directly via the report
- * channel (`emit_report` / `edit_report`) in the recent window, newest-updated first. Distinct from
- * the Signals section, which lists weak `emit_signal` findings. Hidden entirely for the common scout
- * that never authors a report, so it only appears for report-channel scouts.
+ * The Reports tab: the inbox reports this scout authored or edited directly via the report channel
+ * (`emit_report` / `edit_report`) in the recent window, newest-updated first. The list is never
+ * trimmed for length, because the tab keeps it from pushing anything away, but the per-id fetch
+ * behind it is capped, so the panel says how many of the tab's count it is holding.
  */
-function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element | null {
-    const { reportRows, touchedReports, scoutReportsLoading, runsWindowLoadedOnce } = useValues(
+function ScoutReportsPanel({ skillName }: { skillName: string }): JSX.Element {
+    const { reportRows, touchedReports, scoutReportsLoading, scoutRunsLoadedOnce } = useValues(
         scoutDetailLogic({ skillName })
     )
+    const { loadScoutReports } = useActions(scoutDetailLogic({ skillName }))
 
-    // Most scouts never author a report — keep the section out entirely rather than show an empty box.
-    if (touchedReports.length === 0) {
-        return null
+    if (!scoutRunsLoadedOnce || (scoutReportsLoading && reportRows.length === 0)) {
+        return <LemonSkeleton className="h-12 w-full rounded" />
     }
 
-    const loading = !runsWindowLoadedOnce || (scoutReportsLoading && reportRows.length === 0)
+    if (reportRows.length === 0) {
+        // The runs name the reports, and a separate fetch resolves each one by id. When the runs
+        // name some and none resolve, the reports were deleted or the fetch failed, so an empty
+        // state would deny the count the tab above it is showing. Nothing refetches on its own
+        // here: the touched set is unchanged, so its subscription doesn't fire again.
+        if (touchedReports.length > 0) {
+            return (
+                <div className="flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
+                    <span className="flex-1 text-xs text-danger">
+                        Couldn't load the reports this scout filed or added to. They may have been deleted, or the
+                        request failed.
+                    </span>
+                    <LemonButton type="secondary" size="small" status="danger" onClick={() => loadScoutReports()}>
+                        Retry
+                    </LemonButton>
+                </div>
+            )
+        }
+        return (
+            <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
+                {`No reports filed or added to in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`}
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-default uppercase tracking-wide">Reports</span>
-            {loading ? (
-                <LemonSkeleton className="h-12 w-full rounded" />
-            ) : reportRows.length === 0 ? (
-                // Touched ids exist but none resolved — the reports were deleted, or the fetch failed.
-                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
-                    Couldn’t load the reports this scout authored.
-                </div>
-            ) : (
-                reportRows.map(({ report, action }) => (
-                    <ScoutReportCard key={report.id} report={report} action={action} />
-                ))
+            {/* The tab counts every report the runs name, while this list holds the ones a bounded
+                by-id fetch resolved. Say so when they differ, rather than leaving the reader to
+                count the cards against the tab. */}
+            {!scoutReportsLoading && reportRows.length < touchedReports.length && (
+                <span className="text-xs text-muted">
+                    {`Showing ${reportRows.length} of ${touchedReports.length} reports.`}
+                </span>
             )}
+            {reportRows.map(({ report, action }) => (
+                <ScoutReportCard key={report.id} report={report} action={action} />
+            ))}
         </div>
     )
 }
 
 /**
- * The Signals section: every finding this scout emitted in the recent window, newest first.
- * Emissions are fetched per emitted run by `scoutDetailLogic` (keyed by skill) off the fleet's
- * already-polled runs window. Most runs are quiet — and scouts are moving to the report channel —
- * so the section is hidden entirely when nothing emitted, rather than showing an empty box.
+ * The Signals tab: every finding this scout emitted in the recent window, newest first. Emissions
+ * are fetched per emitted run by `scoutDetailLogic` (keyed by skill) off the fleet's already-polled
+ * runs window.
  */
-function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element | null {
-    const {
-        emissionRows,
-        emissionsLoading,
-        emissionsLoadFailed,
-        emittedRuns,
-        runsWindowLoadedOnce,
-        runsWindowComplete,
-    } = useValues(scoutDetailLogic({ skillName }))
+function ScoutSignalsPanel({ skillName }: { skillName: string }): JSX.Element {
+    const { emissionRows, emissionsLoading, emissionsLoadFailed, scoutRunsLoadedOnce } = useValues(
+        scoutDetailLogic({ skillName })
+    )
+    const { loadEmissions } = useActions(scoutDetailLogic({ skillName }))
     const { selectedScoutFindingId } = useValues(inboxSceneLogic)
 
-    // No run in the window emitted anything — keep the section out entirely rather than show an
-    // empty box (mirrors the Reports section above). Only once the runs window has settled, though:
-    // before that, `emittedRuns` is empty by default and hiding would skip the loading skeleton
-    // for scouts that do have signals.
-    if (runsWindowLoadedOnce && emittedRuns.length === 0) {
-        return null
+    // "Loading" until the fleet's per-scout runs have settled once AND this scout's emissions have
+    // resolved — otherwise a fresh deep-link would flash the empty state before we know the
+    // emitted runs.
+    const hasRows = emissionRows.length > 0
+    if ((!scoutRunsLoadedOnce || emissionsLoading) && !hasRows) {
+        return <LemonSkeleton className="h-12 w-full rounded" />
     }
 
-    // "Loading" until the fleet's runs window has settled once AND this scout's emissions have
-    // resolved — otherwise a fresh deep-link would flash the empty state before we know the
-    // emitted runs. Gating on the fleet's first-load flag (not its per-poll loading) keeps the
-    // quiet-scout empty state from flickering to a skeleton every 60s poll.
-    const loading = !runsWindowLoadedOnce || emissionsLoading
-    const hasRows = emissionRows.length > 0
-    // The unique emission the deep-link resolves to: the newest row whose finding matches.
+    if (!hasRows) {
+        // Every per-run emissions fetch failed while the rollup says these runs emitted, so don't
+        // claim "no signals". Nothing comes back on its own: the emitted runs are unchanged, so the
+        // key their subscription watches holds, and the runs poll refetches only the report links.
+        if (emissionsLoadFailed) {
+            return (
+                <div className="flex flex-col items-center gap-2 rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
+                    <span>Couldn't load signals for this scout.</span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => loadEmissions()}
+                        loading={emissionsLoading}
+                    >
+                        Retry
+                    </LemonButton>
+                </div>
+            )
+        }
+        return (
+            <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
+                {`No signals emitted in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`}
+            </div>
+        )
+    }
+
+    // `finding_id` repeats across runs (it's a dedup trace id, not unique), so only mark the newest
+    // matching emission — rows are newest-first — to keep the highlight/scroll deterministic for a
+    // single shared link.
     const deepLinkedEmissionId = selectedScoutFindingId
         ? (emissionRows.find(({ emission }) => emission.finding_id === selectedScoutFindingId)?.emission.id ?? null)
         : null
 
     return (
         <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-default uppercase tracking-wide">Signals</span>
-            {loading && !hasRows ? (
-                <LemonSkeleton className="h-12 w-full rounded" />
-            ) : emissionsLoadFailed && !hasRows ? (
-                // Every per-run emissions fetch failed while the rollup says these runs emitted —
-                // don't claim "no signals". The 60s poll keeps retrying.
-                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
-                    Couldn’t load signals for this scout. Retrying…
-                </div>
-            ) : !hasRows ? (
-                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
-                    {runsWindowComplete
-                        ? `No signals emitted in the last ${SCOUT_RUNS_WINDOW_SPAN}.`
-                        : `No signals emitted in the recent runs we could load (the last ${SCOUT_RUNS_WINDOW_SPAN} is truncated).`}
-                </div>
-            ) : (
-                <>
-                    {emissionRows.map(({ emission, run, report }) => (
-                        <ScoutEmissionCard
-                            key={emission.id}
-                            skillName={skillName}
-                            emission={emission}
-                            run={run}
-                            report={report}
-                            // `finding_id` repeats across runs (it's a dedup trace id, not unique), so only
-                            // mark the newest matching emission — rows are newest-first — to keep the
-                            // highlight/scroll deterministic for a single shared link.
-                            isDeepLinked={emission.id === deepLinkedEmissionId}
-                        />
-                    ))}
-                    {!runsWindowComplete && (
-                        <span className="text-xs text-muted">
-                            Older signals beyond the loaded {SCOUT_RUNS_WINDOW_SPAN} window aren’t shown.
-                        </span>
-                    )}
-                </>
-            )}
+            {emissionRows.map(({ emission, run, report }) => (
+                <ScoutEmissionCard
+                    key={emission.id}
+                    skillName={skillName}
+                    emission={emission}
+                    run={run}
+                    report={report}
+                    isDeepLinked={emission.id === deepLinkedEmissionId}
+                />
+            ))}
         </div>
     )
 }

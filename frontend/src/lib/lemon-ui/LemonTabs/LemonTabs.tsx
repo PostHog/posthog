@@ -26,6 +26,7 @@ export interface AbstractLemonTab<T extends string | number> {
 /** A tab with content. In this case the LemonTabs component automatically renders content of the active tab. */
 export interface ConcreteLemonTab<T extends string | number> extends AbstractLemonTab<T> {
     content: JSX.Element
+    keepMounted?: boolean
 }
 
 export type LemonTab<T extends string | number> = AbstractLemonTab<T> | ConcreteLemonTab<T>
@@ -44,6 +45,8 @@ export interface LemonTabsProps<T extends string | number> {
     /** Pass in JSX to be sticky to the right of the tabs. */
     rightSlot?: React.ReactNode
     rightSlotClassName?: string
+    /** Keeps the underline in place when a tab label changes width, as in an in-place rename. */
+    trackTabSizes?: boolean
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -62,15 +65,14 @@ export function LemonTabs<T extends string | number>({
     sceneInset = false,
     rightSlot,
     rightSlotClassName,
+    trackTabSizes = false,
 }: LemonTabsProps<T>): JSX.Element {
+    /** Tabs with falsy entries filtered out. */
+    const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
         HTMLLIElement
-    >(activeKey, 200)
-
-    /** Tabs with falsy entries filtered out. */
-    const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
-    const activeTab = realTabs.find((tab) => tab.key === activeKey)
+    >(activeKey, 200, realTabs.map((tab) => tab.key).join('|'), trackTabSizes)
 
     return (
         <div
@@ -164,11 +166,16 @@ export function LemonTabs<T extends string | number>({
                     </div>
                 )}
             </ul>
-            {activeTab && 'content' in activeTab && (
-                <div className={cn('LemonTabs__content', sceneInset && 'p-4')} key={activeKey}>
-                    {activeTab.content}
-                </div>
-            )}
+            {realTabs.map((tab) => {
+                const isActive = tab.key === activeKey
+                const shouldRender = 'content' in tab && (isActive || tab.keepMounted)
+
+                return shouldRender ? (
+                    <div className={cn('LemonTabs__content', sceneInset && 'p-4')} key={tab.key} hidden={!isActive}>
+                        {tab.content}
+                    </div>
+                ) : null
+            })}
         </div>
     )
 }

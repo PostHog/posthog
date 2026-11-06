@@ -1,0 +1,8 @@
+scrape:
+    annotationDiscovery: false
+gcp:
+    projectId: my-project
+    metrics:
+        - compute.googleapis.com/instance/cpu/utilization
+    metricFilters:
+        - 'metric.type = starts_with("run.googleapis.com/")'

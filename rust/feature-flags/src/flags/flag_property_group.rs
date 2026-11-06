@@ -1,4 +1,5 @@
 use crate::flags::flag_models::FlagPropertyGroup;
+use crate::properties::property_models::{PropertyFilter, PropertyType};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -30,14 +31,25 @@ impl FlagPropertyGroup {
 
     /// Returns true if the overrides are not enough to evaluate the group locally.
     ///
-    /// This is true if the group is rolled out to some percentage greater than 0.0
-    /// and all the properties in the group require DB properties to be evaluated.
-    pub fn requires_db_properties(&self, overrides: &HashMap<String, Value>) -> bool {
+    /// This is true if the group is rolled out to some percentage greater than 0.0 and any
+    /// of its filters still needs the database. Person overrides answer that for person
+    /// filters; group filters depend on request group context the flag model does not hold,
+    /// so the caller supplies that decision — see
+    /// `FeatureFlagMatcher::group_filter_needs_db_prep`.
+    pub fn requires_db_properties(
+        &self,
+        overrides: &HashMap<String, Value>,
+        group_filter_needs_db: &dyn Fn(&PropertyFilter) -> bool,
+    ) -> bool {
         self.is_rolled_out_to_some()
             && self.properties.as_ref().is_some_and(|properties| {
-                properties
-                    .iter()
-                    .any(|prop| prop.requires_db_property(overrides))
+                properties.iter().any(|prop| {
+                    if prop.prop_type == PropertyType::Group {
+                        group_filter_needs_db(prop)
+                    } else {
+                        prop.requires_db_property(overrides)
+                    }
+                })
             })
     }
 
@@ -115,7 +127,7 @@ mod tests {
             variant: None,
             ..Default::default()
         };
-        assert!(!group.requires_db_properties(&HashMap::new()));
+        assert!(!group.requires_db_properties(&HashMap::new(), &|_| true));
     }
 
     #[test]
@@ -136,7 +148,7 @@ mod tests {
                 "another_key".to_string(),
                 Value::String("another_value".to_string()),
             )]);
-            assert!(group.requires_db_properties(&overrides));
+            assert!(group.requires_db_properties(&overrides, &|_| true));
         }
 
         {
@@ -148,7 +160,7 @@ mod tests {
                     Value::String("another_value".to_string()),
                 ),
             ]);
-            assert!(!group.requires_db_properties(&overrides));
+            assert!(!group.requires_db_properties(&overrides, &|_| true));
         }
     }
 
@@ -164,7 +176,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(!group.requires_db_properties(&HashMap::new()));
+        assert!(!group.requires_db_properties(&HashMap::new(), &|_| true));
     }
 
     #[test]

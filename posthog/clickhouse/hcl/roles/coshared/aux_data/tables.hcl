@@ -61,6 +61,63 @@ database "posthog" {
       default = "today() + toIntervalDay(7)"
     }
   }
+  table "_email_status_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+  }
+  table "_email_status_events_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+  }
   table "_experiment_metric_events_preaggregated_columns" {
     abstract = true
     column "team_id" {
@@ -71,6 +128,13 @@ database "posthog" {
     }
     column "entity_id" {
       type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type    = "UUID"
+      default = "toUUIDOrZero(entity_id)"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
@@ -324,6 +388,76 @@ database "posthog" {
       default = "today() + toIntervalDay(7)"
     }
   }
+  table "_platform_alert_events_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "configuration_id" {
+      type = "UUID"
+    }
+    column "alert_id" {
+      type = "UUID"
+    }
+    column "grouping_key" {
+      type = "String"
+    }
+    column "evaluation_key" {
+      type = "String"
+    }
+    column "kind" {
+      type = "LowCardinality(String)"
+    }
+    column "alert_name" {
+      type = "String"
+    }
+    column "previous_state" {
+      type = "LowCardinality(String)"
+    }
+    column "state" {
+      type = "LowCardinality(String)"
+    }
+    column "episode_started_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "value" {
+      type = "Nullable(Float64)"
+    }
+    column "labels" {
+      type = "Map(String, String)"
+    }
+    column "condition_snapshot" {
+      type = "String"
+    }
+    column "source_config_snapshot" {
+      type = "String"
+    }
+    column "source_detail" {
+      type = "String"
+    }
+    column "query_duration_ms" {
+      type = "Nullable(UInt32)"
+    }
+    column "error_message" {
+      type = "String"
+    }
+    column "consecutive_failures" {
+      type = "UInt32"
+    }
+    column "muted_notification" {
+      type = "LowCardinality(String)"
+    }
+    column "occurred_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "source_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(90)"
+    }
+  }
   table "_session_replay_features_columns" {
     abstract = true
     column "session_id" {
@@ -548,6 +682,68 @@ database "posthog" {
     }
     column "values" {
       type = "Array(String)"
+    }
+  }
+  table "_web_sessions_dimensional_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "session_id_v7" {
+      type = "UInt128"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "start_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "min_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "channel_type" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "pageview_count" {
+      type = "UInt64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
     }
   }
   table "_web_bounces_dimensional_preaggregated_columns" {
@@ -886,6 +1082,75 @@ database "posthog" {
       default = "now() + toIntervalDay(7)"
     }
   }
+  table "_warehouse_object_reads_daily_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "read_kind" {
+      type = "Enum8('read'=1, 'refresh'=2)"
+    }
+    column "subject_kind" {
+      type = "Enum8('saved_query'=1, 'table'=2)"
+    }
+    column "subject_id" {
+      type = "String"
+    }
+    column "workflow_id" {
+      type = "String"
+    }
+    column "lc_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_product" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_feature" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_access_method" {
+      type = "LowCardinality(String)"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "scene" {
+      type = "LowCardinality(String)"
+    }
+    column "has_user_id" {
+      type = "Bool"
+    }
+    column "read_alone" {
+      type = "Bool"
+    }
+    column "requests" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "users" {
+      type = "AggregateFunction(uniq, Int64)"
+    }
+    column "read_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "duration_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "read_bytes_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "duration_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "read_bytes_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "max_event_time" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+  }
   table "conversion_goal_attributed_preaggregated" {
     extend = "_conversion_goal_attributed_preaggregated_columns"
     engine "distributed" {
@@ -893,6 +1158,40 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_conversion_goal_attributed_preaggregated"
       sharding_key    = "cityHash64(person_id)"
+    }
+  }
+  table "email_status" {
+    extend = "_email_status_columns"
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "email_status_data"
+    }
+  }
+  table "email_status_events" {
+    extend = "_email_status_events_columns"
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "email_status_events_data"
     }
   }
   table "error_tracking_fingerprint_issue_state" {
@@ -913,6 +1212,9 @@ database "posthog" {
     }
     column "issue_status" {
       type = "String"
+    }
+    column "issue_severity" {
+      type = "Nullable(String)"
     }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
@@ -1131,6 +1433,15 @@ database "posthog" {
       remote_table    = "message_assets_data"
     }
   }
+  table "platform_alert_events" {
+    extend = "_platform_alert_events_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_platform_alert_events"
+      sharding_key    = "cityHash64(team_id)"
+    }
+  }
   table "property_values_distributed" {
     column "team_id" {
       type  = "Int64"
@@ -1174,6 +1485,15 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_web_bot_definition"
       sharding_key    = "sipHash64(id)"
+    }
+  }
+  table "web_sessions_dimensional_preaggregated" {
+    extend = "_web_sessions_dimensional_preaggregated_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_sessions_dimensional_preaggregated"
+      sharding_key    = "cityHash64(person_id)"
     }
   }
   table "web_bounces_dimensional_preaggregated" {
@@ -1257,6 +1577,14 @@ database "posthog" {
       table = "web_bot_definition"
     }
     layout "regexp_tree" {
+    }
+  }
+  table "warehouse_object_reads_daily" {
+    extend = "_warehouse_object_reads_daily_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_warehouse_object_reads_daily"
     }
   }
 }

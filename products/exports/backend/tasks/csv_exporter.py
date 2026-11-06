@@ -1,26 +1,32 @@
 import os
+import re
 import csv
 import json
 import datetime
 import tempfile
+import textwrap
 from collections import OrderedDict
-from collections.abc import Generator, Iterator
+from collections.abc import Generator, Iterator, Mapping
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from typing import Any, NoReturn, Optional, Protocol
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
+from django.conf import settings
 from django.http import QueryDict
 
 import requests
 import structlog
 from openpyxl import Workbook
-from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE, WriteOnlyCell
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, ValidationError
 from requests.exceptions import HTTPError
 from rest_framework_csv.renderers import CSVRenderer
 
-from posthog.schema import QuerySchemaRoot
+from posthog.schema import FunnelVizType, NodeKind, QuerySchemaRoot, StepOrderValue
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from posthog.hogql.errors import TableAccessDeniedError
@@ -30,22 +36,29 @@ from posthog.api.services.query import process_query_dict
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions import ClickHouseQuerySizeExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.result_series import (
+    get_action_names,
+    get_result_series,
+    get_series_custom_name,
+    get_series_key,
+)
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset, save_content_from_file
 
-from .failure_handler import ExcelColumnLimitExceeded
+from .failure_handler import ExcelColumnLimitExceeded, is_reportable_export_failure
 
 logger = structlog.get_logger(__name__)
 
@@ -93,11 +106,47 @@ class ExcelWriter(TabularWriter):
         self._workbook = Workbook(write_only=True)
         self._worksheet = self._workbook.create_sheet()
         self._columns: list[str] = []
+        self._column_widths: list[int] = []
+        self._row_count = 0
+        self._alignment = Alignment(wrap_text=True, vertical="top")
+        self._header_font = Font(bold=True)
+        self._header_fill = PatternFill(fill_type="solid", fgColor="EDEDED")
+
+    def _append_row(self, values: list[str | int | float | bool | None], *, header: bool = False) -> None:
+        cells = []
+        line_count = 1
+        max_lines = 27
+        for value, width in zip(values, self._column_widths):
+            cell = WriteOnlyCell(self._worksheet, value=value)
+            cell.alignment = self._alignment
+            if header:
+                cell.font = self._header_font
+                cell.fill = self._header_fill
+            cells.append(cell)
+            if isinstance(value, str) and line_count < max_lines:
+                if len(value) > width * max_lines:
+                    line_count = max_lines
+                else:
+                    line_count = min(
+                        max_lines,
+                        max(
+                            line_count,
+                            sum(max(1, len(textwrap.wrap(line, width=width - 2))) for line in value.splitlines()),
+                        ),
+                    )
+        self._row_count += 1
+        self._worksheet.row_dimensions[self._row_count].height = min(409, 15 * line_count + 6)
+        self._worksheet.append(cells)
+        del self._worksheet.row_dimensions[self._row_count]
 
     def write_header(self, columns: list[str]) -> None:
         self._columns = columns
         try:
-            self._worksheet.append([sanitize_formula_injection(c) for c in columns])
+            self._column_widths = [min(60, max(28, len(c) + 2)) for c in columns]
+            self._worksheet.freeze_panes = "A2"
+            for index, width in enumerate(self._column_widths, start=1):
+                self._worksheet.column_dimensions[get_column_letter(index)].width = width
+            self._append_row([sanitize_formula_injection(sanitize_value_for_excel(c)) for c in columns], header=True)
         except ValueError as e:
             if "Invalid column index" in str(e):
                 raise ExcelColumnLimitExceeded() from e
@@ -114,13 +163,15 @@ class ExcelWriter(TabularWriter):
             value = sanitize_formula_injection(value)
             values.append(value)
         try:
-            self._worksheet.append(values)
+            self._append_row(values)
         except ValueError as e:
             if "Invalid column index" in str(e):
                 raise ExcelColumnLimitExceeded() from e
             raise
 
     def finish(self) -> str:
+        if self._columns:
+            self._worksheet.auto_filter.ref = f"A1:{get_column_letter(len(self._columns))}{self._row_count}"
         self._workbook.save(self._path)
         return self._path
 
@@ -235,7 +286,89 @@ def _format_breakdown_value(breakdown_value: Any) -> str:
     return "::".join(breakdown_value)
 
 
-def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any]:
+def _custom_name_column(
+    query: Mapping[str, Any], node: Mapping[str, Any], action_names: Optional[Mapping[int, str | None]]
+) -> str | None:
+    # Each runner names a rename by its own rule: trends counts a `name` other than the series key, stickiness and
+    # lifecycle count only `custom_name`, and the calendar heatmap reports no rename.
+    if query.get("kind") == "TrendsQuery":
+        if (query.get("trendsFilter") or {}).get("display") == "CalendarHeatmap":
+            return None
+        return get_series_custom_name(node, action_names)
+    custom_name = node.get("custom_name")
+    return custom_name if isinstance(custom_name, str) and custom_name else None
+
+
+def _returns_funnel_steps(series_query: Optional[Mapping[str, Any]]) -> bool:
+    # Steps and flow funnels return one row per step. A trends funnel returns conversion over time instead.
+    if not series_query or series_query.get("kind") != NodeKind.FUNNELS_QUERY:
+        return False
+    viz_type = (series_query.get("funnelsFilter") or {}).get("funnelVizType")
+    return viz_type in (None, FunnelVizType.STEPS, FunnelVizType.FLOW)
+
+
+def _funnel_step_series(series_query: Optional[Mapping[str, Any]], step_index: int) -> Optional[Mapping[str, Any]]:
+    if not series_query or series_query.get("kind") != NodeKind.FUNNELS_QUERY:
+        return None
+    # An unordered funnel's step N counts people who completed any N of the series, so no single series matches it.
+    if (series_query.get("funnelsFilter") or {}).get("funnelOrderType") == StepOrderValue.UNORDERED:
+        return None
+    series = series_query.get("series")
+    if not isinstance(series, list) or not 0 <= step_index < len(series):
+        return None
+    node = series[step_index]
+    return node if isinstance(node, Mapping) else None
+
+
+def _funnel_step_action_id(node: Optional[Mapping[str, Any]]) -> str | int | None:
+    if node is None:
+        return None
+    kind = node.get("kind")
+    if kind == NodeKind.EVENTS_NODE:
+        return node.get("event")
+    if kind == NodeKind.ACTIONS_NODE:
+        return node.get("id")
+    if kind == NodeKind.FUNNELS_DATA_WAREHOUSE_NODE:
+        return node.get("table_name")
+    return None
+
+
+def _is_all_events_series(node: Optional[Mapping[str, Any]]) -> bool:
+    return node is not None and node.get("kind") == NodeKind.EVENTS_NODE and node.get("event") is None
+
+
+def _funnel_step_rows(
+    steps: list[Mapping[str, Any]], series_query: Optional[Mapping[str, Any]]
+) -> Iterator[dict[str, Any]]:
+    for position, step in enumerate(steps):
+        # A comparison funnel lists both periods in one list, and `order` restarts at 0 for each period.
+        order = step.get("order")
+        node = _funnel_step_series(series_query, order if isinstance(order, int) else position)
+        name = step.get("custom_name") or step.get("name")
+        action_id = _funnel_step_action_id(node)
+        yield {
+            "name": name or ("All events" if _is_all_events_series(node) else ""),
+            "breakdown_value": _format_breakdown_value(step.get("breakdown_value")),
+            "action_id": "" if action_id is None else action_id,
+            "count": step.get("count", ""),
+            "median_conversion_time (seconds)": step.get("median_conversion_time", ""),
+            "average_conversion_time (seconds)": step.get("average_conversion_time", ""),
+        }
+
+
+def _series_query(query: dict) -> dict:
+    # The runner unwraps a visualization node and runs the upgraded query, which stamps `kind` on legacy series nodes.
+    upgraded = upgrade(deepcopy(query))
+    source = upgraded.get("source")
+    return source if upgraded.get("kind") == "InsightVizNode" and isinstance(source, dict) else upgraded
+
+
+def _convert_response_to_csv_data(
+    data: Any,
+    breakdown_filter: Optional[dict] = None,
+    series_query: Optional[Mapping[str, Any]] = None,
+    action_names: Optional[Mapping[int, str | None]] = None,
+) -> Generator[Any]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
@@ -275,21 +408,11 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
             # persons modal like
             yield from results[0].get("people")
             return
-        elif isinstance(first_result, list) or first_result.get("action_id"):
+        elif isinstance(first_result, list) or _returns_funnel_steps(series_query):
             multiple_items = results if isinstance(first_result, list) else [results]
             # FUNNELS LIKE
             for items in multiple_items:
-                yield from (
-                    {
-                        "name": x.get("custom_name") or x.get("action_id", ""),
-                        "breakdown_value": _format_breakdown_value(x.get("breakdown_value")),
-                        "action_id": x.get("action_id", ""),
-                        "count": x.get("count", ""),
-                        "median_conversion_time (seconds)": x.get("median_conversion_time", ""),
-                        "average_conversion_time (seconds)": x.get("average_conversion_time", ""),
-                    }
-                    for x in items
-                )
+                yield from _funnel_step_rows(items, series_query)
             return
         elif first_result.get("appearances") and first_result.get("person"):
             # RETENTION PERSONS LIKE
@@ -339,12 +462,13 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
             for index, item in enumerate(results):
                 label = item.get("label", f"Series #{index + 1}")
                 compare_label = item.get("compare_label", "")
-                action = item.get("action")
+                node = get_result_series(series_query, item) if series_query else None
 
                 breakdown_values, breakdowns, has_breakdown_columns = _get_breakdown_info(item, breakdown_filter)
 
-                if has_breakdown_columns and isinstance(action, dict) and action.get("name"):
-                    series_name = action["name"]
+                if has_breakdown_columns and node is not None:
+                    # The breakdown columns carry the value, so the series takes the runner's series label without it.
+                    series_name = get_series_key(node, action_names) or "All events"
                 else:
                     series_name = label
 
@@ -355,8 +479,11 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
 
                 label_item = date_labels_item if is_comparison else item
 
-                if isinstance(action, dict) and action.get("custom_name"):
-                    line["custom name"] = action.get("custom_name")
+                custom_name = (
+                    _custom_name_column(series_query, node, action_names) if series_query and node is not None else None
+                )
+                if custom_name:
+                    line["custom name"] = custom_name
 
                 for idx, val in enumerate(breakdown_values):
                     prop_name = breakdowns[idx].get("property") if idx < len(breakdowns) else None
@@ -399,25 +526,74 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
+def _raise_invalid_export_authorization(exported_asset: ExportedAsset, reason: str) -> NoReturn:
+    logger.error(
+        "csv_exporter.invalid_authentication_source",
+        exported_asset_id=exported_asset.id,
+        reason=reason,
+    )
+    raise ValueError("This export could not verify its original authorization. Create a new export and try again.")
+
+
 def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any]:
     path: str = resource["path"]
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
+    if method.upper() != "GET" or body is not None:
+        logger.error(
+            "csv_exporter.unsupported_api_request",
+            exported_asset_id=exported_asset.id,
+            method=method,
+            has_body=body is not None,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
+    source_authentication = exported_asset.source_authentication
+    if source_authentication is None:
+        _raise_invalid_export_authorization(exported_asset, "missing_authentication_source")
     next_url = None
-    access_token = encode_jwt(
-        {"id": exported_asset.created_by_id},
-        datetime.timedelta(minutes=15),
-        PosthogJwtAudience.IMPERSONATED_USER,
+    token_payload: dict[str, int | str | None] = {"id": exported_asset.created_by_id}
+    if source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
+        if not exported_asset.source_credential_id:
+            _raise_invalid_export_authorization(exported_asset, "missing_personal_api_key")
+        token_payload["personal_api_key_id"] = exported_asset.source_credential_id
+    elif source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
+        if not exported_asset.source_credential_id:
+            _raise_invalid_export_authorization(exported_asset, "missing_oauth_access_token")
+        token_payload["oauth_access_token_id"] = exported_asset.source_credential_id
+    elif source_authentication != ExportedAsset.SourceAuthentication.SESSION:
+        _raise_invalid_export_authorization(exported_asset, "unsupported_authentication_source")
+    token_audience = (
+        PosthogJwtAudience.IMPERSONATED_USER
+        if source_authentication == ExportedAsset.SourceAuthentication.SESSION
+        else PosthogJwtAudience.DELEGATED_USER
     )
+    access_token = encode_jwt(
+        token_payload,
+        datetime.timedelta(minutes=15),
+        token_audience,
+    )
+    team_id = exported_asset.team_id
+    project_id = exported_asset.team.project_id
     total = 0
     while total < CSV_EXPORT_LIMIT:
         try:
-            response = make_api_call(access_token, body, limit, method, next_url, path)
+            response = make_api_call(
+                access_token,
+                body,
+                limit,
+                method,
+                next_url,
+                path,
+                team_id=team_id,
+                project_id=project_id,
+            )
         except HTTPError as e:
             # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
             # mid-export, which surfaces as a 404 partway through pagination. Treat that as
             # end-of-data and return what we have rather than failing the whole export.
-            if e.response is not None and e.response.status_code == 404:
+            # A 404 on the first page is a different thing: the path never resolved, so
+            # there is nothing to return and an empty file would read as a successful export.
+            if e.response is not None and e.response.status_code == 404 and total > 0:
                 logger.warning(
                     "csv_exporter.resource_gone",
                     exc=e,
@@ -459,7 +635,16 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
 
             raise unexpected_empty_json_response
 
-        csv_rows = list(_convert_response_to_csv_data(data))
+        # A saved insight's results name their series only through the query that the insights API returns with them.
+        query = data.get("query")
+        series_query = _series_query(query) if isinstance(query, dict) else None
+        csv_rows = list(
+            _convert_response_to_csv_data(
+                data,
+                series_query=series_query,
+                action_names=get_action_names(exported_asset.team, series_query) if series_query else None,
+            )
+        )
         total += len(csv_rows)
         yield from csv_rows
 
@@ -486,6 +671,8 @@ def get_from_query(
     assert query is not None
 
     breakdown_filter = query.get("breakdownFilter") if query else None
+    series_query = _series_query(query)
+    action_names = get_action_names(exported_asset.team, series_query)
     supports_limit = _query_supports_limit(query)
 
     total = 0
@@ -529,7 +716,11 @@ def get_from_query(
         if response_dict.get("error"):
             raise Exception(f"Query failed: {response_dict['error']}")
 
-        rows = list(_convert_response_to_csv_data(response_dict, breakdown_filter=breakdown_filter))
+        rows = list(
+            _convert_response_to_csv_data(
+                response_dict, breakdown_filter=breakdown_filter, series_query=series_query, action_names=action_names
+            )
+        )
         rows = rows[: CSV_EXPORT_LIMIT - total]
         total += len(rows)
         yield from rows
@@ -651,6 +842,37 @@ def get_limit_param_key(path: str) -> str:
     return "breakdown_limit" if breakdown is not None else "limit"
 
 
+# Route prefixes the product sends for path-based exports, and the pagination links they return.
+# A prefix match: any GET under the export's own team is allowed, not a fixed set of endpoints.
+_TEAM_SCOPED_EXPORT_PATH = re.compile(r"^/api/(?P<kind>projects|environments)/(?P<id>[0-9]+)/")
+# The legacy cohort route carries no team id; the endpoint resolves the team itself.
+_UNSCOPED_EXPORT_PATHS = (re.compile(r"^/api/cohort/[0-9]+/persons/?$"),)
+
+
+def is_allowed_export_url(request_url: str, team_id: int, project_id: int) -> bool:
+    parsed = urlparse(request_url)
+    site_url = urlparse(settings.SITE_URL)
+    # Compared the way absolute_uri compares them, so host casing in a pagination link doesn't matter.
+    if (parsed.scheme, parsed.hostname, parsed.port) != (site_url.scheme, site_url.hostname, site_url.port):
+        return False
+
+    path = parsed.path
+    if any(segment in (".", "..") for segment in unquote(path).split("/")):
+        return False
+
+    site_path = site_url.path.rstrip("/")
+    if site_path:
+        if not path.startswith(f"{site_path}/"):
+            return False
+        path = path.removeprefix(site_path)
+
+    team_scoped = _TEAM_SCOPED_EXPORT_PATH.match(path)
+    if team_scoped:
+        allowed_ids = (team_id,) if team_scoped["kind"] == "environments" else (team_id, project_id)
+        return int(team_scoped["id"]) in allowed_ids
+    return any(pattern.match(path) for pattern in _UNSCOPED_EXPORT_PATHS)
+
+
 def make_api_call(
     access_token: str,
     body: Any,
@@ -658,8 +880,18 @@ def make_api_call(
     method: str,
     next_url: Optional[str],
     path: str,
+    team_id: int,
+    project_id: int,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
+    if not is_allowed_export_url(request_url, team_id, project_id):
+        logger.warning(
+            "csv_exporter.path_not_allowlisted",
+            team_id=team_id,
+            request_path=urlparse(request_url).path,
+            is_next_url=next_url is not None,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
     url = add_query_params(
         request_url,
         {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"},
@@ -670,7 +902,17 @@ def make_api_call(
         json=body,
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=60,
+        # The allowlist checked only this URL, and a redirect would take the request elsewhere.
+        allow_redirects=False,
     )
+    if 300 <= response.status_code < 400:
+        logger.warning(
+            "csv_exporter.redirect_refused",
+            team_id=team_id,
+            request_path=urlparse(request_url).path,
+            status_code=response.status_code,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
     response.raise_for_status()
     return response
 
@@ -714,6 +956,7 @@ def export_tabular(
                     "dashboard_id": exported_asset.dashboard_id,
                 },
             )
-        else:
+        # A broken saved query is the user's to fix, and the asset already records it.
+        elif is_reportable_export_failure(e):
             capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
         raise

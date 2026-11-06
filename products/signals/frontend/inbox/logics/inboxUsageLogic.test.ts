@@ -16,13 +16,23 @@ const CREDITS_PER_PR = 1500
 const mockUsageEndpoints = (
     currentUsage: number,
     summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
-        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>,
+    usageLimit?: number
 ): void => {
     useMocks({
         get: {
             '/api/billing': () => [
                 200,
-                { products: [{ type: 'inbox', display_divisor: CREDITS_PER_PR, current_usage: currentUsage }] },
+                {
+                    products: [
+                        {
+                            type: 'inbox',
+                            display_divisor: CREDITS_PER_PR,
+                            current_usage: currentUsage,
+                            usage_limit: usageLimit,
+                        },
+                    ],
+                },
             ],
             '/api/projects/:team_id/signals/reports/refund-summary/': () => [
                 200,
@@ -30,6 +40,42 @@ const mockUsageEndpoints = (
             ],
         },
     })
+}
+
+// $0.01 per credit after a free first tier: 3 free PRs, then $15 per PR.
+const PRICED_INBOX_PRODUCT = {
+    type: 'inbox',
+    subscribed: true,
+    display_divisor: CREDITS_PER_PR,
+    current_usage: 3 * CREDITS_PER_PR,
+    tiers: [
+        { unit_amount_usd: '0', up_to: 3 * CREDITS_PER_PR },
+        { unit_amount_usd: '0.01', up_to: null },
+    ],
+}
+
+const mountPricedForSave = async (saveStatus: number): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
+    useMocks({
+        get: {
+            '/api/billing': () => [200, { products: [PRICED_INBOX_PRODUCT] }],
+            '/api/projects/:team_id/signals/reports/refund-summary/': () => [
+                200,
+                { period_billable_credits: 0, credited_credits: 0, credited_refund_count: 0, quota_limited: false },
+            ],
+        },
+        patch: {
+            '/api/billing': () =>
+                saveStatus === 200
+                    ? [200, { products: [PRICED_INBOX_PRODUCT], custom_limits_usd: { inbox: 75 } }]
+                    : [saveStatus, { attr: 'custom_limits_usd', detail: 'Rejected.' }],
+        },
+    })
+    featureFlagLogic.mount()
+    setRefundsFlag()
+    const logic = inboxUsageLogic()
+    logic.mount()
+    await expectLogic(logic).toFinishAllListeners()
+    return logic
 }
 
 const setRefundsFlag = (): void => {
@@ -41,15 +87,37 @@ const setRefundsFlag = (): void => {
 const mountWithUsage = async (
     currentUsage: number,
     summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
-        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>,
+    usageLimit?: number
 ): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
-    mockUsageEndpoints(currentUsage, summary)
+    mockUsageEndpoints(currentUsage, summary, usageLimit)
     featureFlagLogic.mount()
     setRefundsFlag()
     const logic = inboxUsageLogic()
     logic.mount()
     await expectLogic(logic).toFinishAllListeners()
     return logic
+}
+
+const mockSpendBilling = (
+    cutoff: string | undefined,
+    discountPercent = 0,
+    amountUsd: string | null = '12.34'
+): void => {
+    useMocks({
+        get: {
+            '/api/billing': () => [
+                200,
+                {
+                    products: [PRICED_INBOX_PRODUCT, { type: 'inbox_usage', current_amount_usd: amountUsd }],
+                    discount_percent: discountPercent,
+                    usage_summary: {
+                        signals_spend_credits: { billing_start_date: cutoff },
+                    },
+                },
+            ],
+        },
+    })
 }
 
 describe('inboxUsageLogic', () => {
@@ -62,27 +130,156 @@ describe('inboxUsageLogic', () => {
         initKeaTests()
     })
 
+    it.each([undefined, '2099-01-01', '2020-01-01'])(
+        'selects the spend product only after its Billing cutoff (%s)',
+        async (cutoff) => {
+            mockSpendBilling(cutoff)
+            logic = inboxUsageLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.spendProduct?.type ?? null).toBe(cutoff === '2020-01-01' ? 'inbox_usage' : null)
+            expect(logic.values.product?.type).toBe('inbox')
+        }
+    )
+
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
-    // usedPrs must read `max(billing's recorded usage, live billable credits) − credited refunds`:
-    // recorded usage lags up to a day, so a just-created PR (and its same-day excluded-path refund)
-    // is only visible through the live count, while credited-path refunds stay in recorded usage
-    // and must be netted out. Each row pins one side of that contract.
-    it.each([
-        // [case, billing current_usage, live period credits, credited credits, expected PRs]
-        ['counts a just-created PR that billing has not recorded yet', 1500, 3000, 0, 2],
-        ['drops when a same-day refund removes the PR from live usage', 1500, 1500, 0, 1],
-        ['nets credited-path refunds out of recorded usage', 9000, 9000, 1500, 5],
-        ['clamps at zero when credited refunds exceed billed usage', 0, 1500, 3000, 0],
-    ])('%s', async (_case, currentUsage, periodBillableCredits, creditedCredits, expectedPrs) => {
-        logic = await mountWithUsage(currentUsage, {
-            period_billable_credits: periodBillableCredits,
-            credited_credits: creditedCredits,
-        })
+    it.each<[number, string | null, number | null]>([
+        [0, '100', 100],
+        [30, '100', 70],
+        [100, '100', 0],
+        [30, null, null],
+    ])('applies the account discount to spend (%s%%, $%s)', async (discountPercent, amountUsd, expected) => {
+        jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-11T12:00:00Z') })
+        mockSpendBilling('2026-06-10', discountPercent, amountUsd)
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.spendAmountUsd).toBe(expected)
+    })
 
-        expect(logic.values.usedPrs).toBe(expectedPrs)
+    it('switches meters and refreshes quota at UTC midnight, ignoring a pending legacy response', async () => {
+        jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-09T23:59:00Z') })
+        mockSpendBilling('2026-06-10')
+        let finishLegacyRequest!: () => void
+        let legacyRequestStarted!: () => void
+        const legacyRequest = new Promise<void>((resolve) => (finishLegacyRequest = resolve))
+        const legacyRequested = new Promise<void>((resolve) => (legacyRequestStarted = resolve))
+        let requestCount = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/refund-summary/': async () => {
+                    const quotaLimited = Date.now() < Date.parse('2026-06-10T00:00:00Z')
+                    if (++requestCount === 2) {
+                        legacyRequestStarted()
+                        await legacyRequest
+                    }
+                    return [
+                        200,
+                        {
+                            period_billable_credits: 4500,
+                            credited_credits: 0,
+                            credited_refund_count: 0,
+                            quota_limited: quotaLimited,
+                        },
+                    ]
+                },
+            },
+        })
+        featureFlagLogic.mount()
+        setRefundsFlag()
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const billing = logic.values.billing
+        expect(logic.values.spendProduct).toBeNull()
+        expect(logic.values.quotaLimited).toBe(true)
+
+        logic.actions.loadRefundSummary()
+        await legacyRequested
+
+        jest.advanceTimersByTime(Date.parse('2026-06-10T00:00:00Z') - Date.now())
+
+        expect(logic.values.billing).toBe(billing)
+        expect(logic.values.spendProduct?.type).toBe('inbox_usage')
+        expect(logic.values.refundSummaryLoading).toBe(true)
+        expect(logic.values.quotaLimited).toBe(false)
+        await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess'])
+        expect(logic.values.quotaLimited).toBe(false)
+
+        finishLegacyRequest()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.quotaLimited).toBe(false)
+    })
+
+    it('refreshes the meter when a background tab becomes visible after cutoff', async () => {
+        jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-09T23:59:00Z') })
+        mockSpendBilling('2026-06-10')
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const billing = logic.values.billing
+        expect(logic.values.spendProduct).toBeNull()
+
+        jest.setSystemTime(new Date('2026-06-10T12:00:00Z'))
+        jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+        document.dispatchEvent(new Event('visibilitychange'))
+
+        expect(logic.values.billing).toBe(billing)
+        expect(logic.values.spendProduct?.type).toBe('inbox_usage')
+    })
+
+    // createdPrs must read `max(billing's recorded usage, live billable credits)`, the gross total
+    // the billing page shows: recorded usage lags up to a day, so a just-created PR (and its same-day
+    // excluded-path refund) is only visible through the live count. usedPrs must subtract credited
+    // refunds, because the quota check does, so a refund frees a slot. Each row pins one side of that
+    // contract.
+    it.each([
+        // [case, billing current_usage, live period credits, credited credits, created, refunded, used]
+        ['counts a just-created PR that billing has not recorded yet', 1500, 3000, 0, 2, 0, 2],
+        ['drops when a same-day refund removes the PR from live usage', 1500, 1500, 0, 1, 0, 1],
+        ['nets credited-path refunds out of the limit count', 9000, 9000, 1500, 6, 1, 5],
+        ['clamps at zero when credited refunds exceed billed usage', 0, 1500, 3000, 1, 2, 0],
+    ])(
+        '%s',
+        async (
+            _case,
+            currentUsage,
+            periodBillableCredits,
+            creditedCredits,
+            expectedCreatedPrs,
+            expectedRefundedPrs,
+            expectedUsedPrs
+        ) => {
+            logic = await mountWithUsage(currentUsage, {
+                period_billable_credits: periodBillableCredits,
+                credited_credits: creditedCredits,
+            })
+
+            expect(logic.values).toMatchObject({
+                createdPrs: expectedCreatedPrs,
+                refundedPrs: expectedRefundedPrs,
+                usedPrs: expectedUsedPrs,
+            })
+        }
+    )
+
+    // The quota cron reacts after the fact, so usage runs past the limit before agents pause. The
+    // widget must report that overshoot instead of capping it at the limit.
+    it('reports usage past the limit instead of capping it', async () => {
+        logic = await mountWithUsage(
+            53 * CREDITS_PER_PR,
+            { period_billable_credits: 53 * CREDITS_PER_PR, credited_credits: 0 },
+            50 * CREDITS_PER_PR
+        )
+
+        expect(logic.values.usedPrs).toBe(53)
+        expect(logic.values.limitPrs).toBe(50)
+        expect(logic.values.status).toBe('limit')
     })
 
     // The refunds flag is keyed on the organization group, so on a fresh pageload it resolves
@@ -122,6 +319,33 @@ describe('inboxUsageLogic', () => {
         expect(logic.values.quotaLimited).toBe(true)
     })
 
+    // A rejected save that closes the modal reads as a saved limit while the agents stay paused.
+    it.each([
+        ['closes the modal and reloads the paused state when the save lands', 200, false, ['loadRefundSummary']],
+        ['keeps the modal open when billing rejects the save', 400, true, []],
+    ])('%s', async (_case, saveStatus, expectedModalOpen, expectedFollowUps) => {
+        logic = await mountPricedForSave(saveStatus)
+        logic.actions.openModal()
+        logic.actions.setLimitFormValue('prs', 8)
+
+        await expectLogic(logic, () => logic?.actions.submitLimitForm())
+            .toDispatchActions([...expectedFollowUps, 'submitLimitFormSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.isModalOpen).toBe(expectedModalOpen)
+    })
+
+    it('rejects a PR limit whose dollar cap is above the billing ceiling', async () => {
+        logic = await mountPricedForSave(200)
+        logic.actions.openModal()
+
+        logic.actions.setLimitFormValue('prs', 3336)
+        expect(logic.values.limitFormValidationErrors.prs).toBeUndefined()
+
+        logic.actions.setLimitFormValue('prs', 3337)
+        expect(logic.values.limitFormValidationErrors.prs).toBe('Maximum is 3,336 PRs')
+    })
+
     // The org-keyed refunds flag resolves late on the client, so the client can fire the summary
     // request while the server (re-checking the same flag) still returns 404. That mismatch must
     // degrade to a null summary — falling back to billing's own usage — not bubble up as an
@@ -136,6 +360,10 @@ describe('inboxUsageLogic', () => {
                 '/api/projects/:team_id/signals/reports/refund-summary/': () => [
                     404,
                     { detail: 'PR refunds are not enabled for this organization.' },
+                ],
+                '/api/projects/:team_id/signals/config/': () => [
+                    200,
+                    { id: 'cfg-1', default_autostart_priority: 'P4' },
                 ],
             },
         })

@@ -20,10 +20,19 @@ import { SessionReplayHeaders } from './pipeline-types'
 const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4')
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
+const CLOCK_SKEW_QUANTUM_MS = 5 * 60 * 1000
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 // Compression-bomb cap (mirrors the Rust addon): ~6x the 10 MB largest payload in a production
 // sample; exceeding it DLQs instead of risking an unclassifiable OOM.
 const MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024
+
+export interface MessageLimits {
+    maxWindowIdBytes: number
+    maxEventsPerMessage: number
+    enforce: boolean
+}
+
+const DEFAULT_MESSAGE_LIMITS: MessageLimits = { maxWindowIdBytes: 1024, maxEventsPerMessage: 100_000, enforce: false }
 
 export interface ParseMessageStepInput {
     message: Message
@@ -79,7 +88,71 @@ export function decompressMessageValue(message: Message): Buffer {
     return messageUnzipped
 }
 
-function getValidEvents(events: unknown[]): {
+export function statedDecodedBytes(message: Message): number {
+    const value = message.value
+    if (!value) {
+        return 0
+    }
+    let stated = 0
+    if (value.length >= 4) {
+        if (getContentEncoding(message.headers) === 'lz4') {
+            stated = value.readUInt32LE(0)
+        } else if (isGzipped(value)) {
+            stated = value.readUInt32LE(value.length - 4)
+        }
+    }
+    return Math.max(value.length, stated <= MAX_DECOMPRESSED_BYTES ? stated : 0)
+}
+
+export function splitByDecodedBytes(messages: Message[], maxBytes: number): Message[][] {
+    if (maxBytes <= 0 || messages.length === 0) {
+        return [messages]
+    }
+    const parts: Message[][] = []
+    let current: Message[] = []
+    let currentBytes = 0
+    for (const message of messages) {
+        const bytes = statedDecodedBytes(message)
+        if (current.length > 0 && currentBytes + bytes > maxBytes) {
+            parts.push(current)
+            current = []
+            currentBytes = 0
+        }
+        current.push(message)
+        currentBytes += bytes
+    }
+    parts.push(current)
+    return parts
+}
+
+// null when capture recorded no usable pair, which must not read as zero skew.
+function rawClockSkewMs(sentAt: string | undefined, now: string | undefined): number | null {
+    if (!sentAt || !now) {
+        return null
+    }
+    const sentAtMs = DateTime.fromISO(sentAt).toMillis()
+    const nowMs = DateTime.fromISO(now).toMillis()
+    if (!Number.isFinite(sentAtMs) || !Number.isFinite(nowMs)) {
+        return null
+    }
+    return sentAtMs - nowMs
+}
+
+// The raw skew includes per-request network latency. Rounding to a coarse quantum gives every
+// message of a session the same correction, so latency cannot reorder events the player sorts by
+// timestamp, and a well-behaved clock rounds to zero.
+function quantizedClockSkewMs(sentAt: string | undefined, now: string | undefined): number {
+    const rawSkew = rawClockSkewMs(sentAt, now)
+    if (rawSkew === null) {
+        return 0
+    }
+    return Math.round(rawSkew / CLOCK_SKEW_QUANTUM_MS) * CLOCK_SKEW_QUANTUM_MS
+}
+
+function getValidEvents(
+    events: unknown[],
+    clockSkewMs: number
+): {
     validEvents: SnapshotEvent[]
     startDateTime: DateTime
     endDateTime: DateTime
@@ -90,6 +163,8 @@ function getValidEvents(events: unknown[]): {
             if (!parseResult.success || parseResult.data.timestamp <= 0) {
                 return null
             }
+            // Corrected on the event object because the recorder serializes it into the blob.
+            parseResult.data.timestamp -= clockSkewMs
             return {
                 event: parseResult.data,
                 dateTime: DateTime.fromMillis(parseResult.data.timestamp),
@@ -121,23 +196,37 @@ function getValidEvents(events: unknown[]): {
 }
 
 /**
+ * Record the sender's clock offset: the device clock at upload (`sent_at`) against the server clock
+ * at receipt (`now`). Capture stamps both at the same instant, so buffering shifts them equally and
+ * cancels; the Kafka message time against rrweb event times does not cancel. Capture omits `sent_at`
+ * when the client sends none, so those messages count as unmeasured rather than as zero.
+ */
+export function observeClockSkew(sentAt: string | undefined, now: string | undefined): void {
+    const skewMs = rawClockSkewMs(sentAt, now)
+    if (skewMs === null) {
+        SessionRecordingIngesterMetrics.incrementMessageClockSkewUnmeasured()
+        return
+    }
+    const direction = skewMs >= 0 ? 'device_ahead' : 'device_behind'
+    SessionRecordingIngesterMetrics.observeMessageClockSkew(direction, Math.abs(skewMs) / 1000)
+}
+
+/**
  * Creates a step that parses raw Kafka messages into ParsedMessageData.
  * This step is additive - it preserves all input properties and adds parsedMessage.
  *
  * This step processes one message at a time since there are no batch-level optimizations.
  * Gzip decompression is done synchronously since the pipeline already runs steps concurrently.
  */
-export function createParseMessageStep<T extends ParseMessageStepInput>(): ProcessingStep<
-    T,
-    T & ParseMessageStepOutput
-> {
+export function createParseMessageStep<T extends ParseMessageStepInput>(
+    limits: MessageLimits = DEFAULT_MESSAGE_LIMITS
+): ProcessingStep<T, T & ParseMessageStepOutput> {
     return async function parseMessageStep(input) {
         const { message } = input
 
         if (!message.value || !message.timestamp) {
             return dlq('message_value_or_timestamp_is_empty')
         }
-
         let messageUnzipped: Buffer
         try {
             messageUnzipped = decompressMessageValue(message)
@@ -176,7 +265,27 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
 
         const sessionId = normalizeSessionId($session_id)
 
-        const result = getValidEvents($snapshot_items)
+        const windowIdBytes = $window_id ? Buffer.byteLength($window_id) : 0
+        const events = $snapshot_items.length
+        SessionRecordingIngesterMetrics.observeMessageShape(windowIdBytes, events)
+        const overLimit =
+            windowIdBytes > limits.maxWindowIdBytes
+                ? 'message_window_id_too_long'
+                : events > limits.maxEventsPerMessage
+                  ? 'message_too_many_events'
+                  : null
+        if (overLimit) {
+            SessionRecordingIngesterMetrics.incrementMessagesOverLimit(overLimit)
+            if (limits.enforce) {
+                return drop(overLimit, [], [{ type: overLimit, details: { sessionId, windowIdBytes, events } }])
+            }
+        }
+
+        const clockSkewMs = quantizedClockSkewMs(messageResult.data.sent_at, messageResult.data.now)
+        if (clockSkewMs !== 0) {
+            SessionRecordingIngesterMetrics.observeClockSkewCorrection(clockSkewMs)
+        }
+        const result = getValidEvents($snapshot_items, clockSkewMs)
         if (!result) {
             return drop(
                 'message_contained_no_valid_rrweb_events',
@@ -220,6 +329,8 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
         if (headers.distinct_id !== messageResult.data.distinct_id) {
             return dlq('distinct_id_header_body_mismatch')
         }
+
+        observeClockSkew(messageResult.data.sent_at, messageResult.data.now)
 
         const parsedMessage: ParsedMessageData = {
             metadata: {

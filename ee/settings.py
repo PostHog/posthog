@@ -11,6 +11,11 @@ from posthog.utils import str_to_bool
 # SSO
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
+    "posthog.api.sso.MultitenantSAMLAuth",
+    "posthog.api.oidc.MultitenantOIDCAuth",
+    "posthog.api.sso.CustomGoogleOAuth2",
+    # Legacy paths for sessions issued before the move. They resolve existing sessions but
+    # refuse to authenticate, so new sessions only ever use the paths above.
     "ee.api.authentication.MultitenantSAMLAuth",
     "ee.api.authentication.CustomGoogleOAuth2",
 ]
@@ -56,8 +61,8 @@ if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_O
     ADMIN_OAUTH2_COOKIE_SECURE = str_to_bool(get_from_env("ADMIN_OAUTH2_COOKIE_SECURE", "True", type_cast=str))
     # middleware must be added after `AuthenticationMiddleware``
     MIDDLEWARE = MIDDLEWARE.copy()
-    auth_middleware_index = MIDDLEWARE.index("django.contrib.auth.middleware.AuthenticationMiddleware")
-    MIDDLEWARE.insert(auth_middleware_index + 1, "ee.middleware.AdminOAuth2Middleware")
+    auth_middleware_index = MIDDLEWARE.index("posthog.middleware.AuthenticationMiddleware")
+    MIDDLEWARE.insert(auth_middleware_index + 1, "posthog.admin.oauth2.AdminOAuth2Middleware")
 
 CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
 CUSTOMER_IO_API_URL = get_from_env("CUSTOMER_IO_API_URL", "https://api-eu.customer.io", type_cast=str)
@@ -77,6 +82,8 @@ MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BAC
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 100, type_cast=int)
 
 BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
+# Lifetime of the access token PostHog mints for the public billing API (ee/billing/access_token.py).
+BILLING_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("BILLING_ACCESS_TOKEN_TTL_SECONDS", 15 * 60, type_cast=int)
 
 # Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
 ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)
@@ -93,6 +100,7 @@ TEMPORAL_TASK_TIMEOUT_MINUTES = PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
+OPENAI_MODEL = get_from_env("OPENAI_MODEL", "gpt-4.1-mini")
 
 # LLM Gateway (internal service for proxying LLM requests with rate limiting and attribution)
 LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "http://localhost:3308" if DEBUG else "")
@@ -100,12 +108,9 @@ LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", DEV_API_KEY i
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
-# Dedicated key for Replay Vision (own GCP project for cost/quota isolation); falls back to GEMINI_API_KEY
-REPLAY_VISION_GEMINI_API_KEY = get_from_env("REPLAY_VISION_GEMINI_API_KEY", "")
 PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
 AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
 AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
-BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
 LLMA_EVAL_OPENAI_API_KEY = get_from_env("LLMA_EVAL_OPENAI_API_KEY", "")
 LLMA_EVAL_OPENAI_BASE_URL = get_from_env("LLMA_EVAL_OPENAI_BASE_URL", "")
@@ -147,21 +152,5 @@ HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai",
 # Vercel Integration
 VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", type_cast=str)
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)
+VERCEL_INTEGRATION_SLUG = get_from_env("VERCEL_INTEGRATION_SLUG", "posthog", type_cast=str)
 BILLING_PROVIDER_WEBHOOK_SECRET = get_from_env("BILLING_PROVIDER_WEBHOOK_SECRET", "", type_cast=str)
-
-# SCIM Configuration
-# django-scim2 requires these settings
-SCIM_SERVICE_PROVIDER = {
-    "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
-    "AUTHENTICATION_SCHEMES": [
-        {
-            "type": "oauthbearertoken",
-            "name": "OAuth Bearer Token",
-            "description": "Authentication scheme using the OAuth Bearer Token Standard",
-            "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
-            "documentationUri": "https://posthog.com/docs/settings/scim",
-        }
-    ],
-    # User model is already configured via AUTH_USER_MODEL = "posthog.User"
-    "GROUP_MODEL": "ee.models.rbac.role.Role",
-}

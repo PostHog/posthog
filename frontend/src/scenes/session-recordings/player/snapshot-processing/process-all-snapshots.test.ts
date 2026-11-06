@@ -802,6 +802,157 @@ describe('process all snapshots', () => {
             expect(incrementalSnapshots[1].timestamp).toBe(2000)
         })
 
+        it('does not synthesize a full snapshot when a mutation adds an image wireframe', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 1,
+                                    type: 'text',
+                                    text: 'hello',
+                                    width: 400,
+                                    height: 800,
+                                    x: 0,
+                                    y: 0,
+                                },
+                            ],
+                            initialOffset: { top: 0, left: 0 },
+                        },
+                    },
+                    {
+                        type: 3,
+                        timestamp: 2000,
+                        data: {
+                            source: 0,
+                            adds: [
+                                {
+                                    parentId: 1,
+                                    wireframe: {
+                                        id: 2,
+                                        type: 'image',
+                                        base64: 'data:image/png;base64,icon',
+                                        width: 32,
+                                        height: 32,
+                                        x: 0,
+                                        y: 0,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = await processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                { snapshots: {} },
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            const fullSnapshots = results.filter((r) => r.type === 2)
+            expect(fullSnapshots).toHaveLength(1)
+            expect(fullSnapshots[0].timestamp).toBe(1000)
+            expect(JSON.stringify(fullSnapshots[0].data)).toContain('hello')
+
+            const incrementalSnapshots = results.filter((r) => r.type === 3)
+            expect(incrementalSnapshots).toHaveLength(1)
+            expect(incrementalSnapshots[0].timestamp).toBe(2000)
+        })
+
+        it('does not patch meta from an image wireframe at the root of a full snapshot', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 2,
+                                    type: 'image',
+                                    base64: 'data:image/png;base64,icon',
+                                    width: 32,
+                                    height: 32,
+                                    x: 0,
+                                    y: 0,
+                                },
+                            ],
+                            initialOffset: { top: 0, left: 0 },
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = await processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                { snapshots: {} },
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            const meta = results.find((r) => r.type === 4)
+            expect(meta?.data).toEqual({ width: 400, height: 800, href: 'https://example.com' })
+        })
+
+        it('does not patch meta from a screenshot wireframe without dimensions', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 2,
+                                    type: 'screenshot',
+                                    base64: 'data:image/webp;base64,test',
+                                    x: 0,
+                                    y: 0,
+                                },
+                            ],
+                            initialOffset: { top: 0, left: 0 },
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = await processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                { snapshots: {} },
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            const meta = results.find((r) => r.type === 4)
+            expect(meta?.data).toEqual({ width: 400, height: 800, href: 'https://example.com' })
+        })
+
         it('transforms mobile event data during parsing', async () => {
             const sessionId = 'test-mobile-session'
 

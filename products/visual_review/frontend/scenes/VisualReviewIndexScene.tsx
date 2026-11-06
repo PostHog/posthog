@@ -1,56 +1,46 @@
-import { useValues } from 'kea'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
-
+import { NotFound } from 'lib/components/NotFound'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { visualReviewIndexSceneLogic } from './visualReviewIndexSceneLogic'
 
 export const scene: SceneExport = {
     component: VisualReviewIndexScene,
     logic: visualReviewIndexSceneLogic,
+    productKey: ProductKey.VISUAL_REVIEW,
 }
 
-// /visual_review forwards straight to the first repo's Runs page once the
-// repo list lands. There is no picker page — the in-header repo switcher
-// covers the multi-repo case. Only the empty state and the brief loader
-// state ever paint.
+// This scene is a pure forwarder, so it renders only while the lookup is in flight,
+// or when the lookup failed and there is nothing to forward to. The forward itself lives in the logic.
 export function VisualReviewIndexScene(): JSX.Element {
-    const { repos, reposLoading } = useValues(visualReviewIndexSceneLogic)
+    const { forwardFailure, forwardRoute } = useValues(visualReviewIndexSceneLogic)
+    const { forward } = useActions(visualReviewIndexSceneLogic)
 
-    useEffect(() => {
-        if (!reposLoading && repos.length >= 1) {
-            router.actions.replace(urls.visualReviewRepoRuns(repos[0].id))
-        }
-    }, [reposLoading, repos])
-
-    if (reposLoading || repos.length >= 1) {
-        return (
-            <SceneContent>
-                <SceneTitleSection name="Visual review" resourceType={{ type: 'visual_review' }} />
-                <LemonSkeleton className="h-32 w-full max-w-2xl" />
-            </SceneContent>
-        )
+    if (forwardFailure === 'not_found') {
+        return <NotFound object={forwardRoute?.kind === 'run' ? 'visual review run' : 'visual review repo'} />
     }
 
     return (
         <SceneContent>
             <SceneTitleSection name="Visual review" resourceType={{ type: 'visual_review' }} />
-            <div className="max-w-2xl">
-                <p className="text-muted">
-                    No visual review repos yet. Connect one from <Link to={urls.visualReviewSettings()}>Settings</Link>{' '}
-                    to get started.
-                </p>
-                <LemonButton type="primary" to={urls.visualReviewSettings()}>
-                    Open settings
-                </LemonButton>
-            </div>
+            {forwardFailure === 'load_failed' && forwardRoute ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: () => forward(forwardRoute) }}
+                    className="max-w-2xl"
+                >
+                    Couldn't load your connected repos.
+                </LemonBanner>
+            ) : (
+                <LemonSkeleton className="h-32 w-full max-w-2xl" />
+            )}
         </SceneContent>
     )
 }

@@ -1,6 +1,167 @@
-import { escapePath, joinPath, splitPath } from './utils'
+import { renderToStaticMarkup } from 'react-dom/server'
+
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { urls } from 'scenes/urls'
+
+import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { ProjectTreeRef } from '~/types'
+
+import { productsItemName } from '../navbar/tabs/productsCatalog'
+import { getCustomIcon } from './customIconRegistry'
+import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defaultTree'
+import {
+    DATA_SOURCE_SHORTCUT_TYPE,
+    convertFileSystemEntryToTreeDataItem,
+    escapePath,
+    isFileSystemEntryTypeEnabled,
+    isProjectTreeItemActive,
+    joinPath,
+    matchesRefType,
+    reparentPath,
+    resolveProjectTreeDrop,
+    splitPath,
+} from './utils'
+
+const catalogProducts = [...getDefaultTreeProducts(), ...getDefaultTreeData()].filter(
+    (item) => item.href && item.iconType && !getCustomIcon(item.iconType, item.href)
+)
 
 describe('project tree utils', () => {
+    describe('isFileSystemEntryTypeEnabled', () => {
+        it.each([
+            ['a Today type with its flag on', 'canvas', { 'today-rail-nav': true }, true],
+            ['a Today type with its flag off', 'canvas', {}, false],
+            ['a type behind another flag, with that flag off', 'task', {}, true],
+            ['an unflagged type', 'dashboard', {}, true],
+            ['a subtype of an unflagged type', 'insight/trends', {}, true],
+            ['a folder', 'folder', {}, true],
+            ['the Unfiled folder of a Today type with its flag off', 'folder:Unfiled/Canvases', {}, false],
+            [
+                'the Unfiled folder of a Today type with its flag on',
+                'folder:Unfiled/Canvases',
+                { 'today-rail-nav': true },
+                true,
+            ],
+        ])('keeps %s: %s', (_label, typeAndPath, featureFlags, expected) => {
+            const [type, path] = typeAndPath.split(':')
+            expect(isFileSystemEntryTypeEnabled({ type, path }, featureFlags)).toBe(expected)
+        })
+    })
+
+    describe('isProjectTreeItemActive', () => {
+        const insight: TreeDataItem = {
+            id: 'project/sql-insight',
+            name: 'SQL insight',
+            record: { type: 'insight', ref: 'sql123', href: '/insights/sql123' },
+        }
+
+        it.each<[string, string, ProjectTreeRef | null, boolean]>([
+            ['view mode', '/insights/sql123', null, true],
+            ['edit mode', '/sql', { type: 'insight', ref: 'sql123' }, true],
+            ['another insight', '/sql', { type: 'insight', ref: 'other' }, false],
+            ['another resource with the same ID', '/sql', { type: 'dashboard', ref: 'sql123' }, false],
+            ['unsaved SQL', '/sql', null, false],
+            ['new insight', '/sql', { type: 'insight', ref: null }, false],
+        ])('highlights the current insight in %s', (_, pathname, ref, expected) => {
+            expect(isProjectTreeItemActive(insight, pathname, ref)).toBe(expected)
+        })
+    })
+
+    describe('resolveProjectTreeDrop', () => {
+        const note: FileSystemEntry = { id: 'note', type: 'notebook', ref: 'note-ref', path: 'Research/Notes' }
+        const folder: FileSystemEntry = { id: 'folder', type: 'folder', path: 'Research' }
+        const shortcuts: FileSystemEntry[] = [
+            { id: 'home', type: 'folder', path: 'My home', ref: 'Users/Alex' },
+            { id: 'overview', type: 'dashboard', path: 'Overview', ref: 'overview-ref' },
+        ]
+
+        it.each([
+            ['shortcuts://My home', 'Users/Alex'],
+            ['project://Research', 'Research'],
+            ['project://', ''],
+            ['', ''],
+        ])('resolves a drop on %s to its real folder', (overId, destination) => {
+            expect(resolveProjectTreeDrop('project/note', overId, [note, folder], shortcuts)).toEqual({
+                type: 'move',
+                item: note,
+                folder: destination,
+            })
+        })
+
+        it.each([
+            ['shortcuts://', 'onto'],
+            ['shortcuts/overview', 'onto'],
+            ['shortcuts://My home', 'before'],
+            ['shortcuts://My home', 'after'],
+        ] as const)('stars a nested file dropped on %s (%s) without moving it', (overId, position) => {
+            expect(resolveProjectTreeDrop('project/note', overId, [note], shortcuts, position)).toEqual({
+                type: 'star',
+                item: note,
+            })
+            expect(
+                resolveProjectTreeDrop(
+                    'project/note',
+                    overId,
+                    [note],
+                    [...shortcuts, { id: 'star-note', type: 'notebook', ref: 'note-ref', path: 'Notes' }],
+                    position
+                )
+            ).toBeNull()
+        })
+
+        it.each([null, 'missing', 'shortcuts/missing', 'project/note', 'project://missing'])(
+            'does not move a file to the project root for an invalid target %s',
+            (overId) => {
+                expect(resolveProjectTreeDrop('project/note', overId, [note], shortcuts)).toBeNull()
+            }
+        )
+
+        it.each(['project/note', 'shortcuts/star-note'])(
+            'moves %s into a starred folder without adding a shortcut',
+            (activeId) => {
+                const starredNote = { id: 'star-note', type: 'notebook', ref: 'note-ref', path: 'Notes' }
+                expect(
+                    resolveProjectTreeDrop(activeId, 'shortcuts://My home', [note], [...shortcuts, starredNote], 'onto')
+                ).toEqual({
+                    type: activeId.startsWith('shortcuts/') ? 'move-shortcut' : 'move',
+                    item: activeId.startsWith('shortcuts/') ? starredNote : note,
+                    folder: 'Users/Alex',
+                })
+                expect(resolveProjectTreeDrop(activeId, 'shortcuts://', [note], [...shortcuts, starredNote])).toBeNull()
+            }
+        )
+
+        it('reorders starred folders without moving their contents', () => {
+            expect(
+                resolveProjectTreeDrop('shortcuts/overview', 'shortcuts://My home', [], shortcuts, 'before')
+            ).toEqual({
+                type: 'reorder',
+                activeId: 'shortcuts/overview',
+                overId: 'shortcuts://My home',
+            })
+            expect(resolveProjectTreeDrop('shortcuts://My home', 'project://Research', [folder], shortcuts)).toEqual({
+                type: 'move-shortcut',
+                item: shortcuts[0],
+                folder: 'Research',
+            })
+        })
+
+        it.each([
+            ['shortcuts://My home', 'onto', null],
+            ['project://Research', 'onto', null],
+            [
+                'shortcuts://My home',
+                'before',
+                { type: 'reorder', activeId: 'shortcuts/source', overId: 'shortcuts://My home' },
+            ],
+        ] as const)('keeps a source star out of folder moves when dropped on %s (%s)', (overId, position, expected) => {
+            const sourceStar = { id: 'source', type: DATA_SOURCE_SHORTCUT_TYPE, ref: 'source-id', path: 'Stripe' }
+            expect(
+                resolveProjectTreeDrop('shortcuts/source', overId, [folder], [...shortcuts, sourceStar], position)
+            ).toEqual(expected)
+        })
+    })
+
     describe('escapePath', () => {
         it('escapes paths as expected', () => {
             expect(escapePath('a/b')).toEqual('a\\/b')
@@ -37,5 +198,102 @@ describe('project tree utils', () => {
             expect(joinPath(['a'])).toEqual('a')
             expect(joinPath([])).toEqual('')
         })
+    })
+
+    describe('reparentPath', () => {
+        it('rewrites the moved folder and everything under it', () => {
+            expect(reparentPath('Revenue', 'Revenue', 'Finance/Revenue')).toEqual('Finance/Revenue')
+            expect(reparentPath('Revenue/Q3', 'Revenue', 'Finance/Revenue')).toEqual('Finance/Revenue/Q3')
+        })
+
+        it('leaves a sibling whose name merely starts the same', () => {
+            expect(reparentPath('Revenue archive', 'Revenue', 'Finance/Revenue')).toBeNull()
+        })
+
+        it('leaves paths outside the moved folder', () => {
+            expect(reparentPath('Marketing/Q3', 'Revenue', 'Finance/Revenue')).toBeNull()
+            expect(reparentPath(undefined, 'Revenue', 'Finance')).toBeNull()
+        })
+
+        it('treats an escaped separator as part of a name, not a boundary', () => {
+            // "Revenue\/Q3" is one folder literally named "Revenue/Q3", not Q3 inside Revenue.
+            expect(reparentPath('Revenue\\/Q3', 'Revenue', 'Finance')).toBeNull()
+        })
+
+        it('moves a folder to the project root', () => {
+            expect(reparentPath('Revenue/Q3', 'Revenue', 'Revenue2')).toEqual('Revenue2/Q3')
+        })
+    })
+
+    describe('matchesRefType', () => {
+        it('matches an exact type', () => {
+            expect(matchesRefType('dashboard', 'dashboard')).toBe(true)
+            expect(matchesRefType('insight', 'dashboard')).toBe(false)
+        })
+
+        it('treats a trailing slash as a prefix over internal types', () => {
+            expect(matchesRefType('hog/site_destination', 'hog/')).toBe(true)
+            expect(matchesRefType('hog/transformation', 'hog/')).toBe(true)
+            expect(matchesRefType('dashboard', 'hog/')).toBe(false)
+        })
+
+        it('does not match a row with no type', () => {
+            expect(matchesRefType(undefined, 'hog/')).toBe(false)
+            expect(matchesRefType(undefined, 'dashboard')).toBe(false)
+        })
+    })
+
+    it.each(['trends', 'funnels', 'retention', 'paths', 'lifecycle', 'stickiness', 'hog', undefined, 'unknown'])(
+        'renders a saved insight with type %s using its insight icon and destination',
+        (insightType) => {
+            const [node] = convertFileSystemEntryToTreeDataItem({
+                imports: [
+                    {
+                        id: 'report',
+                        ref: 'report1',
+                        href: '/insights/report1',
+                        path: 'Report',
+                        type: 'insight',
+                        meta: { insight_type: insightType },
+                    },
+                ],
+                folderStates: {},
+                checkedItems: {},
+                root: 'project://',
+            })
+            expect(node.record?.href).toEqual(
+                insightType === 'hog' ? urls.sqlEditor({ insightShortId: 'report1' }) : '/insights/report1'
+            )
+            const expectedType = insightType && insightType !== 'unknown' ? `insight/${insightType}` : 'insight'
+            expect(renderToStaticMarkup(node.icon as JSX.Element)).toEqual(
+                renderToStaticMarkup(iconForType(expectedType as FileSystemIconType))
+            )
+        }
+    )
+
+    describe('starred products', () => {
+        it.each(catalogProducts.map((item) => [item.path, item]))(
+            'renders a starred %s with the name, tags, icon and color it has in the product list',
+            (_path, item) => {
+                // A star saved before a rename or an icon change still carries the older name and type, and no tags.
+                const shortcut = {
+                    id: 'star',
+                    path: 'Old product name',
+                    type: 'folder_open',
+                    href: item.href,
+                } as FileSystemEntry
+                const [node] = convertFileSystemEntryToTreeDataItem({
+                    imports: [shortcut],
+                    folderStates: {},
+                    checkedItems: {},
+                    root: 'shortcuts://',
+                    disableCategories: true,
+                })
+                expect(node.name).toEqual(productsItemName(item))
+                expect(renderToStaticMarkup(node.icon as JSX.Element)).toEqual(
+                    renderToStaticMarkup(iconForType(item.iconType, item.iconColor))
+                )
+            }
+        )
     })
 })

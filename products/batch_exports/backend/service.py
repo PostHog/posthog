@@ -2,11 +2,11 @@ import json
 import types
 import typing
 import datetime as dt
-from dataclasses import Field, asdict, dataclass, fields
+from dataclasses import Field, asdict, dataclass, field, fields
+from typing import Literal
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Q
 
 import structlog
 import temporalio
@@ -26,9 +26,7 @@ from temporalio.client import (
     WorkflowHandle,
 )
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.hogql import HogQLContext
-
+from posthog.dataclasses import frozen
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -39,6 +37,8 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 
+from products.batch_exports.backend.facade.contracts import AWSCredentials
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportBackfill,
@@ -136,29 +136,212 @@ class BatchExportField(typing.TypedDict):
 
 
 class BatchExportSchema(typing.TypedDict):
+    hogql_query: typing.NotRequired[str]
     fields: list[BatchExportField]
-    values: dict[str, str]
+    # HogQL binds these at any type; narrowing breaks Temporal input decoding.
+    values: dict[str, typing.Any]
 
 
-@dataclass
-class BatchExportEventPropertyFilter:
-    key: str
-    operator: str
-    type: str
-    value: list[str]
-
-
-# Single source of truth for the serialized filter `type` values we accept. Enforced at write
-# time by the batch export serializer and at query time by `compose_filters_clause`.
-SUPPORTED_FILTER_TYPES = {"event", "person", "hogql"}
-
-
-@dataclass
+@dataclass(frozen=False)
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
-    filters: list[dict[str, str | list[str] | None]] | None = None
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None = None
     hogql_query: str | None = None
+    # The user who last modified the batch export. This is used for validating custom HogQL queries. This is stored alongside the query, not looked up at runtime, so that an edit during a run cannot pair the old query with a new user.
+    user_id: int | None = None
+    # A dict, not `HogQLQueryModifiers`, because Temporal's default converter only decodes dataclasses and JSON types.
+    hogql_modifiers: dict[str, typing.Any] | None = None
+
+
+class _BatchExportModelProtocol(typing.Protocol):
+    """Read-only protocol covering all batch export models."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def incremental_mode(self) -> IncrementalMode: ...
+
+    @property
+    def primary_key(self) -> tuple[str, ...]: ...
+
+    @property
+    def version_key(self) -> tuple[str, ...]: ...
+
+
+@frozen
+class BatchExportEventsModel:
+    # NOTE: In this and classes that follow, 'name' should really be a class
+    # variable. However, fields() and asdict() exclude attributes with ClassVar
+    # annotations. In the prescence of a type union, this would make it
+    # possible for Temporal to accidentaly deserialize into the wrong class, if
+    # we are not strict with type hints. So, to have the additional check 'name'
+    # provides, I would use a field(init=False) for name to approximate a class
+    # variable that is included in serialization/deserialization. However, this
+    # is not supported in Temporal==1.34.0. A fix has landed on main but has not
+    # released yet.
+    # TODO: On temporal==1.35.0 (or later) add init=False.
+    name: Literal["events"] = field(default="events")
+    # NOTE: primary_key and version_key are hardcoded for pre-defined models.
+    # This maintains backwards compatibility, and rejects any user input for
+    # models maintained by PostHog.
+    primary_key: tuple[Literal["uuid"]] = field(default=("uuid",))
+    version_key: tuple[Literal["timestamp"]] = field(default=("timestamp",))
+    incremental_mode: IncrementalMode = IncrementalMode.APPEND
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] = field(default_factory=list)
+
+
+@frozen
+class BatchExportEventsCustomModel:
+    name: Literal["events"] = field(default="events")
+    schema: BatchExportSchema
+    # NOTE: With a custom schema, we can't know if any of the key fields are
+    # present or not, so we enforce an empty key just to keep up with the
+    # protocol.
+    primary_key: tuple[str, ...] = field(default=())
+    version_key: tuple[str, ...] = field(default=())
+    incremental_mode: IncrementalMode = field(default=IncrementalMode.APPEND)
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.incremental_mode != IncrementalMode.APPEND:
+            # NOTE: Ideally, we would express this restriction using different
+            # types: an append model and a merge model as required. But Temporal
+            # encoding/decoding cannot reconstruct the types correctly, as
+            # Literal types just pass their SERIALIZED value as-is. So we
+            # have to validate. At least the validation happens at construction
+            # (or right after) so if you have a model instance, it's valid!
+            raise ValueError("Model is APPEND-only")
+
+
+def _validate_merge_only_model(model: _BatchExportModelProtocol) -> None:
+    if model.incremental_mode != IncrementalMode.MERGE:
+        raise ValueError("Model is MERGE-only")
+
+    _validate_keys(model)
+
+
+def _validate_keys(model: _BatchExportModelProtocol) -> None:
+    if not model.primary_key:
+        raise ValueError("MERGE requires a primary key")
+
+
+@frozen
+class BatchExportPersonsModel:
+    name: Literal["persons"] = field(default="persons")
+    primary_key: tuple[Literal["team_id"], Literal["distinct_id"]] = field(default=("team_id", "distinct_id"))
+    version_key: tuple[Literal["person_version"], Literal["person_distinct_id_version"]] = field(
+        default=(
+            "person_version",
+            "person_distinct_id_version",
+        ),
+    )
+    # NOTE: I am not sure if appending makes sense for persons or sessions, so
+    # this is hardcoded to merge. Happy to be corrected!
+    incremental_mode: IncrementalMode = field(default=IncrementalMode.MERGE)
+
+    def __post_init__(self) -> None:
+        _validate_merge_only_model(self)
+
+
+@frozen
+class BatchExportSessionsModel:
+    name: Literal["sessions"] = field(default="sessions")
+    primary_key: tuple[Literal["team_id"], Literal["session_id"]] = field(default=("team_id", "session_id"))
+    version_key: tuple[Literal["end_timestamp"]] = field(default=("end_timestamp",))
+    incremental_mode: IncrementalMode = field(default=IncrementalMode.MERGE)
+
+    def __post_init__(self):
+        _validate_merge_only_model(self)
+
+
+@frozen
+class BatchExportHogQLModel:
+    name: Literal["hogql"] = field(default="hogql")
+    query: str
+    user_id: int
+    modifiers: dict[str, typing.Any]
+    primary_key: tuple[str, ...] = ()
+    version_key: tuple[str, ...] = ()
+    incremental_mode: IncrementalMode = IncrementalMode.APPEND
+
+    def __post_init__(self) -> None:
+        if self.incremental_mode == IncrementalMode.MERGE:
+            _validate_keys(self)
+
+
+AnyBatchExportModel = (
+    BatchExportEventsCustomModel
+    | BatchExportEventsModel
+    | BatchExportPersonsModel
+    | BatchExportSessionsModel
+    | BatchExportHogQLModel
+)
+
+BatchExportModelInput = AnyBatchExportModel | BatchExportModel
+
+
+def migrate_batch_export_model(old: BatchExportModelInput | None, /) -> AnyBatchExportModel:
+    if old is None:
+        return BatchExportEventsModel()
+    if isinstance(old, AnyBatchExportModel):
+        return old
+
+    match old.name:
+        case "events":
+            if old.schema is not None:
+                return BatchExportEventsCustomModel(schema=old.schema, filters=old.filters or [])
+            return BatchExportEventsModel(filters=old.filters or [])
+        case "persons":
+            return BatchExportPersonsModel()
+        case "sessions":
+            return BatchExportSessionsModel()
+        case "hogql":
+            # These two should be set in the model, but we must be strict.
+            if old.user_id is None:
+                raise ValueError("HogQL model requires user_id")
+            if old.hogql_query is None:
+                raise ValueError("HogQL model requires a query")
+            return BatchExportHogQLModel(
+                query=old.hogql_query,
+                user_id=old.user_id,
+                modifiers=old.hogql_modifiers if old.hogql_modifiers is not None else {},
+            )
+        case s:
+            raise ValueError(f"Invalid model name: '{s}'")
+
+
+def get_batch_export_model(batch_export: BatchExport | BatchExportOnDemand) -> AnyBatchExportModel:
+    match batch_export.model or "events":
+        case "events":
+            schema = batch_export.schema if isinstance(batch_export, BatchExport) else None
+            if schema is not None:
+                return BatchExportEventsCustomModel(schema=schema, filters=batch_export.filters or [])
+            return BatchExportEventsModel(
+                filters=batch_export.filters or [],
+                incremental_mode=IncrementalMode(batch_export.incremental_mode),
+            )
+        case "persons":
+            return BatchExportPersonsModel()
+        case "sessions":
+            return BatchExportSessionsModel()
+        case "hogql":
+            source = batch_export.source
+            if batch_export.last_modified_by_id is None:
+                raise ValueError("HogQL model requires user_id")
+            if source is None or source.hogql_query is None:
+                raise ValueError("HogQL model requires a query")
+            return BatchExportHogQLModel(
+                query=source.hogql_query,
+                user_id=batch_export.last_modified_by_id,
+                modifiers=source.hogql_modifiers or {},
+                incremental_mode=IncrementalMode(batch_export.incremental_mode),
+                primary_key=tuple(source.primary_key or ()),
+                version_key=tuple(source.version_key or ()),
+            )
+        case name:
+            raise ValueError(f"Invalid model name: '{name}'")
 
 
 @dataclass
@@ -184,7 +367,7 @@ def _field_is_type(f: Field, target: type) -> bool:
     return False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BaseBatchExportInputs:
     """Base class for all batch export inputs containing common fields.
 
@@ -208,11 +391,10 @@ class BaseBatchExportInputs:
     is_backfill: bool = False
     is_earliest_backfill: bool = False
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModelInput | None = None
     integration_id: int | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Coerce string values to their declared types.
 
         EncryptedJSONField may not preserve Python types, so fields can
@@ -255,67 +437,64 @@ class BaseBatchExportInputs:
         return self.is_earliest_backfill
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3BatchExportInputs(BaseBatchExportInputs):
     """Inputs for S3 export workflow.
 
-    This is the canonical input dataclass consumed by the `s3-export` Temporal
-    workflow and is the superset of every S3-family destination's fields. The
-    legacy `type="S3"` batch exports dispatch with this dataclass directly; the
-    refined S3-family types (AwsS3, S3Compatible) dispatch with their own
-    narrower dataclass — Temporal's data converter serializes that to JSON,
-    and on the worker side deserializes into `S3BatchExportInputs`, with any
-    missing fields falling through to the defaults declared here.
+    This is the input dataclass the `s3-export` Temporal workflow declares, and it holds the
+    union of every S3-family destination's fields. No destination type dispatches with it;
+    each type dispatches with its own narrower dataclass. Temporal's data converter serializes
+    that dataclass to JSON, and the worker deserializes it into this one. A field the narrower
+    dataclass does not declare therefore takes the default declared here.
+
+    Credentials and the provider endpoint are never carried here: the activity resolves them from
+    the linked Integration at run time (see `integration_id`).
 
     Attributes:
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
-        aws_access_key_id: Access key id used to authenticate with S3. Optional; integration-backed
-            exports resolve credentials from the linked Integration at run time (see `integration_id`),
-            while legacy exports carry them inline.
-        aws_secret_access_key: Secret access key used to authenticate with S3. See `aws_access_key_id`.
         compression: Compression algorithm to apply to exported files (e.g. "gzip", "brotli"), or None.
         file_format: File format of exported objects (e.g. "JSONLines", "Parquet"). Defaults to JSONLines.
         max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         encryption: Server-side encryption algorithm to apply (e.g. "AES256", "aws:kms"), or None. AWS-only.
         kms_key_id: KMS key id to use when `encryption == "aws:kms"`, or None. AWS-only.
-        endpoint_url: Override endpoint for S3-compatible providers (e.g. MinIO, R2). None for AWS.
         use_virtual_style_addressing: Whether to use virtual-hosted-style
             addressing rather than path-style. None for AWS.
+        legacy_parquet_extension: Whether Parquet files keep the compression codec in their
+            extension, e.g. `.parquet.zst` rather than `.parquet`. Defaults to True because a
+            schedule created before this field existed has no value for it, so the missing field
+            decodes to this default and the export keeps the names it already writes.
     """
 
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
+    legacy_parquet_extension: bool = True
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
-    Per-destination dataclasses extend this with provider-specific fields. Credentials are optional:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Per-destination dataclasses extend this with provider-specific fields. Credentials are never
+    carried here: the activity resolves them from the linked Integration at run time (see
+    `integration_id`).
     """
 
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(kw_only=True)
@@ -326,20 +505,19 @@ class AwsS3BatchExportInputs(S3FamilyBaseInputs):
     kms_key_id: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
     """Inputs for a non-AWS S3-compatible batch export.
 
     Covers providers like DigitalOcean Spaces, Cloudflare R2, Hetzner, OVH, Backblaze, etc.
-    `endpoint_url` is resolved from the linked Integration at run time when `integration_id` is set,
-    otherwise carried inline (legacy).
+    `endpoint_url` lives on the linked Integration alongside the credentials, so it is resolved at
+    run time rather than configured per export.
     """
 
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     """Inputs for a file download batch export workflow.
 
@@ -359,31 +537,26 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     max_file_size_mb: int | None = None
     compression: str | None = None
     expires_in_seconds: int = 3600
+    main_activity_timeout_seconds: int | None = None
+    stage_activity_timeout_seconds: int | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow.
 
-    account, user, authentication_type and the credential fields are optional here:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`).
     """
 
     database: str
     warehouse: str
     schema: str
-    account: str | None = None
-    user: str | None = None
     table_name: str = "events"
-    authentication_type: str = "password"
-    password: str | None = None
-    private_key: str | None = None
-    private_key_passphrase: str | None = None
     role: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
@@ -394,41 +567,35 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
     user: str | None = None
     host: str | None = None
     port: int | None = 5432
-    password: str | None = None
+    password: str | None = field(default=None, repr=False)
     has_self_signed_cert: bool = False
 
 
 IAMRole = str
+IntegrationID = int
 
 
-@dataclass
-class AWSCredentials:
-    aws_access_key_id: str
-    aws_secret_access_key: str
-    aws_session_token: str | None = None
-
-
-@dataclass
+@frozen
 class RedshiftCopyInputs:
     s3_bucket: str
     region_name: str
     s3_key_prefix: str
-    # Authorization role or credentials for Redshift to COPY data from bucket.
-    authorization: IAMRole | AWSCredentials
-    # S3 batch export credentials.
-    # TODO: Also support RBAC for S3 batch export, then we could take
-    # `IAMRole | AWSCredentials` here too.
-    bucket_credentials: AWSCredentials
+    # Authorization for Redshift to COPY data from the bucket: an IAM role ARN,
+    # inline credentials, or the id of a team-scoped aws-s3 integration.
+    authorization: IAMRole | AWSCredentials | IntegrationID
+    # Credentials used to stage files in the S3 bucket: inline credentials or
+    # the id of a team-scoped aws-s3 integration.
+    bucket_credentials: AWSCredentials | IntegrationID
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
-    user: str
-    password: str
-    host: str
     database: str
+    user: str | None = None
+    password: str | None = field(default=None, repr=False)
+    host: str | None = None
     schema: str = "public"
     table_name: str = "events"
     port: int = 5439
@@ -436,7 +603,7 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
     mode: typing.Literal["COPY", "INSERT"] = "INSERT"
     copy_inputs: RedshiftCopyInputs | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__post_init__()
         if (
             self.mode == "COPY"
@@ -450,17 +617,31 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
             else:
                 raise TypeError(f"Invalid type for copy inputs: '{type(self.copy_inputs)}'")
 
-            bucket_credentials = AWSCredentials(
-                aws_access_key_id=raw_inputs["bucket_credentials"]["aws_access_key_id"],
-                aws_secret_access_key=raw_inputs["bucket_credentials"]["aws_secret_access_key"],
-            )
+            # `BatchExportDestination.config` is an `EncryptedJSONField`, which stringifies scalar
+            # leaves on the decrypt round trip: an integration id saved as an int reads back as a
+            # numeric string, so both forms must be accepted here.
+            raw_bucket_credentials = raw_inputs["bucket_credentials"]
+            bucket_credentials: AWSCredentials | IntegrationID
+            if isinstance(raw_bucket_credentials, IntegrationID):
+                bucket_credentials = raw_bucket_credentials
+            elif isinstance(raw_bucket_credentials, str) and raw_bucket_credentials.isdigit():
+                bucket_credentials = IntegrationID(raw_bucket_credentials)
+            else:
+                bucket_credentials = AWSCredentials(
+                    aws_access_key_id=raw_bucket_credentials["aws_access_key_id"],
+                    aws_secret_access_key=raw_bucket_credentials["aws_secret_access_key"],
+                )
 
-            if isinstance(raw_inputs["authorization"], str):
-                authorization: IAMRole | AWSCredentials = raw_inputs["authorization"]
+            raw_authorization = raw_inputs["authorization"]
+            authorization: IAMRole | AWSCredentials | IntegrationID
+            if isinstance(raw_authorization, IntegrationID):
+                authorization = raw_authorization
+            elif isinstance(raw_authorization, str):
+                authorization = IntegrationID(raw_authorization) if raw_authorization.isdigit() else raw_authorization
             else:
                 authorization = AWSCredentials(
-                    aws_access_key_id=raw_inputs["authorization"]["aws_access_key_id"],
-                    aws_secret_access_key=raw_inputs["authorization"]["aws_secret_access_key"],
+                    aws_access_key_id=raw_authorization["aws_access_key_id"],
+                    aws_secret_access_key=raw_authorization["aws_secret_access_key"],
                 )
 
             self.copy_inputs = RedshiftCopyInputs(
@@ -472,14 +653,14 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
             )
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
     """Inputs for BigQuery export workflow."""
 
     dataset_id: str
     table_id: str = "events"
     project_id: str | None = None
-    private_key: str | None = None
+    private_key: str | None = field(default=None, repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
     client_email: str | None = None
@@ -502,7 +683,7 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
     use_automatic_schema_evolution: bool = True
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Azure Blob Storage export workflow.
 
@@ -515,6 +696,7 @@ class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    legacy_parquet_extension: bool = True
 
 
 @dataclass(kw_only=True)
@@ -553,9 +735,6 @@ DESTINATION_WORKFLOWS = {
     "NoOp": ("no-op", NoOpInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
-    # "S3" is the legacy alias still accepted on input and persisted as-is.
-    # AwsS3 and S3Compatible are the refined types preferred for new rows
-    "S3": ("s3-export", S3BatchExportInputs),
     "S3Compatible": ("s3-export", S3CompatibleBatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
@@ -587,6 +766,16 @@ def coerce_config_to_declared_types(destination_type: str, config: dict[str, typ
                 except ValueError:
                     pass
         coerced[key] = value
+
+    if destination_type == "Redshift" and isinstance(coerced.get("copy_inputs"), dict):
+        copy_inputs = {**coerced["copy_inputs"]}
+        # Integration ids nested in copy_inputs also read back as digit strings.
+        for key in ("authorization", "bucket_credentials"):
+            value = copy_inputs.get(key)
+            if isinstance(value, str) and value.isdigit():
+                copy_inputs[key] = int(value)
+        coerced["copy_inputs"] = copy_inputs
+
     return coerced
 
 
@@ -617,19 +806,37 @@ class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
-def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> bool:
+def _get_batch_export_for_schedule_change(batch_export_id: str, team_id: int | None) -> BatchExport:
+    """Load the export that a pause or unpause changes.
+
+    With ``team_id``, only a live export of that team matches, so a request cannot reach another
+    team's export. Internal callers (Temporal, deletes) pass no team and match any export.
+    """
+    # nosemgrep: idor-lookup-without-team (scoped below when the caller passes team_id)
+    batch_exports = BatchExport.objects.filter(id=batch_export_id)
+    if team_id is not None:
+        batch_exports = batch_exports.filter(team_id=team_id, deleted=False)
+
+    try:
+        return batch_exports.get()
+    except BatchExport.DoesNotExist:
+        raise BatchExportIdError(batch_export_id)
+
+
+def pause_batch_export(
+    temporal: Client, batch_export_id: str, note: str | None = None, *, team_id: int | None = None
+) -> bool:
     """Pause this BatchExport.
 
     We pass the call to the underlying Temporal Schedule.
 
     Returns:
         `True` if the batch export was paused, `False` if it was already paused.
+
+    Raises:
+        BatchExportIdError: If no export matches ``batch_export_id`` (and ``team_id``, when given).
     """
-    try:
-        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-        batch_export = BatchExport.objects.get(id=batch_export_id)
-    except BatchExport.DoesNotExist:
-        raise BatchExportIdError(batch_export_id)
+    batch_export = _get_batch_export_for_schedule_change(batch_export_id, team_id)
 
     if batch_export.paused is True:
         return False
@@ -680,6 +887,8 @@ def unpause_batch_export(
     batch_export_id: str,
     note: str | None = None,
     backfill: bool = False,
+    *,
+    team_id: int | None = None,
 ) -> None:
     """Unpause this BatchExport.
 
@@ -691,15 +900,12 @@ def unpause_batch_export(
         batch_export_id: The ID of the BatchExport to unpause.
         note: An optional note to include in the Schedule when unpausing.
         backfill: If True, a backfill will be triggered since the BatchExport's last_paused_at.
+        team_id: If set, only a live export of this team matches.
 
     Raises:
-        BatchExportIdError: If the provided batch_export_id doesn't point to an existing BatchExport.
+        BatchExportIdError: If no export matches ``batch_export_id`` (and ``team_id``, when given).
     """
-    try:
-        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-        batch_export = BatchExport.objects.get(id=batch_export_id)
-    except BatchExport.DoesNotExist:
-        raise BatchExportIdError(batch_export_id)
+    batch_export = _get_batch_export_for_schedule_change(batch_export_id, team_id)
 
     if batch_export.paused is False:
         return
@@ -962,9 +1168,9 @@ async def start_batch_export_workflow(
 def start_file_download_batch_export(
     batch_export: BatchExportOnDemand,
     workflow_id: str,
-    data_interval_start: dt.datetime,
-    data_interval_end: dt.datetime,
-    batch_export_model: BatchExportModel,
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime | None,
+    batch_export_model: BatchExportModelInput,
     batch_export_run_id: UUID | None = None,
     compression: str | None = None,
     format: str = "Parquet",
@@ -972,18 +1178,28 @@ def start_file_download_batch_export(
     include_events: list[str] | None = None,
     exclude_events: list[str] | None = None,
 ) -> None:
+    incomplete_interval = data_interval_start is None or data_interval_end is None
+    if incomplete_interval and (batch_export_model.name != "hogql" or batch_export_run_id is None):
+        raise ValueError("Only on-demand HogQL exports can omit interval bounds")
     inputs = FileDownloadBatchExportInputs(
         batch_export_id=batch_export.id,
         batch_export_model=batch_export_model,
         batch_export_run_id=batch_export_run_id,
         team_id=batch_export.team_id,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
+        data_interval_start=data_interval_start.isoformat() if data_interval_start is not None else None,
+        data_interval_end=data_interval_end.isoformat() if data_interval_end is not None else None,
         compression=compression,
         file_format=format,
         max_file_size_mb=max_size_mb,
         include_events=include_events,
         exclude_events=exclude_events,
+        # Persist timeout choices in the workflow input so configuration changes do not affect replay.
+        main_activity_timeout_seconds=settings.BATCH_EXPORT_HOGQL_ON_DEMAND_MAIN_TIMEOUT_SECONDS
+        if incomplete_interval
+        else None,
+        stage_activity_timeout_seconds=settings.BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME + 300
+        if incomplete_interval
+        else None,
     )
     temporal = sync_connect()
 
@@ -1031,7 +1247,12 @@ def update_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-    model = BatchExportRun.objects.filter(id=run_id)
+    model = BatchExportRun.objects.select_related(
+        "batch_export",
+        "batch_export__destination",
+        "batch_export_on_demand",
+        "batch_export_on_demand__destination",
+    ).filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
     updated = model.update(
@@ -1147,6 +1368,7 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
         return ScheduleSpec(
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
+            # nosemgrep: schedule-must-avoid-minute-zero -- each run exports the interval that just closed, and batch_export.jitter already spreads the start
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
             jitter=batch_export.jitter,
             time_zone_name=timezone,
@@ -1168,15 +1390,6 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         else settings.BATCH_EXPORTS_TASK_QUEUE
     )
 
-    context = HogQLContext(
-        team_id=batch_export.team.id,
-        enable_select_queries=True,
-        limit_top_select=False,
-    )
-    # Export models are only events/persons/sessions; warehouse tables and views are denied.
-    # Pass bypass_warehouse_access_control=True or a user if that becomes an issue.
-    context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
-
     temporal = sync_connect()
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -1187,17 +1400,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
                     timezone=str(batch_export.timezone_info),
-                    batch_export_model=BatchExportModel(
-                        name=batch_export.model or "events",
-                        schema=batch_export.schema,
-                        filters=batch_export.filters,
-                    ),
-                    # TODO: This field is deprecated, but we still set it for backwards compatibility.
-                    # New exports created will always have `batch_export_schema` set to `None`, but existing
-                    # batch exports may still be using it.
-                    # This assignment should be removed after updating all existing exports to use
-                    # `batch_export_model` instead.
-                    batch_export_schema=None,
+                    batch_export_model=get_batch_export_model(batch_export),
                     integration_id=batch_export.destination.integration_id,
                     **destination_config,
                 )
@@ -1327,7 +1530,7 @@ async def aupdate_records_total_count(
 
 
 async def afetch_last_run_records_completed(
-    parent_id: UUID,
+    batch_export_id: UUID,
     *,
     matching_interval_duration: dt.timedelta | None,
     before_or_at_interval_end: dt.datetime | None = None,
@@ -1335,9 +1538,9 @@ async def afetch_last_run_records_completed(
 ) -> int | None:
     """Async fetch the `records_completed` of the most recent completed run for a batch export.
 
-    Used as a rough estimate to pick how many staging files to write. A run belongs to exactly one of
-    a `BatchExport` (scheduled) or a `BatchExportOnDemand`, and their ids are globally unique UUIDs, so
-    we match `parent_id` against either parent.
+    Used as a rough estimate to pick how many staging files to write. Only scheduled `BatchExport`
+    runs are matched. A `BatchExportOnDemand` is created for each request and runs once, so it has no
+    earlier run to estimate from, and `compute_num_partitions` does not call this for one.
 
     The `before_or_at_interval_end` and `not_older_than` filters are relative to the interval being
     processed (which improves accuracy for backfills):
@@ -1353,7 +1556,7 @@ async def afetch_last_run_records_completed(
     Returns None when no usable run exists (e.g. the first ever run, or a frequency change).
     """
     queryset = BatchExportRun.objects.filter(
-        Q(batch_export_id=parent_id) | Q(batch_export_on_demand_id=parent_id),
+        batch_export_id=batch_export_id,
         status=BatchExportRun.Status.COMPLETED,
         records_completed__isnull=False,
     )
@@ -1371,7 +1574,8 @@ async def afetch_last_run_records_completed(
         return None
     if matching_interval_duration is not None:
         start = run["data_interval_start"]
-        last_interval_duration = run["data_interval_end"] - start if start is not None else None
+        end = run["data_interval_end"]
+        last_interval_duration = end - start if start is not None and end is not None else None
         if last_interval_duration != matching_interval_duration:
             return None
     return run["records_completed"]
@@ -1401,20 +1605,18 @@ async def afetch_batch_export_runs_in_range(
     return [run async for run in queryset]
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BatchExportInsertInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
     team_id: int
     data_interval_start: str | None
-    data_interval_end: str
+    data_interval_end: str | None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModelInput | None = None
     # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
     # TODO - pass these in to all inherited classes
@@ -1457,7 +1659,6 @@ class BatchExportInsertInputs:
             "run_id": self.run_id,
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
-            "batch_export_schema": self.batch_export_schema,
             "batch_export_id": self.batch_export_id,
             "stage_folder": self.stage_folder,
         }

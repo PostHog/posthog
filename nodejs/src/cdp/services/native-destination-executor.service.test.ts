@@ -7,6 +7,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { createHogFunction } from '../_tests/fixtures'
 import { createExampleNativeInvocation } from '../_tests/fixtures-native'
+import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { NativeDestinationExecutorService } from './native-destination-executor.service'
 
 const inputs = {
@@ -51,9 +52,16 @@ describe('NativeDestinationExecutorService', () => {
             const fn = createHogFunction({
                 name: 'Plugin test',
                 template_id: 'native-webhook',
+                inputs_schema: [
+                    { key: 'headers', type: 'dictionary' },
+                    { key: 'connection', type: 'integration' },
+                ],
             })
 
-            const invocation = createExampleNativeInvocation(fn, inputs)
+            const invocation = createExampleNativeInvocation(fn, {
+                ...inputs,
+                connection: { $integration_id: 1, password: 'integration-password' },
+            })
 
             mockFetch.mockResolvedValue({
                 status: 200,
@@ -81,6 +89,9 @@ describe('NativeDestinationExecutorService', () => {
                 }
             })
 
+            const logText = JSON.stringify(result.logs)
+            expect(logText).not.toContain('integration-password')
+            expect(logText).not.toContain('Bearer abc')
             expect(result.logs).toMatchSnapshot()
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -94,10 +105,31 @@ describe('NativeDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "User-Agent": "PostHog.com/1.0",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
             `)
+        })
+
+        it('should redact secrets in an error thrown by the destination', async () => {
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'native-webhook',
+                inputs_schema: [{ key: 'connection', type: 'integration' }],
+            })
+            const invocation = createExampleNativeInvocation(fn, {
+                ...inputs,
+                connection: { $integration_id: 1, password: 'integration-password' },
+            })
+            jest.spyOn(NATIVE_HOG_FUNCTIONS_BY_ID['native-webhook'], 'perform').mockRejectedValueOnce(
+                new Error('Destination rejected integration-password')
+            )
+
+            const result = await service.execute(invocation)
+
+            expect(String(result.error)).toBe('Error: Destination rejected ***REDACTED***')
+            expect(JSON.stringify(result.logs)).not.toContain('integration-password')
         })
 
         it('should handle non retryable fetch errors', async () => {
@@ -139,6 +171,7 @@ describe('NativeDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "User-Agent": "PostHog.com/1.0",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -159,6 +192,31 @@ describe('NativeDestinationExecutorService', () => {
                 state: expect.any(Object),
                 teamId: 1,
             })
+        })
+
+        it('retries a retryable status whose body is over the size cap', async () => {
+            const invocation = createExampleNativeInvocation(
+                createHogFunction({ name: 'Plugin test', template_id: 'native-webhook' }),
+                inputs
+            )
+            const tooLarge = Object.assign(new Error('Response body is larger than the 5242880 byte limit'), {
+                name: 'ResponseTooLargeError',
+            })
+            mockFetch.mockResolvedValue({
+                status: 503,
+                json: () => Promise.reject(tooLarge),
+                text: () => Promise.reject(tooLarge),
+                headers: {},
+                dump: () => Promise.resolve(),
+            })
+
+            const result = await service.execute(invocation)
+
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queueMetadata).toEqual({ tries: 1 })
+            expect(result.logs.map((x) => x.message)).toContainEqual(
+                expect.stringContaining('HTTP request failed with status 503 (Response body is larger than')
+            )
         })
 
         it('should retry retryable fetch errors', async () => {
@@ -200,6 +258,7 @@ describe('NativeDestinationExecutorService', () => {
                       "Content-Type": "application/json",
                       "User-Agent": "PostHog.com/1.0",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]

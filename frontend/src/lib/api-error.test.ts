@@ -1,57 +1,238 @@
-import { ApiError } from './api-error'
+import {
+    ApiError,
+    NetworkError,
+    ResponseBodyReadError,
+    isScopeNotFoundError,
+    isTransientServerError,
+    shouldReportApiFailure,
+} from './api-error'
 
-describe('ApiError.fromResponse', () => {
-    it.each([
-        ['error', { error: 'error message' }, 'error message'],
-        ['detail', { detail: 'detail message' }, 'detail message'],
-        ['message', { message: 'message value' }, 'message value'],
-    ])('uses the %s field as the error message', async (_, body, expected) => {
-        const response = new Response(JSON.stringify(body), { status: 400 })
+describe('api-error', () => {
+    describe('capacity retry deadlines', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
 
-        const error = await ApiError.fromResponse(response, 'fallback')
+        it.each([
+            { status: 503, seconds: 0, expected: 0 },
+            { status: 503, seconds: 5, expected: 5 },
+            { status: 503, seconds: 45, expected: 45 },
+            { status: 500, seconds: 45, expected: null },
+        ])(
+            'anchors a numeric capacity hint to receipt time only for 503 (status=$status, seconds=$seconds)',
+            ({ status, seconds, expected }) => {
+                jest.useFakeTimers()
+                const receivedAt = Date.now()
+                const error = new ApiError('', status, new Headers({ 'Retry-After': String(seconds) }))
 
-        expect(error).toMatchObject({ message: expected, status: 400, data: body })
+                jest.advanceTimersByTime(1000)
+
+                expect(error.retryAfterSeconds).toBe(expected)
+                expect(error.retryAfterTimestamp).toBe(expected === null ? null : receivedAt + expected * 1000)
+            }
+        )
+
+        it('ignores HTTP-date capacity hints even with a server Date header', () => {
+            const error = new ApiError(
+                '',
+                503,
+                new Headers({
+                    Date: 'Mon, 05 Oct 2026 12:00:00 GMT',
+                    'Retry-After': 'Mon, 05 Oct 2026 12:00:45 GMT',
+                })
+            )
+
+            expect(error.retryAfterTimestamp).toBeNull()
+            expect(error.retryAfterSeconds).toBeNull()
+        })
+
+        it.each([undefined, '', '-1', '1.5', '1e3', 'unknown', 'Infinity', '9'.repeat(400)])(
+            'ignores an invalid Retry-After header: %s',
+            (retryAfter) => {
+                const headers = new Headers(retryAfter === undefined ? {} : { 'Retry-After': retryAfter })
+                const error = new ApiError('', 503, headers)
+                expect(error.retryAfterTimestamp).toBeNull()
+                expect(error.retryAfterSeconds).toBeNull()
+            }
+        )
     })
+    describe('ApiError.fromResponse', () => {
+        it.each([
+            ['error', { error: 'error message' }, 'error message'],
+            ['detail', { detail: 'detail message' }, 'detail message'],
+            ['message', { message: 'message value' }, 'message value'],
+        ])('uses the %s field as the error message', async (_, body, expected) => {
+            const response = new Response(JSON.stringify(body), { status: 400 })
 
-    it('uses the fallback for a response without a recognized message', async () => {
-        const response = new Response('Bad gateway', { status: 502 })
+            const error = await ApiError.fromResponse(response, 'fallback')
 
-        const error = await ApiError.fromResponse(response, 'Request failed')
+            expect(error).toMatchObject({ message: expected, status: 400, data: body })
+        })
 
-        expect(error).toMatchObject({ message: 'Request failed', status: 502, data: null })
-    })
+        it('uses the fallback for a response without a recognized message', async () => {
+            const response = new Response('Bad gateway', { status: 502 })
 
-    it('preserves response metadata and prioritizes error messages consistently', async () => {
-        const body = {
-            error: 'primary message',
-            detail: 'DRF detail',
-            message: 'secondary message',
-            code: 'permission_denied',
-        }
+            const error = await ApiError.fromResponse(response, 'Request failed')
 
-        const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
+            expect(error).toMatchObject({ message: 'Request failed', status: 502, data: null })
+        })
 
-        expect(error).toMatchObject({
-            message: 'primary message',
-            detail: 'DRF detail',
-            code: 'permission_denied',
-            status: 403,
-            data: body,
+        it('preserves response metadata and prioritizes error messages consistently', async () => {
+            const body = {
+                error: 'primary message',
+                detail: 'DRF detail',
+                message: 'secondary message',
+                code: 'permission_denied',
+            }
+
+            const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
+
+            expect(error).toMatchObject({
+                message: 'primary message',
+                detail: 'DRF detail',
+                code: 'permission_denied',
+                status: 403,
+                data: body,
+            })
+        })
+
+        it('uses the default ApiError message for an empty response without a fallback', async () => {
+            const error = await ApiError.fromResponse(new Response(null, { status: 404 }))
+
+            expect(error).toMatchObject({ message: 'API request failed with status: 404', status: 404, data: null })
+        })
+
+        it('propagates an aborted response body read', async () => {
+            const abortError = new DOMException('Aborted', 'AbortError')
+            const response = {
+                json: jest.fn().mockRejectedValue(abortError),
+            } as unknown as Response
+
+            await expect(ApiError.fromResponse(response)).rejects.toBe(abortError)
         })
     })
 
-    it('uses the default ApiError message for an empty response without a fallback', async () => {
-        const error = await ApiError.fromResponse(new Response(null, { status: 404 }))
+    describe('isTransientServerError', () => {
+        it.each([
+            // The empty-bodied gateway timeout that the insight-save flows must swallow rather than rethrow.
+            ['a 503 with no body (detail null)', new ApiError(undefined, 503), true],
+            ['a 502 bad gateway', new ApiError(undefined, 502), true],
+            ['a 504 gateway timeout', new ApiError(undefined, 504), true],
+            ['a 500 application error', new ApiError('boom', 500), false],
+            ['a 599', new ApiError(undefined, 599), false],
+            ['a 400 validation error', new ApiError('bad', 400), false],
+            ['a 403', new ApiError('nope', 403), false],
+            ['a 429 rate limit', new ApiError('slow down', 429), false],
+            ['an ApiError with no status', new ApiError('mystery'), false],
+        ])('classifies %s', (_, error, expected) => {
+            expect(isTransientServerError(error)).toBe(expected)
+        })
 
-        expect(error).toMatchObject({ message: 'API request failed with status: 404', status: 404, data: null })
+        it.each([
+            ['a plain Error', new Error('network down')],
+            ['null', null],
+            ['a bare object shaped like an error', { status: 503 }],
+        ])('does not classify %s as transient', (_, error) => {
+            expect(isTransientServerError(error)).toBe(false)
+        })
     })
 
-    it('propagates an aborted response body read', async () => {
-        const abortError = new DOMException('Aborted', 'AbortError')
-        const response = {
-            json: jest.fn().mockRejectedValue(abortError),
-        } as unknown as Response
+    describe('shouldReportApiFailure', () => {
+        it.each([
+            // Handled by something else, so reporting them only buries real crashes.
+            ['a 401 the session check logs the user out of', { status: 401 }, false],
+            ['an access-denied 403', { status: 403, code: 'permission_denied' }, false],
+            ['a 2FA setup gate', { status: 403, code: 'two_factor_setup_required' }, false],
+            ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
+            ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
+            ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
+            ['an optimistic-concurrency 409', { status: 409, data: { current_version: 5 } }, false],
+            ['a rollback reason 409', { status: 409, code: 'rollback_reason_required' }, false],
+            ['a 502', { status: 502 }, false],
+            ['a 503', { status: 503 }, false],
+            ['a 504', { status: 504 }, false],
+            // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
+            ['a 403 with no code', { status: 403 }, true],
+            ['a 409 that is neither an approvals gate nor a concurrency conflict', { status: 409, data: {} }, true],
+            ['a 500 backend exception', { status: 500 }, true],
+            ['a 400 validation error', { status: 400 }, true],
+            // A route the backend does not serve stays reportable here. Only a caller that already
+            // degrades excuses one, through `isUnavailableEndpointError`.
+            ['a 404', { status: 404 }, true],
+            ['a 405', { status: 405 }, true],
+            // The exception is a 404 that names a dead scope: retrying it can never succeed, so it
+            // is excused globally rather than per caller.
+            ['a project-not-found 404', { status: 404, detail: 'Project not found.' }, false],
+            ['an organization-not-found 404', { status: 404, detail: 'Organization not found.' }, false],
+            ['a 404 for some other missing resource', { status: 404, detail: 'Not found.' }, true],
+            // A request the browser never sent. Nothing of ours failed, and grouping is stack-based,
+            // so reporting these opens one issue per loader that met the same connectivity blip.
+            ['a Chromium fetch failure', new TypeError('Failed to fetch'), false],
+            ['a WebKit fetch failure', new TypeError('Load failed'), false],
+            ['a Gecko fetch failure', new TypeError('NetworkError when attempting to fetch resource.'), false],
+            // `handleFetch` stringifies the original error into the message of its fallback ApiError.
+            ['a fetch failure wrapped by ApiError', new ApiError('TypeError: Failed to fetch'), false],
+            // A stale chunk after a deploy words itself the same way and is a defect we can fix.
+            [
+                'a missing chunk after a deploy',
+                new TypeError('Failed to fetch dynamically imported module: /static/Max-A2SGX7J3.js'),
+                true,
+            ],
+            ['a module script that would not load', new TypeError('Importing a module script failed.'), true],
+            // Narrowing on the class instead of the message here would bury real crashes.
+            ['an application TypeError', new TypeError('u.filter is not a function'), true],
+            // The residual `network` reason can be an ad blocker, a proxy, or our own edge, so it
+            // stays reportable rather than being folded into the suppression above.
+            ['a classified NetworkError', new NetworkError('network'), true],
+            // The server answered 2xx and the body stream broke on the wire afterwards. Grouping is
+            // stack-based, so one flaky connection would otherwise open an issue per endpoint.
+            [
+                'a body-read failure on a 2xx',
+                new ResponseBodyReadError('Failed to read response body [GET /api/foo] (status 200)'),
+                false,
+            ],
+            // A body that arrived whole but would not parse can be a real backend bug, so it stays.
+            [
+                'a malformed JSON body on a 2xx',
+                new ApiError('Malformed JSON response [GET /api/foo] (status 200)'),
+                true,
+            ],
+            // No HTTP response to excuse the failure.
+            ['an error with no status', { message: 'boom' }, true],
+            ['a thrown string', 'went wrong', true],
+            ['null', null, true],
+        ])('decides whether to report %s', (_, error, expected) => {
+            expect(shouldReportApiFailure(error)).toBe(expected)
+        })
 
-        await expect(ApiError.fromResponse(response)).rejects.toBe(abortError)
+        // The hand-written cases above use literals; this proves the shape `fromResponse` actually
+        // builds (`code` lifted off the response body) classifies the same way.
+        it('reads the code off a constructed ApiError', async () => {
+            const body = { detail: "You don't have access to the project.", code: 'permission_denied' }
+            const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
+
+            expect(shouldReportApiFailure(error)).toBe(false)
+        })
+    })
+
+    describe('isScopeNotFoundError', () => {
+        it.each([
+            ['a project-not-found 404 via detail', { status: 404, detail: 'Project not found.' }, true],
+            ['an org-not-found 404 via detail', { status: 404, detail: 'Organization not found.' }, true],
+            ['a 404 with the detail nested under data', { status: 404, data: { detail: 'Project not found.' } }, true],
+            ['a 404 for another resource', { status: 404, detail: 'Not found.' }, false],
+            ['a 404 with no detail', { status: 404 }, false],
+            ['a 403 that names the project', { status: 403, detail: 'Project not found.' }, false],
+            ['null', null, false],
+        ])('decides whether %s is a scope-not-found error', (_, error, expected) => {
+            expect(isScopeNotFoundError(error)).toBe(expected)
+        })
+
+        it('reads the detail off a constructed ApiError', async () => {
+            const error = await ApiError.fromResponse(
+                new Response(JSON.stringify({ detail: 'Project not found.' }), { status: 404 })
+            )
+            expect(isScopeNotFoundError(error)).toBe(true)
+        })
     })
 })

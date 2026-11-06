@@ -1,4 +1,5 @@
-import { KeaPlugin, resetContext } from 'kea'
+import { BuiltLogic, KeaPlugin, resetContext } from 'kea'
+import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
 import { localStoragePlugin } from 'kea-localstorage'
@@ -8,23 +9,47 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
+import { isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
     ensureRoutablePathname,
-    removeProjectIdIfPresent,
-    stripTrailingSlash,
+    pathFromWindowToRoutes,
+    stripTrailingSlashFromUrl,
+    urlPatternOptions,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
-
-import { disposablesPlugin } from '~/kea-disposables'
 
 /*
 Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'loadRecommendations',
+    'startAnalysis',
+    'loadFacetValues', // Logs and tracing facets show an inline error icon on the failed facet.
+    'fetchLogs', // Logs and tracing show a warning icon on the pane whose query failed.
+    'fetchSpans',
+    'fetchSparkline',
+    'loadInboxSummary', // The inbox summary has an inline retry control.
+    'loadOfflineExperiments', // Offline views provide inline retry states.
+    'loadOfflineScorerOptions',
+    'loadOfflineSuggestedScorers',
+    'loadOfflineOverviewTrend',
+    'loadOfflineExperiment',
+    'loadOfflineSummaries',
+    'loadOfflineItems',
+    'completeOfflineExperiment',
+    'loadOfflineItem',
+    'loadOfflineItemPayload',
+    'loadOfflineItemResults',
+    'loadOfflineSelectedResult',
+    'loadOfflineResultPayload',
+    'loadOfflineHistoryDefinition',
+    'loadOfflineHistoryVersions',
+    'loadOfflineHistoryVersion',
+    'loadOfflineHistoryPrimaryPage',
+    'loadOfflineHistoryComparisonPage',
     'loadPreflight', // Gracefully handled if it fails
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
@@ -38,6 +63,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
     'loadWaitlistResponsesCount', // Soft-fails to a dash on the features list when survey access is missing
+    'loadFeatureFlagStatus', // The flag page just hides its stale banner when the verdict can't be loaded
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
@@ -47,10 +73,91 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadDatasetItemDetails', // Dataset item modals render their own retry state
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state
-    'loadToolDataEvents',
+    'generateSummary', // Summary view renders its own retry state
+    'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
+    'loadProductDataEvents',
+    'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
+    'loadCiStatuses', // Decorative CI glyphs polled by the Inbox list; a failure just leaves the pill without one
+    'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
+    'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
+    'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
+    'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
+    'addToPlaylist', // The replay collection popover toasts its own add failure
+    'removeFromPlaylist', // The replay collection popover toasts its own remove failure
+    'onPinnedChange', // The collection scene toasts its own pin/unpin failure
+    'draftScannerFromGoal', // replayScannerLogic's failure listener toasts and routes back to the goal questions
+    'loadRunDiff', // The Wizard run drawer renders its own diff error banner with a retry
+    'loadRunArtifacts', // The Wizard run drawer renders its own artifact error banner with a retry
+    'loadRuns', // The Wizard runs table shows a persistent stale-data banner; a poll failure must not toast every 10s
+    'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
+    'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
+    'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
+    'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
+    'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
+    'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
+    'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
+    'refreshFeatureFlag', // featureFlagLogic's refreshFeatureFlagFailure listener shows a notice with a reload
+    'loadTableDetails', // The model detail summary renders its own error state with a retry
+    'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
+    'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
 ]
+
+/*
+Like ERROR_FILTER_ALLOW_LIST, but for an action name that other logics also use. Only the logic
+whose path is given here handles its own failures, so the same action elsewhere still toasts.
+*/
+const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
+    loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
+    loadTopReports: 'scenes.project-homepage.today.todayLogic',
+    loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
+    loadFullReport: 'scenes.project-homepage.today.todayReportLogic',
+    loadPage: 'scenes.project-homepage.today.todayReportLogic',
+    loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
+    loadMembers: 'products.replay_vision.frontend.replay_scanners.highlightFeedGroupLogic', // The feed card shows its own retry
+    loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
+    fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
+    loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
+    loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    // The prompts view shows its own error, and falls back to an unfiltered list when topics fail to load
+    loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
+    loadAeoPromptTopics: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
+    // The prompt detail modal shows an error state for each section it loads
+    loadAeoPrompt: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
+    loadAeoPromptStats: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
+    loadAeoPromptLatestChecks: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
+    loadAeoPromptChecks: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
+    // llmProviderKeysLogic toasts each of these failures itself, or shows a rejected field under its input
+    loadProviderKeys: 'products.ai_observability.settings.llmProviderKeysLogic',
+    loadEvaluationConfig: 'products.ai_observability.settings.llmProviderKeysLogic',
+    createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    deleteProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    loadTrace: 'products.ai_observability.frontend.redesign.trace.traceViewLogic', // The trace view shows the error in its panel
+    loadEvaluationResults: 'products.ai_observability.frontend.redesign.trace.traceViewLogic', // The trace view's Evals tab shows the error
+    loadClusters: 'products.ai_observability.frontend.redesign.trace.traceClustersLogic', // The trace view hides the clusters chip
+    loadTraceFeedback: 'products.ai_observability.frontend.redesign.trace.traceFeedbackLogic', // The trace view's Feedback mode shows the error
+    loadSearchResults: 'products.ai_observability.frontend.redesign.trace.traceSearchLogic', // The trace view's search box shows the error
+    loadReviewStatus: 'products.ai_observability.frontend.redesign.trace.traceReviewLogic', // The trace view keeps the last review state and disables the review actions
+    // The trace view's Summary mode shows the error
+    loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
+    requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
+    loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
+}
+
+// A keyed logic's path ends with its key, so match the owner path as a prefix.
+function isOwnedByLogic(owners: Record<string, string>, actionKey: string, logicPath: string): boolean {
+    const ownerPath = owners[actionKey]
+    return !!ownerPath && (logicPath === ownerPath || logicPath.startsWith(`${ownerPath}.`))
+}
+
+function isErrorSelfHandledByLogic(actionKey: string, logicPath: string): boolean {
+    return isOwnedByLogic(ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH, actionKey, logicPath)
+}
 
 /*
 Write actions that show their own friendly message for access-denied 403s
@@ -61,12 +168,95 @@ other failures on these actions still toast.
 const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 /*
-Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
-reach the backend), not application bugs, so we still toast the user a retryable failure but
-don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
-issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
+Load actions whose own UI renders the missing resource, so a 404 from them is a state the app
+expects rather than a defect worth filing. `shouldReportApiFailure` keeps a plain 404 reportable on
+purpose, so each caller that degrades has to name itself here, next to the toast allow list above.
 */
-const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
+const NOT_FOUND_SELF_HANDLED = new Set([
+    'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
+    'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
+    'loadOfflineExperiment', // Offline evaluation views render a stale or deleted link as an inline error
+    'loadOfflineSummaries',
+    'loadOfflineItems',
+    'loadOfflineItem',
+    'loadOfflineItemPayload',
+    'loadOfflineItemResults',
+    'loadOfflineSelectedResult',
+    'loadOfflineResultPayload',
+    'loadDatasetItemDetails', // The dataset item modal renders a deleted, stale, or foreign item as an inline error
+    'loadDatasetItemVersions',
+])
+
+/*
+Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
+generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
+*/
+const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+/*
+Write actions whose own UI renders a validation 400 on these attrs under the field, so the
+generic toast would be a second one. Every other failure on these actions still toasts.
+Owned by inviteLogic's inviteFieldError reducer.
+*/
+const FIELD_ERROR_SELF_HANDLED: Record<string, Set<string>> = {
+    inviteTeamMembers: new Set(['message', 'first_name']),
+}
+
+const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
+
+/*
+Write actions whose owning logic toasts the server message of a validation 400. The 400 is a
+response to user input, such as a malformed CSV, so it is not reported as an exception.
+Every other failure on these actions still toasts and reports.
+*/
+const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
+    setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the refusal, or offers to take ownership
+}
+
+/*
+Write actions whose own logic marks the form row when the backend rejects an existing member
+(code `existing_member`). It is a validation result, so it is not reported as an exception.
+Owned by inviteLogic's inviteTeamMembersFailure listener.
+*/
+const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
+
+/*
+Loads whose owning logic renders a 404 with code `content_expired` inline. AI events drop their
+message content after the retention window, so the 404 is an expected state, not a defect. Other 404s
+from these loads still report. Owned by summaryViewLogic's summaryError reducer. The backend raises
+the code in products/ai_observability/backend/api/summarization.py.
+*/
+const CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    generateSummary: 'products.ai_observability.frontend.summary-view.summaryViewLogic',
+}
+
+/*
+Loads whose owning logic renders a 404 with code `github_repository_inaccessible` inline, with a link
+to the GitHub integration settings. The team's GitHub connection can't reach the PR's repository, so
+the 404 is a setup state, not a defect. The backend raises the code in products/signals/backend/views.py.
+*/
+const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
+    loadPrChecks: 'scenes.inbox.logics.inboxReportDetailLogic',
+    loadPrComments: 'scenes.inbox.logics.inboxReportDetailLogic',
+}
+
+// projectLogic toasts a duplicate project name 409 from these actions.
+const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    createProject: 'scenes.projectLogic',
+    updateCurrentProject: 'scenes.projectLogic',
+}
+
+function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
+    if (error?.status === 404 && error?.code === 'content_expired') {
+        return isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
+        return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+}
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -101,11 +291,7 @@ export function initKea({
         routerPlugin({
             history: routerHistory,
             location: routerLocation,
-            urlPatternOptions: {
-                // :TRICKY: What chars to allow in named segment values i.e. ":key"
-                // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
-                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
-            },
+            urlPatternOptions,
             pathFromRoutesToWindow: (path) => {
                 return addProjectIdIfMissing(path)
             },
@@ -113,39 +299,50 @@ export function initKea({
                 // Runs before kea-router's `decodeURI(pathname)` on every navigation (initial
                 // load, push/replace, popstate). Keep the path decodable so a malformed `%`
                 // routes to 404 instead of crashing the router.
-                return addProjectIdIfMissing(ensureRoutablePathname(path))
+                // Drop the trailing slash here too, so the router's location matches the path
+                // `pathFromWindowToRoutes` matches routes against. The address bar is then
+                // corrected by a silent `replaceState` on mount, rather than by a second
+                // navigation that runs every `urlToAction` of the scene again.
+                return addProjectIdIfMissing(stripTrailingSlashFromUrl(ensureRoutablePathname(path)))
             },
-            pathFromWindowToRoutes: (path) => {
-                return stripTrailingSlash(removeProjectIdIfPresent(path))
-            },
+            pathFromWindowToRoutes,
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
         }),
         formsPlugin,
         loadersPlugin({
-            onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+            onFailure({
+                error,
+                reducerKey,
+                actionKey,
+                logic,
+            }: {
+                error: any
+                reducerKey: string
+                actionKey: string
+                logic: BuiltLogic
+            }) {
                 // A request aborted by us (superseded query, unmount, manual cancel) is not a
                 // failure — don't toast, log, or report it.
                 if (error?.name === 'AbortError') {
                     return
                 }
-                // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
-                // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
-                // condition already suppresses the toast for load actions, and write actions
-                // get a toast with the read-only `detail` as the message. The
-                // `posthog.captureException` event is dropped by the central
-                // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 // Access-denied 403s (code `permission_denied`) are suppressed only where the
                 // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
                 // self-handled write actions above. Other writes keep the generic toast, since
-                // most write flows have no failure handling of their own. Read-only mode uses
-                // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
+                // most write flows have no failure handling of their own. Read-only impersonation
+                // uses the distinct `impersonation_read_only` code, which apiStatusLogic toasts only
+                // when a click, an Enter key press, or a form submit started the request.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
+                const isSelfHandledValidationError =
+                    error?.status === 400 &&
+                    isOwnedByLogic(VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
+                    !isErrorSelfHandledByLogic(actionKey, logic.pathString) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
@@ -159,6 +356,15 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
+                    const isReadOnlyImpersonationError = error.code === 'impersonation_read_only'
+                    const isFeatureFlagDuplicateKey =
+                        error.code === 'unique' &&
+                        error.attr === 'key' &&
+                        DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
+                    const isHasDependentsError =
+                        error.code === 'has_dependents' && HAS_DEPENDENTS_SELF_HANDLED.has(String(actionKey))
+                    const isSelfHandledFieldError =
+                        error.status === 400 && !!FIELD_ERROR_SELF_HANDLED[String(actionKey)]?.has(error.attr)
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -171,8 +377,17 @@ export function initKea({
                     ) {
                         errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
                     }
-                    if (isTwoFactorError || isSensitiveActionError || isVerifiedDomainError) {
-                        // These get their own dedicated toast in apiStatusLogic.
+                    if (
+                        isTwoFactorError ||
+                        isSensitiveActionError ||
+                        isVerifiedDomainError ||
+                        isReadOnlyImpersonationError ||
+                        isFeatureFlagDuplicateKey ||
+                        isHasDependentsError ||
+                        isSelfHandledFieldError ||
+                        isSelfHandledValidationError
+                    ) {
+                        // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
                     }
                     if (errorMessage) {
@@ -192,9 +407,17 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                // An approvals 409 is expected control flow (a change request was created, or one
-                // is already pending) surfaced to the user by the approvals UI, not a failure.
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isApprovalRequiredError(error)) {
+                const isSelfHandledNotFound =
+                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
+                const isSelfHandledExistingMember =
+                    error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
+                if (
+                    shouldReportApiFailure(error) &&
+                    !isSelfHandledNotFound &&
+                    !isSelfHandledExistingMember &&
+                    !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&
+                    !isSelfHandledValidationError
+                ) {
                     posthog.captureException(error)
                 }
             },

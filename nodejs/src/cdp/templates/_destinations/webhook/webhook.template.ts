@@ -17,6 +17,16 @@ let payload := {
   'method': inputs.method
 }
 
+if (not empty(inputs.signing_secret)) {
+  payload['standard_webhooks'] := {
+    'secret_input': 'signing_secret'
+  }
+}
+
+if (not empty(inputs.secret_headers)) {
+  payload['secret_headers_input'] := 'secret_headers'
+}
+
 if (inputs.debug) {
   print('Request', inputs.url, payload)
 }
@@ -87,7 +97,26 @@ if (inputs.debug) {
             secret: false,
             required: false,
             default: { 'Content-Type': 'application/json' },
-            description: 'HTTP headers to send in the request.',
+            description:
+                'HTTP headers to send in the request. Put API tokens and other credentials in Secret headers instead.',
+        },
+        {
+            key: 'secret_headers',
+            type: 'dictionary',
+            label: 'Secret headers',
+            secret: true,
+            required: false,
+            templating: false,
+            description:
+                'HTTP headers that hold a credential, such as an API token. These are encrypted, hidden after saving, and kept out of the logs. Values are sent exactly as entered, without templating, and replace a plaintext header of the same name.',
+        },
+        {
+            key: 'signing_secret',
+            type: 'string',
+            label: 'Signing secret',
+            secret: true,
+            required: false,
+            description: 'Signs each request following the [Standard Webhooks](https://www.standardwebhooks.com) spec.',
         },
         {
             key: 'debug',

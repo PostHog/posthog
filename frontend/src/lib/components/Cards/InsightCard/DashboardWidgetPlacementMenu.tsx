@@ -1,9 +1,14 @@
+import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
+
+import { IconChevronRight } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuItems, LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import type { DashboardBasicType } from '~/types'
 
 export interface DashboardWidgetPlacementDestination {
@@ -19,6 +24,7 @@ interface DashboardWidgetPlacementMenuProps {
     label?: string
     /** When there are no destinations, the trigger stays visible but disabled (avoids hiding the action). */
     emptyDisabledReason?: string
+    leadingSections?: LemonMenuSection[]
 }
 
 export function DashboardWidgetPlacementMenu({
@@ -26,8 +32,11 @@ export function DashboardWidgetPlacementMenu({
     onSelect,
     label = 'Move to',
     emptyDisabledReason = 'No other dashboards',
+    leadingSections = [],
 }: DashboardWidgetPlacementMenuProps): JSX.Element {
     const [searchTerm, setSearchTermState] = useState('')
+    const { dashboardsLoading } = useValues(dashboardsModel)
+    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
 
     const handleSearchChange = useCallback((value: string) => {
         setSearchTermState(value)
@@ -40,7 +49,6 @@ export function DashboardWidgetPlacementMenu({
             : destinations.filter((entry) =>
                   (entry.dashboard.name || 'Untitled').toLowerCase().includes(searchTerm.toLowerCase())
               )
-
     const SearchInputLabel = useCallback(() => {
         return (
             <div className="px-2 pt-2 pb-1">
@@ -52,7 +60,7 @@ export function DashboardWidgetPlacementMenu({
                     size="small"
                     fullWidth
                     allowClear
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
                     autoFocus
                 />
             </div>
@@ -64,46 +72,48 @@ export function DashboardWidgetPlacementMenu({
         label: SearchInputLabel,
     }
 
-    const items: LemonMenuItems =
-        filteredDestinations.length > 0
-            ? [
-                  { items: [searchItem] },
-                  {
-                      items: filteredDestinations.map(({ dashboard, disabledReason }) => ({
-                          label: disabledReason ? (
-                              <span className="flex flex-col items-start gap-0.5 text-left">
-                                  <span>{dashboard.name || <i>Untitled</i>}</span>
-                                  <span className="text-xs font-normal text-muted">{disabledReason}</span>
-                              </span>
-                          ) : (
-                              dashboard.name || <i>Untitled</i>
-                          ),
-                          key: dashboard.id,
-                          // Use `disabled` only: `disabledReason` on LemonButton adds a redundant tooltip when the label already explains why.
-                          disabled: !!disabledReason,
-                          onClick: () => {
-                              if (disabledReason) {
-                                  return
-                              }
-                              onSelect(dashboard)
-                              setSearchTermState('')
-                          },
-                      })),
-                  },
-              ]
-            : [
-                  {
-                      items: [
-                          searchItem,
-                          {
-                              label: 'No dashboards match this search',
-                              key: 'no-results',
-                          },
-                      ],
-                  },
-              ]
+    const dashboardItems: LemonMenuItems = dashboardsLoading
+        ? [{ custom: true, label: () => <LemonSkeleton.Row className="m-2 h-8" repeat={5} fade /> }]
+        : filteredDestinations.length > 0
+          ? [
+                { items: [searchItem] },
+                {
+                    items: filteredDestinations.map(({ dashboard, disabledReason }) => ({
+                        label: disabledReason ? (
+                            <span className="flex flex-col items-start gap-0.5 text-left">
+                                <span>{dashboard.name || <i>Untitled</i>}</span>
+                                <span className="text-xs font-normal text-muted">{disabledReason}</span>
+                            </span>
+                        ) : (
+                            dashboard.name || <i>Untitled</i>
+                        ),
+                        key: dashboard.id,
+                        disabled: !!disabledReason,
+                        onClick: () => {
+                            if (!disabledReason) {
+                                onSelect(dashboard)
+                                setSearchTermState('')
+                            }
+                        },
+                    })),
+                },
+            ]
+          : [
+                {
+                    items: [
+                        searchItem,
+                        {
+                            label: 'No dashboards match this search',
+                            key: 'no-results',
+                        },
+                    ],
+                },
+            ]
 
-    if (!destinations.length) {
+    const hasDashboardItems = destinations.length > 0 || dashboardsLoading
+    const items: LemonMenuItems = [...leadingSections, ...(hasDashboardItems ? dashboardItems : [])]
+
+    if (!items.length) {
         return (
             <LemonButton fullWidth disabledReason={emptyDisabledReason}>
                 {label}
@@ -117,8 +127,17 @@ export function DashboardWidgetPlacementMenu({
             placement="right-start"
             fallbackPlacements={['left-start']}
             closeParentPopoverOnClickInside
+            onVisibilityChange={(visible) => {
+                if (visible) {
+                    loadDashboardsIfNeeded()
+                } else {
+                    setSearchTermState('')
+                }
+            }}
         >
-            <LemonButton fullWidth>{label}</LemonButton>
+            <LemonButton fullWidth sideIcon={<IconChevronRight className="size-3" />}>
+                {label}
+            </LemonButton>
         </LemonMenu>
     )
 }

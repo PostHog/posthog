@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -11,11 +11,25 @@ import { uuid } from 'lib/utils/dom'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ModelOption } from '../modelPickerLogic'
-import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { llmProviderKeysLogic, normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
+import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
+import {
+    type PlaygroundDecisionResult,
+    type PlaygroundQuestion,
+    decisionQuestionsDisabledReason,
+    toDecisionQuestionsPayload,
+} from './playgroundDecisions'
+import { isMessageSendable, toProviderMessages } from './playgroundMessageMapping'
 import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
+import {
+    extractVariablesFromTexts,
+    getVariableValue,
+    promptTemplateTexts,
+    substituteVariables,
+} from './playgroundTemplating'
 
 interface ToolCallChunk {
     id?: string
@@ -74,6 +88,17 @@ export function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolC
     return updated
 }
 
+/** Neutralize markdown syntax in a value we did not author.
+ *
+ * A result card renders its text with `LemonMarkdown`, images included, so a model id taken from
+ * an ingested `$ai_model` property would otherwise turn `![x](https://…)` into a live request off
+ * an analyst's browser. CommonMark treats a backslash before any ASCII punctuation as a literal,
+ * so escaping the whole punctuation range covers link, image, and emphasis syntax at once.
+ */
+export function escapeMarkdownInline(value: string): string {
+    return value.replace(/[!-/:-@[-`{-~]/g, '\\$&')
+}
+
 export function describeError(err: unknown, fallbackMessage: string): { message: string; status?: number } {
     if (err instanceof ApiError) {
         const dataError = typeof err.data?.error === 'string' ? err.data.error : null
@@ -85,15 +110,6 @@ export function describeError(err: unknown, fallbackMessage: string): { message:
     return {
         message: (err instanceof Error && err.message) || fallbackMessage,
     }
-}
-
-function formatToolCalls(toolCalls: AggregatedToolCall[]): string {
-    if (toolCalls.length === 0) {
-        return ''
-    }
-    return toolCalls
-        .map((tc) => JSON.stringify({ id: tc.id, name: tc.name, arguments: tc.arguments }, null, 2))
-        .join('\n\n')
 }
 
 function normalizeUsageFromStreamChunk(data: Record<string, unknown>): UsageSummary {
@@ -142,27 +158,101 @@ export interface ComparisonItem {
     response: string
     reasoning?: string
     toolCalls?: AggregatedToolCall[]
+    expectsJson?: boolean
     provider?: string
     providerKeyId?: string | null
     error?: boolean
     usage?: UsageSummary
     ttftMs?: number | null
     latencyMs?: number | null
+    /** Set for a System One run, with the questions as asked so the answers keep their labels after edits. */
+    decision?: { questions: PlaygroundQuestion[]; result: PlaygroundDecisionResult } | null
+}
+
+function buildCompletionRequest(
+    prompt: PromptConfig,
+    model: string,
+    provider: string,
+    providerKeyId: string | null,
+    system: string,
+    messages: Message[]
+): Record<string, unknown> {
+    return {
+        system,
+        messages: toProviderMessages(messages),
+        model,
+        provider,
+        thinking: prompt.thinking,
+        ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
+        ...(prompt.tools ? { tools: prompt.tools } : {}),
+        ...(prompt.responseFormat ? { response_format: prompt.responseFormat } : {}),
+        ...(prompt.maxTokens !== null && prompt.maxTokens > 0 ? { max_tokens: prompt.maxTokens } : {}),
+        ...(typeof prompt.temperature === 'number' ? { temperature: prompt.temperature } : {}),
+        ...(typeof prompt.topP === 'number' ? { top_p: prompt.topP } : {}),
+        ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
+    }
+}
+
+/** Throws RateLimitError for a throttled request, so it reaches the same banner as a throttled stream. */
+async function requestDecision(
+    prompt: PromptConfig,
+    providerKeyId: string | null,
+    variableValues: Record<string, string>,
+    signal: AbortSignal
+): Promise<PlaygroundDecisionResult> {
+    const resolve = (text: string): string => substituteVariables(text, variableValues)
+    try {
+        // nosemgrep: prefer-codegen-api -- the llm_proxy routes sit on the root router, which the generated client does not cover.
+        return await api.create<PlaygroundDecisionResult>(
+            '/api/llm_proxy/decision/',
+            {
+                provider_key_id: providerKeyId,
+                state: resolve(prompt.decisionInput),
+                questions: toDecisionQuestionsPayload(prompt.decisionQuestions, resolve),
+            },
+            { signal }
+        )
+    } catch (err) {
+        const retryAfter =
+            err instanceof ApiError && err.status === 429 ? parseInt(err.headers?.get('Retry-After') ?? '', 10) : NaN
+        throw Number.isFinite(retryAfter) ? new RateLimitError(retryAfter) : err
+    }
+}
+
+/** Two connections can serve the same model id, so the selected key decides which entry the prompt means. */
+export function findPromptModel(prompt: PromptConfig, options: ModelOption[]): ModelOption | undefined {
+    return (
+        options.find((option) => option.id === prompt.model && option.providerKeyId === prompt.selectedProviderKeyId) ??
+        options.find((option) => option.id === prompt.model)
+    )
+}
+
+export function isPromptRunnable(prompt: PromptConfig, isSystemOne: boolean): boolean {
+    return isSystemOne ? !!prompt.decisionInput.trim() : prompt.messages.some(isMessageSendable)
 }
 
 // Module-level abort controller so an in-flight run can be cancelled. Using a ref instead of
 // Kea state avoids storing a non-serializable object in reducers.
 let currentAbortController: AbortController | null = null
 
+// An abandoned run stops streaming and reports nothing, because nobody is waiting for its result.
+function abandonCurrentRun(): void {
+    currentAbortController?.abort()
+    currentAbortController = null
+}
+
 export type LLMPlaygroundRunLogicProps = Record<string, never>
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface llmPlaygroundRunLogicValues {
     activeProviderKeyId: string | null // llmPlaygroundModelLogic
-    effectiveModelOptions: ModelOption[] // llmPlaygroundModelLogic
+    runnableModelOptions: ModelOption[] // llmPlaygroundModelLogic
+    systemOnePromptIds: string[] // llmPlaygroundModelLogic
     promptConfigs: PromptConfig[] // llmPlaygroundPromptsLogic
+    variableValues: Record<string, string> // llmPlaygroundVariablesLogic
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     comparisonItems: ComparisonItem[]
+    hasRunnablePrompts: boolean
     rateLimitedUntil: number | null
     runAccessDeniedReason: string | null
     submitting: boolean
@@ -201,10 +291,18 @@ export interface llmPlaygroundRunLogicActions {
     }
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface llmPlaygroundRunLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        hasRunnablePrompts: (promptConfigs: PromptConfig[], systemOnePromptIds: string[]) => boolean
+    }
+}
+
 export type llmPlaygroundRunLogicType = MakeLogicType<
     llmPlaygroundRunLogicValues,
     llmPlaygroundRunLogicActions,
-    LLMPlaygroundRunLogicProps
+    LLMPlaygroundRunLogicProps,
+    llmPlaygroundRunLogicMeta
 >
 
 export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
@@ -216,9 +314,11 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             llmPlaygroundPromptsLogic,
             ['promptConfigs'],
             llmPlaygroundModelLogic,
-            ['effectiveModelOptions', 'activeProviderKeyId'],
+            ['runnableModelOptions', 'activeProviderKeyId', 'systemOnePromptIds'],
             llmProviderKeysLogic,
             ['providerKeys'],
+            llmPlaygroundVariablesLogic,
+            ['variableValues'],
         ],
         actions: [llmPlaygroundPromptsLogic, ['resetPlayground']],
     })),
@@ -269,6 +369,11 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
     }),
 
     selectors({
+        hasRunnablePrompts: [
+            (s) => [s.promptConfigs, s.systemOnePromptIds],
+            (promptConfigs: PromptConfig[], systemOnePromptIds: string[]): boolean =>
+                promptConfigs.some((prompt) => isPromptRunnable(prompt, systemOnePromptIds.includes(prompt.id))),
+        ],
         // Resource-level only, so this comes from the server-rendered app context rather than the API.
         // A selector keeps it readable from the scene and overridable in tests.
         runAccessDeniedReason: [
@@ -292,7 +397,9 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             }
         },
 
-        submitPrompt: async (_: unknown, breakpoint: () => void) => {
+        submitPrompt: async () => {
+            abandonCurrentRun()
+
             // Guarding here rather than only on the Run button, because both message textareas
             // submit on Cmd+Enter and bypass the button entirely.
             if (values.runAccessDeniedReason) {
@@ -305,30 +412,70 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 .map((prompt: PromptConfig, index: number) => ({
                     prompt,
                     index,
-                    messagesToSend: prompt.messages.filter((m) => m.content.trim()),
+                    messagesToSend: prompt.messages.filter(isMessageSendable),
                 }))
-                .filter((item: { messagesToSend: Message[] }) => item.messagesToSend.length > 0)
+                .filter(({ prompt }: { prompt: PromptConfig }) =>
+                    isPromptRunnable(prompt, values.systemOnePromptIds.includes(prompt.id))
+                )
 
             if (runnablePrompts.length === 0) {
-                lemonToast.error('Please add some messages before running prompts')
+                lemonToast.error('Add some messages, or the input for a System One model, before running prompts')
                 actions.finishSubmitPrompt()
                 return
             }
+
+            // Count only the prompts actually submitted; a skipped panel's variables are not sent,
+            // so they belong in neither the warning nor the event.
+            const runVariables = extractVariablesFromTexts(
+                runnablePrompts.flatMap(({ prompt }) =>
+                    promptTemplateTexts(prompt, values.systemOnePromptIds.includes(prompt.id))
+                )
+            )
+            const runUnfilledVariables = runVariables.filter((name) => !getVariableValue(values.variableValues, name))
 
             posthog.capture('llma playground prompt submitted', {
                 prompt_count: runnablePrompts.length,
                 models: runnablePrompts.map(({ prompt }) => prompt.model),
                 has_tools: runnablePrompts.some(({ prompt }) => !!prompt.tools?.length),
+                has_response_format: runnablePrompts.some(({ prompt }) => !!prompt.responseFormat),
                 total_message_count: runnablePrompts.reduce(
                     (sum, { messagesToSend }) => sum + messagesToSend.length,
                     0
                 ),
+                variable_count: runVariables.length,
+                unfilled_variable_count: runUnfilledVariables.length,
             })
+
+            if (runUnfilledVariables.length > 0) {
+                const names = runUnfilledVariables.map((name) => `{{${name}}}`).join(', ')
+                const suffix =
+                    runUnfilledVariables.length === 1
+                        ? 'The placeholder is sent as written.'
+                        : 'The placeholders are sent as written.'
+                lemonToast.warning(`No value for ${names}. ${suffix}`)
+            }
 
             const abortController = new AbortController()
             currentAbortController = abortController
+            const isAbandoned = (): boolean => currentAbortController !== abortController
             try {
                 const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
+                    // Resolve {{variables}} only in what is sent; the editors keep the raw template.
+                    const resolvedSystemPrompt = substituteVariables(prompt.systemPrompt, values.variableValues)
+                    const resolvedMessages = messagesToSend.map(
+                        (m: Message): Message => ({
+                            ...m,
+                            content: substituteVariables(m.content, values.variableValues),
+                            ...(m.toolCalls?.length
+                                ? {
+                                      toolCalls: m.toolCalls.map((toolCall) => ({
+                                          ...toolCall,
+                                          arguments: substituteVariables(toolCall.arguments, values.variableValues),
+                                      })),
+                                  }
+                                : {}),
+                        })
+                    )
                     const liveItemId = uuid()
                     let responseUsage: UsageSummary = {}
                     let ttftMs: number | null = null
@@ -341,7 +488,9 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                     let toolCalls: AggregatedToolCall[] = []
                     let providerKeyId: string | null = null
                     let selectedModelProvider = ''
+                    let decision: ComparisonItem['decision'] = null
                     let itemAdded = false
+                    let reportedStreamError: unknown = undefined
 
                     const upsertLiveItem = (): void => {
                         const payload: ComparisonItem = {
@@ -349,17 +498,19 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             promptId: prompt.id,
                             promptLabel: `Prompt ${index + 1}`,
                             model: prompt.model,
-                            systemPrompt: prompt.systemPrompt,
-                            requestMessages: messagesToSend,
+                            systemPrompt: resolvedSystemPrompt,
+                            requestMessages: resolvedMessages,
                             response: responseText,
                             reasoning: responseReasoning,
                             toolCalls,
+                            expectsJson: !!prompt.responseFormat,
                             provider: selectedModelProvider,
                             providerKeyId,
                             error: responseHasError,
                             usage: responseUsage,
                             ttftMs,
                             latencyMs,
+                            decision,
                         }
                         if (!itemAdded) {
                             actions.addToComparison(payload)
@@ -369,146 +520,184 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         }
                     }
 
+                    const reportStreamError = (err: unknown): void => {
+                        if (err instanceof RateLimitError) {
+                            actions.setRateLimited(err.retryAfterSeconds)
+                            responseHasError = true
+                            upsertLiveItem()
+                            return
+                        }
+                        if (err instanceof ApiError && err.status === 402) {
+                            actions.setSubscriptionRequired(true)
+                            responseHasError = true
+                            upsertLiveItem()
+                            return
+                        }
+                        const { message, status } = describeError(err, 'Unknown error')
+                        const errorLabel = err instanceof ApiError ? 'Error' : 'Stream Connection Error'
+                        responseText += `\n\n**${errorLabel}:** ${message}`
+                        responseHasError = true
+                        upsertLiveItem()
+                        posthog.captureException(err, {
+                            tag: 'llma-playground-prompt-run',
+                            model: prompt.model,
+                            provider: selectedModelProvider,
+                            status,
+                        })
+                    }
+
                     upsertLiveItem()
 
                     try {
                         startTime = performance.now()
 
-                        const selectedModel = (values.effectiveModelOptions as ModelOption[]).find(
-                            (m) => m.id === prompt.model
-                        )
+                        const selectedModel = findPromptModel(prompt, values.runnableModelOptions)
                         if (!selectedModel?.provider) {
-                            lemonToast.error('Selected model not found in available models')
-                            responseText = '**Error:** Selected model not available.'
+                            // Reachable without the model ever being picked here: opening a trace in
+                            // the playground, or loading a saved prompt, can carry a model the current
+                            // key set no longer offers. Name it so the user knows what to change.
+                            const describeMissingModel = (model: string): string =>
+                                `Model '${model}' is not one of your available models. Pick a different model and try again.`
+                            // The toast renders as text, the result card renders as markdown.
+                            lemonToast.error(describeMissingModel(prompt.model))
+                            responseText = `**Error:** ${describeMissingModel(escapeMarkdownInline(prompt.model))}`
+                            responseHasError = true
+                            upsertLiveItem()
+                            return
+                        }
+
+                        // Model options carry the provider's display name ("Azure OpenAI"), but the
+                        // completion endpoint validates against enum values ("azure_openai").
+                        const normalizedProvider = normalizeLLMProvider(selectedModel.provider)
+                        if (!normalizedProvider) {
+                            const describeUnknownProvider = (model: string): string =>
+                                `Model '${model}' has a provider PostHog does not recognize. Pick a different model and try again.`
+                            lemonToast.error(describeUnknownProvider(prompt.model))
+                            responseText = `**Error:** ${describeUnknownProvider(escapeMarkdownInline(prompt.model))}`
                             responseHasError = true
                             upsertLiveItem()
                             return
                         }
 
                         providerKeyId =
-                            resolveProviderKeyForPrompt(prompt, values.effectiveModelOptions, values.providerKeys)
-                                ?.id ?? values.activeProviderKeyId
-                        selectedModelProvider = selectedModel.provider.toLowerCase()
+                            resolveProviderKeyForPrompt(prompt, values.runnableModelOptions, values.providerKeys)?.id ??
+                            values.activeProviderKeyId
+                        selectedModelProvider = normalizedProvider
 
-                        const requestData: Record<string, unknown> = {
-                            system: prompt.systemPrompt,
-                            messages: messagesToSend
-                                .filter((m: Message) => m.role === 'user' || m.role === 'assistant')
-                                .map((m: Message) => ({ role: m.role, content: m.content })),
-                            model: selectedModel.id,
-                            provider: selectedModelProvider,
-                            thinking: prompt.thinking,
-                            ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
-                            ...(prompt.tools ? { tools: prompt.tools } : {}),
-                            ...(prompt.maxTokens !== null && prompt.maxTokens > 0
-                                ? { max_tokens: prompt.maxTokens }
-                                : {}),
-                            ...(typeof prompt.temperature === 'number' ? { temperature: prompt.temperature } : {}),
-                            ...(typeof prompt.topP === 'number' ? { top_p: prompt.topP } : {}),
-                            ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
-                        }
-
-                        await api.stream('/api/llm_proxy/completion', {
-                            method: 'POST',
-                            data: requestData,
-                            headers: { 'Content-Type': 'application/json' },
-                            signal: abortController.signal,
-                            onMessage: (event) => {
-                                breakpoint()
-                                if (!event.data) {
-                                    return
+                        if (normalizedProvider === 'system_one') {
+                            const questionsError = decisionQuestionsDisabledReason(prompt.decisionQuestions)
+                            if (questionsError) {
+                                lemonToast.error(questionsError)
+                                responseText = `**Error:** ${questionsError}`
+                                responseHasError = true
+                                upsertLiveItem()
+                                return
+                            }
+                            const askedQuestions = prompt.decisionQuestions
+                            try {
+                                const result = await requestDecision(
+                                    prompt,
+                                    providerKeyId,
+                                    values.variableValues,
+                                    abortController.signal
+                                )
+                                decision = { questions: askedQuestions, result }
+                                responseUsage = {
+                                    prompt_tokens: result.input_tokens,
+                                    completion_tokens: result.output_tokens,
                                 }
+                                upsertLiveItem()
+                            } catch (err) {
+                                if (!isAbandoned() && !abortController.signal.aborted) {
+                                    reportedStreamError = err
+                                    reportStreamError(err)
+                                }
+                            }
+                        } else {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                            await api.stream('/api/llm_proxy/completion', {
+                                method: 'POST',
+                                data: buildCompletionRequest(
+                                    prompt,
+                                    selectedModel.id,
+                                    selectedModelProvider,
+                                    providerKeyId,
+                                    resolvedSystemPrompt,
+                                    resolvedMessages
+                                ),
+                                headers: { 'Content-Type': 'application/json' },
+                                signal: abortController.signal,
+                                onMessage: (event) => {
+                                    if (abortController.signal.aborted || !event.data) {
+                                        return
+                                    }
 
-                                try {
-                                    const data = JSON.parse(event.data)
-                                    if (data.type === 'text') {
-                                        if (firstTokenTime === null && startTime !== null) {
-                                            firstTokenTime = performance.now()
-                                            ttftMs = firstTokenTime - startTime
+                                    try {
+                                        const data = JSON.parse(event.data)
+                                        if (data.type === 'text') {
+                                            if (firstTokenTime === null && startTime !== null) {
+                                                firstTokenTime = performance.now()
+                                                ttftMs = firstTokenTime - startTime
+                                            }
+                                            responseText += data.text
+                                            upsertLiveItem()
+                                        } else if (data.type === 'tool_call') {
+                                            if (firstTokenTime === null && startTime !== null) {
+                                                firstTokenTime = performance.now()
+                                                ttftMs = firstTokenTime - startTime
+                                            }
+                                            toolCalls = appendToolCallChunk(toolCalls, data)
+                                            actions.updateComparisonItem(liveItemId, {
+                                                toolCalls,
+                                                ttftMs,
+                                            })
+                                        } else if (data.type === 'reasoning') {
+                                            const reasoningChunk =
+                                                typeof data.reasoning === 'string'
+                                                    ? data.reasoning
+                                                    : typeof data.text === 'string'
+                                                      ? data.text
+                                                      : ''
+                                            responseReasoning += reasoningChunk
+                                            actions.updateComparisonItem(liveItemId, {
+                                                reasoning: responseReasoning,
+                                                ttftMs,
+                                            })
+                                        } else if (data.type === 'usage') {
+                                            responseUsage = mergeUsage(
+                                                responseUsage,
+                                                normalizeUsageFromStreamChunk(data)
+                                            )
+                                            actions.updateComparisonItem(liveItemId, { usage: responseUsage })
+                                        } else if (data.error) {
+                                            responseText += `\n\n**LLM Error:** ${data.error}`
+                                            responseHasError = true
+                                            upsertLiveItem()
                                         }
-                                        responseText += data.text
-                                        upsertLiveItem()
-                                    } else if (data.type === 'tool_call') {
-                                        if (firstTokenTime === null && startTime !== null) {
-                                            firstTokenTime = performance.now()
-                                            ttftMs = firstTokenTime - startTime
-                                        }
-                                        toolCalls = appendToolCallChunk(toolCalls, data)
-                                        const toolCallsText = formatToolCalls(toolCalls)
-                                        const separator = responseText.trim() && toolCallsText ? '\n\n' : ''
-                                        actions.updateComparisonItem(liveItemId, {
-                                            response: responseText + separator + toolCallsText,
-                                            toolCalls,
-                                            ttftMs,
-                                        })
-                                    } else if (data.type === 'reasoning') {
-                                        const reasoningChunk =
-                                            typeof data.reasoning === 'string'
-                                                ? data.reasoning
-                                                : typeof data.text === 'string'
-                                                  ? data.text
-                                                  : ''
-                                        responseReasoning += reasoningChunk
-                                        actions.updateComparisonItem(liveItemId, {
-                                            reasoning: responseReasoning,
-                                            ttftMs,
-                                        })
-                                    } else if (data.type === 'usage') {
-                                        responseUsage = mergeUsage(responseUsage, normalizeUsageFromStreamChunk(data))
-                                        actions.updateComparisonItem(liveItemId, { usage: responseUsage })
-                                    } else if (data.error) {
-                                        responseText += `\n\n**LLM Error:** ${data.error}`
+                                    } catch (e) {
+                                        console.error('Error parsing stream message:', e, 'Data:', event.data)
+                                        responseText += `\n\n**Stream Error:** Could not parse response chunk.`
                                         responseHasError = true
                                         upsertLiveItem()
                                     }
-                                } catch (e) {
-                                    console.error('Error parsing stream message:', e, 'Data:', event.data)
-                                    responseText += `\n\n**Stream Error:** Could not parse response chunk.`
-                                    responseHasError = true
-                                    upsertLiveItem()
-                                }
-                            },
-                            onError: (err) => {
-                                if (abortController.signal.aborted) {
-                                    return
-                                }
-                                if (err instanceof RateLimitError) {
-                                    actions.setRateLimited(err.retryAfterSeconds)
-                                    responseHasError = true
-                                    upsertLiveItem()
-                                    return
-                                }
-                                if (err instanceof ApiError && err.status === 402) {
-                                    actions.setSubscriptionRequired(true)
-                                    responseHasError = true
-                                    upsertLiveItem()
-                                    return
-                                }
-                                const { message, status } = describeError(err, 'Unknown error')
-                                const errorLabel = err instanceof ApiError ? 'Error' : 'Stream Connection Error'
-                                responseText += `\n\n**${errorLabel}:** ${message}`
-                                responseHasError = true
-                                upsertLiveItem()
-                                posthog.captureException(err, {
-                                    tag: 'llma-playground-prompt-run',
-                                    model: prompt.model,
-                                    provider: selectedModelProvider,
-                                    status,
-                                })
-                            },
-                        })
+                                },
+                                onError: (err) => {
+                                    // api.stream can pass the same error to onError twice: once from its onopen
+                                    // handler, and again when fetch-event-source catches the rethrow below.
+                                    if (!abortController.signal.aborted && err !== reportedStreamError) {
+                                        reportedStreamError = err
+                                        reportStreamError(err)
+                                    }
+                                    // fetch-event-source sends the request again whenever onerror returns, which
+                                    // would charge the user for a duplicate completion. Throwing ends the stream.
+                                    throw err
+                                },
+                            })
+                        }
 
                         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
                     } catch (error) {
-                        if (abortController.signal.aborted) {
-                            responseText += `${responseText ? '\n\n' : ''}*Generation stopped.*`
-                        } else if (error instanceof RateLimitError) {
-                            actions.setRateLimited(error.retryAfterSeconds)
-                            responseHasError = true
-                        } else if (error instanceof ApiError && error.status === 402) {
-                            actions.setSubscriptionRequired(true)
-                            responseHasError = true
-                        } else {
+                        if (!isAbandoned() && error !== reportedStreamError) {
                             const { message, status } = describeError(error, 'Failed to initiate prompt submission.')
                             responseText += `\n\n**Error:** ${message}`
                             responseHasError = true
@@ -520,18 +709,20 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                 status,
                             })
                         }
-                        upsertLiveItem()
                     } finally {
                         if (startTime !== null) {
                             latencyMs = performance.now() - startTime
                         }
                     }
 
-                    const toolCallsText = formatToolCalls(toolCalls)
-                    if (toolCallsText) {
-                        const separator = responseText.trim() ? '\n\n' : ''
-                        responseText += separator + toolCallsText
+                    if (isAbandoned()) {
+                        return
                     }
+                    // fetch-event-source resolves rather than rejects on abort, so a stop by the user ends up here.
+                    if (abortController.signal.aborted) {
+                        responseText += `${responseText ? '\n\n' : ''}*Generation stopped.*`
+                    }
+
                     upsertLiveItem()
 
                     posthog.capture('llma playground prompt completed', {
@@ -543,18 +734,22 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         completion_tokens: responseUsage.completion_tokens,
                         success: !responseHasError,
                         has_tools: !!prompt.tools?.length,
+                        has_response_format: !!prompt.responseFormat,
                         aborted: abortController.signal.aborted,
                     })
                 })
 
                 await Promise.allSettled(runs)
             } finally {
-                if (currentAbortController === abortController) {
-                    currentAbortController = null
-                }
                 abortController.abort()
-                actions.finishSubmitPrompt()
+                if (!isAbandoned()) {
+                    currentAbortController = null
+                    actions.finishSubmitPrompt()
+                }
             }
         },
     })),
+    beforeUnmount(() => {
+        abandonCurrentRun()
+    }),
 ])

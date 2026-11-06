@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 
-import type { LegendItem } from '../components/Legend/Legend'
+import type { LegendItem, LegendTableConfig } from '../components/Legend/Legend'
+import type { LegendItemControls } from '../components/Legend/useChartLegend'
+import type { DefaultTooltipProps } from '../overlays/DefaultTooltip'
 
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
@@ -45,8 +47,10 @@ export interface Series<Meta = unknown> {
     label: string
     /** Numeric values for each x-axis label. Must be the same length as the labels array. */
     data: number[]
-    /** CSS color string (hex, rgb, var(--…), etc.) for the line and associated fill/points.
-     *  When omitted (or empty), the chart picks a color from `theme.colors` by series index. */
+    /** CSS color string (hex, rgb) for the line and associated fill/points. Line, area, and bar
+     *  series hand it to the canvas unresolved, so resolve `var(--…)` in the host first; only
+     *  `Heatmap` and `ScatterChart` resolve it themselves. When omitted (or empty), the chart
+     *  picks a color from `theme.colors` by series index. */
     color?: string
     /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
      *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
@@ -59,8 +63,9 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
      *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
      *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
-     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis; on
-     *  stacked charts no track is drawn — the ceiling only bounds interactivity. Used by funnel
+     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis. With
+     *  `bars.track: 'solid'`, the band's track stops at its largest ceiling. On stacked charts
+     *  without a solid track, the ceiling only bounds interactivity. Used by funnel
      *  compare to show a shorter period's volume gap as empty space rather than drop-off. Omit (or
      *  leave an entry undefined) for the default full-axis extent. */
     trackData?: number[]
@@ -76,13 +81,17 @@ export interface Series<Meta = unknown> {
      *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
      *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
     meta?: Meta
-    /** Point markers configuration. Omit for no dots. */
+    /** Point markers configuration. Omit to dot only the points with no line through them. A radius of 0 hides every dot. */
     points?: {
         /** Radius in CSS pixels. */
         radius: number
     }
     /** Line stroke configuration. */
     stroke?: {
+        /** Line width in CSS pixels. Defaults to 2. `0` draws no line, for an area fill or points
+         *  without a stroke. Lines have round caps, which close a dash gap narrower than the width,
+         *  so a wide line with a custom `pattern` needs wider gaps. */
+        width?: number
         /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit for solid. */
         pattern?: number[]
         /** A range of indices that should be drawn with a different (typically dashed) pattern. */
@@ -95,7 +104,8 @@ export interface Series<Meta = unknown> {
              *  beyond it — everything before stays solid. Lets a two-point line dash just its second
              *  half without a phantom interior point. Takes precedence over `fromIndex`/`toIndex`. */
             fromFraction?: number
-            /** Dash pattern for the partial range. Defaults to [10, 10]. */
+            /** Dash pattern for the partial range. Defaults to 10px dashes with an 8px visible gap,
+             *  `[10, 10]` at the default width. */
             pattern?: number[]
         }
     }
@@ -185,6 +195,9 @@ export interface TooltipContext<Meta = unknown> {
      *  false` (e.g. a drop-off filler segment), so callers must not assume a matching
      *  `seriesData` entry exists. */
     hoveredSeriesKey?: string
+    /** Grouped layouts only: cursor is past the bar's filled extent, measured on the same rects
+     *  as click routing. `undefined` for other layouts and pinned rebuilds with no cursor. */
+    inTrackArea?: boolean
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -244,11 +257,13 @@ export interface ChartConfig {
     yScaleType?: 'linear' | 'log'
     // — Axis formatting —
 
-    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
+    /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index).
+     *  On a horizontal bar chart it formats the category labels on the left axis. */
     xTickFormatter?: (value: string, index: number) => string | null
     /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
     xTickLabelRotation?: number
-    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
+    /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter.
+     *  On a horizontal bar chart it formats the value axis along the bottom. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
     hideXAxis?: boolean
@@ -270,7 +285,8 @@ export interface ChartConfig {
     /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
      *  line with monotone-cubic curves that pass through every point without overshooting. */
     curve?: 'linear' | 'monotone'
-    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
+    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement on the base
+     *  `Chart`. Charts that apply `DEFAULT_CHART_CONFIG` use `cursor` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
@@ -282,12 +298,13 @@ export interface ChartConfig {
     /** Fade-in the hover overlay when the hovered point changes. `true` = ~150ms. */
     animateHover?: boolean | number
     /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
-     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
-     *  Should be referentially stable — pass a module-level constant rather than an inline object. */
+     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`). */
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
-     *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
+     *  label can't push the plot off screen. Horizontal charts raise the cap to 30% of the chart
+     *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
+     *  render labels untruncated. */
     maxCategoryLabelWidth?: number
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
@@ -314,12 +331,17 @@ export interface YAxis {
     hide?: boolean
     /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
     startAtZero?: boolean
+    /** Domain control for this axis. Set on secondary axes only: the primary axis takes the
+     *  chart-level `valueDomain`, already merged with the goal-line stretch. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
- *  when interactive, owns the toggled-off state — clicking a row hides that series (no draw, no
- *  scale contribution, no tooltip) and the axes rescale, matching the classic insight legend.
- *  Pass `hiddenKeys` + `onToggleSeries` to control the state yourself instead. */
+ *  when interactive, owns the toggled-off state. A plain click isolates the clicked series — every
+ *  other row is hidden (no draw, no scale contribution, no tooltip) and the axes rescale into the
+ *  freed space — and clicking the isolated row again restores all; ⌘/Ctrl-click (or Shift-click)
+ *  toggles one series in or out. Pass `hiddenKeys` + `onToggleSeries` to control the state
+ *  yourself instead, and `onSetHiddenSeries` alongside them to keep isolating. */
 export interface ChartLegendConfig {
     /** Render the legend. Default false. */
     show?: boolean
@@ -329,24 +351,42 @@ export interface ChartLegendConfig {
     align?: 'start' | 'center' | 'end'
     /** Gap in px between the legend and the plot. */
     gap?: number
-    /** Clicking a legend item hides/shows its series. Default true when the legend is shown;
-     *  set false for a static, read-only legend. */
+    /** Legend rows respond to clicks — isolate, or toggle with ⌘/Ctrl. Default true when the legend
+     *  is shown; set false for a static, read-only legend. */
     interactive?: boolean
-    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state;
-     *  omit for chart-managed (uncontrolled) toggling. */
+    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state, plus
+     *  `onSetHiddenSeries` for the bulk actions — without it a controlled legend can't isolate and a
+     *  plain click falls back to toggling. Omit all three for chart-managed (uncontrolled) state. */
     hiddenKeys?: string[]
     /** Initial hidden keys for the chart-managed (uncontrolled) state. Ignored when `hiddenKeys`
      *  is set (controlled). */
     defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
-    /** Wrap each rendered legend row — receives the default row node and its item, returns the
-     *  node to render. Lets consumers augment rows (e.g. a right-click context menu) while keeping
-     *  the default swatch/label/toggle rendering. Return `defaultNode` to leave a row untouched. */
-    renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
+    /** Called with the whole next hidden set when a bulk action runs — a plain click isolating a
+     *  series, or a row menu's isolate / hide-all. A controlled legend must handle this for those
+     *  actions to work at all; `onToggleSeries` fires one key at a time and can't express them as a
+     *  single update. Uncontrolled legends update their own state and don't need it. */
+    onSetHiddenSeries?: (hiddenKeys: string[]) => void
+    /** Groups legend rows that a consumer stores one visibility bit for, so the chart counts them as
+     *  one series: isolating keeps the whole group visible, "only this one is visible" is judged per
+     *  group, and a legend with one group has nothing to isolate. A chart comparing two periods needs
+     *  this when a series' current and previous rows share one stored bit. `hiddenKeys` stays in row
+     *  space either way — this only answers which rows are the same series, never where the consumer
+     *  keeps the state. Defaults to the row's own key. */
+    visibilityGroupKey?: (rowKey: string) => string
+    /** Wrap each rendered legend row — receives the default row node, its item, and that row's
+     *  {@link LegendItemControls} (visibility state plus toggle/isolate/hide-all actions), and
+     *  returns the node to render. Lets consumers augment rows (e.g. a right-click context menu)
+     *  while keeping the default swatch/label/toggle rendering. Return `defaultNode` to leave a row
+     *  untouched. */
+    renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
+    /** Renders the legend as a table with one column per summary (`{ values: ['mean', 'max', 'last'] }`).
+     *  Rows still isolate and toggle on click, and a header click sorts by that column. */
+    table?: LegendTableConfig
 }
 
-export interface TooltipConfig {
+export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer' | 'showHeader' | 'hideZeroRows'> {
     /** Show a tooltip on hover. Defaults to true. */
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
@@ -371,22 +411,37 @@ export interface TooltipConfig {
     showTotal?: boolean
     totalLabel?: string
     totalFormatter?: (value: number) => string
-    /** Sort series rows by value descending so the highest value appears at the top. */
-    sortedByValue?: boolean
+    /** Sort series rows by value: `true` or `'desc'` highest first, `'asc'` lowest first. */
+    sortedByValue?: boolean | 'asc' | 'desc'
+    /** `single` lists only the series closest to the cursor. Defaults to `all`. */
+    mode?: 'all' | 'single'
+    /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
+     *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
+    hitArea?: 'bar' | 'band'
 }
 
-/** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
- *  bars). The two modes are mutually exclusive by construction — pick one. Omit the option
- *  entirely for the default: a data-derived range with `d3.nice()`. */
-export type ValueDomain =
-    /** Pin both ends — skips the data-derived range and `d3.nice()` so independent charts that
-     *  share this domain stay visually comparable (e.g. funnel steps). Takes precedence over
-     *  `barLayout: 'percent'` / `percentStackView`. */
-    | readonly [number, number]
-    /** Keep data-derived auto-scaling, but stretch the domain to always cover these values
-     *  (e.g. goal-line targets that sit outside the data). Folded into the range before
-     *  `d3.nice()`. */
-    | { include: readonly number[] }
+/** Value-axis domain control (y for vertical/line/area charts, x for horizontal bars). Omit for the
+ *  default: a data-derived range with `d3.nice()`.
+ *
+ *  Setting **both** ends pins the domain, skipping `d3.nice()` and overriding percent layout, which
+ *  keeps independent charts visually comparable (e.g. funnel steps). Setting **one** clamps that end
+ *  and leaves the other automatic.
+ *
+ *  A non-finite bound counts as unset, so `{ min: 0, max: Math.max(...[]) }` floors at zero instead
+ *  of collapsing. An inverted pair falls back to the automatic domain rather than being swapped,
+ *  because these arrive from saved queries, the API, and MCP, where a silent reinterpretation would
+ *  render an axis nobody asked for. */
+export interface ValueDomain {
+    /** Widen the domain to cover these values (e.g. off-scale goal lines). Folded in before
+     *  `d3.nice()`. Ignored once both `min` and `max` are set. */
+    include?: readonly number[]
+    /** Floor of the value axis, applied after `include` folding, the zero clamp and `d3.nice()`, and
+     *  used verbatim so a typed bound isn't rounded away. Ignored under a percent layout, and dropped
+     *  when non-positive on a log scale. */
+    min?: number
+    /** Ceiling of the value axis. See {@link ValueDomain.min}. */
+    max?: number
+}
 
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
@@ -398,8 +453,11 @@ export interface BarsConfig {
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
      *  semantics don't apply when bars share a band). Defaults to `false`. `true` also
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
-     *  but leave it inert (no highlight when the cursor is over the empty remainder). */
-    track?: boolean | { hover?: boolean }
+     *  but leave it inert (no highlight when the cursor is over the empty remainder).
+     *  `'solid'` draws one neutral track per band instead, in `theme.gridColor`, behind every bar
+     *  in the band. It works on every layout, stops at the largest `trackData` ceiling in the band,
+     *  and has no hover highlight. */
+    track?: boolean | 'solid' | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
     /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal
@@ -412,7 +470,8 @@ export interface BarsConfig {
      *  still span the full width — useful for few-category funnel-style charts. */
     maxBandRange?: number
     /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
-     *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
+     *  value, so `step = range / N`. Zero also removes spacing within grouped bars.
+     *  Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
     bandPadding?: number
     /** Floor (px) on a bar's thickness along the value axis, so a present-but-tiny value stays
      *  visible instead of collapsing to a sub-pixel sliver — e.g. a single error in a volume bucket
@@ -423,6 +482,9 @@ export interface BarsConfig {
      *  that segment. So a multi-series (breakdown) stack floors only its top segment — this is aimed
      *  at single-series volume charts and grouped bars. Defaults to 0 (exact heights). */
     minBarSize?: number
+    /** `hover` floors only the hover highlight and hit-testing, so the resting bar keeps its true
+     *  size (funnel charts). `always` (default) floors the static layer too. */
+    minBarSizeScope?: 'always' | 'hover'
     /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
@@ -462,8 +524,17 @@ export interface BarChartConfig extends ChartConfig {
     legend?: ChartLegendConfig
 }
 
+export interface TimeScale {
+    parse: (label: string) => number
+    domain: readonly [number, number]
+}
+
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Place each label at its time instead of evenly by index. Labels must be ascending. Memoize it. */
+    timeScale?: TimeScale
+    /** Draw lines and areas across missing (non-finite) values instead of breaking them. */
+    connectNulls?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
@@ -476,6 +547,8 @@ export interface LineChartConfig extends ChartConfig {
 /** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
  *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. */
 export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
+    /** Gap between bar bands (0–1, default 0.2). Zero also removes within-group spacing. */
+    bandPadding?: number
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
     defaultSeriesType?: SeriesType
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
@@ -490,6 +563,13 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
      *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Primary-axis `min` / `max`, honored only while that axis carries no bar series: a bar encodes
+     *  magnitude as length from zero, so a raised floor would misread it. Use `valueDomain` to rescale
+     *  an axis with bars. `valueDomain` wins a bound both set. */
+    valueBounds?: Pick<ValueDomain, 'min' | 'max'>
+    /** Float the primary axis to its data range instead of clamping the baseline to 0. Ignored while
+     *  the axis carries bar series, and on a log scale. Defaults to false. */
+    floatBaseline?: boolean
 }
 
 /** Arguments passed to a chart type's canvas draw function. */
@@ -544,8 +624,15 @@ export type DateRangeZoomData = LabelRange
 /** Payload of a completed 2D brush ({@link ChartProps.onAreaSelect}). The x axis resolves to
  *  labels like `onDateRangeZoom`; the y axis stays in canvas pixels — the core is label-generic
  *  and has no y-band concept, so chart-type adapters map the pixel range onto their own scales
- *  (e.g. the Heatmap converts it to row indices). */
+ *  (e.g. the Heatmap converts it to row indices). The raw x pixels come along too, for chart types
+ *  whose x axis is continuous rather than a band (e.g. ScatterChart inverts them back to data
+ *  values), where the label range would round the selection to whichever points sit near the drag
+ *  edges. */
 export interface AreaSelectData extends LabelRange {
+    /** Left edge of the dragged range in canvas pixels (always <= xPixel1). */
+    xPixel0: number
+    /** Right edge of the dragged range in canvas pixels. */
+    xPixel1: number
     /** Top of the dragged range in canvas pixels (always <= yPixel1). */
     yPixel0: number
     /** Bottom of the dragged range in canvas pixels. */
@@ -596,6 +683,10 @@ export interface BoxRect {
     whiskerBottom: number
     dataIndex: number
 }
+
+/** Marker glyph drawn at a scatter point. `cross` is the one open glyph, so it stays readable as a
+ *  distinct category where the filled shapes overlap into a blob. */
+export type ScatterMarkerShape = 'circle' | 'square' | 'triangle' | 'cross'
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {

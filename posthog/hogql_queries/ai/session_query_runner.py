@@ -17,6 +17,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -29,8 +30,8 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_generation_sentiment_evaluations_for_traces,
 )
-from posthog.hogql_queries.ai.utils import merge_heavy_properties
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.ai.utils import merge_heavy_properties, with_global_in_subqueries
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.event.new_events_schema import use_new_events_schema
@@ -64,11 +65,18 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
     cached_response: CachedSessionQueryResponse
     paginator: HogQLHasMorePaginator
 
-    def __init__(self, *args: Any, for_evaluation: bool = False, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        for_evaluation: bool = False,
+        bypass_property_access_control: bool = False,
+        **kwargs: Any,
+    ) -> None:
         # Online evaluations need a time-bounded primary query and no events fallback: an
         # aged-out session must surface as "expired", not as a stripped events scan whose rows
         # lack input/output_choices, which would have the judge grade an empty transcript.
         self.for_evaluation = for_evaluation
+        self._bypass_property_access_control = bypass_property_access_control
         super().__init__(*args, **kwargs)
         limit = self.query.limit
         if self.limit_context == LimitContext.EXPORT:
@@ -87,6 +95,9 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
 
         query = self._build_query()
 
+        # The query reads only ai_events or events and takes no property filters, so it skips the full
+        # per-team catalog build, which takes seconds on a project with a large data warehouse.
+        database = Database.create_for_posthog_tables(self.team, modifiers=self.modifiers)
         with self.timings.measure("session_query_ai_events_execute"), tags_context(product=Product.LLM_ANALYTICS):
             tag_queries(ai_query_source="dedicated_table")
             query_result = self.paginator.execute_hogql_query(
@@ -101,6 +112,12 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    user=self.user,
+                    database=database,
+                    restricted_properties=set() if self._bypass_property_access_control else None,
+                ),
             )
 
         if not query_result.results and not self.for_evaluation:
@@ -114,7 +131,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                 tags_context(product=Product.LLM_ANALYTICS),
             ):
                 tag_queries(ai_query_source="shared_table_fallback")
-                events_schema = use_new_events_schema(self.team.pk)
+                events_schema = use_new_events_schema(self.team.pk, self.modifiers)
                 query_result = self.paginator.execute_hogql_query(
                     query=rewrite_query_for_events_table(query),
                     placeholders={
@@ -127,7 +144,13 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                     timings=self.timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
-                    context=HogQLContext(team_id=self.team.pk, user=self.user, use_new_events_schema=events_schema),
+                    context=HogQLContext(
+                        team_id=self.team.pk,
+                        user=self.user,
+                        use_new_events_schema=events_schema,
+                        database=database,
+                        restricted_properties=set() if self._bypass_property_access_control else None,
+                    ),
                 )
 
         columns: list[str] = query_result.columns or []
@@ -136,6 +159,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         if self.query.includeSentiment and results and columns:
             sentiment_lookup = load_generation_sentiment_evaluations_for_traces(
                 team=self.team,
+                user=self.user,
                 trace_ids=self._trace_ids_from_results(columns, results),
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -161,49 +185,59 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                     argMin(distinct_id, timestamp)
                 ) AS first_distinct_id,
                 round(
-                    CASE
-                        WHEN countIf(latency > 0 AND event != '$ai_generation') = 0
-                             AND countIf(latency > 0 AND event = '$ai_generation') > 0
-                        THEN sumIf(latency,
-                                   event = '$ai_generation' AND latency > 0
-                             )
-                        ELSE sumIf(latency,
-                                   parent_id IS NULL
-                                   OR parent_id = trace_id
-                             )
-                    END, 2
+                    coalesce(
+                        -- The root $ai_trace event reports the wall-clock latency of the whole
+                        -- trace, so its children are already inside that number. Same rule as
+                        -- products/ai_observability/backend/queries/sessions.sql.
+                        nullIf(maxIf(latency, event = '$ai_trace' AND latency > 0), 0),
+                        CASE
+                            WHEN countIf(latency > 0 AND event != '$ai_generation') = 0
+                                 AND countIf(latency > 0 AND event = '$ai_generation') > 0
+                            THEN sumIf(latency,
+                                       event = '$ai_generation' AND latency > 0
+                                 )
+                            ELSE sumIf(latency,
+                                       parent_id IS NULL
+                                       OR parent_id = trace_id
+                                 )
+                        END
+                    ), 2
                 ) AS total_latency,
-                nullIf(sumIf(input_tokens,
+                -- NULL means no event carried the field, 0 is a reported zero.
+                -- These columns are Nullable, so a bare sum already returns NULL
+                -- when nothing reported and 0 for a reported zero; nullIf(sum, 0)
+                -- would collapse a real zero into NULL. Matches traces_query_runner.
+                sumIf(input_tokens,
                       event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS input_tokens,
-                nullIf(sumIf(output_tokens,
+                ) AS input_tokens,
+                sumIf(output_tokens,
                       event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS output_tokens,
-                nullIf(round(
+                ) AS output_tokens,
+                round(
                     sumIf(input_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS input_cost,
-                nullIf(round(
+                ) AS input_cost,
+                round(
                     sumIf(output_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS output_cost,
-                nullIf(round(
+                ) AS output_cost,
+                round(
                     sumIf(request_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS request_cost,
-                nullIf(round(
+                ) AS request_cost,
+                round(
                     sumIf(web_search_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS web_search_cost,
-                nullIf(round(
+                ) AS web_search_cost,
+                round(
                     sumIf(total_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS total_cost,
+                ) AS total_cost,
                 arrayDistinct(
                     arraySort(
                         x -> x.3,
@@ -263,13 +297,17 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
             ORDER BY first_timestamp DESC
             """,
         )
-        return cast(ast.SelectQuery, query)
+        return cast(ast.SelectQuery, with_global_in_subqueries(query))
 
     def get_cache_payload(self) -> dict[str, Any]:
-        return {
-            **super().get_cache_payload(),
-            "schema_version": 1,
-        }
+        payload = {**super().get_cache_payload(), "schema_version": 2}
+        # An evaluation read has a bounded window and no events fallback, so it must not share a result
+        # with a plain read. Keyed only when on, so plain reads keep their cache entries.
+        if self.for_evaluation:
+            payload["for_evaluation"] = True
+        if self._bypass_property_access_control:
+            payload["bypass_property_access_control"] = True
+        return payload
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:

@@ -25,7 +25,8 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from .attribution_base import PERSON_ARRAYS_CTE, AttributionQueryRunnerBase
+from .attribution_base import PERSON_ARRAYS_CTE, PERSON_CONVERSION_COUNT, AttributionQueryRunnerBase
+from .attribution_sessions_read import session_ctes
 from .constants import PAGINATION_EXTRA
 
 # Paths longer than this are grouped on their most recent steps — the same truncation direction as
@@ -90,6 +91,9 @@ class MarketingAnalyticsAttributionPathsQueryRunner(
 
         return ast.SelectQuery(
             select=[
+                # Both ride along so the footer can report the person's exact conversion total.
+                ast.Field(chain=[_CONVERSION_INDEX]),
+                ast.Field(chain=[PERSON_CONVERSION_COUNT]),
                 ast.Alias(alias="conv_value", expr=ast.TupleAccess(tuple=conversion, index=2)),
                 ast.Alias(
                     alias="tps",
@@ -189,7 +193,7 @@ class MarketingAnalyticsAttributionPathsQueryRunner(
         """
         return ast.SelectQuery(
             select=[
-                ast.Alias(alias=_TOTAL_CONVERSIONS, expr=ast.Call(name="count", args=[])),
+                ast.Alias(alias=_TOTAL_CONVERSIONS, expr=self._total_conversions_expr(_CONVERSION_INDEX)),
                 ast.Alias(
                     alias=_ATTRIBUTED_CONVERSIONS,
                     expr=ast.Call(
@@ -259,11 +263,11 @@ class MarketingAnalyticsAttributionPathsQueryRunner(
     def to_query(self) -> ast.SelectQuery:
         date_range = self.query_date_range
 
-        ctes: dict[str, ast.CTE] = {}
+        ctes: dict[str, ast.CTE] = session_ctes(self, date_range)
         with self.timings.measure("attribution_paths_person_arrays_cte"):
             ctes[PERSON_ARRAYS_CTE] = ast.CTE(
                 name=PERSON_ARRAYS_CTE,
-                expr=self._build_person_arrays_select(date_range),
+                expr=self._person_arrays_select(date_range),
                 cte_type="subquery",
             )
         # Materialized because two CTEs read it, and ClickHouse otherwise re-evaluates a CTE at each
@@ -295,6 +299,9 @@ class MarketingAnalyticsAttributionPathsQueryRunner(
             modifiers=self.modifiers,
             limit_context=self.limit_context or LimitContext.QUERY,
             context=self._shared_hogql_context,
+            # The per-person touchpoint arrays are unbounded, so let the GROUP BY spill to disk
+            # rather than hit the memory limit. Same guard funnels, retention and paths use.
+            settings=self.get_query_settings(),
         )
 
         # Mapped by column name, not tuple position, so adding a column can't shift every later one.

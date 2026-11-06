@@ -9,7 +9,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourceFieldToElement } from './SourceForm'
 
@@ -28,12 +29,18 @@ export interface WebhookCreateResult {
 
 interface WebhookSetupFormProps {
     sourceName: string
-    sourceConfig?: SourceConfig | null
+    sourceConfig?: SourceConfigResponseApi | null
     webhookTables?: { name: string; label?: string | null }[]
     webhookResult?: WebhookCreateResult | null
     webhookCreating: boolean
     /** Whether the manual webhook fields form is currently submitting — guards the Save button against double-submission */
     webhookFieldsSubmitting?: boolean
+    /**
+     * Why this connection's credentials can never register the webhook, when that's knowable. Set
+     * for OAuth app installations whose granted permissions exclude webhook management: offering
+     * the button there only yields a permission error, so manual setup is the whole flow.
+     */
+    autoCreationBlockedReason?: string | null
     onCreateWebhook: () => void
     /** kea-forms logic and formKey for the manual webhook field inputs form */
     formLogic?: LogicWrapper | BuiltLogic<any>
@@ -51,12 +58,15 @@ export function WebhookSetupForm({
     webhookResult,
     webhookCreating,
     webhookFieldsSubmitting = false,
+    autoCreationBlockedReason,
     onCreateWebhook,
     formLogic,
     formKey,
 }: WebhookSetupFormProps): JSX.Element {
     const webhookFields = sourceConfig?.webhookFields ?? []
-    const manualOnly = sourceConfig?.webhookManualOnly ?? false
+    // A blocked connection is manual-only in practice, so it takes the same path as a source that
+    // never supported auto-creation: generate the URL, then show the manual steps.
+    const manualOnly = (sourceConfig?.webhookManualOnly ?? false) || !!autoCreationBlockedReason
 
     const webhookTablesList =
         webhookTables && webhookTables.length > 0 ? (
@@ -87,10 +97,11 @@ export function WebhookSetupForm({
                     that new data is pushed to PostHog. This means faster syncs and less load on your source.
                 </p>
                 {webhookTablesList}
-                <LemonBanner type="info">
-                    {manualOnly
-                        ? `We'll generate a webhook URL — you'll need to register it manually in your ${sourceName} app settings.`
-                        : `We'll automatically register the webhook on your ${sourceName} account. No manual configuration is needed.`}
+                <LemonBanner type={autoCreationBlockedReason ? 'warning' : 'info'}>
+                    {autoCreationBlockedReason ||
+                        (manualOnly
+                            ? `We'll generate a webhook URL. You'll need to register it manually in your ${sourceName} app settings.`
+                            : `We'll automatically register the webhook on your ${sourceName} account. No manual configuration is needed.`)}
                 </LemonBanner>
                 {sourceConfig?.docsUrl && (
                     <p className="text-sm text-muted">
@@ -144,10 +155,11 @@ export function WebhookSetupForm({
 
         return (
             <WebhookSetupCard>
-                <h3 className="text-lg font-semibold">Almost done — finish setting up your {sourceName} webhook</h3>
-                <LemonBanner type="success">
-                    Webhook created in {sourceName}. We just need a couple more details from your {sourceName} dashboard
-                    to start receiving events.
+                <h3 className="text-lg font-semibold">Finish setting up your {sourceName} webhook</h3>
+                <LemonBanner type="warning">
+                    The webhook is created in {sourceName}, but it can't accept events yet. Copy the details below from
+                    your {sourceName} dashboard and save them. Until then, tables that use webhook sync get no webhook
+                    updates.
                 </LemonBanner>
                 {sourceConfig?.webhookSetupCaption && (
                     <LemonMarkdown className="text-sm">{sourceConfig.webhookSetupCaption}</LemonMarkdown>
@@ -167,18 +179,45 @@ export function WebhookSetupForm({
         )
     }
 
+    // A failed request returns no URL, so even a manual-only source needs the error and a retry.
+    const webhookUrlMissing = !webhookResult?.webhook_url
+
     return (
         <WebhookSetupCard>
             <h3 className="text-lg font-semibold">Manual webhook setup for {sourceName}</h3>
-            {!manualOnly && (
+            {(!manualOnly || !!autoCreationBlockedReason || webhookUrlMissing) && (
                 <LemonBanner type="warning">
-                    {webhookResult?.error || 'Could not create the webhook automatically.'}
+                    <div className="flex flex-col gap-1">
+                        <span>
+                            {(webhookUrlMissing && webhookResult?.error) ||
+                                autoCreationBlockedReason ||
+                                webhookResult?.error ||
+                                'Could not create the webhook automatically.'}
+                        </span>
+                        <span>
+                            {webhookUrlMissing
+                                ? 'Tables that use webhook sync get no webhook updates until the webhook is set up.'
+                                : `Tables that use webhook sync get no webhook updates until you add the webhook in ${sourceName} by hand, using the steps below.`}
+                        </span>
+                    </div>
                 </LemonBanner>
+            )}
+            {(!manualOnly || webhookUrlMissing) && (
+                <div className="flex flex-col items-start gap-2">
+                    <p className="m-0">
+                        {manualOnly
+                            ? 'PostHog could not generate the webhook URL. Try again to get one.'
+                            : 'Automatic setup can fail for a temporary reason. Try again, or set the webhook up by hand below.'}
+                    </p>
+                    <LemonButton type="secondary" onClick={onCreateWebhook}>
+                        Try again
+                    </LemonButton>
+                </div>
             )}
             <p>
                 {manualOnly
                     ? `Copy the URL below and register it as a webhook endpoint in your ${sourceName} app settings.`
-                    : `You'll need to manually configure the webhook in your ${sourceName} account. Copy the URL below and add it as a webhook endpoint in your ${sourceName} settings.`}
+                    : `Copy the URL below and add it as a webhook endpoint in your ${sourceName} settings.`}
             </p>
             {webhookResult?.webhook_url && <WebhookUrlDisplay url={webhookResult.webhook_url} />}
             {sourceConfig?.webhookSetupCaption && (

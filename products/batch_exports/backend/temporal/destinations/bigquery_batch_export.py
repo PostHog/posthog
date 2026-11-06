@@ -19,13 +19,16 @@ import google.auth.exceptions
 import google.auth.transport.requests
 import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
+    BadGateway,
     BadRequest,
+    DeadlineExceeded,
     Forbidden,
     GatewayTimeout,
     GoogleAPICallError,
     InternalServerError,
     NotFound,
     PermissionDenied,
+    RetryError,
     ServiceUnavailable,
     TooManyRequests,
 )
@@ -36,18 +39,22 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
+from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
-    BatchExportSchema,
     BigQueryBatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -56,6 +63,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -74,13 +82,17 @@ from products.batch_exports.backend.temporal.queue import (
 )
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised on missing permissions.
     "Forbidden",
+    # The stored key file names a token endpoint that is not Google's; only a re-upload fixes it.
+    "InvalidGoogleTokenUriError",
     # Invalid token.
     "RefreshError",
     # Usually means the dataset or project_id doesn't exist.
@@ -104,6 +116,23 @@ NON_RETRYABLE_ERROR_TYPES = (
     "BigQueryIntegrationNotFoundError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
     "BigQueryIncompatibleSchemaError",
+)
+
+# Errors that only mean we could not read a load job's state. `RetryError` is raised when the
+# client's own retries for these errors run out.
+LOAD_JOB_POLL_RETRYABLE_EXCEPTIONS = (
+    RetryError,
+    TooManyRequests,
+    InternalServerError,
+    BadGateway,
+    ServiceUnavailable,
+    GatewayTimeout,
+    DeadlineExceeded,
+    ConnectionError,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+    google.auth.exceptions.TransportError,
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -246,13 +275,16 @@ class BigQueryField(Field):
 
     @classmethod
     def from_arrow_field(cls, field: pa.Field) -> typing.Self:
-        type = data_type_to_bigquery_type(field.type)
+        try:
+            type = data_type_to_bigquery_type(field.type)
+        except ValueError as err:
+            raise ColumnTypeMappingError("BigQuery", field.name, field.type) from err
         return cls(field.name, type, nullable=field.nullable)
 
     @classmethod
     def from_destination_field(cls, field: bigquery.SchemaField) -> typing.Self:
         name = field.name
-        type_name = field.field_type
+        type_name = typing.cast(BigQueryTypeName, field.field_type)
 
         mode = field.mode
         repeated = mode == "REPEATED"
@@ -418,7 +450,7 @@ def get_our_google_cloud_credentials() -> google.auth.impersonated_credentials.C
             aws_security_credentials_supplier=Boto3CredentialsSupplier(),
             scopes=["https://www.googleapis.com/auth/cloud-platform"],
         ),
-        target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
+        target_principal=get_or_settings("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", CredentialsCaller.BATCH_EXPORTS),
         target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
         lifetime=3600,
     )
@@ -435,7 +467,7 @@ class GoogleCloudCredentialsError(Exception):
 async def ensure_our_google_cloud_credentials_are_valid():
     """Raise `GoogleCloudCredentialsError` if we cannot refresh our credentials."""
 
-    our_credentials = get_our_google_cloud_credentials()
+    our_credentials = await asyncio.to_thread(get_our_google_cloud_credentials)
     session = _make_requests_session()
     try:
         await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request(session=session))
@@ -467,17 +499,26 @@ def _make_requests_session() -> "requests.Session":
 
 async def get_service_account_description(
     service_account_email: str,
+    max_attempts: int = 5,
 ) -> str:
     """Return the service account's description.
 
     Uses our credentials to authenticate.
     """
-    our_credentials = get_our_google_cloud_credentials()
+    our_credentials = await asyncio.to_thread(get_our_google_cloud_credentials)
     client = iam_admin_v1.IAMAsyncClient(credentials=our_credentials)
 
+    retryable_get_service_account = make_retryable_with_exponential_backoff(
+        client.get_service_account,
+        retryable_exceptions=(InternalServerError, DeadlineExceeded, ServiceUnavailable),
+        max_attempts=max_attempts,
+    )
+
     try:
-        sa = await client.get_service_account(
-            request=iam_admin_v1.GetServiceAccountRequest(name=f"projects/-/serviceAccounts/{service_account_email}")
+        sa = await retryable_get_service_account(
+            request=iam_admin_v1.GetServiceAccountRequest(name=f"projects/-/serviceAccounts/{service_account_email}"),
+            # Retries are handled by our wrapper, have the client just raise
+            retry=None,
         )
     except PermissionDenied:
         EXTERNAL_LOGGER.exception(
@@ -540,6 +581,7 @@ async def verify_impersonated_service_account_ownership(
 
 def impersonate_service_account(
     integration: GoogleCloudServiceAccountIntegration,
+    scopes: tuple[str, ...] = ("https://www.googleapis.com/auth/bigquery",),
 ) -> google.auth.impersonated_credentials.Credentials:
     """Impersonate a user's service account using our own.
 
@@ -552,7 +594,7 @@ def impersonate_service_account(
     their_credentials = google.auth.impersonated_credentials.Credentials(
         source_credentials=our_credentials,
         target_principal=service_account_email,
-        target_scopes=["https://www.googleapis.com/auth/bigquery"],
+        target_scopes=list(scopes),
         lifetime=3600,
     )
 
@@ -561,6 +603,21 @@ def impersonate_service_account(
 
 def _is_contention_exception(exc: Exception) -> bool:
     return "concurrent update" in str(exc)
+
+
+def _quote_bigquery_identifier(identifier: str) -> str:
+    escaped = identifier.translate(
+        {
+            ord("\\"): r"\\",
+            ord("`"): r"\`",
+            ord("\n"): r"\n",
+            ord("\r"): r"\r",
+            ord("\t"): r"\t",
+            ord("\b"): r"\b",
+            ord("\f"): r"\f",
+        }
+    )
+    return f"`{escaped}`"
 
 
 class BigQueryClient:
@@ -630,6 +687,7 @@ class BigQueryClient:
     def from_service_account_inputs(
         cls, private_key: str, private_key_id: str, token_uri: str, client_email: str, project_id: str
     ) -> typing.Self:
+        token_uri = require_google_token_uri(token_uri)
         credentials = service_account.Credentials.from_service_account_info(
             {
                 "private_key": private_key,
@@ -758,7 +816,7 @@ class BigQueryClient:
         """Attempt to SELECT from table to check for query permissions."""
         if isinstance(table, BigQueryTable) and "timestamp" in table:
             query = f"""
-            SELECT 1 FROM  `{table.fully_qualified_name}` TABLESAMPLE SYSTEM (0.0001 PERCENT) WHERE timestamp IS NOT NULL
+            SELECT 1 FROM  {_quote_bigquery_identifier(table.fully_qualified_name)} TABLESAMPLE SYSTEM (0.0001 PERCENT) WHERE timestamp IS NOT NULL
             """
 
             if table.time_partitioning is not None and table.time_partitioning.field == "timestamp":
@@ -769,7 +827,7 @@ class BigQueryClient:
 
         else:
             query = f"""
-            SELECT 1 FROM  `{table.fully_qualified_name}` TABLESAMPLE SYSTEM (0.0001 PERCENT) LIMIT 1
+            SELECT 1 FROM  {_quote_bigquery_identifier(table.fully_qualified_name)} TABLESAMPLE SYSTEM (0.0001 PERCENT) LIMIT 1
             """
 
         try:
@@ -808,9 +866,9 @@ class BigQueryClient:
     async def merge_tables(
         self,
         final: BigQueryTable,
-        stage: BigQueryTable,
+        stage: BigQueryTable | collections.abc.Iterable[BigQueryTable],
     ):
-        """Merge `stage` into `final`.
+        """Merge one or more `stage` tables into `final`.
 
         This method can execute one of two queries, depending on the type of `final`:
         When it is a `MutableTable`, then it executes a more complex `MERGE` query as it
@@ -820,31 +878,34 @@ class BigQueryClient:
 
         Arguments:
             final: The BigQuery table we are merging into.
-            stage: The BigQuery table we are merging from.
+            stage: One or more BigQuery tables we are merging from.
         """
+        tables = [stage] if isinstance(stage, BigQueryTable) else list(stage)
+        assert len(tables) > 0
+
         if final.is_mutable():
             return await self.merge_into_final_from_stage(
                 final,
-                stage,
+                tables,
             )
         else:
             return await self.insert_into_final_from_stage(
                 final,
-                stage,
+                tables,
             )
 
     async def insert_into_final_from_stage(
         self,
         final: BigQueryTable,
-        stage: BigQueryTable,
+        stage: list[BigQueryTable],
     ):
-        """Insert data from `stage` into `final`."""
-        into_table_fields = ",".join(f"`{field.name}`" for field in final.fields)
+        """Insert data from one or more `stage` tables into `final`."""
+        into_table_fields = ",".join(_quote_bigquery_identifier(field.name) for field in final.fields)
 
         fields_to_cast = {
             field.name
             for field in final
-            if field.bigquery_type.name == "JSON" and stage[field.name].bigquery_type.name != "JSON"
+            if field.bigquery_type.name == "JSON" and stage[0][field.name].bigquery_type.name != "JSON"
         }
 
         # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
@@ -858,7 +919,7 @@ class BigQueryClient:
               REGEXP_REPLACE(
                 REGEXP_REPLACE(
                   REGEXP_REPLACE(
-                    `{field.name}`,
+                    {_quote_bigquery_identifier(field.name)},
                     r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
                     '\\\\1'
                   ),
@@ -872,19 +933,24 @@ class BigQueryClient:
             )
             """
             if field.name in fields_to_cast
-            else f"`{field.name}`"
+            else _quote_bigquery_identifier(field.name)
             for field in final.fields
         )
 
         query = f"""
-        INSERT INTO `{final.fully_qualified_name}`
-          ({into_table_fields})
-        SELECT
-          {stage_table_fields}
-        FROM `{stage.fully_qualified_name}`
+        INSERT INTO {_quote_bigquery_identifier(final.fully_qualified_name)}
+            ({into_table_fields})
         """
+        query += "\nUNION ALL\n".join(
+            f"SELECT {stage_table_fields} FROM {_quote_bigquery_identifier(table.fully_qualified_name)}"
+            for table in stage
+        )
 
-        self.logger.info("Inserting into final table", format=format, table_id=final.name, stage_table_id=stage.name)
+        self.logger.info(
+            "Inserting into final table",
+            table_id=final.name,
+            stage_table_id=", ".join(table.name for table in stage),
+        )
         query_job = make_retryable_with_exponential_backoff(
             self.execute_query,
             retryable_exceptions=(BadRequest,),
@@ -899,14 +965,14 @@ class BigQueryClient:
     async def merge_into_final_from_stage(
         self,
         final: BigQueryTable,
-        stage: BigQueryTable,
+        stage: list[BigQueryTable],
     ):
-        """Merge two identical person model tables in BigQuery."""
+        """Merge data from one or more person model `stage` tables to `final`."""
 
         fields_to_cast = {
             field.name
             for field in final
-            if field.bigquery_type.name == "JSON" and stage[field.name].bigquery_type.name != "JSON"
+            if field.bigquery_type.name == "JSON" and stage[0][field.name].bigquery_type.name != "JSON"
         }
 
         merge_condition = "ON "
@@ -914,15 +980,18 @@ class BigQueryClient:
         for n, field_name in enumerate(final.primary_key):
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f"final.`{field_name}` = stage.`{field_name}`"
+            quoted_field = _quote_bigquery_identifier(field_name)
+            merge_condition += f"final.{quoted_field} = stage.{quoted_field}"
 
-        update_condition = "AND ("
+        update_condition = ""
 
         for index, field_name in enumerate(final.version_key):
             if index > 0:
                 update_condition += " OR "
-            update_condition += f"final.`{field_name}` < stage.`{field_name}`"
-        update_condition += ")"
+            quoted_field = _quote_bigquery_identifier(field_name)
+            update_condition += f"final.{quoted_field} < stage.{quoted_field}"
+        if update_condition:
+            update_condition = f"AND ({update_condition})"
 
         update_clause = ""
         values = ""
@@ -945,7 +1014,7 @@ class BigQueryClient:
                   REGEXP_REPLACE(
                     REGEXP_REPLACE(
                       REGEXP_REPLACE(
-                        stage.`{field.name}`,
+                        stage.{_quote_bigquery_identifier(field.name)},
                         r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
                         '\\\\1'
                       ),
@@ -959,26 +1028,43 @@ class BigQueryClient:
                 )
                 """
                 if field.name in fields_to_cast
-                else f"stage.`{field.name}`"
+                else f"stage.{_quote_bigquery_identifier(field.name)}"
             )
 
-            update_clause += f"final.`{field.name}` = {stage_field}"
-            field_names += f"`{field.name}`"
+            update_clause += f"final.{_quote_bigquery_identifier(field.name)} = {stage_field}"
+            field_names += _quote_bigquery_identifier(field.name)
             values += stage_field
 
         if not update_clause:
             raise ValueError("Empty update clause")
 
+        inner_union_query = "\nUNION ALL\n".join(
+            f"SELECT * FROM {_quote_bigquery_identifier(table.fully_qualified_name)}" for table in stage
+        )
+        order_by = (
+            "ORDER BY " + ",".join(f"{_quote_bigquery_identifier(field_name)} DESC" for field_name in final.version_key)
+            if final.version_key
+            else ""
+        )
+
+        union_query = f"""
+        SELECT
+            *,
+            ROW_NUMBER() OVER (
+              PARTITION BY {",".join(_quote_bigquery_identifier(field_name) for field_name in final.primary_key)}
+              {order_by}
+              ) row_num
+        FROM (
+            {inner_union_query}
+        )
+        """
+
         merge_query = f"""
-        MERGE `{final.fully_qualified_name}` final
+        MERGE {_quote_bigquery_identifier(final.fully_qualified_name)} final
         USING (
             SELECT * FROM
             (
-              SELECT
-              *,
-              ROW_NUMBER() OVER (PARTITION BY {",".join(field_name for field_name in final.primary_key)}) row_num
-            FROM
-              `{stage.fully_qualified_name}`
+                {union_query}
             )
             WHERE row_num = 1
         ) stage
@@ -992,7 +1078,9 @@ class BigQueryClient:
             VALUES ({values});
         """
 
-        self.logger.info("Merging into final table", table_id=final.name, stage_table_id=stage.name)
+        self.logger.info(
+            "Merging into final table", table_id=final.name, stage_table_id=", ".join(table.name for table in stage)
+        )
         query_job = make_retryable_with_exponential_backoff(
             self.execute_query,
             retryable_exceptions=(BadRequest,),
@@ -1004,7 +1092,7 @@ class BigQueryClient:
         )
         return await query_job(merge_query)
 
-    async def load_file(self, file, format: FileFormat, table: BigQueryTable):
+    async def load_file(self, file, format: FileFormat, table: BigQueryTable, poll_interval: float = 1.0):
         """Load a file into BigQuery table."""
         schema = tuple(field.to_destination_field() for field in table.fields)
         if format == "Parquet":
@@ -1037,7 +1125,7 @@ class BigQueryClient:
 
         while True:
             try:
-                result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
+                result = await self._run_load_job(file, bq_table, job_config=job_config, poll_interval=poll_interval)
             except (
                 TooManyRequests,
                 ServiceUnavailable,
@@ -1090,6 +1178,29 @@ class BigQueryClient:
                 await asyncio.sleep(backoff)
                 attempt += 1
             except BadRequest as err:
+                if "matched no files" in str(err):
+                    backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                    self.logger.warning(
+                        "LoadJob could not find the uploaded file",
+                        attempt=attempt,
+                        backoff=backoff,
+                        error_code=err.code,
+                        exc_info=True,
+                    )
+                    self.external_logger.warning(
+                        "BigQuery could not find the file we uploaded for a load job."
+                        " This is usually a temporary issue on BigQuery's side. The load will be retried in %d"
+                        " seconds, this is attempt number %d.",
+                        backoff,
+                        attempt,
+                        attempt=attempt,
+                        backoff=backoff,
+                        error_code=err.code,
+                    )
+                    await asyncio.sleep(backoff)
+                    attempt += 1
+                    continue
+
                 if err.reason != "invalidQuery" or "Required field" not in str(err):
                     raise
                 try:
@@ -1110,14 +1221,57 @@ class BigQueryClient:
             else:
                 return result
 
-    def _run_load_job(self, file, bq_table, job_config):
+    async def _run_load_job(self, file, bq_table, job_config, poll_interval: float):
         """Run a BigQuery LoadJob and return its result.
 
-        This method blocks and should only be run on an executor.
+        We poll the job ourselves and only call `LoadJob.result()` once the job is done.
+        While a job runs, `result()` polls through google-api-core's retry loop, which raises
+        an exception on every poll and keeps each one in a list. The exception tracebacks and
+        that list form a reference cycle that keeps the calling frames, and so `file`, alive
+        until the cyclic garbage collector runs. With large files, this holds gigabytes of
+        memory that the activity does not use.
         """
-        load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-        result = load_job.result()
-        return result
+        load_job = await asyncio.to_thread(
+            self.sync_client.load_table_from_file, file, bq_table, job_config=job_config, rewind=True
+        )
+
+        await self._wait_for_load_job(load_job, poll_interval=poll_interval)
+
+        return load_job.result()  # Non-blocking: Job is done.
+
+    async def _wait_for_load_job(self, load_job: bigquery.LoadJob, poll_interval: float) -> None:
+        """Poll a LoadJob until it is done.
+
+        A transient error while polling does not mean that the job failed, so we retry it forever.
+        If the error reached `load_file`, it would upload the file again and start a second load
+        job, which can load the same rows twice.
+        """
+        initial_retry = 1
+        backoff_factor = 2
+        max_retry = 32
+        attempt = 0
+
+        while True:
+            try:
+                done = await asyncio.to_thread(load_job.done)
+            except LOAD_JOB_POLL_RETRYABLE_EXCEPTIONS:
+                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                self.logger.warning(
+                    "Transient error while polling LoadJob",
+                    job_id=load_job.job_id,
+                    attempt=attempt,
+                    backoff=backoff,
+                    exc_info=True,
+                )
+                await asyncio.sleep(backoff)
+                attempt += 1
+                continue
+
+            if done:
+                return
+
+            attempt = 0
+            await asyncio.sleep(poll_interval)
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -1204,6 +1358,8 @@ class BigQueryConsumer(Consumer):
             buffer_size=buffer_size,
         )
 
+        # Release buffer in case a reference is kept by anybody else
+        self.current_buffer.close()
         self.current_buffer = io.BytesIO()
 
 
@@ -1241,20 +1397,20 @@ def _make_jsonl_pipeline_transformer(table: BigQueryTable, max_file_size_bytes: 
 async def run_consumer(
     client: BigQueryClient,
     consumer_table: BigQueryTable,
-    target_table: BigQueryTable,
     model: str,
     file_format: FileFormat,
     queue: RecordBatchQueue,
     transformer: PipelineTransformer,
-    all_consumers_done: asyncio.Barrier,
     producer_task: asyncio.Task[None],
+    all_consumers_done: asyncio.Barrier,
     merge: bool,
-    merge_semaphore: asyncio.Semaphore,
+    merge_done: asyncio.Event,
     records_total: int | None = None,
 ) -> BatchExportResult:
     """Run a BigQueryConsumer until completion.
 
-    If necessary, also merge the consumer's table into the provided table.
+    Each consumer manages the lifecycle of its own stage table, so the
+    consumer waits in case a merge needs to be executed.
     """
     async with client.managed_table(
         table=consumer_table,
@@ -1278,54 +1434,44 @@ async def run_consumer(
 
         await all_consumers_done.wait()
 
-        # Only merge to final table if the upstream producer has not failed and
-        # has not been cancelled. Upstream producer must be done by now as it
-        # is part of the termination condition for consumers.
-        producer_failed = producer_task.cancelled() or producer_task.exception() is not None
-
-        if merge and not producer_failed:
-            async with merge_semaphore:
-                _ = await client.merge_tables(
-                    final=target_table,
-                    stage=managed_consumer_table,
-                )
+        if merge:
+            # Block table cleanup until merge is done.
+            await merge_done.wait()
 
     return result
 
 
-class MergeSettings(typing.NamedTuple):
-    primary_key: collections.abc.Sequence[str]
-    version_key: collections.abc.Sequence[str]
+async def merge_all_consumer_tables(
+    client: BigQueryClient,
+    target_table: BigQueryTable,
+    consumer_tables: collections.abc.Iterable[BigQueryTable],
+    all_consumers_done: asyncio.Barrier,
+    producer_task: asyncio.Task[None],
+) -> None:
+
+    await all_consumers_done.wait()
+
+    # Only merge to final table if the upstream producer has not failed and
+    # has not been cancelled. Upstream producer must be done by now as it
+    # is part of the termination condition for consumers.
+    producer_failed = producer_task.cancelled() or producer_task.exception() is not None
+
+    if not producer_failed:
+        _ = await client.merge_tables(
+            final=target_table,
+            stage=consumer_tables,
+        )
 
 
-def _get_merge_settings(
-    model: BatchExportModel | BatchExportSchema | None,
-) -> MergeSettings | None:
-    """Return merge settings for models that require merging."""
-    if isinstance(model, BatchExportModel):
-        if model.name == "persons":
-            primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
-            version_key: collections.abc.Sequence[str] = ("person_version", "person_distinct_id_version")
-        elif model.name == "sessions":
-            primary_key = ("team_id", "session_id")
-            version_key = ("end_timestamp",)
-        # TODO: Support merges in 'events'?
-        else:
-            return None
-    else:
-        return None
-
-    return MergeSettings(primary_key, version_key)
-
-
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 
+    data_interval_end: str
     dataset_id: str
     table_id: str
     project_id: str | None = None
-    private_key: str | None = None
+    private_key: str | None = dataclasses.field(default=None, repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
     client_email: str | None = None
@@ -1347,8 +1493,10 @@ async def _get_google_cloud_service_account_integration(
         return None
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.google_cloud_service_account.credentials.aget(
+            inputs.team_id, inputs.integration_id
+        )
+    except IntegrationNotFound:
         raise BigQueryIntegrationNotFoundError(
             f"Google Cloud service account integration with id '{inputs.integration_id}' not found"
         )
@@ -1392,12 +1540,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         inputs.table_id,
     )
 
-    async with Heartbeater():
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None:
-            model = inputs.batch_export_model
-        else:
-            model = inputs.batch_export_schema
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
+        model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1410,6 +1554,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
@@ -1438,15 +1583,16 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         else:
             json_fields = set()
 
-        merge_settings = _get_merge_settings(model)
-        target_table = BigQueryTable.from_arrow_schema(
-            record_batch_schema,
-            table_id=inputs.table_id,
-            project_id=project_id,
-            dataset_id=inputs.dataset_id,
-            primary_key=merge_settings.primary_key if merge_settings else (),
-            version_key=merge_settings.version_key if merge_settings else (),
-        )
+        requires_merge = model.incremental_mode == IncrementalMode.MERGE
+        with handle_column_type_mapping_errors(model):
+            target_table = BigQueryTable.from_arrow_schema(
+                record_batch_schema,
+                table_id=inputs.table_id,
+                project_id=project_id,
+                dataset_id=inputs.dataset_id,
+                primary_key=model.primary_key if requires_merge else (),
+                version_key=model.version_key if requires_merge else (),
+            )
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         attempt = activity.info().attempt
@@ -1460,6 +1606,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 await ensure_our_google_cloud_credentials_are_valid()
             try:
                 bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+            except InvalidGoogleTokenUriError:
+                raise
             except Exception:
                 LOGGER.exception("Initialize client from service account failed")
                 # TODO: Migrate everyone and remove this
@@ -1491,8 +1639,10 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             )
 
         max_consumers = 1
+        max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES
         if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
             max_consumers = settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS
+            max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_MULTIPLE_CONSUMERS_UPLOAD_CHUNK_SIZE_BYTES
 
         async with bq_client:
             bigquery_target_table = await bq_client.get_or_create_table(target_table)
@@ -1540,9 +1690,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
             file_format: typing.Literal["Parquet", "JSONLines"] = "Parquet" if can_perform_merge else "JSONLines"
 
-            max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
-            all_consumers_done = asyncio.Barrier(max_consumers)
-            merge_semaphore = asyncio.Semaphore(1)
+            barrier_size = max_consumers + 1 if can_perform_merge else max_consumers
+            all_consumers_done = asyncio.Barrier(barrier_size)
+            merge_done = asyncio.Event()
 
             tasks = []
             try:
@@ -1562,20 +1712,32 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                 run_consumer(
                                     client=bq_client,
                                     consumer_table=consumer_table,
-                                    target_table=bigquery_target_table,
-                                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                                    model=model.name,
                                     file_format=file_format,
                                     queue=queue,
                                     transformer=transformer,
                                     all_consumers_done=all_consumers_done,
                                     producer_task=producer_task,
                                     merge=can_perform_merge,
-                                    merge_semaphore=merge_semaphore,
+                                    merge_done=merge_done,
                                     records_total=inputs.records_total if max_consumers == 1 else None,
                                 ),
                                 name=f"consumer-{index}",
                             )
                         )
+
+                    if can_perform_merge:
+                        merge_task = tg.create_task(
+                            merge_all_consumer_tables(
+                                client=bq_client,
+                                target_table=bigquery_target_table,
+                                consumer_tables=consumer_tables,
+                                all_consumers_done=all_consumers_done,
+                                producer_task=producer_task,
+                            )
+                        )
+                        merge_task.add_done_callback(lambda _: merge_done.set())
+
             except ExceptionGroup as eg:
                 has_only_one_type = len({type(exc) for exc in eg.exceptions}) == 1
                 if has_only_one_type:
@@ -1657,8 +1819,6 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
-            # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=bigquery_default_fields(),
             integration_id=inputs.integration_id,

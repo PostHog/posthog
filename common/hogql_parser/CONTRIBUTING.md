@@ -77,51 +77,37 @@ In that case run commands from [this step](https://github.com/PostHog/posthog/bl
 
 ## WebAssembly (JavaScript/TypeScript) build
 
-The HogQL parser can also be compiled to WebAssembly for use in JavaScript/TypeScript environments via the `@posthog/hogql-parser` workspace package.
+The HogQL parser also compiles to WebAssembly. The `@posthog/hogql-parser` npm package wraps it for JavaScript and TypeScript.
 
 ### Prerequisites
 
-1. Install [Emscripten](https://emscripten.org/docs/getting_started/downloads.html):
-
-   ```bash
-   # macOS
-   brew install emscripten
-
-   # Ubuntu/Debian
-   sudo apt-get install emscripten
-   ```
-
-2. Install Ninja (recommended for faster builds):
-
-   ```bash
-   # macOS
-   brew install ninja
-
-   # Ubuntu/Debian
-   sudo apt-get install ninja-build
-   ```
+The repo's flox environment provides Emscripten, CMake and Ninja at the versions CI uses (`.github/actions/setup-emsdk` pins the Emscripten version). Run the build inside `flox activate`.
 
 ### Building
 
-From the repository root:
-
 ```bash
-# Using Ninja (recommended, faster)
-pnpm --filter=@posthog/hogql-parser build
-
-# Or using Make
-pnpm --filter=@posthog/hogql-parser build:make
+cd common/hogql_parser
+npm run build          # Ninja
+npm run build:make     # or Make
 ```
 
-This will generate the following files in `common/hogql_parser/dist/`:
+This generates the following files in `common/hogql_parser/dist/`:
 
-- `hogql_parser_wasm.js` - ES module with embedded WASM
+- `hogql_parser_wasm.js` - ES module for Node.js, with embedded WASM
+- `hogql_parser_wasm_browser.js` - ES module for browsers and web workers
+- `hogql_parser_wasm.cjs` - CommonJS module for Jest
 - `index.cjs` - CommonJS wrapper
 - `index.d.ts` - TypeScript type definitions
 
+The glue must load under the app's content security policy, so `CMakeLists.txt` links it with `DYNAMIC_EXECUTION=0`. Check a fresh build with:
+
+```bash
+grep -a -c 'new Function(' dist/hogql_parser_wasm_browser.js   # must print 0
+```
+
 ### Using in the frontend
 
-The frontend uses this as a workspace dependency. After building, the parser can be used:
+The frontend pins the published npm package in `frontend/package.json`. To release a new version, bump `version` in `common/hogql_parser/package.json` in your PR. The `Release hogql-parser npm` workflow then builds the package, publishes it to npm, and commits the new pin to your branch.
 
 ```typescript
 import createHogQLParser from '@posthog/hogql-parser'

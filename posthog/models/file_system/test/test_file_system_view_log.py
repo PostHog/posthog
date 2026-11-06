@@ -1,7 +1,7 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Protocol, cast
 
-from freezegun import freeze_time
+import time_machine
 
 from django.test import TestCase
 
@@ -10,7 +10,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, log_file_system_view
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class FileSystemWithLastViewed(Protocol):
@@ -34,13 +34,13 @@ class TestFileSystemViewLog(TestCase):
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
 
-        with freeze_time("2024-01-01T10:00:00Z"):
+        with time_machine.travel("2024-01-01T10:00:00Z", tick=False):
             log_file_system_view(user=self.user, obj=insight)
 
-        with freeze_time("2024-01-02T10:00:00Z"):
+        with time_machine.travel("2024-01-02T10:00:00Z", tick=False):
             log_file_system_view(user=self.user, obj=dashboard)
 
-        with freeze_time("2024-01-03T10:00:00Z"):
+        with time_machine.travel("2024-01-03T10:00:00Z", tick=False):
             log_file_system_view(user=self.user, obj=dashboard)
 
         view_order = [
@@ -89,13 +89,13 @@ class TestFileSystemViewLog(TestCase):
             last_modified_by=self.user,
         )
 
-        with freeze_time("2024-02-01T10:00:00Z"):
+        with time_machine.travel("2024-02-01T10:00:00Z", tick=False):
             log_file_system_view(user=self.user, obj=insight)
 
-        with freeze_time("2024-02-01T10:00:03Z"):
+        with time_machine.travel("2024-02-01T10:00:03Z", tick=False):
             log_file_system_view(user=self.user, obj=insight)
 
-        with freeze_time("2024-02-01T10:00:10Z"):
+        with time_machine.travel("2024-02-01T10:00:10Z", tick=False):
             log_file_system_view(user=self.user, obj=insight)
 
         logs = FileSystemViewLog.objects.filter(team=self.team, user=self.user, type="insight", ref=insight.short_id)
@@ -104,6 +104,16 @@ class TestFileSystemViewLog(TestCase):
             logs.first().viewed_at if logs.first() else None,  # type: ignore
             datetime(2024, 2, 1, 10, 0, 10, tzinfo=UTC),
         )
+
+    def test_view_log_keeps_one_entry_per_project_day_for_the_last_five_weeks(self) -> None:
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+        for moment in ("2024-02-01T09:00:00Z", "2024-02-01T17:00:00Z", "2024-02-20T09:00:00Z", "2024-03-11T03:00:00Z"):
+            with time_machine.travel(moment, tick=False):
+                log_file_system_view(user=self.user, obj=self._representation(), team_id=self.team.id)
+
+        log = FileSystemViewLog.objects.get(team=self.team, user=self.user, type="doc", ref="ref-1")
+        self.assertEqual(log.view_days, [date(2024, 2, 20), date(2024, 3, 10)])
 
     def _representation(self, *, surface: str = "web", ref: str = "ref-1") -> FileSystemRepresentation:
         return FileSystemRepresentation(base_folder="", type="doc", ref=ref, name="", href="", meta={}, surface=surface)

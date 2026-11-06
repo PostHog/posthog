@@ -4,16 +4,18 @@ from typing import Literal
 from posthog.test.base import BaseTest
 
 from django.apps import apps
-from django.db.models import ForeignKey, Model
+from django.db.models import ForeignKey, Model, UUIDField
 from django.test import SimpleTestCase
 from django.urls import get_resolver
 
 from parameterized import parameterized
 
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
+    DatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
     LazyJoin,
@@ -27,9 +29,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
-from posthog.rbac.user_access_control import RESOURCE_INHERITANCE_MAP
-
-from ee.api.rbac.access_control import AccessControlViewSetMixin
+from products.access_control.backend.facade.user_access_control import RESOURCE_INHERITANCE_MAP
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 ALL_POSTGRES_SYSTEM_TABLES: list[tuple[str, PostgresTable]] = [
     (name, node.table) for name, node in SystemTables().children.items() if isinstance(node.table, PostgresTable)
@@ -43,20 +44,15 @@ _SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
 # from the viewset. Declared by db_table so product internals stay unimported here.
 _FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
     "customer_analytics_account": "account",
+    "customer_analytics_customertask": "customer_task",
 }
 
-# Team-level definition tables gated under an object-restrictable scope for resource-level
-# access only: their rows describe shapes shared by every account, not any single account's
-# data, so object-level denies don't apply (the default pk guard never matches a denied id).
+# Team-level definition tables gated under an object-restrictable scope for resource-level access
+# only, declared by `resource_level_access_only` on the table itself because it drives the runtime
+# decision too: their rows describe shapes shared by every object of the resource, so object-level
+# grants never key them.
 _SCOPE_GATED_METADATA_TABLES: frozenset[str] = frozenset(
-    {
-        "custom_property_definitions",
-        "account_relationship_definitions",
-        # Team-level messaging data not tied to any single flow; MessagePreferencesViewSet
-        # grants the same rows at resource level (hog_flow:read) with no object-level check.
-        "message_categories",
-        "message_recipient_preferences",
-    }
+    name for name, table in _SCOPED_SYSTEM_TABLES.items() if table.resource_level_access_only
 )
 
 
@@ -127,7 +123,14 @@ def _object_grant_scopes() -> frozenset[str]:
 
 
 class TestPostgresTable(BaseTest):
-    def _init_database(self, *, predicates=None, extra_fields=None):
+    def _init_database(
+        self,
+        *,
+        predicates: list[Expr] | None = None,
+        extra_fields: dict[str, DatabaseField] | None = None,
+        postgres_pushdown_values: dict[str, str | int | bool] | None = None,
+        push_team_guard_with_predicates: bool = False,
+    ) -> None:
         self.database = Database.create_for(team=self.team)
 
         fields = {
@@ -145,6 +148,12 @@ class TestPostgresTable(BaseTest):
                     name="postgres_table",
                     postgres_table_name="some_table_on_postgres",
                     **({} if predicates is None else {"predicates": predicates}),
+                    **(
+                        {}
+                        if postgres_pushdown_values is None
+                        else {"postgres_pushdown_values": postgres_pushdown_values}
+                    ),
+                    push_team_guard_with_predicates=push_team_guard_with_predicates,
                     fields=fields,
                 ),
             )
@@ -157,8 +166,12 @@ class TestPostgresTable(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-    def _init_database_for_joins(self, *, predicates=None, extra_fields=None):
-        self._init_database(predicates=predicates, extra_fields=extra_fields)
+    def _init_database_for_joins(self, *, predicates=None, extra_fields=None, push_team_guard_with_predicates=False):
+        self._init_database(
+            predicates=predicates,
+            extra_fields=extra_fields,
+            push_team_guard_with_predicates=push_team_guard_with_predicates,
+        )
         self.database.tables.add_child(
             TableNode(
                 name="other_table",
@@ -234,6 +247,33 @@ class TestPostgresTable(BaseTest):
             self._select("SELECT id FROM postgres_table LIMIT 10"),
             f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), notEquals(postgres_table.status, %(hogql_val_5)s)) LIMIT 10",
         )
+
+    def test_predicate_with_postgres_pushdown_value(self):
+        self._init_database(
+            predicates=[parse_expr("status != 'deleted'")],
+            extra_fields={"status": StringDatabaseField(name="status")},
+            postgres_pushdown_values={"status": "active"},
+        )
+
+        sql = self._select("SELECT id FROM postgres_table LIMIT 10")
+
+        self.assertIn(
+            f"WHERE team_id = {self.team.pk} AND status = %(hogql_val_5)s)",
+            sql,
+        )
+
+    def test_predicate_keeps_team_guard_next_to_the_read_when_opted_in(self):
+        self._init_database_for_joins(
+            predicates=[parse_expr("status != 'deleted'")],
+            extra_fields={"status": StringDatabaseField(name="status")},
+            push_team_guard_with_predicates=True,
+        )
+
+        sql = self._select(
+            "SELECT other_table.id FROM other_table LEFT JOIN postgres_table ON postgres_table.id = other_table.ref_id"
+        )
+
+        self.assertIn(f"WHERE team_id = {self.team.pk}) AS postgres_table", sql)
 
     def test_predicate_combined_with_user_where(self):
         self._init_database(
@@ -438,6 +478,32 @@ class TestPostgresTablePrimaryKey(BaseTest):
         )
 
 
+class TestPostgresTableIdFieldType(SimpleTestCase):
+    """A UUID primary key must never be declared as an integer.
+
+    The declared type is what `system.information_schema` and the SQL editor report, and what the
+    resolver keys its UUID-literal validation off — so an integer declaration on a UUID column
+    misdocuments joins between system tables and swallows the friendly HogQL error for
+    `WHERE id = 'not-a-uuid'`, leaving a raw ClickHouse CANNOT_PARSE_UUID instead."""
+
+    @parameterized.expand(ALL_POSTGRES_SYSTEM_TABLES)
+    def test_uuid_pk_is_not_declared_as_an_integer(self, table_name: str, table: PostgresTable) -> None:
+        if not isinstance(table.fields.get("id"), IntegerDatabaseField):
+            return
+
+        model = _model_by_pg_table().get(table.postgres_table_name)
+        if model is None:
+            return
+
+        pk = model._meta.pk
+        self.assertNotIsInstance(
+            pk,
+            UUIDField,
+            f"system.{table_name}.id is declared as IntegerDatabaseField, but {model.__name__}'s "
+            f"primary key is a UUID column. Use UUIDDatabaseField.",
+        )
+
+
 class TestObjectAccessControlIdField(SimpleTestCase):
     """Every scoped system table must filter object-level denials against the correct column.
 
@@ -511,6 +577,55 @@ class TestObjectAccessControlIdField(SimpleTestCase):
         )
 
 
+class TestObjectAccessControlCreatorField(SimpleTestCase):
+    """REST exempts an object's creator from object-level denial
+    (`~Q(created_by=self._user)` in `filter_queryset_by_access_level`), and the HogQL guard
+    reproduces that only for tables that declare `access_control_creator_id_field` and expose the
+    column. A restrictable table that has a creator but doesn't declare it silently hides rows from
+    the person who created them, so require the declaration wherever REST would honor it."""
+
+    @parameterized.expand(sorted(_SCOPED_SYSTEM_TABLES))
+    def test_creator_field_is_declared_and_queryable(self, table_name: str) -> None:
+        table = _SCOPED_SYSTEM_TABLES[table_name]
+        model = _model_by_pg_table().get(table.postgres_table_name)
+        assert model is not None, f"could not resolve a Django model for system.{table_name}"
+
+        registry = _object_grant_registry()
+        rows_are_the_object = registry.get(model) == table.access_scope and not table.resource_level_access_only
+        model_columns = {field.attname for field in model._meta.get_fields() if hasattr(field, "attname")}
+
+        if not rows_are_the_object:
+            # A child row's creator isn't the parent's, and metadata rows have no denied object at
+            # all, so a declaration here would exempt the wrong person.
+            self.assertIsNone(
+                table.access_control_creator_id_field,
+                f"system.{table_name} rows are not the access-controlled object; a creator exemption "
+                f"would apply to the wrong person — remove access_control_creator_id_field.",
+            )
+            return
+
+        if "created_by_id" not in model_columns:
+            self.assertIsNone(
+                table.access_control_creator_id_field,
+                f"system.{table_name}'s model has no creator; remove access_control_creator_id_field.",
+            )
+            return
+
+        self.assertEqual(
+            table.access_control_creator_id_field,
+            "created_by_id",
+            f"system.{table_name} is object-restrictable under '{table.access_scope}' and its rows have a "
+            f"creator, so REST keeps them visible to that creator. Set "
+            f'access_control_creator_id_field="created_by_id" so HogQL does too.',
+        )
+        self.assertIn(
+            "created_by_id",
+            table.fields,
+            f"system.{table_name} declares a creator exemption, but the guard can only reference an "
+            f"exposed field — add created_by_id to its fields.",
+        )
+
+
 class TestSystemTableAccessScope(SimpleTestCase):
     """A system table's `access_scope` must be the concrete resource under which object-level
     access control grants are stored — never a pure umbrella parent.
@@ -525,9 +640,14 @@ class TestSystemTableAccessScope(SimpleTestCase):
         access_scope = _SCOPED_SYSTEM_TABLES[table_name].access_scope
 
         # A pure umbrella is a parent in the inheritance map that is never itself a
-        # `scope_object` — so object grants can only ever live on its children, not on it.
+        # `scope_object`, while a child is — so object grants live on its children, not on it.
+        # A parent whose children store no object grants either (`task` for `inbox`) has none to miss.
         grant_scopes = _object_grant_scopes()
-        pure_umbrellas = {parent for parent in RESOURCE_INHERITANCE_MAP.values() if parent not in grant_scopes}
+        pure_umbrellas = {
+            parent
+            for child, parent in RESOURCE_INHERITANCE_MAP.items()
+            if parent not in grant_scopes and child in grant_scopes
+        }
 
         if access_scope in pure_umbrellas:
             children = sorted(child for child, parent in RESOURCE_INHERITANCE_MAP.items() if parent == access_scope)

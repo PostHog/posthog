@@ -8,7 +8,6 @@ import {
     insightSceneStoryParameters,
 } from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { TrendInsight } from 'scenes/trends/Trends'
 
 import { mswDecorator } from '~/mocks/browser'
 import trendsValueFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
@@ -18,6 +17,8 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import type { InsightLogicProps, InsightShortId } from '~/types'
 import { InsightType } from '~/types'
+
+import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
 import { TrendsBarChart } from './TrendsBarChart'
 
@@ -91,14 +92,17 @@ export default meta
 
 let uniqueNode = 0
 
-function Stage({ children }: { children: React.ReactNode }): JSX.Element {
+function Stage({ children, width = 720 }: { children: React.ReactNode; width?: number }): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ height: 360, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
+        <div style={{ height: 360, width, display: 'flex', flexDirection: 'column' }}>{children}</div>
     )
 }
 
-function renderTrendsBarChart(insightFixture: any): JSX.Element {
+function renderTrendsBarChart(
+    insightFixture: any,
+    { embedded = false, width = 720 }: { embedded?: boolean; width?: number } = {}
+): JSX.Element {
     const [dashboardItemId] = useState(() => `TrendsBarChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
@@ -113,8 +117,8 @@ function renderTrendsBarChart(insightFixture: any): JSX.Element {
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <Stage>
-                    <TrendsBarChart />
+                <Stage width={width}>
+                    <TrendsBarChart embedded={embedded} />
                 </Stage>
             </BindLogic>
         </BindLogic>
@@ -169,19 +173,6 @@ const PREVIOUS_LABELS = [
     '3-Jul-2023',
 ]
 
-const ACTION = {
-    id: '$pageview',
-    type: 'events',
-    order: 0,
-    name: '$pageview',
-    custom_name: null,
-    math: 'total',
-    math_property: null,
-    math_hogql: null,
-    math_group_type_index: null,
-    properties: {},
-}
-
 // Compare-against-previous in unstacked-bar mode renders two bars per band (previous, current).
 // Pre-fix, annotations anchored to the band center landed on the previous-period bar.
 // The numbers below are intentionally distinct so the snapshot diffs the tall current bars
@@ -206,7 +197,7 @@ const COMPARE_BAR_INSIGHT = {
     dashboard_tiles: [],
     result: [
         {
-            action: ACTION,
+            order: 0,
             label: '$pageview',
             count: 700,
             data: [120, 95, 110, 130, 140, 80, 125],
@@ -214,16 +205,9 @@ const COMPARE_BAR_INSIGHT = {
             days: CURRENT_DAYS,
             compare: true,
             compare_label: 'current',
-            filter: {
-                date_from: '2023-07-04T00:00:00Z',
-                date_to: '2023-07-10T23:59:59Z',
-                display: 'ActionsUnstackedBar',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
         {
-            action: ACTION,
+            order: 0,
             label: '$pageview',
             count: 420,
             data: [70, 60, 65, 75, 80, 50, 70],
@@ -231,13 +215,6 @@ const COMPARE_BAR_INSIGHT = {
             days: PREVIOUS_DAYS,
             compare: true,
             compare_label: 'previous',
-            filter: {
-                date_from: '2023-06-27T00:00:00Z',
-                date_to: '2023-07-03T23:59:59Z',
-                display: 'ActionsUnstackedBar',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
     ],
     query: {
@@ -280,7 +257,7 @@ const AGGREGATED_COMPARE_BREAKDOWN_INSIGHT = {
     dashboard_tiles: [],
     result: [
         {
-            action: ACTION,
+            order: 0,
             label: 'Chrome',
             count: 0,
             aggregated_value: 900,
@@ -290,16 +267,9 @@ const AGGREGATED_COMPARE_BREAKDOWN_INSIGHT = {
             breakdown_value: 'Chrome',
             compare: true,
             compare_label: 'current',
-            filter: {
-                date_from: '2023-07-04T00:00:00Z',
-                date_to: '2023-07-10T23:59:59Z',
-                display: 'ActionsBarValue',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
         {
-            action: ACTION,
+            order: 0,
             label: 'Chrome',
             count: 0,
             aggregated_value: 600,
@@ -309,16 +279,9 @@ const AGGREGATED_COMPARE_BREAKDOWN_INSIGHT = {
             breakdown_value: 'Chrome',
             compare: true,
             compare_label: 'previous',
-            filter: {
-                date_from: '2023-06-27T00:00:00Z',
-                date_to: '2023-07-03T23:59:59Z',
-                display: 'ActionsBarValue',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
         {
-            action: ACTION,
+            order: 0,
             label: 'Safari',
             count: 0,
             aggregated_value: 500,
@@ -328,16 +291,9 @@ const AGGREGATED_COMPARE_BREAKDOWN_INSIGHT = {
             breakdown_value: 'Safari',
             compare: true,
             compare_label: 'current',
-            filter: {
-                date_from: '2023-07-04T00:00:00Z',
-                date_to: '2023-07-10T23:59:59Z',
-                display: 'ActionsBarValue',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
         {
-            action: ACTION,
+            order: 0,
             label: 'Safari',
             count: 0,
             aggregated_value: 350,
@@ -347,13 +303,6 @@ const AGGREGATED_COMPARE_BREAKDOWN_INSIGHT = {
             breakdown_value: 'Safari',
             compare: true,
             compare_label: 'previous',
-            filter: {
-                date_from: '2023-06-27T00:00:00Z',
-                date_to: '2023-07-03T23:59:59Z',
-                display: 'ActionsBarValue',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
     ],
     query: {
@@ -401,68 +350,40 @@ const PERCENT_STACK_BREAKDOWN_INSIGHT = {
     dashboard_tiles: [],
     result: [
         {
-            action: ACTION,
+            order: 0,
             label: 'Chrome',
             count: 14000,
             data: [4000, 3500, 3000, 1500, 1200, 600, 200],
             labels: CURRENT_LABELS,
             days: CURRENT_DAYS,
             breakdown_value: 'Chrome',
-            filter: {
-                date_from: '2023-07-04T00:00:00Z',
-                date_to: '2023-07-10T23:59:59Z',
-                display: 'ActionsBar',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
         {
-            action: ACTION,
+            order: 0,
             label: 'Safari',
             count: 6500,
             data: [400, 800, 1500, 1800, 1500, 400, 100],
             labels: CURRENT_LABELS,
             days: CURRENT_DAYS,
             breakdown_value: 'Safari',
-            filter: {
-                date_from: '2023-07-04T00:00:00Z',
-                date_to: '2023-07-10T23:59:59Z',
-                display: 'ActionsBar',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
         {
-            action: ACTION,
+            order: 0,
             label: 'Firefox',
             count: 2200,
             data: [200, 250, 300, 500, 500, 350, 100],
             labels: CURRENT_LABELS,
             days: CURRENT_DAYS,
             breakdown_value: 'Firefox',
-            filter: {
-                date_from: '2023-07-04T00:00:00Z',
-                date_to: '2023-07-10T23:59:59Z',
-                display: 'ActionsBar',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
         {
-            action: ACTION,
+            order: 0,
             label: 'Edge',
             count: 900,
             data: [80, 120, 150, 200, 200, 100, 50],
             labels: CURRENT_LABELS,
             days: CURRENT_DAYS,
             breakdown_value: 'Edge',
-            filter: {
-                date_from: '2023-07-04T00:00:00Z',
-                date_to: '2023-07-10T23:59:59Z',
-                display: 'ActionsBar',
-                insight: 'TRENDS',
-                interval: 'day',
-            },
         },
     ],
     query: {
@@ -492,7 +413,7 @@ export const PercentStackBreakdown: Story = {
 // 50 breakdown rows — verifies all bars are visible and the container grows rather than clipping.
 // If TrendsInsight--ActionsBarValue loses its max-height:none override, only ~20 rows show up.
 const BAR_VALUE_50_BREAKDOWNS = Array.from({ length: 50 }, (_, i) => ({
-    action: ACTION,
+    order: 0,
     label: `/blog/post-${String(i + 1).padStart(2, '0')}`,
     count: 0,
     aggregated_value: Math.max(5, Math.round(9000 / (i + 1))),
@@ -500,13 +421,6 @@ const BAR_VALUE_50_BREAKDOWNS = Array.from({ length: 50 }, (_, i) => ({
     labels: [],
     days: [],
     breakdown_value: `/blog/post-${String(i + 1).padStart(2, '0')}`,
-    filter: {
-        date_from: '2023-07-04T00:00:00Z',
-        date_to: '2023-07-10T23:59:59Z',
-        display: 'ActionsBarValue',
-        insight: 'TRENDS',
-        interval: 'day',
-    },
 }))
 
 const BAR_VALUE_50_BREAKDOWNS_INSIGHT = {

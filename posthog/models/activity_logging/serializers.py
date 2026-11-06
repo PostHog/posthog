@@ -49,7 +49,7 @@ class ActivityLogSerializer(serializers.Serializer):
     activity = serializers.CharField(read_only=True)
     scope = serializers.CharField(read_only=True)
     item_id = serializers.CharField(read_only=True)
-    detail = DetailSerializer(required=False)
+    detail = DetailSerializer(source="safe_detail", required=False)
     created_at = serializers.DateTimeField(read_only=True)
     is_system = serializers.BooleanField(
         read_only=True, help_text="Whether the activity was performed by the system rather than a user."
@@ -60,7 +60,7 @@ class ActivityLogSerializer(serializers.Serializer):
     client = serializers.CharField(
         read_only=True,
         allow_null=True,
-        help_text="API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.",
+        help_text="API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.",
     )
 
     @extend_schema_field({"type": "object", "nullable": True})

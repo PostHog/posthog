@@ -39,6 +39,19 @@
             ],
             "description": "Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types."
         },
+        "verdict": {
+            "anyOf": [
+                {
+                    "description": "* `yes` - Yes\n* `no` - No\n* `inconclusive` - Inconclusive",
+                    "enum": ["yes", "no", "inconclusive"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.\n\n* `yes` - Yes\n* `no` - No\n* `inconclusive` - Inconclusive"
+        },
         "window_days": {
             "default": 30,
             "description": "Trailing window of observations to count. Defaults to 30 days.",

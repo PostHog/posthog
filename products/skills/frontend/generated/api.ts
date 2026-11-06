@@ -11,6 +11,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CommunitySkillApi,
     CommunitySkillInstallApi,
+    CommunitySkillPublishResultApi,
+    CommunitySkillRenderApi,
+    CommunitySkillRenderResponseApi,
     CommunitySkillVoteResponseApi,
     CommunitySkillsListParams,
     LLMSkillApi,
@@ -20,17 +23,28 @@ import type {
     LLMSkillFileCreateApi,
     LLMSkillFileRenameApi,
     LLMSkillImportApi,
+    LLMSkillManifestApi,
+    LLMSkillMarkdownApi,
     LLMSkillMarketplaceCommandApi,
     LLMSkillMarketplaceIssueApi,
+    LLMSkillPublishToCommunityApi,
+    LLMSkillRenameApi,
     LLMSkillResolveResponseApi,
+    LLMSkillSearchResponseApi,
+    LlmSkillsBundleRetrieveParams,
     LlmSkillsListParams,
+    LlmSkillsManifestsListParams,
     LlmSkillsNameExportRetrieveParams,
     LlmSkillsNameFilesDestroyParams,
     LlmSkillsNameFilesRetrieveParams,
+    LlmSkillsNameManifestRetrieveParams,
     LlmSkillsNameRetrieveParams,
+    LlmSkillsNameSkillMdRetrieveParams,
     LlmSkillsResolveNameRetrieveParams,
+    LlmSkillsSearchRetrieveParams,
     PaginatedCommunitySkillListListApi,
     PaginatedLLMSkillListListApi,
+    PaginatedLLMSkillManifestListApi,
     PatchedLLMSkillPublishApi,
 } from './api.schemas'
 
@@ -111,6 +125,30 @@ export const communitySkillsInstallCreate = async (
     })
 }
 
+export const getCommunitySkillsRenderCreateUrl = (projectId: string, slug: string) => {
+    return `/api/projects/${projectId}/community_skills/${slug}/render/`
+}
+
+/**
+ * Bind a catalog entry's template variables and return the text a create form starts from.
+ *
+ * Persists nothing, so it needs no more access than reading the catalog already does — the
+ * result is prefill, and the caller creates the skill or scout through its own product's path.
+ */
+export const communitySkillsRenderCreate = async (
+    projectId: string,
+    slug: string,
+    communitySkillRenderApi?: CommunitySkillRenderApi,
+    options?: RequestInit
+): Promise<CommunitySkillRenderResponseApi> => {
+    return apiMutator<CommunitySkillRenderResponseApi>(getCommunitySkillsRenderCreateUrl(projectId, slug), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(communitySkillRenderApi),
+    })
+}
+
 export const getCommunitySkillsVoteCreateUrl = (projectId: string, slug: string) => {
     return `/api/projects/${projectId}/community_skills/${slug}/vote/`
 }
@@ -170,6 +208,36 @@ export const llmSkillsCreate = async (
     })
 }
 
+export const getLlmSkillsBundleRetrieveUrl = (projectId: string, params?: LlmSkillsBundleRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/bundle/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/bundle/`
+}
+
+/**
+ * One zip of the requesting user's store skills, for unpacking into a skills directory.
+ */
+export const llmSkillsBundleRetrieve = async (
+    projectId: string,
+    params?: LlmSkillsBundleRetrieveParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getLlmSkillsBundleRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getLlmSkillsImportCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_skills/import/`
 }
@@ -186,6 +254,36 @@ export const llmSkillsImportCreate = async (
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getLlmSkillsManifestsListUrl = (projectId: string, params?: LlmSkillsManifestsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/manifests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/manifests/`
+}
+
+/**
+ * The resource manifest of the latest version of each skill, paged and filtered like the list.
+ */
+export const llmSkillsManifestsList = async (
+    projectId: string,
+    params?: LlmSkillsManifestsListParams,
+    options?: RequestInit
+): Promise<PaginatedLLMSkillManifestListApi> => {
+    return apiMutator<PaginatedLLMSkillManifestListApi>(getLlmSkillsManifestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -450,6 +548,117 @@ export const llmSkillsNameFilesDestroy = async (
     })
 }
 
+export const getLlmSkillsNameManifestRetrieveUrl = (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameManifestRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/name/${skillName}/manifest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/name/${skillName}/manifest/`
+}
+
+/**
+ * Every file of one skill with the digest and size of the bytes the store serves for it.
+ *
+ * Answers an unservable skill with 200 too, so a caller can log why it skips the skill.
+ */
+export const llmSkillsNameManifestRetrieve = async (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameManifestRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillManifestApi> => {
+    return apiMutator<LLMSkillManifestApi>(getLlmSkillsNameManifestRetrieveUrl(projectId, skillName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsNamePublishCommunityCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/projects/${projectId}/llm_skills/name/${skillName}/publish-community/`
+}
+
+export const llmSkillsNamePublishCommunityCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillPublishToCommunityApi: LLMSkillPublishToCommunityApi,
+    options?: RequestInit
+): Promise<CommunitySkillPublishResultApi> => {
+    return apiMutator<CommunitySkillPublishResultApi>(getLlmSkillsNamePublishCommunityCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillPublishToCommunityApi),
+    })
+}
+
+export const getLlmSkillsNameRenameCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/projects/${projectId}/llm_skills/name/${skillName}/rename/`
+}
+
+export const llmSkillsNameRenameCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillRenameApi: LLMSkillRenameApi,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameRenameCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillRenameApi),
+    })
+}
+
+export const getLlmSkillsNameSkillMdRetrieveUrl = (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameSkillMdRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/name/${skillName}/skill-md/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/name/${skillName}/skill-md/`
+}
+
+/**
+ * The rendered SKILL.md plus its frontmatter as JSON, for a host that serves the file.
+ *
+ * Both halves come from one renderer, so a digest a client takes over ``content`` still
+ * describes the fields it reads from ``frontmatter``.
+ */
+export const llmSkillsNameSkillMdRetrieve = async (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameSkillMdRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillMarkdownApi> => {
+    return apiMutator<LLMSkillMarkdownApi>(getLlmSkillsNameSkillMdRetrieveUrl(projectId, skillName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getLlmSkillsResolveNameRetrieveUrl = (
     projectId: string,
     skillName: string,
@@ -477,6 +686,33 @@ export const llmSkillsResolveNameRetrieve = async (
     options?: RequestInit
 ): Promise<LLMSkillResolveResponseApi> => {
     return apiMutator<LLMSkillResolveResponseApi>(getLlmSkillsResolveNameRetrieveUrl(projectId, skillName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsSearchRetrieveUrl = (projectId: string, params: LlmSkillsSearchRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/search/`
+}
+
+export const llmSkillsSearchRetrieve = async (
+    projectId: string,
+    params: LlmSkillsSearchRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillSearchResponseApi> => {
+    return apiMutator<LLMSkillSearchResponseApi>(getLlmSkillsSearchRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

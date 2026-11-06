@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import F, Model, Prefetch, QuerySet
+from django.db.models import F, Model, Prefetch, QuerySet, TextChoices
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -34,19 +34,30 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
     normalize_search_term,
 )
+from posthog.helpers.verified_domain_enforcement import verified_domain_email_q
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.organization_offboarding import OrganizationOffboarding
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
-from posthog.rbac.user_access_control import get_project_scoped_visible_membership_ids
 from posthog.utils import posthoganalytics
+
+from products.access_control.backend.facade.subject_access_control import get_project_scoped_visible_membership_ids
+from products.access_control.backend.presentation.access_control_organization_members import (
+    OrganizationMemberProjectAccessViewSetMixin,
+)
 
 tracer = trace.get_tracer(__name__)
 
 # Only index-backed orderings are allowed. `-joined_at` is served by the
 # `(organization, -joined_at)` composite index; other fields would force a
 # full scan + sort and can time out for large organizations.
-ALLOWED_ORDERINGS = frozenset({"joined_at", "-joined_at"})
+# `joined_at` is not unique, so it cannot page on its own. Members who joined at
+# the same time can repeat on one page and go missing from another.
+ALLOWED_ORDERINGS: dict[str, tuple[str, str]] = {
+    "joined_at": ("joined_at", "id"),
+    "-joined_at": ("-joined_at", "-id"),
+}
 DEFAULT_ORDERING = "-joined_at"
 
 
@@ -142,6 +153,38 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
     )
 
 
+class MemberOffboardingResourceKind(TextChoices):
+    DASHBOARD = "dashboard", "Dashboard"
+    INSIGHT = "insight", "Insight"
+    NOTEBOOK = "notebook", "Notebook"
+    RECORDING = "recording", "Session recording"
+    SUBSCRIPTION = "subscription", "Subscription"
+    ALERT = "alert", "Alert"
+
+
+class MemberOffboardingResourceSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Opaque identifier used to update this resource during offboarding.")
+    resource_id = serializers.CharField(help_text="Identifier accepted by the resource’s own API.")
+    kind = serializers.ChoiceField(
+        choices=MemberOffboardingResourceKind.choices,
+        help_text="The kind of public object or automated delivery.",
+    )
+    name = serializers.CharField(help_text="The resource's display name.")
+    team_id = serializers.IntegerField(help_text="Project containing the resource.")
+    project_name = serializers.CharField(help_text="Name of the project containing the resource.")
+    created_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the subscription was created, if applicable."
+    )
+    destination_type = serializers.CharField(
+        required=False, allow_null=True, help_text="Subscription delivery channel: email, slack, or teams."
+    )
+    destination = serializers.CharField(
+        required=False, allow_null=True, help_text="Subscription recipients, Slack channels, or safe webhook host."
+    )
+    password_protected = serializers.BooleanField(help_text="Whether all active public links require a password.")
+    url = serializers.CharField(allow_null=True, help_text="Project-scoped path to open the resource in PostHog.")
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 @extend_schema_view(
     list=extend_schema(
@@ -159,11 +202,27 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
                 type=OpenApiTypes.STR,
                 description="Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
             ),
+            OpenApiParameter(
+                name="email_domain",
+                type=OpenApiTypes.STR,
+                description="Only return members whose email address is on this domain (case-insensitive).",
+            ),
+            OpenApiParameter(
+                name="outside_verified_domains",
+                type=OpenApiTypes.BOOL,
+                description="When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.",
+            ),
+            OpenApiParameter(
+                name="levels",
+                type=OpenApiTypes.STR,
+                description="Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.",
+            ),
         ],
     ),
 )
 class OrganizationMemberViewSet(
     TeamAndOrgViewSetMixin,
+    OrganizationMemberProjectAccessViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
@@ -219,7 +278,7 @@ class OrganizationMemberViewSet(
                 TrigramSearchField("user__last_name"),
                 TrigramSearchField("user__email"),
             ),
-            tiebreakers=("user__first_name",),
+            tiebreakers=("user__first_name", "id"),
         )
 
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -242,6 +301,21 @@ class OrganizationMemberViewSet(
             if "email" in params:
                 queryset = queryset.filter(user__email=params["email"])
 
+            if "email_domain" in params:
+                queryset = queryset.filter(user__email__iendswith=f"@{params['email_domain']}")
+
+            if params.get("outside_verified_domains") == "true":
+                admitted = verified_domain_email_q(organization)
+                if admitted is not None:
+                    queryset = queryset.exclude(admitted)
+
+            if "levels" in params:
+                try:
+                    levels = [int(level) for level in params["levels"].split(",") if level]
+                except ValueError:
+                    raise serializers.ValidationError({"levels": "Must be a comma-separated list of integers."})
+                queryset = queryset.filter(level__in=levels)
+
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
 
@@ -256,11 +330,8 @@ class OrganizationMemberViewSet(
             if normalize_search_term(search):
                 queryset = self._apply_search(queryset, search)
             else:
-                order = self.request.GET.get("order")
-                if order in ALLOWED_ORDERINGS:
-                    queryset = queryset.order_by(order)
-                else:
-                    queryset = queryset.order_by(DEFAULT_ORDERING)
+                order = self.request.GET.get("order") or DEFAULT_ORDERING
+                queryset = queryset.order_by(*ALLOWED_ORDERINGS.get(order, ALLOWED_ORDERINGS[DEFAULT_ORDERING]))
 
         return queryset
 
@@ -290,6 +361,22 @@ class OrganizationMemberViewSet(
         )
 
         instance.user.leave(organization=instance.organization)
+
+    @extend_schema(
+        operation_id="members_offboarding_preview_retrieve", responses=MemberOffboardingResourceSerializer(many=True)
+    )
+    @action(detail=True, methods=["get"], required_scopes=["organization_member:write"], pagination_class=None)
+    def offboarding_preview(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = cast(OrganizationMembership, self.get_object())
+        requesting_membership = OrganizationMembership.objects.get(
+            user_id=cast(User, request.user).id,
+            organization=instance.organization,
+        )
+        requesting_membership.validate_update(instance)
+        if instance.user_id == request.user.id:
+            return Response([])
+        resources = OrganizationOffboarding(instance).resources()
+        return Response(MemberOffboardingResourceSerializer(resources, many=True).data)
 
     @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
     @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])

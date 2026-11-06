@@ -57,6 +57,30 @@ describe('taxonomicPropertyFilterLogic', () => {
             expect(logic.values.activeTaxonomicGroup?.type).toBe(TaxonomicFilterGroupType.EventProperties)
         })
 
+        it('selects ErrorTrackingIssues group and its values endpoint for an issue property filter', () => {
+            logic.unmount()
+            logic = taxonomicPropertyFilterLogic({
+                filters: [
+                    {
+                        key: 'severity',
+                        type: PropertyFilterType.ErrorTrackingIssue,
+                        value: null,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+                setFilter: () => {},
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.ErrorTrackingIssues],
+                filterIndex: 0,
+                pageKey: 'test-active-group-error-tracking-issue',
+            })
+            logic.mount()
+
+            expect(logic.values.activeTaxonomicGroup?.type).toBe(TaxonomicFilterGroupType.ErrorTrackingIssues)
+            expect(logic.values.activeTaxonomicGroup?.valuesEndpoint?.('severity')).toContain(
+                '/error_tracking/issues/values?key=severity'
+            )
+        })
+
         it('defaults to first group when filter is empty', () => {
             logic.unmount()
             logic = taxonomicPropertyFilterLogic({
@@ -159,14 +183,20 @@ describe('taxonomicPropertyFilterLogic', () => {
             )
         })
 
-        it('creates EventMetadata filter with label from item name', () => {
-            selectAndExpect(
-                TaxonomicFilterGroupType.EventMetadata,
-                '$group_0',
-                PropertyFilterType.EventMetadata,
-                { type: PropertyFilterType.EventMetadata, key: '$group_0', label: 'Organization' },
-                { id: '$group_0', name: 'Organization' }
+        it.each([
+            ['an item with an id', '$group_0', { id: '$group_0', name: 'Organization' }, { label: 'Organization' }],
+            ['an item without an id', '$group_0', { name: 'Organization' }, { label: 'Organization' }],
+            ['a non-group item without an id', 'distinct_id', { name: 'distinct_id' }, {}],
+            ['no item', 'distinct_id', undefined, {}],
+        ])('creates EventMetadata filter from %s', (_, key, item, expectedLabel) => {
+            const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventMetadata)!
+            logic.actions.openDropdown()
+            logic.actions.selectItem(group, key, PropertyFilterType.EventMetadata, item)
+            expect(setFilterSpy).toHaveBeenCalledWith(
+                0,
+                expect.objectContaining({ type: PropertyFilterType.EventMetadata, key, ...expectedLabel })
             )
+            expect(logic.values.dropdownOpen).toBe(false)
         })
 
         it('closes the dropdown after selecting an item', () => {

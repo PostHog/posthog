@@ -24,6 +24,10 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.ai_observability.backend.summarization.llm.schema import (
     InterestingNote,
     SummarizationResponse,
@@ -35,9 +39,10 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.event_definitions.backend.models import PropertyDefinition
+from products.experiments.backend.facade.testing import acreate_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -52,7 +57,6 @@ from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, Ma
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
-from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models import Account
@@ -1423,11 +1427,11 @@ class TestReadDataTool(BaseTest):
             },
         )
 
-        experiment = await Experiment.objects.acreate(
-            team=self.team,
+        experiment_id = await acreate_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
             name="Test Experiment",
             description="An A/B test experiment",
-            feature_flag=flag,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1448,7 +1452,7 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
         )
 
-        result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+        result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment_id})
 
         assert "Test Experiment" in result
         assert "An A/B test experiment" in result
@@ -1467,11 +1471,11 @@ class TestReadDataTool(BaseTest):
             filters={},
         )
 
-        await Experiment.objects.acreate(
-            team=self.team,
+        await acreate_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
             name="Another Experiment",
             description="Second A/B test",
-            feature_flag=flag,
         )
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -1572,6 +1576,7 @@ class TestReadDataTool(BaseTest):
         mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         mock_content = VisualizationArtifactContent(name="Allowed Insight", query=mock_query)
         mock_insight = MagicMock(spec=Insight)
+        mock_insight.query = {"kind": "InsightVizNode", "source": mock_query.model_dump(exclude_none=True)}
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_visualization = AsyncMock(
@@ -1764,8 +1769,8 @@ class TestReadDataTool(BaseTest):
 
     async def test_read_experiment_denied_when_user_lacks_object_access(self):
         flag = await FeatureFlag.objects.acreate(team=self.team, key="exp-flag", name="Exp Flag", created_by=self.user)
-        experiment = await Experiment.objects.acreate(
-            team=self.team, name="Secret Experiment", feature_flag=flag, created_by=self.user
+        experiment_id = await acreate_experiment(
+            team_id=self.team.id, feature_flag_id=flag.id, name="Secret Experiment", created_by_id=self.user.id
         )
 
         user = MagicMock()
@@ -1779,19 +1784,24 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = False
+            mock_uac.check_access_level_for_ref.return_value = False
 
             with pytest.raises(MaxToolAccessDeniedError):
-                await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+                await tool._arun_impl({"kind": "experiment", "id": experiment_id})
 
-            mock_uac.check_access_level_for_object.assert_called_once()
+            mock_uac.check_access_level_for_ref.assert_called_once_with(
+                ObjectAccessRef(
+                    resource="experiment", id=str(experiment_id), team_id=self.team.id, created_by_id=self.user.id
+                ),
+                "viewer",
+            )
 
     async def test_read_experiment_allowed_when_user_has_object_access(self):
         flag = await FeatureFlag.objects.acreate(
             team=self.team, key="allowed-exp-flag", name="Allowed Exp Flag", created_by=self.user
         )
-        experiment = await Experiment.objects.acreate(
-            team=self.team, name="Allowed Experiment", feature_flag=flag, created_by=self.user
+        experiment_id = await acreate_experiment(
+            team_id=self.team.id, feature_flag_id=flag.id, name="Allowed Experiment", created_by_id=self.user.id
         )
 
         user = MagicMock()
@@ -1805,12 +1815,12 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = True
+            mock_uac.check_access_level_for_ref.return_value = True
 
-            result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+            result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment_id})
 
             assert "Allowed Experiment" in result
-            mock_uac.check_access_level_for_object.assert_called_once()
+            mock_uac.check_access_level_for_ref.assert_called_once()
 
     async def test_read_activity_log_delegates_to_activity_log_context(self):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -1980,15 +1990,49 @@ class TestReadDataTool(BaseTest):
         mock_summarize.assert_not_called()
         assert artifact is None
 
+    @parameterized.expand([("unrestricted", False), ("restricted", True)])
     @patch("ee.hogai.tools.read_data.tool.django_cache")
     @patch("ee.hogai.tools.read_data.tool.summarize")
     @patch("ee.hogai.tools.read_data.tool.format_trace_text_repr", return_value=("x" * 6000, False))
     @patch("ee.hogai.tools.read_data.tool.llm_trace_to_formatter_format", return_value=({}, []))
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     async def test_read_llm_trace_calls_summarize_on_cache_miss(
-        self, mock_execute, mock_to_formatter, mock_format_repr, mock_summarize, mock_cache
-    ):
-        mock_cache.get.return_value = None
+        self,
+        _name: str,
+        restricted: bool,
+        mock_execute: AsyncMock,
+        mock_to_formatter: MagicMock,
+        mock_format_repr: MagicMock,
+        mock_summarize: MagicMock,
+        mock_cache: MagicMock,
+    ) -> None:
+        if restricted:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            await self.organization.asave()
+            self.team.organization = self.organization
+            property_definition = await PropertyDefinition.objects.acreate(
+                team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+            )
+            await PropertyAccessControl.objects.acreate(
+                team=self.team,
+                property_definition=property_definition,
+                organization_member=await OrganizationMembership.objects.aget(
+                    organization=self.organization, user=self.user
+                ),
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+
+        unrestricted_key = f"llm_summary:{self.team.id}:trace:trace-1:minimal:default"
+        unrestricted_summary = _make_summary().model_copy(update={"title": "Unrestricted input summary"})
+        cache_entries = (
+            {unrestricted_key: {"summary": unrestricted_summary.model_dump(), "text_repr": "unrestricted input"}}
+            if restricted
+            else {}
+        )
+        mock_cache.get.side_effect = cache_entries.get
+        mock_cache.set.side_effect = lambda key, value, timeout: cache_entries.update({key: value})
         summary = _make_summary()
         mock_summarize.return_value = summary
         mock_execute.return_value = {"results": [_make_trace_data()]}
@@ -2004,12 +2048,20 @@ class TestReadDataTool(BaseTest):
         result, _ = await tool._arun_impl({"kind": "llm_trace", "trace_id": "trace-1"})
 
         assert "Test Summary Title" in result
+        assert "Unrestricted input summary" not in result
         mock_summarize.assert_called_once()
         mock_cache.set.assert_called_once()
         cache_key, cache_value, timeout = mock_cache.set.call_args[0]
-        assert cache_key == f"llm_summary:{self.team.id}:trace:trace-1:minimal:default"
+        assert (cache_key != unrestricted_key) is restricted
         assert cache_value["summary"] == summary.model_dump()
         assert timeout == 3600
+
+        cached_result, _ = await tool._arun_impl({"kind": "llm_trace", "trace_id": "trace-1"})
+
+        assert cached_result == result
+        mock_summarize.assert_called_once()
+        if restricted:
+            assert cache_entries[unrestricted_key]["summary"] == unrestricted_summary.model_dump()
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     async def test_read_llm_trace_not_found(self, mock_execute):

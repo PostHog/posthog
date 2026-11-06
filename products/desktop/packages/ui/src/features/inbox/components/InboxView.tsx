@@ -1,11 +1,12 @@
 import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { isInboxDetailPath } from "@posthog/core/inbox/reportMembership";
-import { InboxPageHeader } from "@posthog/ui/features/inbox/components/InboxPageHeader";
-import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { InboxHomePane } from "@posthog/ui/features/inbox/components/InboxHomePane";
+import { InboxTriagePane } from "@posthog/ui/features/inbox/components/InboxTriagePane";
+import { ReportsInboxView } from "@posthog/ui/features/inbox/components/ReportsInboxView";
 import { resetReportOpenTrackerHistory } from "@posthog/ui/features/inbox/hooks/useReportOpenTracker";
-import { useTrackInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackInboxViewed";
+import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
-import { Flex, Text } from "@radix-ui/themes";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 
@@ -17,20 +18,18 @@ import { useEffect, useMemo } from "react";
 export function InboxView() {
   const headerContent = useMemo(
     () => (
-      <Flex align="center" gap="2" className="w-full min-w-0">
+      <div className="flex w-full min-w-0 items-center gap-2">
         <EnvelopeSimpleIcon size={12} className="shrink-0 text-gray-10" />
-        <Text
+        <span
           className="truncate whitespace-nowrap font-medium text-[13px]"
-          title="Inbox"
+          title="Self-driving"
         >
-          Inbox
-        </Text>
-      </Flex>
+          Self-driving
+        </span>
+      </div>
     ),
     [],
   );
-
-  useSetHeaderContent(headerContent);
 
   // Scope report-to-report navigation history to this inbox visit so the first
   // report opened after (re)entering the inbox has no stale previous_report_id.
@@ -38,18 +37,28 @@ export function InboxView() {
     resetReportOpenTrackerHistory();
   }, []);
 
-  useTrackInboxViewed();
-
-  const { counts } = useInboxAllReports();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isDetailView = isInboxDetailPath(pathname);
 
+  const spacesLayout = useChannelsLayout();
+  // Beside the rail's list the pane names nothing the column has not said.
+  const paneOwnsTitle = spacesLayout && !isDetailView;
+  useSetHeaderContent(paneOwnsTitle ? null : headerContent);
+
+  // The reports inbox is one sectioned, keyboard-triageable page. Detail
+  // routes keep their own bodies.
+  if (!isDetailView) {
+    if (isInboxTriagePath(pathname)) return <InboxTriagePane />;
+    // The view owns its height so its page header stays pinned while the
+    // sections scroll — the same shape ActivityView has.
+    return spacesLayout ? <InboxHomePane /> : <ReportsInboxView />;
+  }
+
   return (
-    <Flex direction="column" className="h-full min-h-0">
-      {!isDetailView && <InboxPageHeader counts={counts} />}
+    <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-auto">
         <Outlet />
       </div>
-    </Flex>
+    </div>
   );
 }

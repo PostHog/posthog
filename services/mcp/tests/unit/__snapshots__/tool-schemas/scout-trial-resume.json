@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "comparison_id": {
+            "description": "Saved comparison identity.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "comparison_id"],
+    "type": "object"
+}

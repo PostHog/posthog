@@ -12,27 +12,19 @@ export type BillingGaugeItemType = {
     value: number
 }
 
-export type BillingSectionId = 'overview' | 'usage' | 'spend'
-
-export type SeatStatus = 'active' | 'canceling' | 'pending' | 'pending_payment' | 'expired' | 'withdrawn'
-
-export interface SeatData {
-    id: string
-    user_distinct_id: string
-    product_key: string
-    plan_key: string
-    status: SeatStatus
-    end_reason: string | null
-    created_at: string | number
-    active_until: string | number | null
-    active_from: string | number | null
-}
+export type BillingSectionId = 'overview' | 'usage' | 'spend' | 'alerts'
 
 export interface BillingFilters {
     usage_types?: string[]
     team_ids?: number[]
     breakdowns?: ('type' | 'team')[]
     interval?: 'day' | 'week' | 'month'
+    /**
+     * With a project breakdown, show only this many highest-usage projects and fold the rest
+     * into a single "all other projects" series. Only sent when breaking down by project.
+     * `null` means show every project, which organizations with many projects cannot chart.
+     */
+    top_projects?: number | null
 }
 
 export type BillingUsageInteractionProps = {
@@ -49,12 +41,10 @@ export type BillingUsageInteractionProps = {
     interval: BillingFilters['interval']
 }
 
-export type BillingSeriesForCsv = {
-    id: number
-    label: string
-    data: number[]
-}
-
-export interface BuildBillingCsvOptions {
-    decimals?: number
-}
+/** How the usage and spend breakdowns are drawn.
+ *
+ * A line shows each series' own shape over time. A stacked bar shows what the total is made of,
+ * which is the question a spend breakdown is usually asked. Stacking only means something when
+ * every series shares a unit, so the logics gate it - see canStackSeries.
+ */
+export type BillingChartType = 'line' | 'bar'

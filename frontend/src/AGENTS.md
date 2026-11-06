@@ -1,17 +1,22 @@
 # Frontend agent guide (`frontend/src`)
 
-Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md` and the quill package guides remain authoritative — this file does not repeat them, it points at them.
+Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md`, [`.agents/code-style.md`](../../.agents/code-style.md), and the quill package guides remain authoritative, except that [`design.md`](./design.md) wins over a quill package guide for UI behind `today-rail-nav` — this file does not repeat them, it points at them.
+
+Before you build or edit any UI, or when a task asks to simplify or redesign one, read [`platform-ux.md`](./platform-ux.md). It decides what a surface shows and when (progressive disclosure first), on LemonUI and quill alike. Only the platform UX team changes the nav rail.
 
 ## Rule 1 — Reuse before you create
 
-**Before building any UI element, search for an existing one.** PostHog already has a badge, a label, a table, a tag, a card, a modal. Hand-rolling one with raw `<div>`/`<table>` + Tailwind is the single most common agent mistake here, and it produces unbounded, off-design output.
+**Before building any UI element, search for an existing one.** PostHog already has a badge, a label, a table, a tag, a card, a modal. Hand-rolling one with raw `<div>`/`<table>` + Tailwind is the single most common agent mistake here, and it produces unbounded, off-design output. Reuse is also how the product stays on-brand: Lemon/quill components carry PostHog's tokens, density, and interaction patterns, so a scene built from them looks like PostHog without anyone having to think about it.
 
 Where to look, in order:
 
 1. `frontend/src/lib/lemon-ui/` — the main-app default (~50 `Lemon*` components). Grep here first, and in most cases stop here.
 2. `frontend/src/lib/ui/` and `frontend/src/lib/components/` — older / app-specific shared pieces.
 
-`@posthog/quill` is **not** for this tree. It targets MCP apps and the desktop app, it's deliberately more compact than LemonUI, and the main app isn't being migrated onto it, so quill components read as out of place here. A handful of files already import it; treat those as exceptions rather than a pattern to copy.
+The `today-rail-nav` feature flag gates a redesign of the whole UI on `@posthog/quill`, built alongside the current UI and kept behind the flag for months. UI on that flag path uses quill and follows [`design.md`](./design.md) in this directory; read it before you build there. The current, flag-off UI stays on LemonUI and the lookup order above applies to it: do not add quill to it or convert it in place. Outside the flag, a handful of files already import quill; treat those as exceptions rather than a pattern to copy.
+
+For `@posthog/quill-charts` consumers in the main app and product frontends, use `useChartTheme` from [`lib/charts/hooks`](./lib/charts/hooks.ts).
+Prefer its `useChartConfig` helper for memoized configuration.
 
 Common reinventions and what to use instead:
 
@@ -25,12 +30,27 @@ Common reinventions and what to use instead:
 | a select / combobox / autocomplete  | `LemonSelect`, `LemonInputSelect`                                                         |
 | a card / panel                      | `LemonCard`                                                                               |
 | a modal / confirm dialog            | `LemonModal` / `LemonDialog`                                                              |
+| a date or time shown to a user      | `TZLabel` (`lib/components/TZLabel`), not `dayjs().fromNow()`/`.format()`, in quill too   |
 
-If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork.
+If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork. If you do end up building custom, stay on brand: system tokens and primitives only, matching the surrounding scene's density and flatness — and none of the generic AI-generated look (purple/blue gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion). The full slop-tell catalog is in the `/writing-ui-components` skill.
 
-> LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill genuinely applies (an MCP app, the desktop app), `packages/quill/packages/primitives/AGENTS.md` has its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
+The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 5 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
 
-## Rule 2 — Don't handwrite API types; use the generated ones
+> LemonUI vs quill lives in [`.agents/code-style.md`](../../.agents/code-style.md) ("Frontend"). If you're working somewhere quill applies (an MCP app, the desktop app, UI behind `today-rail-nav`), [`design.md`](./design.md) and `packages/quill/packages/primitives/AGENTS.md` have its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
+
+## Rule 2 — A product's UI goes in `products/<name>/frontend/`
+
+`frontend/src/scenes/<name>/` is not the default home for product UI, and an existing folder there is not evidence that new files belong in it — about 18 products currently have UI in both trees. App-level scenes (`settings`, `onboarding`, `billing`, `max`) do legitimately live here.
+
+Before adding a file or a directory under `scenes/`, check where that product stands:
+
+```sh
+python3 .agents/skills/placing-product-frontend-code/scripts/scene_product_split.py <scene-dir>
+```
+
+Invoke `/placing-product-frontend-code` for the decision table and for why the path matters — it drives merge-queue lane assignment, and a change anywhere under `frontend/` serializes against every other frontend PR.
+
+## Rule 3 — Don't handwrite API types; use the generated ones
 
 Django serializers are the source of truth. `hogli build:openapi` generates TypeScript types (suffix `Api`) and API functions. **Never write an `interface` that mirrors a backend serializer** — import the generated type instead.
 
@@ -42,22 +62,91 @@ Django serializers are the source of truth. `hogli build:openapi` generates Type
 
 When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API interface, invoke the `/adopting-generated-api-types` skill first.
 
-## Rule 3 — Business logic in kea, not React hooks
+## Rule 4 — Business logic in kea, not React hooks
 
-Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
+Covered by [`.agents/code-style.md`](../../.agents/code-style.md) ("Frontend"). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
+
+## Rule 5 — Structure and abstraction
+
+Full doctrine + convert-on-sight catalog: the `/writing-ui-components` skill. Load it before creating, moving, splitting, or restructuring any component or frontend file, extracting a shared component, or renaming frontend symbols. The always-on core:
+
+- **One component per file**, named after its export; named exports only. Every symbol has exactly one import path — no re-export shims, no new `index.ts` barrels; moving a symbol means updating every consumer in the same PR.
+- **Extract a shared component when call sites read as content, not markup** — at three occurrences, or two in one feature with a third clearly coming. If the generic needs a boolean to switch off half its behavior for one caller, it isn't one shape: leave the duplication. Keep new generics feature-local until a second feature needs them (promote via `lib/components/`; never import across `products/*`).
+- **Interactive elements are real `<button>`/`<a>`** — that's what `LemonButton`/quill triggers render. Never `onClick` on a `<div>`/Card.
+- **Loading, empty, and error are three different screens.** Never derive "empty" from data that hasn't resolved — branch on the loading/unknown state first.
+- **Renames sweep code symbols completely; wire strings stay frozen.** Event names, property names/values, flag keys, `data-attr` values, storage keys, and URL paths are API (dashboards, rollouts, and Playwright depend on them) — pin them with a comment instead of renaming.
+
+## Rule 6 — A narrow scene is normal; a phone is not
+
+Every surface a person reads has to hold up in a narrow scene.
+The width a component gets is not the window width: the nav sidebar takes ~215px, an open side panel ~512px more, and the scene pads 32px on top.
+So a 1280px window with the side panel open leaves a scene about 520px wide — narrower than a `md:` breakpoint ever fires at.
+That is a normal working setup, not an edge case, and it is the case agents skip.
+
+- **Break on the container, not the viewport.** `md:`/`lg:`/`xl:` track the window, so they fire long after the real space ran out. Container queries track the space the component actually has. `layout/navigation-3000/Navigation.tsx` names `main-content` and `main-content-container`, so `@min-[48rem]/main-content:` follows the main column. A shared component declares its own container instead, because it must respond wherever a caller places it — `lib/lemon-ui/LemonBanner/LemonBanner.tsx` is the pattern.
+- **Nothing clips and nothing scrolls sideways.** Rows of buttons, tags, or chips get `flex-wrap`. Long strings truncate. Side-by-side halves stack. An unwrapped action row is the most common miss.
+- **Cut decoration before content.** When something has to go at a narrow width, drop the illustration or the padding, not the explanation or the primary action.
+- **Do not build for mobile.** No phone-width layouts, no touch-sized targets, no `sm:` variants for a viewport nobody runs the app at. "Narrow" means a docked panel on a laptop.
+- **Look at it, don't reason about it.** Render the surface at a few widths before calling the work done. A story with a pinned container width snapshots the narrow case, so a regression shows up in visual review.
+
+## Rule 7 — Don't leave a changing bare text node next to siblings
+
+Page-translation extensions (Chrome and Edge in-page translate, the Google Translate widget) replace each text node they translate with a `<font>` element.
+React keeps pointing at the original node, which produces two defects — both of which land hardest on users outside English-speaking markets, since they're the ones with translation turned on:
+
+- **A crash.** Removing that text node, or inserting a sibling before it, throws `NotFoundError: Failed to execute 'removeChild' on 'Node'` ([react#11538](https://github.com/facebook/react/issues/11538)). `ErrorBoundary` remounts the subtree instead of dropping the scene, so this degrades rather than breaks — but a remount is still a backstop, not a licence to render the shape: it discards whatever state that subtree held.
+- **Silent staleness.** A text-only update writes `nodeValue` on the detached node, so the text freezes at whatever the extension translated. Live timers and countdowns just stop, and no backstop catches that.
+
+The hazard is specifically a **bare text node that has siblings**, because that's the only shape React tracks as its own node:
+
+```tsx
+<div>Computed {lastRefresh.fromNow()}</div>          {/* hazard: two bare text nodes */}
+<>{formatElapsed(seconds)}</>                        {/* hazard: a bare text node in the parent's children */}
+<span>{lastRefresh.fromNow()}</span>                 {/* safe: sole child, React writes parent.textContent */}
+```
+
+A sole text child is immune, so don't add anything there.
+For the hazardous shape, either wrap the changing part in its own element, or mark it `translate="no"`, or both:
+
+```tsx
+<span>Computed&nbsp;</span>
+<span translate="no">{lastRefresh.fromNow()}</span>
+```
+
+Scope it to the changing part and keep the static labels around it translatable.
+Nearly all of these render numbers, dates, or durations, so nothing of value goes untranslated.
+`queries/nodes/InsightViz/ComputationTimeWithRefresh` and `scenes/experiments/MetricsView/new/ElapsedTime` are the exemplars.
+A whole subtree of machine data (an event feed, an ID column) opts out at its container instead — `scenes/activity/live/LiveEventsFeed` marks every row `translate="no"` and leaves the headers translatable.
+
+## Rule 8 — A file statically imports only its own layer or a lower one
+
+The layers, lowest first, are `kernel`, `shell`, `query`, `features`.
+`kernel` holds shared primitives, for example `lib/utils`, `lib/lemon-ui`, `lib/api`, `queries/schema/`, and generated types.
+`shell` holds the rest of `lib/`, `layout/`, `models/`, and the top-level files of `frontend/src/` and `scenes/`.
+`query` holds the rest of `queries/`.
+`features` holds every scene folder and product.
+[`frontend/bin/layers.mjs`](../bin/layers.mjs) is the source of truth for the mapping. Read it when you are not sure of the layer of a path.
+`hogli lint:frontend-layers` fails on a new upward import. Fix it in one of these ways:
+
+1. Move the imported code down to the layer of the importer, or lower.
+2. Load it with a dynamic import: `lazyWithRetry()` or `retryImport(() => import(...))`.
+3. Register it in a registry that the higher layer fills.
+
+After you remove an upward import, run `hogli lint:frontend-layers --prune-baseline`.
+Never run `--update-baseline` to hide a new upward import.
 
 ## Typecheck & typegen cadence (don't over-run these)
 
 These are slow; run them at the right moment, not after every edit.
 
-- **TypeScript check** — `pnpm --filter=@posthog/frontend typescript:check` (runs `tsgo --noEmit` over the whole app). Rely on the editor/LSP while editing; run the full check **once before you call the work done**, not per-edit.
+- **TypeScript check** — `pnpm --filter=@posthog/frontend typescript:check` (runs `tsgo --noEmit` over the whole app; with under 24 GiB of memory headroom below the sandbox watchdog threshold it runs one checker under a Go heap limit, about three times slower, and under 12 GiB it refuses to start and tells you which background processes to stop). Rely on the editor/LSP while editing; run the full check **once before you call the work done**, not per-edit.
 - **kea typegen** (inline types) — regenerates automatically via `typegen:watch` while the dev server runs (`./bin/start` / `hogli start`). If you must regen one logic without the server, use `pnpm --filter=@posthog/frontend typegen:file <path>`. **Don't routinely run the full `typegen:write`** — it's a heavy whole-repo pass (multi-GB heap).
   All logic files use **inline types** by default: a generated `MakeLogicType` block sits above each `kea()` call, marked "Generated by kea-typegen". Agents may update those blocks (typegen reconciles them anyway); humans should let the typegen commands keep them updated. Connected values/actions carry a `// sourceLogic` comment and sort first, grouped by source logic.
 - **`hogli build:openapi`** — only needed when you changed a **backend serializer/viewset**. A pure `.tsx`/`.ts` change never needs it. Don't run it speculatively.
 
 ## Lint & format
 
-Run `pnpm --filter=@posthog/frontend fix` before finishing. It applies safe Oxlint fixes, never suggestion fixes, and always runs Oxfmt; it fails if either tool fails. `format` runs Oxfmt only, while `lint` and `format:check` only verify. Config: root `.oxlintrc.json`. CSS, spelling, and copy-casing rules live in the root `AGENTS.md` (Code Style).
+Run `pnpm --filter=@posthog/frontend fix` before finishing. It applies safe Oxlint fixes, never suggestion fixes, and always runs Oxfmt; it fails if either tool fails. `format` runs Oxfmt only, while `lint` and `format:check` only verify. Config: root `.oxlintrc.json`. CSS and spelling rules live in [`.agents/code-style.md`](../../.agents/code-style.md), and copy-casing rules in `/writing-user-facing-copy`.
 
 ## Adding actions to a scene
 
@@ -67,8 +156,9 @@ Adding a button/toggle/action to a scene's `ScenePanel`? It must also go in that
 
 ## Deeper references
 
-- Root `AGENTS.md` — full Code Style + architecture rules (authoritative).
+- [`.agents/code-style.md`](../../.agents/code-style.md) and [`.agents/architecture.md`](../../.agents/architecture.md) — full code style and architecture rules (authoritative).
 - `layout/scenes/AGENTS.md` (scene action surfaces: `ScenePanel` + `SceneMenuBar` dual-write rule).
 - `packages/quill/packages/primitives/AGENTS.md` — component selection matrix.
+- `/working-with-charts`: chart consumption workflow with links to the relevant examples and package docs.
 - `docs/published/handbook/engineering/conventions/frontend-coding.md` — frontend conventions.
-- Skills: `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`.
+- Skills: `/writing-ui-components`, `/placing-product-frontend-code`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`, `/working-with-charts`.

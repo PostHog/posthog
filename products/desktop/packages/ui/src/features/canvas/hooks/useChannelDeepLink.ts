@@ -1,6 +1,12 @@
+import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { focusOrOpenBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import {
   navigateToChannel,
   navigateToChannelTask,
@@ -24,14 +30,13 @@ const log = logger.scope("channel-deep-link");
  * Mirrors `useCanvasDeepLink`: drains any link that arrived before the renderer
  * was ready (the main process clears its pending entry on read) and also
  * subscribes for links delivered while the app is already running. The live
- * subscription acts on every link unconditionally — gating it behind the
- * project-bluebird flag would drop a link that arrives before the flag resolves
- * (the main process emits rather than queues once a listener is attached, so a
- * discarded payload is unrecoverable). Navigation is safe regardless: the
- * Channels space is flag-gated at the route, which redirects out when off.
+ * subscription acts on every link unconditionally: the main process emits
+ * rather than queues once a listener is attached, so a discarded payload is
+ * unrecoverable.
  */
 export function useChannelDeepLink() {
   const trpcReact = useHostTRPC();
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const isAuthenticated = useAuthStateValue(
     (s) => s.status === "authenticated",
   );
@@ -46,20 +51,35 @@ export function useChannelDeepLink() {
     }),
   );
 
-  const openChannel = useCallback((channelId: string, taskId?: string) => {
-    log.info(
-      `Opening channel from deep link: channelId=${channelId} taskId=${taskId ?? "-"}`,
-    );
-    track(ANALYTICS_EVENTS.DEEP_LINK_CHANNEL, {
-      channel_id: channelId,
-      task_id: taskId,
-    });
-    if (taskId) {
-      navigateToChannelTask(channelId, taskId);
-    } else {
-      navigateToChannel(channelId);
-    }
-  }, []);
+  const openChannel = useCallback(
+    (channelId: string, taskId?: string) => {
+      log.info(
+        `Opening channel from deep link: channelId=${channelId} taskId=${taskId ?? "-"}`,
+      );
+      track(ANALYTICS_EVENTS.DEEP_LINK_CHANNEL, {
+        channel_id: channelId,
+        task_id: taskId,
+      });
+      void focusOrOpenBrowserTab(
+        tabsClient,
+        taskId
+          ? {
+              href: `/spaces/${channelId}/tasks/${taskId}`,
+              channelId,
+              taskId,
+            }
+          : { href: `/spaces/${channelId}`, channelId },
+      ).then((handled) => {
+        if (handled) return;
+        if (taskId) {
+          navigateToChannelTask(channelId, taskId);
+        } else {
+          navigateToChannel(channelId);
+        }
+      });
+    },
+    [tabsClient],
+  );
 
   useEffect(() => {
     const pending = pendingDeepLink.data;

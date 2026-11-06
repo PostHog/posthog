@@ -1,4 +1,4 @@
-import type { PrActionType } from "@posthog/shared";
+import type { PrActionType, PrCheck } from "@posthog/shared";
 
 export type PrVisualIcon = "merged" | "pull-request";
 
@@ -9,6 +9,12 @@ export interface PrAction {
 
 export interface PrVisualConfig {
   color: "gray" | "green" | "red" | "purple";
+  /**
+   * Draw the badge as a solid, brand-coloured control rather than a tinted one.
+   * Only a draft takes it: every other state reports what happened to the PR,
+   * while a draft is the one waiting on someone to press "Ready for review".
+   */
+  solid?: boolean;
   icon: PrVisualIcon;
   label: string;
   actions: PrAction[];
@@ -38,6 +44,7 @@ export function getPrVisualConfig(
   if (draft) {
     return {
       color: "gray",
+      solid: true,
       icon: "pull-request",
       label: "Draft",
       actions: [
@@ -79,4 +86,28 @@ export const PR_ACTION_LABELS: Record<PrActionType, string> = {
 
 export function parsePrNumber(prUrl: string): string | undefined {
   return prUrl.match(/\/pull\/(\d+)/)?.[1];
+}
+
+// A PR's CI in one line: failing beats running beats passing.
+export function summarizePrChecks(
+  checks: PrCheck[] | null | undefined,
+): { label: string; color: string } | null {
+  if (!checks || checks.length === 0) return null;
+  let failed = 0;
+  let pending = 0;
+  let passed = 0;
+  for (const check of checks) {
+    if (check.bucket === "fail" || check.bucket === "cancel") failed++;
+    else if (check.bucket === "pending") pending++;
+    else if (check.bucket === "pass") passed++;
+  }
+  if (failed) {
+    return {
+      label: `CI failing · ${failed} ${failed === 1 ? "check" : "checks"}`,
+      color: "var(--red-11)",
+    };
+  }
+  if (pending) return { label: "CI running", color: "var(--amber-11)" };
+  if (passed) return { label: "CI passing", color: "var(--green-11)" };
+  return null;
 }

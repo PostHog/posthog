@@ -1,19 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -26,13 +29,29 @@ import {
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentMetricType,
+    ExperimentRetentionStart,
     NodeKind,
+    isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConversionWindowTimeUnit } from '~/types'
+import {
+    ChartDisplayCategory,
+    ExperimentMetricGoal,
+    ExperimentMetricMathType,
+    FunnelConversionWindowTimeUnit,
+} from '~/types'
+
+import { WarehouseNativeMetricFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeMetricFields'
+import {
+    EMPTY_WAREHOUSE_NATIVE_BINDING,
+    getWarehouseNativeBinding,
+    getWarehouseNativeExposure,
+    metricUsesWarehouseNativeSource,
+    toWarehouseNativeMetric,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
@@ -41,9 +60,8 @@ import {
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
-import { EXPOSURE_DEFAULT_EVENT, isDefaultExposureConfig } from './exposureContract'
-import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
-import { createFilterForSource, getFilter } from './metricQueryUtils'
+import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, isDefaultExposureConfig } from './exposureContract'
+import { metricSourcesToSeries, seriesToMetricConfig, seriesToMetricSource } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     getAllowedMathTypes,
@@ -122,6 +140,13 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     },
 ]
 
+/** The sources every metric type accepts: those the series picker can produce. */
+const isPickerSource = (source: ExperimentMetricSource | undefined): source is ExperimentFunnelMetricStep =>
+    !!source &&
+    (source.kind === NodeKind.EventsNode ||
+        source.kind === NodeKind.ActionsNode ||
+        source.kind === NodeKind.ExperimentDataWarehouseNode)
+
 export function ExperimentMetricForm({
     metric,
     isSharedMetric = false,
@@ -145,8 +170,20 @@ export function ExperimentMetricForm({
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
+    const warehouseNativeEnabled = useFeatureFlag('BIGQUERY_DIRECT_QUERY')
+    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+    const usesWarehouseNative = metricUsesWarehouseNativeSource(metric)
+    // Keep an existing warehouse-native metric editable even if the team is no longer flagged in
+    const showDataSource = warehouseNativeEnabled || usesWarehouseNative || !!warehouseExposure
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+    // holds the custom start configuration while the exposure sentinel is selected, so switching back restores it
+    const previousRetentionStart = useRef<{
+        start_event: ExperimentRetentionStart
+        start_handling: 'first_seen' | 'last_seen'
+        conversion_window?: number
+        conversion_window_unit?: FunnelConversionWindowTimeUnit
+    } | null>(null)
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -160,8 +197,8 @@ export function ExperimentMetricForm({
         return 'events'
     }
 
-    const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-        const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
+    const handleSetSeries = (series: SeriesNode[]): void => {
+        const metricConfig = seriesToMetricConfig(metric.metric_type, series)
         if (metricConfig) {
             const updatedMetric = { ...metric, ...metricConfig }
             /**
@@ -190,7 +227,10 @@ export function ExperimentMetricForm({
                 sources.push(metric.denominator)
             }
         } else if (isExperimentRetentionMetric(metric)) {
-            sources = [metric.start_event]
+            // An exposure-anchored start has no literal event to carry over
+            if (!isExperimentExposureNode(metric.start_event)) {
+                sources = [metric.start_event]
+            }
             if (metric.completion_event) {
                 sources.push(metric.completion_event)
             }
@@ -203,59 +243,86 @@ export function ExperimentMetricForm({
             if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
                 newMetric.source = sources[0]
             } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
-                newMetric.series = sources.filter(
-                    (s): s is ExperimentFunnelMetricStep =>
-                        s &&
-                        (s.kind === NodeKind.EventsNode ||
-                            s.kind === NodeKind.ActionsNode ||
-                            s.kind === NodeKind.ExperimentDataWarehouseNode)
-                )
+                newMetric.series = sources.filter(isPickerSource)
             } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
                 newMetric.numerator = sources[0]
             } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {
-                newMetric.start_event = sources[0]
-                if (sources[1]) {
+                if (isPickerSource(sources[0])) {
+                    newMetric.start_event = sources[0]
+                }
+                if (isPickerSource(sources[1])) {
                     newMetric.completion_event = sources[1]
                 }
             }
         }
 
-        handleSetMetric({
+        const typedMetric = {
             ...newMetric,
             // Keep the current uuid and name
             uuid: metric.uuid,
             name: metric.name,
-        })
+        }
+        // A new metric type starts with event sources, which a warehouse-native metric cannot mix in
+        handleSetMetric(
+            usesWarehouseNative
+                ? toWarehouseNativeMetric(typedMetric, warehouseExposure ?? getWarehouseNativeBinding(metric))
+                : typedMetric
+        )
     }
+
+    const handleDataSourceChange = (dataSource: 'posthog' | 'warehouse_native'): void => {
+        // The segmented button also reports a click on the selected option, which must not reset the metric
+        if ((dataSource === 'warehouse_native') === usesWarehouseNative) {
+            return
+        }
+        if (dataSource === 'warehouse_native') {
+            handleSetMetric(toWarehouseNativeMetric(metric, warehouseExposure ?? EMPTY_WAREHOUSE_NATIVE_BINDING))
+        } else {
+            handleSetMetric({
+                ...getDefaultExperimentMetric(metric.metric_type),
+                uuid: metric.uuid,
+                name: metric.name,
+                goal: metric.goal,
+            })
+        }
+    }
+
+    const warehouseNativeTypeReason = usesWarehouseNative
+        ? 'A warehouse-native metric can be a mean or a ratio.'
+        : undefined
 
     const radioOptions = [
         {
             value: ExperimentMetricType.FUNNEL,
             label: 'Funnel',
+            'data-attr': 'experiment-metric-type-funnel',
+            disabledReason: warehouseNativeTypeReason,
             description:
                 'Calculates the percentage of users exposed to the experiment who completed the funnel. Useful for measuring conversion rates.',
         },
         {
             value: ExperimentMetricType.MEAN,
             label: 'Mean',
+            'data-attr': 'experiment-metric-type-mean',
             description:
                 'Calculates the value per user exposed to the experiment. Useful for measuring count of clicks, revenue or other numeric values.',
         },
         {
             value: ExperimentMetricType.RATIO,
             label: 'Ratio',
+            'data-attr': 'experiment-metric-type-ratio',
             description:
                 'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
         },
         {
             value: ExperimentMetricType.RETENTION,
             label: 'Retention',
+            'data-attr': 'experiment-metric-type-retention',
+            disabledReason: warehouseNativeTypeReason,
             description:
                 'Calculates the retention rate of users exposed to the experiment. Useful for measuring the percentage of users who return to the app after a certain period of time.',
         },
     ]
-
-    const metricFilter = getFilter(metric)
 
     // dependencies for the loadEventCount useEffect call
     const meanSource = isExperimentMeanMetric(metric) ? metric.source : null
@@ -281,8 +348,49 @@ export function ExperimentMetricForm({
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
+    const activationConfig = getActivationConfig(exposureCriteria)
+
     return (
         <SceneContent>
+            {showDataSource && (
+                <>
+                    <SceneSection title="Data source" className="max-w-prose">
+                        <div className="flex flex-col gap-2">
+                            <div>
+                                <LemonSegmentedButton
+                                    size="small"
+                                    value={usesWarehouseNative ? 'warehouse_native' : 'posthog'}
+                                    onChange={handleDataSourceChange}
+                                    options={[
+                                        {
+                                            value: 'posthog',
+                                            label: 'PostHog data',
+                                            disabledReason: warehouseExposure
+                                                ? "This experiment's exposure is a warehouse-native query, so its metrics must be warehouse-native too."
+                                                : undefined,
+                                            'data-attr': 'experiment-metric-data-source-posthog',
+                                        },
+                                        {
+                                            value: 'warehouse_native',
+                                            label: 'Warehouse-native',
+                                            disabledReason:
+                                                !isSharedMetric && !warehouseExposure
+                                                    ? "Set this experiment's exposure to a warehouse-native query first."
+                                                    : undefined,
+                                            'data-attr': 'experiment-metric-data-source-warehouse-native',
+                                        },
+                                    ]}
+                                />
+                            </div>
+                            <div className="text-secondary text-xs">
+                                A warehouse-native metric runs a SQL query in your own warehouse through a direct
+                                connection. Only the aggregated results leave the warehouse.
+                            </div>
+                        </div>
+                    </SceneSection>
+                    <SceneDivider />
+                </>
+            )}
             <SceneSection title={isSharedMetric ? 'Shared metric type' : 'Metric type'} className="max-w-prose">
                 <div>
                     <LemonRadio
@@ -313,7 +421,15 @@ export function ExperimentMetricForm({
                             <>
                                 Counts only after exposure event{' '}
                                 <LemonTag>{getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}</LemonTag>
+                                {activationConfig && (
+                                    <>
+                                        and activation event{' '}
+                                        <LemonTag>{getExposureConfigDisplayName(activationConfig)}</LemonTag>
+                                    </>
+                                )}
                             </>
+                        ) : usesWarehouseNative ? (
+                            <>Counts only after exposure. Each experiment sets its own exposure query.</>
                         ) : (
                             <>
                                 Counts only after exposure event (<LemonTag>{resolvedExposureEvent}</LemonTag> by
@@ -343,30 +459,36 @@ export function ExperimentMetricForm({
 
                 {isExperimentMeanMetric(metric) && (
                     <>
-                        <ActionFilter
-                            bordered
-                            filters={metricFilter}
-                            setFilters={handleSetFilters}
-                            typeKey="experiment-metric"
-                            buttonCopy="Add graph series"
-                            showSeriesIndicator={false}
-                            hideRename={true}
-                            entitiesLimit={1}
-                            showNumericalPropsOnly={true}
-                            mathAvailability={mathAvailability}
-                            allowedMathTypes={allowedMathTypes}
-                            dataWarehousePopoverFields={dataWarehousePopoverFields}
-                            {...commonActionFilterProps}
-                        />
+                        {usesWarehouseNative ? (
+                            <WarehouseNativeMetricFields
+                                metric={metric}
+                                handleSetMetric={handleSetMetric}
+                                exposureBinding={warehouseExposure}
+                            />
+                        ) : (
+                            <SeriesActionFilter
+                                bordered
+                                series={metricSourcesToSeries([metric.source])}
+                                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                                dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
+                                onChange={handleSetSeries}
+                                typeKey="experiment-metric"
+                                buttonCopy="Add graph series"
+                                showSeriesIndicator={false}
+                                hideRename={true}
+                                entitiesLimit={1}
+                                showNumericalPropsOnly={true}
+                                mathAvailability={mathAvailability}
+                                allowedMathTypes={allowedMathTypes}
+                                dataWarehousePopoverFields={dataWarehousePopoverFields}
+                                {...commonActionFilterProps}
+                            />
+                        )}
                         {metric.source.math === ExperimentMetricMathType.HogQL && (
                             <div className="text-muted text-sm mt-2">
                                 SQL expressions allow you to write custom computations and aggregations. The expression
                                 should return a numeric value and will be evaluated for each user in the experiment.{' '}
-                                <Link
-                                    to="https://posthog.com/docs/hogql/expressions"
-                                    target="_blank"
-                                    disableDocsPanel={true}
-                                >
+                                <Link to="https://posthog.com/docs/hogql/expressions" target="_blank">
                                     Learn more about HogQL expressions
                                 </Link>
                             </div>
@@ -394,10 +516,12 @@ export function ExperimentMetricForm({
                 )}
 
                 {isExperimentFunnelMetric(metric) && (
-                    <ActionFilter
+                    <SeriesActionFilter
                         bordered
-                        filters={metricFilter}
-                        setFilters={handleSetFilters}
+                        series={metricSourcesToSeries(metric.series)}
+                        trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                        dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
+                        onChange={handleSetSeries}
                         typeKey="experiment-metric"
                         buttonCopy="Add step"
                         showSeriesIndicator={false}
@@ -408,25 +532,30 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes}
-                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+                        {...commonActionFilterProps}
                         dataWarehousePopoverFields={dataWarehousePopoverFields}
                     />
                 )}
 
-                {isExperimentRatioMetric(metric) && (
+                {isExperimentRatioMetric(metric) && usesWarehouseNative && (
+                    <WarehouseNativeMetricFields
+                        metric={metric}
+                        handleSetMetric={handleSetMetric}
+                        exposureBinding={warehouseExposure}
+                    />
+                )}
+
+                {isExperimentRatioMetric(metric) && !usesWarehouseNative && (
                     <div className="space-y-4">
                         <div>
                             <LemonLabel className="mb-1">Numerator (what you're measuring)</LemonLabel>
-                            <ActionFilter
+                            <SeriesActionFilter
                                 bordered
-                                filters={createFilterForSource(metric.numerator)}
-                                setFilters={(filters) => {
-                                    const source = filterToMetricSource(
-                                        filters.actions,
-                                        filters.events,
-                                        filters.data_warehouse
-                                    )
+                                series={metricSourcesToSeries([metric.numerator])}
+                                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                                dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
+                                onChange={(series) => {
+                                    const source = seriesToMetricSource(series)
                                     if (source) {
                                         handleSetMetric({
                                             ...metric,
@@ -448,15 +577,13 @@ export function ExperimentMetricForm({
                         </div>
                         <div>
                             <LemonLabel className="mb-1">Denominator (what you're dividing by)</LemonLabel>
-                            <ActionFilter
+                            <SeriesActionFilter
                                 bordered
-                                filters={createFilterForSource(metric.denominator)}
-                                setFilters={(filters) => {
-                                    const source = filterToMetricSource(
-                                        filters.actions,
-                                        filters.events,
-                                        filters.data_warehouse
-                                    )
+                                series={metricSourcesToSeries([metric.denominator])}
+                                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                                dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
+                                onChange={(series) => {
+                                    const source = seriesToMetricSource(series)
                                     if (source) {
                                         handleSetMetric({
                                             ...metric,
@@ -487,30 +614,80 @@ export function ExperimentMetricForm({
                                     <IconInfo className="ml-1 text-muted" />
                                 </Tooltip>
                             </LemonLabel>
-                            <ActionFilter
-                                bordered
-                                filters={createFilterForSource(metric.start_event)}
-                                setFilters={(filters) => {
-                                    const source = filterToMetricSource(
-                                        filters.actions,
-                                        filters.events,
-                                        filters.data_warehouse
-                                    )
-                                    if (source) {
-                                        handleSetMetric({ ...metric, start_event: source })
+                            <LemonRadio
+                                className="my-1.5"
+                                data-attr="experiment-retention-start-source"
+                                orientation="horizontal"
+                                value={isExperimentExposureNode(metric.start_event) ? 'exposure' : 'custom'}
+                                onChange={(value) => {
+                                    if (value === 'exposure') {
+                                        if (!isExperimentExposureNode(metric.start_event)) {
+                                            previousRetentionStart.current = {
+                                                start_event: metric.start_event,
+                                                start_handling: metric.start_handling,
+                                                conversion_window: metric.conversion_window,
+                                                conversion_window_unit: metric.conversion_window_unit,
+                                            }
+                                        }
+                                        // the backend rejects a conversion window or 'last_seen' start handling on an exposure start
+                                        handleSetMetric({
+                                            ...metric,
+                                            start_event: { kind: NodeKind.ExperimentExposureNode },
+                                            start_handling: 'first_seen',
+                                            conversion_window: undefined,
+                                            conversion_window_unit: undefined,
+                                        })
+                                    } else {
+                                        const previous = previousRetentionStart.current
+                                        handleSetMetric({
+                                            ...metric,
+                                            start_event: previous?.start_event ?? {
+                                                kind: NodeKind.EventsNode,
+                                                event: '$pageview',
+                                                name: '$pageview',
+                                                math: ExperimentMetricMathType.TotalCount,
+                                            },
+                                            start_handling: previous?.start_handling ?? 'first_seen',
+                                            conversion_window: previous?.conversion_window,
+                                            conversion_window_unit: previous?.conversion_window_unit,
+                                        })
                                     }
                                 }}
-                                typeKey="experiment-metric-start-event"
-                                buttonCopy="Add start event"
-                                showSeriesIndicator={false}
-                                hideRename={true}
-                                entitiesLimit={1}
-                                showNumericalPropsOnly={true}
-                                mathAvailability={mathAvailability}
-                                allowedMathTypes={allowedMathTypes}
-                                dataWarehousePopoverFields={dataWarehousePopoverFields}
-                                {...commonActionFilterProps}
+                                options={[
+                                    { value: 'custom', label: 'Custom event' },
+                                    { value: 'exposure', label: 'Experiment exposure' },
+                                ]}
                             />
+                            {isExperimentExposureNode(metric.start_event) ? (
+                                <div className="text-muted text-xs">
+                                    {isSharedMetric
+                                        ? "Retention starts from each user's first exposure. Each experiment using this metric anchors on its own exposure event."
+                                        : "Retention starts from each user's first exposure to the experiment."}
+                                </div>
+                            ) : (
+                                <SeriesActionFilter
+                                    bordered
+                                    series={metricSourcesToSeries([metric.start_event])}
+                                    trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                                    dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
+                                    onChange={(series) => {
+                                        const source = seriesToMetricSource(series)
+                                        if (source) {
+                                            handleSetMetric({ ...metric, start_event: source })
+                                        }
+                                    }}
+                                    typeKey="experiment-metric-start-event"
+                                    buttonCopy="Add start event"
+                                    showSeriesIndicator={false}
+                                    hideRename={true}
+                                    entitiesLimit={1}
+                                    showNumericalPropsOnly={true}
+                                    mathAvailability={mathAvailability}
+                                    allowedMathTypes={allowedMathTypes}
+                                    dataWarehousePopoverFields={dataWarehousePopoverFields}
+                                    {...commonActionFilterProps}
+                                />
+                            )}
                         </div>
 
                         <div>
@@ -520,15 +697,13 @@ export function ExperimentMetricForm({
                                     <IconInfo className="ml-1 text-muted" />
                                 </Tooltip>
                             </LemonLabel>
-                            <ActionFilter
+                            <SeriesActionFilter
                                 bordered
-                                filters={createFilterForSource(metric.completion_event)}
-                                setFilters={(filters) => {
-                                    const source = filterToMetricSource(
-                                        filters.actions,
-                                        filters.events,
-                                        filters.data_warehouse
-                                    )
+                                series={metricSourcesToSeries([metric.completion_event])}
+                                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                                dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
+                                onChange={(series) => {
+                                    const source = seriesToMetricSource(series)
                                     if (source) {
                                         handleSetMetric({ ...metric, completion_event: source })
                                     }
@@ -607,36 +782,42 @@ export function ExperimentMetricForm({
                                     ]}
                                 />
                             </div>
-                            <span className="text-muted text-xs">After the start event</span>
+                            <span className="text-muted text-xs">
+                                {isExperimentExposureNode(metric.start_event)
+                                    ? "After the user's first exposure"
+                                    : 'After the start event'}
+                            </span>
                         </div>
 
-                        <div>
-                            <LemonLabel className="mb-1">
-                                When users have multiple start events
-                                <Tooltip title="Choose how to handle users who perform the start event multiple times during the experiment.">
-                                    <IconInfo className="ml-1 text-muted" />
-                                </Tooltip>
-                            </LemonLabel>
-                            <LemonSelect
-                                value={metric.start_handling || 'first_seen'}
-                                onChange={(value) => {
-                                    handleSetMetric({
-                                        ...metric,
-                                        start_handling: value as 'first_seen' | 'last_seen',
-                                    })
-                                }}
-                                options={[
-                                    {
-                                        label: 'Use first start event',
-                                        value: 'first_seen',
-                                    },
-                                    {
-                                        label: 'Use last start event',
-                                        value: 'last_seen',
-                                    },
-                                ]}
-                            />
-                        </div>
+                        {!isExperimentExposureNode(metric.start_event) && (
+                            <div>
+                                <LemonLabel className="mb-1">
+                                    When users have multiple start events
+                                    <Tooltip title="Choose how to handle users who perform the start event multiple times during the experiment.">
+                                        <IconInfo className="ml-1 text-muted" />
+                                    </Tooltip>
+                                </LemonLabel>
+                                <LemonSelect
+                                    value={metric.start_handling || 'first_seen'}
+                                    onChange={(value) => {
+                                        handleSetMetric({
+                                            ...metric,
+                                            start_handling: value as 'first_seen' | 'last_seen',
+                                        })
+                                    }}
+                                    options={[
+                                        {
+                                            label: 'Use first start event',
+                                            value: 'first_seen',
+                                        },
+                                        {
+                                            label: 'Use last start event',
+                                            value: 'last_seen',
+                                        },
+                                    ]}
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
             </SceneSection>
@@ -657,8 +838,13 @@ export function ExperimentMetricForm({
                 </div>
             </SceneSection>
             <SceneDivider />
-            <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
-            <SceneDivider />
+            {/* The backend ignores the conversion window for exposure-anchored retention: the retention window already anchors on exposure */}
+            {!(isExperimentRetentionMetric(metric) && isExperimentExposureNode(metric.start_event)) && (
+                <>
+                    <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
+            )}
             {isExperimentFunnelMetric(metric) && (
                 <>
                     <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
@@ -668,57 +854,59 @@ export function ExperimentMetricForm({
             {isExperimentMeanMetric(metric) && (
                 <>
                     <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
-                    <SceneDivider />
+                    {!usesWarehouseNative && <SceneDivider />}
                 </>
             )}
             {isExperimentRatioMetric(metric) && (
                 <>
                     <ExperimentRatioMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
-                    <SceneDivider />
+                    {!usesWarehouseNative && <SceneDivider />}
                 </>
             )}
-            <SceneSection
-                title="Recent activity"
-                className="max-w-prose"
-                titleHelper={
-                    <div className="flex flex-col gap-2">
-                        <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
-                        <div>
-                            It's a quick health check to ensure your tracking is working properly, so that you'll
-                            receive accurate results when your experiment starts.
+            {!usesWarehouseNative && (
+                <SceneSection
+                    title="Recent activity"
+                    className="max-w-prose"
+                    titleHelper={
+                        <div className="flex flex-col gap-2">
+                            <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
+                            <div>
+                                It's a quick health check to ensure your tracking is working properly, so that you'll
+                                receive accurate results when your experiment starts.
+                            </div>
+                            <div>
+                                If you see zero activity, double-check that this metric is being tracked properly in
+                                your application. Head to{' '}
+                                <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
+                                    Product analytics
+                                    <IconOpenInNew fontSize="18" />
+                                </Link>{' '}
+                                to do a detailed analysis of the events received so far.
+                            </div>
                         </div>
-                        <div>
-                            If you see zero activity, double-check that this metric is being tracked properly in your
-                            application. Head to{' '}
-                            <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
-                                Product analytics
-                                <IconOpenInNew fontSize="18" />
-                            </Link>{' '}
-                            to do a detailed analysis of the events received so far.
-                        </div>
+                    }
+                >
+                    <div className="border rounded p-4 bg-bg-light">
+                        {isLoading ? (
+                            <div className="flex items-center gap-2">
+                                <Spinner />
+                                <span className="text-muted">Loading recent activity...</span>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-1">
+                                <div className="text-2xl font-semibold">
+                                    {eventCount !== null ? eventCount.toLocaleString() : '0'}
+                                </div>
+                                <div className="text-sm text-muted">
+                                    {eventCount !== null && eventCount > 0
+                                        ? `${getEventTypeLabel()} in the past 2 weeks`
+                                        : 'No recent activity'}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                }
-            >
-                <div className="border rounded p-4 bg-bg-light">
-                    {isLoading ? (
-                        <div className="flex items-center gap-2">
-                            <Spinner />
-                            <span className="text-muted">Loading recent activity...</span>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col gap-1">
-                            <div className="text-2xl font-semibold">
-                                {eventCount !== null ? eventCount.toLocaleString() : '0'}
-                            </div>
-                            <div className="text-sm text-muted">
-                                {eventCount !== null && eventCount > 0
-                                    ? `${getEventTypeLabel()} in the past 2 weeks`
-                                    : 'No recent activity'}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </SceneSection>
+                </SceneSection>
+            )}
         </SceneContent>
     )
 }

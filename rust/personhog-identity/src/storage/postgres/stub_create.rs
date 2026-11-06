@@ -1,4 +1,4 @@
-//! The stub-creation transaction: one transaction, four steps, each a
+//! The stub-creation transaction: one transaction, five steps, each a
 //! function below, called in order by [`create_person_stubs`]:
 //!
 //! 1. [`insert_or_revive_persons`] — multi-row person insert; a conflict
@@ -10,6 +10,9 @@
 //!    tombstoned mappings revive, live conflicts keep the existing row.
 //! 4. [`resolve_stub_outcomes`] — decide Committed/LostRace per stub and
 //!    undo the rows of stubs that lost their primary mapping.
+//! 5. [`enqueue_mapping_rows`] — with outbox writes on, one publish outbox
+//!    row per mapping the transaction leaves live, at the version the row
+//!    carries.
 //!
 //! Cross-cutting invariants:
 //! - Every multi-row statement binds arrays sorted by its conflict key —
@@ -19,20 +22,24 @@
 //!   second time" on same-command duplicates (the cardinality check fires
 //!   before the WHERE qual).
 //! - Rows created in this transaction are invisible outside it until commit,
-//!   so step 5 can delete them without anything referencing them.
+//!   so step 4 can delete them without anything referencing them.
 //! - Revived tombstones predate the transaction and must survive an undo:
 //!   they are re-tombstoned with another version bump, never deleted.
 
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use sqlx::postgres::PgPool;
+use sqlx::Row;
 use uuid::Uuid;
 
 use personhog_common::persons::person_uuid;
 
+use crate::config::{IdentityTables, OutboxWrites};
+use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
+use crate::storage::postgres::{person_columns, person_from_row};
 use crate::storage::types::{Person, PersonStub, StubOutcome};
+use personhog_common::query_tag;
 
 type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
@@ -52,20 +59,30 @@ struct ResolvedPerson {
 /// Persons keyed by their (team_id, uuid) conflict key.
 type PersonsByKey = HashMap<(i64, Uuid), ResolvedPerson>;
 
+/// A mapping row as this transaction left it: its owner and the version
+/// the row now carries, which the publish outbox has to repeat exactly.
+#[derive(Clone, Copy)]
+struct WrittenMapping {
+    person_id: i64,
+    version: i64,
+}
+
 /// What the multi-row distinct id insert actually wrote.
 struct MappingOutcome {
-    /// (team_id, distinct_id) → person_id for each mapping this transaction
-    /// inserted or revived. Keys that conflicted with a live mapping are
-    /// absent — the existing mapping stands.
-    written: HashMap<(i64, String), i64>,
+    /// (team_id, distinct_id) → the mapping this transaction inserted or
+    /// revived. Keys that conflicted with a live mapping are absent — the
+    /// existing mapping stands.
+    written: HashMap<(i64, String), WrittenMapping>,
     /// The subset of `written` that revived a tombstoned mapping; an undo
     /// must re-tombstone these instead of deleting them.
     revived: HashSet<(i64, String)>,
 }
 
 pub(super) async fn create_person_stubs(
-    pool: &PgPool,
+    pools: &IdentityPools,
+    tables: &IdentityTables,
     stubs: &[PersonStub],
+    outbox_writes: OutboxWrites,
 ) -> StorageResult<Vec<StubOutcome>> {
     if stubs.is_empty() {
         return Ok(Vec::new());
@@ -79,12 +96,26 @@ pub(super) async fn create_person_stubs(
         .collect();
     let team_ids: Vec<i32> = stubs.iter().map(|s| s.team_id as i32).collect();
 
-    let mut tx = pool.begin().await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
-    let mut persons = insert_or_revive_persons(&mut tx, stubs, &team_ids, &uuids).await?;
-    fetch_conflict_winners(&mut tx, stubs, &team_ids, &uuids, &mut persons).await?;
-    let mapping = insert_distinct_id_mappings(&mut tx, stubs, &uuids, &persons).await?;
-    let outcomes = resolve_stub_outcomes(&mut tx, stubs, &uuids, &persons, &mapping).await?;
+    let mut persons = insert_or_revive_persons(&mut tx, tables, stubs, &team_ids, &uuids).await?;
+    fetch_conflict_winners(
+        &mut tx,
+        &tables.person,
+        stubs,
+        &team_ids,
+        &uuids,
+        &mut persons,
+    )
+    .await?;
+    let mapping =
+        insert_distinct_id_mappings(&mut tx, &tables.person_distinct_id, stubs, &uuids, &persons)
+            .await?;
+    let (outcomes, undone) =
+        resolve_stub_outcomes(&mut tx, tables, stubs, &uuids, &persons, &mapping).await?;
+    if outbox_writes == OutboxWrites::Enabled {
+        enqueue_mapping_rows(&mut tx, tables, &persons, &mapping, &undone).await?;
+    }
 
     tx.commit().await?;
     Ok(outcomes)
@@ -97,16 +128,20 @@ pub(super) async fn create_person_stubs(
 /// A conflict with a tombstoned row (same uuidv5 key, previously deleted) is
 /// a revival: flip is_deleted, bump the version above the tombstone so
 /// ClickHouse collapses toward the new incarnation, and reset properties.
-/// Conflicts with live rows fail the WHERE qual and return nothing here.
+/// A tombstone under a live lifecycle mark stays dead — its saga may still
+/// re-drive a release over the revival; the caller sees LostRace and
+/// retries. Conflicts with live rows fail the qual and return nothing.
 ///
 /// A returned version of 0 means fresh insert, anything else means revival
 /// (xmax can't be read back from a partitioned table).
 async fn insert_or_revive_persons(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     stubs: &[PersonStub],
     team_ids: &[i32],
     uuids: &[Uuid],
 ) -> StorageResult<PersonsByKey> {
+    let person_table = &tables.person;
     // Sorted and deduped by the (team_id, uuid) conflict key — see the
     // module invariants.
     let mut order: Vec<usize> = (0..stubs.len()).collect();
@@ -118,67 +153,58 @@ async fn insert_or_revive_persons(
     let sorted_is_identified: Vec<bool> = order.iter().map(|&i| stubs[i].is_identified).collect();
     let sorted_uuids: Vec<Uuid> = order.iter().map(|&i| uuids[i]).collect();
 
-    let inserted = sqlx::query!(
+    let sql = format!(
         r#"
-        INSERT INTO posthog_person
+        INSERT INTO {person_table}
             (created_at, properties, properties_last_updated_at, properties_last_operation,
              team_id, is_identified, uuid, version, last_seen_at)
-        SELECT u.created_at, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+        SELECT u.created_at, '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb,
                u.team_id, u.is_identified, u.uuid, 0, date_trunc('hour', u.created_at)
         FROM unnest($1::timestamptz[], $2::int[], $3::bool[], $4::uuid[])
             AS u(created_at, team_id, is_identified, uuid)
         ON CONFLICT (team_id, uuid) DO UPDATE SET
             is_deleted = false,
-            version = COALESCE(posthog_person.version, 0) + 1,
-            properties = '{}'::jsonb,
-            properties_last_updated_at = '{}'::jsonb,
-            properties_last_operation = '{}'::jsonb,
+            version = COALESCE({person_table}.version, 0) + 1,
+            properties = '{{}}'::jsonb,
+            properties_last_updated_at = '{{}}'::jsonb,
+            properties_last_operation = '{{}}'::jsonb,
             created_at = EXCLUDED.created_at,
             is_identified = EXCLUDED.is_identified,
             last_seen_at = EXCLUDED.last_seen_at
-            WHERE posthog_person.is_deleted = true
-        RETURNING id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
-                  properties_last_updated_at::text as "properties_last_updated_at?",
-                  properties_last_operation::text as "properties_last_operation?",
-                  created_at, version, is_identified,
-                  CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
-                  last_seen_at
+            WHERE {person_table}.is_deleted = true
+              AND NOT EXISTS (
+                  SELECT 1 FROM {lop_table} lop
+                  WHERE lop.team_id = {person_table}.team_id
+                    AND lop.person_id = {person_table}.id
+                    AND lop.mark_active
+              )
+        RETURNING {person_cols}
         "#,
-        &sorted_created_ats,
-        &sorted_team_ids,
-        &sorted_is_identified,
-        &sorted_uuids
-    )
-    .fetch_all(&mut **tx)
-    .await?;
+        person_cols = person_columns(person_table),
+        lop_table = tables.lifecycle_op_person,
+    );
+    let inserted = sqlx::query(&query_tag!("stub_create_persons", sql))
+        .bind(&sorted_created_ats)
+        .bind(&sorted_team_ids)
+        .bind(&sorted_is_identified)
+        .bind(&sorted_uuids)
+        .fetch_all(&mut **tx)
+        .await?;
 
-    Ok(inserted
-        .into_iter()
-        .map(|row| {
-            let revived_tombstone = row.version != Some(0);
-            let person = Person {
-                id: row.id,
-                uuid: row.uuid,
-                team_id: row.team_id,
-                properties: row.properties,
-                properties_last_updated_at: row.properties_last_updated_at,
-                properties_last_operation: row.properties_last_operation,
-                created_at: row.created_at,
-                version: row.version,
-                is_identified: row.is_identified,
-                is_user_id: row.is_user_id,
-                last_seen_at: row.last_seen_at,
-            };
-            (
-                (person.team_id, person.uuid),
-                ResolvedPerson {
-                    person,
-                    created_by_us: true,
-                    revived_tombstone,
-                },
-            )
-        })
-        .collect())
+    let mut persons = PersonsByKey::with_capacity(inserted.len());
+    for row in inserted {
+        let person = person_from_row(&row)?;
+        let revived_tombstone = person.version != Some(0);
+        persons.insert(
+            (person.team_id, person.uuid),
+            ResolvedPerson {
+                person,
+                created_by_us: true,
+                revived_tombstone,
+            },
+        );
+    }
+    Ok(persons)
 }
 
 /// Step 2: batch-fetch the committed winners for conflicted keys. This must
@@ -186,6 +212,7 @@ async fn insert_or_revive_persons(
 /// winner's commit, a fresh statement snapshot sees it.
 async fn fetch_conflict_winners(
     tx: &mut Tx<'_>,
+    person_table: &str,
     stubs: &[PersonStub],
     team_ids: &[i32],
     uuids: &[Uuid],
@@ -200,27 +227,23 @@ async fn fetch_conflict_winners(
 
     let conflicted_teams: Vec<i32> = conflicted.iter().map(|&i| team_ids[i]).collect();
     let conflicted_uuids: Vec<Uuid> = conflicted.iter().map(|&i| uuids[i]).collect();
-    let winners = sqlx::query_as!(
-        Person,
+    let sql = format!(
         r#"
-        SELECT p.id as "id!", p.uuid as "uuid!", p.team_id::bigint as "team_id!",
-               p.properties::text as "properties?",
-               p.properties_last_updated_at::text as "properties_last_updated_at?",
-               p.properties_last_operation::text as "properties_last_operation?",
-               p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
-               CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
-               p.last_seen_at
-        FROM posthog_person p
+        SELECT {person_cols}
+        FROM {person_table} p
         JOIN unnest($1::int[], $2::uuid[]) AS k(team_id, uuid)
           ON p.team_id = k.team_id AND p.uuid = k.uuid
         WHERE p.is_deleted = false
         "#,
-        &conflicted_teams,
-        &conflicted_uuids
-    )
-    .fetch_all(&mut **tx)
-    .await?;
-    for winner in winners {
+        person_cols = person_columns("p"),
+    );
+    let winners = sqlx::query(&query_tag!("stub_create_conflict_winners", sql))
+        .bind(&conflicted_teams)
+        .bind(&conflicted_uuids)
+        .fetch_all(&mut **tx)
+        .await?;
+    for row in winners {
+        let winner = person_from_row(&row)?;
         persons.insert(
             (winner.team_id, winner.uuid),
             ResolvedPerson {
@@ -247,6 +270,7 @@ async fn fetch_conflict_winners(
 /// never re-pointed here, and not an error (a retry could never succeed).
 async fn insert_distinct_id_mappings(
     tx: &mut Tx<'_>,
+    pdi_table: &str,
     stubs: &[PersonStub],
     uuids: &[Uuid],
     persons: &PersonsByKey,
@@ -285,35 +309,40 @@ async fn insert_distinct_id_mappings(
         return Ok(mapping);
     }
 
-    let rows = sqlx::query!(
+    let sql = format!(
         r#"
-        INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+        INSERT INTO {pdi_table} (distinct_id, person_id, team_id, version)
         SELECT d, p, t, v FROM unnest($1::text[], $2::bigint[], $3::int[], $4::bigint[])
             AS u(d, p, t, v)
         ON CONFLICT (team_id, distinct_id) DO UPDATE SET
             person_id = EXCLUDED.person_id,
-            version = COALESCE(posthog_persondistinctid.version, 0) + 1,
+            version = COALESCE({pdi_table}.version, 0) + 1,
             is_deleted = false
-            WHERE posthog_persondistinctid.is_deleted = true
-        RETURNING team_id::bigint as "team_id!", distinct_id, person_id,
-                  (xmax = 0) as "inserted!"
-        "#,
-        &pdi_dids,
-        &pdi_person_ids,
-        &pdi_teams,
-        &pdi_versions
-    )
-    .fetch_all(&mut **tx)
-    .await?;
+            WHERE {pdi_table}.is_deleted = true
+        RETURNING team_id::bigint AS team_id, distinct_id, person_id, version,
+                  (xmax = 0) AS inserted
+        "#
+    );
+    let rows = sqlx::query(&query_tag!("stub_create_mappings", sql))
+        .bind(&pdi_dids)
+        .bind(&pdi_person_ids)
+        .bind(&pdi_teams)
+        .bind(&pdi_versions)
+        .fetch_all(&mut **tx)
+        .await?;
     for row in rows {
-        if !row.inserted {
-            mapping
-                .revived
-                .insert((row.team_id, row.distinct_id.clone()));
+        let team_id: i64 = row.try_get("team_id")?;
+        let distinct_id: String = row.try_get("distinct_id")?;
+        let person_id: i64 = row.try_get("person_id")?;
+        let version: i64 = row.try_get("version")?;
+        let inserted: bool = row.try_get("inserted")?;
+        if !inserted {
+            mapping.revived.insert((team_id, distinct_id.clone()));
         }
-        mapping
-            .written
-            .insert((row.team_id, row.distinct_id), row.person_id);
+        mapping.written.insert(
+            (team_id, distinct_id),
+            WrittenMapping { person_id, version },
+        );
     }
     Ok(mapping)
 }
@@ -322,22 +351,25 @@ async fn insert_distinct_id_mappings(
 /// id maps to its person; a stub whose primary mapping went elsewhere is a
 /// lost race, and if this transaction created its person, the rows are
 /// undone (created this transaction, so nothing can reference them) so the
-/// stub doesn't linger orphaned.
+/// stub doesn't linger orphaned. Returns the outcomes and the ids of the
+/// persons it undid, whose mappings step 5 must not publish.
 async fn resolve_stub_outcomes(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     stubs: &[PersonStub],
     uuids: &[Uuid],
     persons: &PersonsByKey,
     mapping: &MappingOutcome,
-) -> StorageResult<Vec<StubOutcome>> {
+) -> StorageResult<(Vec<StubOutcome>, HashSet<i64>)> {
     let mut outcomes = Vec::with_capacity(stubs.len());
+    let mut undone: HashSet<i64> = HashSet::new();
     for (i, stub) in stubs.iter().enumerate() {
         let Some(resolved) = persons.get(&(stub.team_id, uuids[i])) else {
             outcomes.push(StubOutcome::LostRace);
             continue;
         };
         let primary_key = (stub.team_id, stub.distinct_id.clone());
-        if mapping.written.get(&primary_key) == Some(&resolved.person.id) {
+        if mapping.written.get(&primary_key).map(|w| w.person_id) == Some(resolved.person.id) {
             outcomes.push(StubOutcome::Committed {
                 person: resolved.person.clone(),
                 created: resolved.created_by_us,
@@ -345,19 +377,23 @@ async fn resolve_stub_outcomes(
             continue;
         }
         if resolved.created_by_us {
-            undo_created_person(tx, stub.team_id, resolved, mapping).await?;
+            undo_created_person(tx, tables, stub.team_id, resolved, mapping).await?;
+            undone.insert(resolved.person.id);
             outcomes.push(StubOutcome::LostRace);
             continue;
         }
         // The person pre-existed and its primary mapping wasn't inserted by
         // us — verify the existing mapping points at this person.
-        let existing = sqlx::query_scalar!(
-            "SELECT person_id FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2 AND is_deleted = false",
-            stub.team_id as i32,
-            &stub.distinct_id
-        )
-        .fetch_optional(&mut **tx)
-        .await?;
+        let existing_sql = format!(
+            "SELECT person_id FROM {} WHERE team_id = $1 AND distinct_id = $2 AND is_deleted = false",
+            tables.person_distinct_id
+        );
+        let existing: Option<i64> =
+            sqlx::query_scalar(&query_tag!("stub_create_existing_mapping", existing_sql))
+                .bind(stub.team_id as i32)
+                .bind(&stub.distinct_id)
+                .fetch_optional(&mut **tx)
+                .await?;
         if existing == Some(resolved.person.id) {
             outcomes.push(StubOutcome::Committed {
                 person: resolved.person.clone(),
@@ -367,7 +403,7 @@ async fn resolve_stub_outcomes(
             outcomes.push(StubOutcome::LostRace);
         }
     }
-    Ok(outcomes)
+    Ok((outcomes, undone))
 }
 
 /// Undo one lost-race stub's rows: its distinct id mappings, then its person
@@ -377,61 +413,127 @@ async fn resolve_stub_outcomes(
 /// fresh-row sweep distinguish them by is_deleted.
 async fn undo_created_person(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     team_id: i64,
     resolved: &ResolvedPerson,
     mapping: &MappingOutcome,
 ) -> StorageResult<()> {
+    let person_table = &tables.person;
+    let pdi_table = &tables.person_distinct_id;
     let revived_dids: Vec<String> = mapping
         .written
         .iter()
-        .filter(|((t, d), pid)| {
+        .filter(|((t, d), w)| {
             *t == team_id
-                && **pid == resolved.person.id
+                && w.person_id == resolved.person.id
                 && mapping.revived.contains(&(*t, d.clone()))
         })
         .map(|((_, d), _)| d.clone())
         .collect();
     if !revived_dids.is_empty() {
-        sqlx::query!(
+        let retombstone_sql = format!(
             r#"
-            UPDATE posthog_persondistinctid
+            UPDATE {pdi_table}
             SET is_deleted = true, version = COALESCE(version, 0) + 1
             WHERE team_id = $1 AND distinct_id = ANY($2)
-            "#,
-            team_id as i32,
-            &revived_dids
-        )
+            "#
+        );
+        sqlx::query(&query_tag!(
+            "stub_create_undo_retombstone_mappings",
+            retombstone_sql
+        ))
+        .bind(team_id as i32)
+        .bind(&revived_dids)
         .execute(&mut **tx)
         .await?;
     }
-    sqlx::query!(
-        "DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2 AND is_deleted = false",
-        team_id as i32,
-        resolved.person.id
-    )
+    let delete_mappings_sql = format!(
+        "DELETE FROM {pdi_table} WHERE team_id = $1 AND person_id = $2 AND is_deleted = false"
+    );
+    sqlx::query(&query_tag!(
+        "stub_create_undo_delete_mappings",
+        delete_mappings_sql
+    ))
+    .bind(team_id as i32)
+    .bind(resolved.person.id)
     .execute(&mut **tx)
     .await?;
     if resolved.revived_tombstone {
-        sqlx::query!(
+        let sql = format!(
             r#"
-            UPDATE posthog_person
+            UPDATE {person_table}
             SET is_deleted = true, version = COALESCE(version, 0) + 1,
-                properties = '{}'::jsonb
+                properties = '{{}}'::jsonb
             WHERE team_id = $1 AND id = $2
-            "#,
-            team_id as i32,
-            resolved.person.id
-        )
-        .execute(&mut **tx)
-        .await?;
+            "#
+        );
+        sqlx::query(&query_tag!("stub_create_undo_retombstone_person", sql))
+            .bind(team_id as i32)
+            .bind(resolved.person.id)
+            .execute(&mut **tx)
+            .await?;
     } else {
-        sqlx::query!(
-            "DELETE FROM posthog_person WHERE team_id = $1 AND id = $2",
-            team_id as i32,
-            resolved.person.id
-        )
+        let sql = format!("DELETE FROM {person_table} WHERE team_id = $1 AND id = $2");
+        sqlx::query(&query_tag!("stub_create_undo_delete_person", sql))
+            .bind(team_id as i32)
+            .bind(resolved.person.id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Step 5: one publish outbox row per mapping this transaction leaves live,
+/// at the version the row carries. Mappings of a person step 4 undid are
+/// deleted or re-tombstoned, as they were before the transaction, so they
+/// emit nothing. Sorted like every other multi-row statement; the outbox
+/// has no unique key besides its identity, so the insert takes no row lock
+/// another transaction waits on.
+async fn enqueue_mapping_rows(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    persons: &PersonsByKey,
+    mapping: &MappingOutcome,
+    undone: &HashSet<i64>,
+) -> StorageResult<()> {
+    let uuids: HashMap<i64, Uuid> = persons
+        .values()
+        .map(|r| (r.person.id, r.person.uuid))
+        .collect();
+    let mut rows: Vec<(i32, Uuid, &str, i64)> = mapping
+        .written
+        .iter()
+        .filter(|(_, w)| !undone.contains(&w.person_id))
+        .map(|((team_id, distinct_id), w)| {
+            let uuid = *uuids
+                .get(&w.person_id)
+                .expect("written mappings point at resolved persons");
+            (*team_id as i32, uuid, distinct_id.as_str(), w.version)
+        })
+        .collect();
+    if rows.is_empty() {
+        return Ok(());
+    }
+    rows.sort_by(|a, b| (a.0, a.2).cmp(&(b.0, b.2)));
+    let team_ids: Vec<i32> = rows.iter().map(|r| r.0).collect();
+    let person_uuids: Vec<Uuid> = rows.iter().map(|r| r.1).collect();
+    let distinct_ids: Vec<&str> = rows.iter().map(|r| r.2).collect();
+    let versions: Vec<i64> = rows.iter().map(|r| r.3).collect();
+
+    let sql = format!(
+        r#"
+        INSERT INTO {outbox} (team_id, kind, person_uuid, distinct_id, version)
+        SELECT t, 'create', u, d, v
+        FROM unnest($1::int[], $2::uuid[], $3::text[], $4::bigint[]) AS r(t, u, d, v)
+        "#,
+        outbox = tables.person_publish_outbox,
+    );
+    sqlx::query(&query_tag!("stub_create_enqueue_outbox", sql))
+        .bind(&team_ids)
+        .bind(&person_uuids)
+        .bind(&distinct_ids)
+        .bind(&versions)
         .execute(&mut **tx)
         .await?;
-    }
     Ok(())
 }

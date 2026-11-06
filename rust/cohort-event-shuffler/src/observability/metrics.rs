@@ -13,8 +13,12 @@ pub const EVENTS_DROPPED_NO_PERSON_ID: &str = "shuffler_events_dropped_no_person
 pub const EVENTS_SKIPPED_TEAM_GATE: &str = "shuffler_events_skipped_team_gate_total";
 /// Serde failure at either gate or survivor parse; the event settles and is committed over.
 pub const EVENTS_UNPARSEABLE: &str = "shuffler_events_unparseable_total";
+/// Survivors taken in with `person_properties` replaced by null, because ingestion processed them
+/// without a person profile; label `person_mode` = `"propertyless"` | `"force_upgrade"`.
+pub const EVENTS_PERSON_PAYLOAD_DROPPED: &str = "shuffler_events_person_payload_dropped_total";
 /// Delivery failures + fatal enqueue errors.
 pub const PRODUCE_ERRORS: &str = "shuffler_produce_errors_total";
+/// Gauge, sampled at each commit tick: teams whose events pass the team gate.
 pub const ACTIVE_TEAMS: &str = "shuffler_active_teams";
 
 pub const FORWARDS_ENQUEUED: &str = "shuffler_forwards_enqueued_total";

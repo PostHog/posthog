@@ -1,52 +1,31 @@
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import {
     compareInsightTopLevelSections,
-    extractObjectDiffKeys,
     formatAggregationValue,
     formatBreakdownLabel,
     formatBreakdownType,
-    getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
-import { IndexedTrendResult } from 'scenes/trends/types'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { isEventsNode } from '~/queries/utils'
-import { CompareLabelType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
+import { isEventsNode } from '~/queries/schema/node-guards'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+import { BaseMathType, CompareLabelType, TeamType } from '~/types'
 
-const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
-    return {
-        custom_name,
-        name: name ?? null,
-        id: id ?? null,
-    }
-}
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-describe('getDisplayNameFromEntityFilter()', () => {
-    const paramsToExpected: [EntityFilter, boolean, string | null][] = [
-        [createFilter(3, 'name', 'custom_name'), true, 'custom_name'],
-        [createFilter(3, 'name', ''), true, 'name'],
-        [createFilter(3, 'name', '    '), true, 'name'],
-        [createFilter(3, 'name'), true, 'name'],
-        [createFilter(3, '', ''), true, '3'],
-        [createFilter(3, '  ', '    '), true, '3'],
-        [createFilter(3), true, '3'],
-        [createFilter('hi'), true, 'hi'],
-        [createFilter(), true, null],
-        [createFilter(3, 'name', 'custom_name'), false, 'name'],
-        [createFilter(3, '  ', 'custom_name'), false, '3'],
-    ]
-
-    paramsToExpected.forEach(([filter, isCustom, expected]) => {
-        it(`expect "${expected}" for Filter<custom_name="${filter.custom_name}", name="${filter.name}", id="${filter.id}">`, () => {
-            expect(getDisplayNameFromEntityFilter(filter, isCustom)).toEqual(expected)
-        })
-    })
-})
-
-const createEventsNode = (id?: Entity['id'], name?: string, custom_name?: string): EventsNode => {
+const createEventsNode = (id?: string | number | null, name?: string, custom_name?: string): EventsNode => {
     return {
         kind: NodeKind.EventsNode,
         custom_name,
@@ -55,7 +34,7 @@ const createEventsNode = (id?: Entity['id'], name?: string, custom_name?: string
     }
 }
 
-const createActionsNode = (id?: Entity['id'], name?: string, custom_name?: string): ActionsNode => {
+const createActionsNode = (id?: string | number | null, name?: string, custom_name?: string): ActionsNode => {
     return {
         kind: NodeKind.ActionsNode,
         custom_name,
@@ -106,78 +85,6 @@ describe('getDisplayNameFromEntityNode()', () => {
         // Malformed insight records can carry a null entry in query.series; the
         // function must not read `.id` off it (caught rendering the saved insights list).
         expect(getDisplayNameFromEntityNode(null as any)).toBeNull()
-    })
-})
-
-describe('extractObjectDiffKeys()', () => {
-    const testCases: [string, FilterType, FilterType, string, Record<string, any>][] = [
-        [
-            'one value',
-            { insight: InsightType.TRENDS },
-            { insight: InsightType.FUNNELS },
-            '',
-            { changed_insight: InsightType.TRENDS },
-        ],
-        [
-            'multiple values',
-            { insight: InsightType.TRENDS, date_from: '-7d' },
-            { insight: InsightType.FUNNELS, date_from: '-7d' },
-            '',
-            { changed_insight: InsightType.TRENDS },
-        ],
-        [
-            'nested event',
-            { insight: InsightType.TRENDS, events: [{ name: 'pageview', math: 'total' }] },
-            { insight: InsightType.TRENDS, events: [{ name: 'pageview', math: 'dau' }] },
-            '',
-            { changed_event_0_math: 'total' },
-        ],
-        [
-            'nested event multiple',
-            {
-                insight: InsightType.TRENDS,
-                events: [
-                    { name: 'pageview', math: 'dau' },
-                    { name: 'pageview', math: 'total' },
-                ],
-            },
-            {
-                insight: InsightType.TRENDS,
-                events: [
-                    { name: 'pageview', math: 'dau' },
-                    { name: 'pageview', math: 'dau' },
-                ],
-            },
-            '',
-            { changed_event_1_math: 'total' },
-        ],
-        [
-            'nested action',
-            { insight: InsightType.TRENDS, actions: [{ name: 'pageview', math: 'total' }] },
-            { insight: InsightType.TRENDS, actions: [{ name: 'pageview', math: 'dau' }] },
-            '',
-            { changed_action_0_math: 'total' },
-        ],
-        [
-            'nested action',
-            { insight: InsightType.TRENDS, actions: undefined, events: [] },
-            { insight: InsightType.TRENDS, actions: [], events: undefined },
-            '',
-            {},
-        ],
-        [
-            'nested action',
-            { insight: InsightType.TRENDS, actions: undefined, events: [] },
-            { insight: InsightType.TRENDS, actions: [{ name: 'pageview', math: 'dau ' }], events: undefined },
-            '',
-            { changed_actions_length: 0 },
-        ],
-    ]
-
-    testCases.forEach(([testName, oldFilter, newFilter, prefix, expected]) => {
-        it(`expect ${JSON.stringify(expected)} for ${testName}`, () => {
-            expect(extractObjectDiffKeys(oldFilter, newFilter, prefix)).toEqual(expected)
-        })
     })
 })
 
@@ -301,6 +208,18 @@ describe('formatBreakdownLabel()', () => {
             breakdown_type: 'event',
         }
         expect(formatBreakdownLabel(42, breakdownFilter, [], identity)).toEqual('42')
+    })
+
+    it('skips property-definition formatting for digit-only element breakdown values', () => {
+        // element breakdowns (tag_name/text/href) have no matching property definition, so
+        // propertyFilterTypeToPropertyDefinitionType falls back to Event. A same-named
+        // DateTime/Duration event property must not reformat a numeric-looking element value.
+        const reformatsAsDate = (): any => '2020-01-01'
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'text',
+            breakdown_type: 'element',
+        }
+        expect(formatBreakdownLabel('123', breakdownFilter, [], reformatsAsDate)).toEqual('123')
     })
 
     it('handles numeric breakdowns for "other" value', () => {
@@ -592,31 +511,33 @@ describe('formatBreakdownType()', () => {
 })
 
 describe('getTrendDatasetKey()', () => {
-    it('handles a simple insight', () => {
-        const dataset: Partial<IndexedTrendResult> = {
-            label: '$pageview',
-            action: {
-                id: '$pageview',
-                type: 'events',
-                order: 0,
-            },
-        }
+    const seriesQuery: TrendsQuery = {
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+    }
+    const formulaQuery: TrendsQuery = {
+        ...seriesQuery,
+        series: [
+            { kind: NodeKind.EventsNode, event: '$pageview' },
+            { kind: NodeKind.EventsNode, event: '$autocapture' },
+        ],
+        trendsFilter: { formulaNodes: [{ formula: 'A+B' }, { formula: 'A-B' }] },
+    }
 
-        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0}')
+    it('handles a simple insight', () => {
+        const dataset: Partial<IndexedTrendResult> = { label: '$pageview', order: 0 }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult, seriesQuery)).toEqual('{"series":0}')
     })
 
     it('handles insights with breakdowns', () => {
         const dataset: Partial<IndexedTrendResult> = {
             label: 'Opera::US',
-            action: {
-                id: '$pageview',
-                type: 'events',
-                order: 0,
-            },
+            order: 0,
             breakdown_value: ['Opera', 'US'],
         }
 
-        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual(
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult, seriesQuery)).toEqual(
             '{"series":0,"breakdown_value":["Opera","US"]}'
         )
     })
@@ -624,27 +545,26 @@ describe('getTrendDatasetKey()', () => {
     it('ignores compare periods, so that current and previous share a key', () => {
         const current: Partial<IndexedTrendResult> = {
             label: '$pageview',
-            action: {
-                id: '$pageview',
-                type: 'events',
-                order: 0,
-            },
+            order: 0,
             compare: true,
             compare_label: CompareLabelType.Current,
         }
         const previous: Partial<IndexedTrendResult> = { ...current, compare_label: CompareLabelType.Previous }
 
-        expect(getTrendDatasetKey(current as IndexedTrendResult)).toEqual('{"series":0}')
-        expect(getTrendDatasetKey(previous as IndexedTrendResult)).toEqual('{"series":0}')
+        expect(getTrendDatasetKey(current as IndexedTrendResult, seriesQuery)).toEqual('{"series":0}')
+        expect(getTrendDatasetKey(previous as IndexedTrendResult, seriesQuery)).toEqual('{"series":0}')
     })
 
-    it('handles insights with formulas', () => {
+    it('keys a formula by its position, not the series its order would index', () => {
+        // a formula row's order indexes the formulas, so the second formula carries order 1
         const dataset: Partial<IndexedTrendResult> = {
-            label: 'Formula (A+B)',
-            action: undefined,
+            label: 'Formula (A-B)',
+            order: 1,
+            seriesIndex: 1,
+            colorIndex: 1,
         }
 
-        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":"formula"}')
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult, formulaQuery)).toEqual('{"series":"formula2"}')
     })
 
     it('keys compare periods of a formula by their shared position, not the raw series index', () => {
@@ -653,32 +573,30 @@ describe('getTrendDatasetKey()', () => {
         // the colorIndex with their current-period counterpart
         const previous: Partial<IndexedTrendResult> = {
             label: 'Formula (A+B)',
-            action: undefined,
+            order: 0,
             seriesIndex: 2,
             colorIndex: 0,
             compare: true,
             compare_label: CompareLabelType.Previous,
         }
 
-        expect(getTrendDatasetKey(previous as IndexedTrendResult)).toEqual('{"series":"formula"}')
+        expect(getTrendDatasetKey(previous as IndexedTrendResult, formulaQuery)).toEqual('{"series":"formula"}')
     })
 
     it('handles insights with non-array breakdown values', () => {
-        const dataset: Partial<IndexedTrendResult> = {
-            label: 'Opera',
-            action: {
-                id: '$pageview',
-                type: 'events',
-                order: 0,
-            },
-            breakdown_value: 'Opera',
-        }
+        const dataset: Partial<IndexedTrendResult> = { label: 'Opera', order: 0, breakdown_value: 'Opera' }
 
-        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"breakdown_value":["Opera"]}')
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult, seriesQuery)).toEqual(
+            '{"series":0,"breakdown_value":["Opera"]}'
+        )
     })
 })
 
 describe('compareTopLevelSections()', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
     it('compares top-level sections', () => {
         const obj1: InsightQueryNode = {
             kind: NodeKind.TrendsQuery,
@@ -798,6 +716,80 @@ describe('compareTopLevelSections()', () => {
         }
 
         expect(compareInsightTopLevelSections(obj1, obj2)).toEqual([])
+    })
+
+    it('ignores query plumbing and empty sections on a wrapped insight query', () => {
+        const previous: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                version: 3,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+                trendsFilter: {},
+                tags: { productKey: 'product_analytics' },
+            },
+        }
+        const suggested: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageleave' }],
+            },
+        }
+
+        expect(compareInsightTopLevelSections(previous, suggested)).toEqual(['Series'])
+    })
+
+    it('reports a modifiers change when the current query overrides the team default', () => {
+        teamLogic.mount()
+
+        const previous: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+            },
+        }
+        const suggested: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            },
+        }
+
+        expect(compareInsightTopLevelSections(previous, suggested)).toEqual(['Query modifiers'])
+
+        teamLogic.unmount()
+    })
+
+    it('ignores modifiers that match the team default', () => {
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            id: 1,
+            modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+        } as unknown as TeamType)
+
+        const previous: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+            },
+        }
+        const suggested: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            },
+        }
+
+        expect(compareInsightTopLevelSections(previous, suggested)).toEqual([])
+
+        teamLogic.unmount()
     })
 
     it('handles null/undefined objects', () => {

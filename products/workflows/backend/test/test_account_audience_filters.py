@@ -18,14 +18,15 @@ class TestParseAccountAudienceFilters(SimpleTestCase):
                     {"key": str(definition_id), "type": "account_custom_property", "operator": "exact", "value": ["x"]}
                 ],
                 "tag_names": ["vip"],
+                "assignment_status": "assigned",
                 "assigned_to_user_ids": [7],
-                "all_roles_unassigned": True,
             }
         )
 
         assert parsed.tag_names == ("vip",)
+        assert parsed.assignment_status == "assigned"
         assert parsed.assigned_to_user_ids == (7,)
-        assert parsed.all_roles_unassigned is True
+        assert parsed.all_roles_unassigned is False
         assert parsed.custom_properties[0].definition_id == definition_id
         assert parsed.custom_properties[0].operator == "exact"
         assert parsed.custom_properties[0].value == ["x"]
@@ -65,11 +66,40 @@ class TestParseAccountAudienceFilters(SimpleTestCase):
             ("non_list_tag_names", {"tag_names": "vip"}),
             ("non_str_tag_entries", {"tag_names": [1]}),
             ("non_int_user_ids", {"assigned_to_user_ids": ["7"]}),
+            ("invalid_assignment_status", {"assignment_status": "any"}),
+            (
+                "status_with_legacy_unassigned",
+                {"assignment_status": "assigned", "all_roles_unassigned": True},
+            ),
+            (
+                "all_with_assigned_users",
+                {"assignment_status": "all", "assigned_to_user_ids": [7]},
+            ),
+            (
+                "unassigned_with_assigned_users",
+                {"assignment_status": "unassigned", "assigned_to_user_ids": [7]},
+            ),
         ]
     )
     def test_malformed_filters_raise(self, _name, overrides):
         with self.assertRaises(exceptions.ValidationError):
             parse_account_audience_filters({"audience_type": "accounts", **overrides})
+
+    @parameterized.expand(
+        [
+            ("empty", {}, None, (), False),
+            ("assigned_users", {"assigned_to_user_ids": [7]}, None, (7,), False),
+            ("unassigned", {"all_roles_unassigned": True}, None, (), True),
+        ]
+    )
+    def test_legacy_assignment_filters_round_trip(
+        self, _name, filters, expected_status, expected_user_ids, expected_unassigned
+    ):
+        parsed = parse_account_audience_filters({"audience_type": "accounts", **filters})
+
+        assert parsed.assignment_status == expected_status
+        assert parsed.assigned_to_user_ids == expected_user_ids
+        assert parsed.all_roles_unassigned is expected_unassigned
 
     @parameterized.expand(
         [

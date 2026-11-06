@@ -17,18 +17,30 @@ from posthog.models.team.team import Team
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
 )
+from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_projection_query_runner import (
+    ErrorTrackingFingerprintProjectionQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
     ErrorTrackingIssueCorrelationQueryRunner,
 )
+from products.error_tracking.backend.hogql_queries.error_tracking_issue_events_query_runner import (
+    ErrorTrackingIssueEventsQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+from products.error_tracking.backend.hogql_queries.error_tracking_releases_query_runner import (
+    ErrorTrackingReleasesQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
     ErrorTrackingSimilarIssuesQueryRunner,
 )
 
 __all__ = [
     "ErrorTrackingBreakdownsQueryRunner",
+    "ErrorTrackingFingerprintProjectionQueryRunner",
     "ErrorTrackingIssueCorrelationQueryRunner",
+    "ErrorTrackingIssueEventsQueryRunner",
     "ErrorTrackingQueryRunner",
+    "ErrorTrackingReleasesQueryRunner",
     "ErrorTrackingSimilarIssuesQueryRunner",
     "run_error_tracking_query",
 ]

@@ -13,7 +13,7 @@ from prometheus_client import Histogram
 from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.event_usage import EventSource, report_user_action
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import (
     LATEST_ACTIONS_EMBEDDING_VERSION,
@@ -21,7 +21,7 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
@@ -115,7 +115,7 @@ class InsightRagContextNode(AssistantNode):
         """Search for action IDs using vector search and UI context, reports metrics."""
         start_time = time.time()
         try:
-            # action.id in UI context actions is typed as float from schema.py, so we need to convert it to int to match the Action.id field
+            # action.id in UI context actions is typed as float from schema.py, so we need to convert it to int to match the action id
             actions_in_context = context["actions_in_context"]
             embedding = context["embedding"]
             ids = [str(int(action.id)) for action in actions_in_context] if actions_in_context else []
@@ -134,7 +134,8 @@ class InsightRagContextNode(AssistantNode):
                 ):
                     response = runner.run(
                         ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                        analytics_props={"source": EventSource.POSTHOG_AI},
+                        user=self._user,
+                        analytics_props={"source": self.context_manager.event_source},
                     )
                 if isinstance(response, CachedVectorSearchQueryResponse) and response.results:
                     ids = list({row.id for row in response.results} | set(ids))
@@ -154,9 +155,7 @@ class InsightRagContextNode(AssistantNode):
             if len(ids) == 0:
                 return ""
 
-            actions = Action.objects.filter(team__project_id=self._team.project_id, id__in=ids).only(
-                "id", "name", "description"
-            )
+            actions = get_actions(project_id=self._team.project_id, action_ids=[int(action_id) for action_id in ids])
 
             root = ET.Element("defined_actions")
             for action in actions:
@@ -181,7 +180,8 @@ class InsightRagContextNode(AssistantNode):
         """
         TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team, user=self._user).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-            analytics_props={"source": EventSource.POSTHOG_AI},
+            user=self._user,
+            analytics_props={"source": self.context_manager.event_source},
         )
 
     def _report_metrics(self, config: RunnableConfig, distances: list[float]):
@@ -202,4 +202,5 @@ class InsightRagContextNode(AssistantNode):
                     "$ai_metric_value": metric_value,
                 },
                 team=self._team,
+                analytics_props={"source": self.context_manager.event_source},
             )

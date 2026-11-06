@@ -2,36 +2,42 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
-import { DEFAULT_MARGINS, FunnelChart } from '@posthog/quill-charts'
+import { DEFAULT_MARGINS, FunnelChart, ValueLabels } from '@posthog/quill-charts'
 import type { FunnelChartConfig, FunnelStepClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ChartParams } from '~/types'
+import { ChartParams, FunnelStepReference } from '~/types'
 
+import { funnelDataLogic } from '../funnelDataLogic'
+import { FunnelGoalLines } from '../FunnelGoalLines'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
     buildFunnelStepsBarData,
+    formatFunnelStepBarLabel,
     FUNNEL_STEPS_BAR_TOOLTIP_CONFIG,
+    getConversionChipStepIndexes,
     resolveFunnelStepClick,
     type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
+import { StepConversionChips } from './StepConversionChips'
+import { StepNameLabel } from './StepNameLabel'
 
-const BASE_STEP_WIDTH_PX = 240
+const MIN_STEP_WIDTH_PX = 144
+const MAX_STEP_WIDTH_PX = 240
 const PER_BAR_WIDTH_PX = 20
 
 const CHART_CONFIG: FunnelChartConfig = {
     animateHover: true,
-    // Keep the chart from collapsing under a tall StepLegend footer.
+    // Keep the chart from collapsing under a tall step footer.
     chartMinHeight: 150,
     margins: { left: DEFAULT_MARGINS.left },
     tooltip: FUNNEL_STEPS_BAR_TOOLTIP_CONFIG,
+    stepFooterAlign: 'center',
 }
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
@@ -43,13 +49,20 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 
 export function FunnelStepsBarChart({
     showPersonsModal: showPersonsModalProp = true,
-    inCardView,
 }: ChartParams): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics, getFunnelsColor, breakdownFilter, querySource, insightData } = useValues(
-        funnelDataLogic(insightProps)
-    )
+    const {
+        stepsWithConversionMetrics,
+        visibleStepsWithConversionMetrics,
+        getFunnelsColor,
+        breakdownFilter,
+        querySource,
+        insightData,
+        funnelsFilter,
+        isStepOptional,
+        hasPartialBreakdownSelection,
+    } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
@@ -66,15 +79,26 @@ export function FunnelStepsBarChart({
         [steps, getFunnelsColor]
     )
 
-    // Feeds the tooltip header only; the visible labels come from the StepLegend footer.
+    // Feeds the tooltip header only; the visible labels come from the StepNameLabel footer.
     const stepLabels = useMemo(() => steps.map((step) => String(step.custom_name ?? step.name ?? '')), [steps])
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
-    const showTime = steps.some((step) => step.average_conversion_time != null)
 
     const breakdownCount = series.length
-    const stepWidthPx = Math.max(BASE_STEP_WIDTH_PX, breakdownCount * PER_BAR_WIDTH_PX)
-    const chartWidth = DEFAULT_MARGINS.left + steps.length * stepWidthPx + DEFAULT_MARGINS.right
+    const conversionChipStepIndexes = useMemo(
+        () =>
+            getConversionChipStepIndexes(steps, {
+                // The visible steps always carry nested_breakdown, so check the steps before hidden values are filtered out.
+                hasBreakdownOrCompare: stepsWithConversionMetrics[0]?.nested_breakdown != null,
+                stepReference: funnelsFilter?.funnelStepReference ?? FunnelStepReference.total,
+                isStepOptional,
+            }),
+        [steps, stepsWithConversionMetrics, funnelsFilter?.funnelStepReference, isStepOptional]
+    )
+    const chartWidth = (stepWidthPx: number): number =>
+        DEFAULT_MARGINS.left +
+        steps.length * Math.max(stepWidthPx, breakdownCount * PER_BAR_WIDTH_PX) +
+        DEFAULT_MARGINS.right
 
     const onStepClick = useCallback(
         (clickData: FunnelStepClickData<FunnelStepsBarSeriesMeta>): void => {
@@ -92,14 +116,24 @@ export function FunnelStepsBarChart({
             <FunnelStepsBarTooltip
                 context={ctx}
                 steps={steps}
+                querySource={querySource}
                 breakdownFilter={breakdownFilter}
                 groupTypeLabel={groupTypeLabel}
                 showPersonsModal={showPersonsModal}
+                isPartialBreakdownSelection={hasPartialBreakdownSelection}
                 resolvedDateRange={insightData?.resolved_date_range}
                 compareTo={querySource?.compareFilter?.compare_to}
             />
         ),
-        [steps, breakdownFilter, groupTypeLabel, showPersonsModal, insightData?.resolved_date_range, querySource]
+        [
+            steps,
+            breakdownFilter,
+            groupTypeLabel,
+            showPersonsModal,
+            hasPartialBreakdownSelection,
+            insightData?.resolved_date_range,
+            querySource,
+        ]
     )
 
     const renderStepFooter = useCallback(
@@ -108,17 +142,9 @@ export function FunnelStepsBarChart({
             if (!step) {
                 return null
             }
-            return (
-                <StepLegend
-                    step={step}
-                    stepIndex={stepIndex}
-                    showTime={showTime}
-                    showPersonsModal={showPersonsModal}
-                    inCardView={inCardView}
-                />
-            )
+            return <StepNameLabel step={step} stepIndex={stepIndex} showPersonsModal={showPersonsModal} />
         },
-        [steps, showTime, showPersonsModal, inCardView]
+        [steps, showPersonsModal]
     )
 
     if (steps.length === 0) {
@@ -128,7 +154,11 @@ export function FunnelStepsBarChart({
     return (
         <ScrollableShadows direction="horizontal" className="flex-1" contentClassName="flex h-full flex-col">
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className="flex flex-1 flex-col" style={{ width: chartWidth }} data-attr="funnel-steps-bar-chart">
+            <div
+                className="flex w-full flex-1 flex-col"
+                style={{ minWidth: chartWidth(MIN_STEP_WIDTH_PX), maxWidth: chartWidth(MAX_STEP_WIDTH_PX) }}
+                data-attr="funnel-steps-bar-chart"
+            >
                 <FunnelChart<FunnelStepsBarSeriesMeta>
                     steps={stepLabels}
                     series={series}
@@ -139,7 +169,13 @@ export function FunnelStepsBarChart({
                     stepFooter={renderStepFooter}
                     dataAttr="funnel-steps-bar-chart-canvas"
                     onError={handleChartError}
-                />
+                >
+                    <FunnelGoalLines />
+                    <ValueLabels valueFormatter={formatFunnelStepBarLabel} offset={4} />
+                    {conversionChipStepIndexes.length > 0 && (
+                        <StepConversionChips steps={steps} stepIndexes={conversionChipStepIndexes} />
+                    )}
+                </FunnelChart>
             </div>
         </ScrollableShadows>
     )

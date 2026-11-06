@@ -18,7 +18,7 @@ export const eventDefinitionsCreateBodyPostToSlackDefault = false
 export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(eventDefinitionsCreateBodyNameMax),
-        owner: zod.number().nullish(),
+        owner: zod.number().nullish().describe('ID of the user responsible for the event. Null removes the owner.'),
         description: zod.string().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
@@ -45,7 +45,7 @@ export const eventDefinitionsUpdateBodyPostToSlackDefault = false
 export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(eventDefinitionsUpdateBodyNameMax),
-        owner: zod.number().nullish(),
+        owner: zod.number().nullish().describe('ID of the user responsible for the event. Null removes the owner.'),
         description: zod.string().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
@@ -72,7 +72,7 @@ export const eventDefinitionsPartialUpdateBodyPostToSlackDefault = false
 export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(eventDefinitionsPartialUpdateBodyNameMax).optional(),
-        owner: zod.number().nullish(),
+        owner: zod.number().nullish().describe('ID of the user responsible for the event. Null removes the owner.'),
         description: zod.string().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
@@ -102,6 +102,10 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const eventDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const eventDefinitionsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const eventDefinitionsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const EventDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
     .object({
         ids: zod
@@ -114,7 +118,10 @@ export const EventDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
             ),
-        tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+        tags: zod
+            .array(zod.string().max(eventDefinitionsBulkUpdateTagsCreateBodyTagsItemMax))
+            .max(eventDefinitionsBulkUpdateTagsCreateBodyTagsMax)
+            .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
     })
     .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
 

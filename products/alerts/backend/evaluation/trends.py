@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -15,7 +16,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
+from posthog.hogql_queries.utils.breakdowns import humanize_breakdown_label
 
 # These helpers also back the anomaly detector, so they remain in the tasks module for now.
 from posthog.tasks.alerts.trends import (
@@ -33,9 +34,10 @@ from products.alerts.backend.evaluation.contract import (
     lookback_intervals_for,
     zero_sentinel_series,
 )
+from products.alerts.backend.evaluation.delay import apply_evaluation_delay
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TrendsExtractor:
@@ -52,7 +54,12 @@ class TrendsExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         query = TrendsQuery.model_validate(query)
         if not (alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig"):
@@ -79,7 +86,8 @@ class TrendsExtractor:
                 "check_ongoing_interval is not supported when the insight excludes incomplete periods "
                 "(DateRange.excludeIncompletePeriods): the ongoing interval is clipped from the query results"
             )
-        lookback_intervals = lookback_intervals_for(condition)
+        delay = alert.evaluation_delay_intervals
+        lookback_intervals = lookback_intervals_for(condition) + delay
         interval_type = None if is_non_time_series else query.interval
 
         match condition.type:
@@ -92,7 +100,9 @@ class TrendsExtractor:
                     if is_non_time_series
                     else _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 )
-                calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
+                calculation_result = self._calculate(
+                    alert, insight, execution_mode, cache_age_seconds, filters_override
+                )
                 if (
                     empty := self._empty_result(
                         calculation_result, alert, has_breakdown, interval_type, value_formatter
@@ -111,7 +121,9 @@ class TrendsExtractor:
                 # When the current interval is incomplete we compare the previous interval
                 # against the one before it, so we need the extra lookback interval.
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
-                calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
+                calculation_result = self._calculate(
+                    alert, insight, execution_mode, cache_age_seconds, filters_override
+                )
                 if (
                     empty := self._empty_result(
                         calculation_result, alert, has_breakdown, interval_type, value_formatter
@@ -128,7 +140,9 @@ class TrendsExtractor:
                 if is_non_time_series:
                     raise ValueError("Relative alerts not supported for non time series trends")
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
-                calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
+                calculation_result = self._calculate(
+                    alert, insight, execution_mode, cache_age_seconds, filters_override
+                )
                 if (
                     empty := self._empty_result(
                         calculation_result, alert, has_breakdown, interval_type, value_formatter
@@ -151,11 +165,17 @@ class TrendsExtractor:
             is_current_interval=anchor_is_current,
         )
         # subject/framed use the ExtractionResult defaults ("The insight value", framed).
-        return ExtractionResult(
-            series=series,
-            is_breakdown=has_breakdown,
-            interval_type=interval_type,
-            value_formatter=value_formatter,
+        return apply_evaluation_delay(
+            ExtractionResult(
+                series=series,
+                is_breakdown=has_breakdown,
+                interval_type=interval_type,
+                value_formatter=value_formatter,
+                truncated=has_breakdown and bool(calculation_result.has_more),
+            ),
+            delay=delay,
+            minimum_points=1 if condition.type == AlertConditionType.ABSOLUTE_VALUE else 2,
+            timezone=alert.team.timezone,
         )
 
     def _calculate(
@@ -163,12 +183,14 @@ class TrendsExtractor:
         alert: AlertConfiguration,
         insight: Insight,
         execution_mode: ExecutionMode,
+        cache_age_seconds: int | None,
         filters_override: dict | None,
     ) -> InsightResult:
         return calculate_for_query_based_insight(
             insight,
             team=alert.team,
             execution_mode=execution_mode,
+            cache_age_seconds=cache_age_seconds,
             # Scheduled alert check (no request user); attribute the read to the alert owner so
             # warehouse HogQL access control resolves against their access.
             user=alert.created_by,
@@ -190,10 +212,12 @@ class TrendsExtractor:
         if calculation_result.result is None:
             raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
         if not calculation_result.result:
+            # The window includes the delayed interval, so no rows still means that interval is zero.
             return ExtractionResult(
                 series=[zero_sentinel_series()],
                 is_breakdown=has_breakdown,
                 interval_type=interval_type,
+                framed=not alert.evaluation_delay_intervals,
                 empty_query_result=True,
                 value_formatter=value_formatter,
             )
@@ -234,6 +258,14 @@ class TrendsExtractor:
                     points=points,
                     current_index=current_index,
                     is_current_interval=is_current_interval,
+                    identity=_breakdown_identity(result) if has_breakdown else None,
                 )
             )
         return series
+
+
+def _breakdown_identity(result: dict[str, Any]) -> str:
+    """The series and the raw breakdown value, which the formatted label can merge across rows."""
+    return json.dumps(
+        [result.get("order"), result.get("breakdown_value")], separators=(",", ":"), ensure_ascii=False, default=str
+    )

@@ -1,6 +1,8 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 
-from .models import SlackChannel, SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
+from .models import SlackChannel, SlackSettings, SlackThreadJoin, SlackThreadTaskMapping, SlackUserProfileCache
 
 
 @admin.register(SlackSettings)
@@ -16,6 +18,7 @@ class SlackSettingsAdmin(admin.ModelAdmin):
         "slack_user_id",
         "permission_modes",
         "default_integration",
+        "channel_welcome_mode",
         "updated_at",
     )
     list_filter = ("slack_workspace_id", "created_at")
@@ -71,6 +74,26 @@ class SlackThreadTaskMappingAdmin(admin.ModelAdmin):
         ("Task", {"fields": ("task", "task_run")}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
     )
+
+
+@admin.register(SlackThreadJoin)
+class SlackThreadJoinAdmin(admin.ModelAdmin):
+    list_display = ("id", "team", "thread_mapping", "slack_user_id", "created_at")
+    list_filter = (("created_at", admin.DateFieldListFilter),)
+    search_fields = (
+        "slack_user_id",
+        "thread_mapping__slack_workspace_id",
+        "thread_mapping__channel",
+        "thread_mapping__thread_ts",
+        "team__name",
+    )
+    readonly_fields = ("id", "created_at")
+    autocomplete_fields = ("team", "thread_mapping")
+    ordering = ("-created_at",)
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[SlackThreadJoin]:
+        # Admin has no team context; SlackThreadJoin's default manager is fail-closed.
+        return SlackThreadJoin.objects.unscoped().select_related("team", "thread_mapping")
 
 
 @admin.register(SlackChannel)

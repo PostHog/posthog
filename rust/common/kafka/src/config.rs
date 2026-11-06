@@ -58,6 +58,16 @@ pub struct KafkaConfig {
     pub kafka_producer_retries: Option<u32>,
 }
 
+impl KafkaConfig {
+    pub fn with_endpoint(&self, hosts: &str, tls: bool) -> Self {
+        Self {
+            kafka_hosts: hosts.to_string(),
+            kafka_tls: tls,
+            ..self.clone()
+        }
+    }
+}
+
 // Keep these values in sync with the `#[envconfig(default = ...)]` attributes
 // above: `KafkaConfig::default()` must match `init_from_env()` with no env set,
 // so callers that build a config with `..Default::default()` get the same base
@@ -117,14 +127,27 @@ pub struct ConsumerConfig {
 
     pub kafka_consumer_max_partition_fetch_bytes: Option<u32>,
 
-    // Consumer group protocol tuning for WarpStream rebalance resilience.
-    // Set to a stable pod identity to enable static group membership (avoids
-    // rebalances when a pod restarts within the session timeout window).
+    // Static group membership (KIP-345): a stable identity lets a member leave and
+    // rejoin within session.timeout.ms without a rebalance.
+    //
+    // Only set this where the identity survives a restart, e.g. a StatefulSet
+    // ordinal. A Deployment pod name does not: it changes on every rollout, so the
+    // rebalance happens anyway. librdkafka also sends no LeaveGroup for a static
+    // member that stops, so its partitions stay assigned until the session expires.
     pub kafka_consumer_group_instance_id: Option<String>,
 
     // Override partition assignment strategy, e.g. "cooperative-sticky" for
-    // incremental rebalancing instead of the default eager "range" protocol.
-    // During migration, use "range,cooperative-sticky" then drop "range".
+    // incremental rebalancing instead of the default eager "range,roundrobin".
+    //
+    // Name exactly one protocol family. librdkafka rejects a list that mixes eager
+    // and cooperative strategies, and consumer creation fails. The Java client's
+    // two-phase "range,cooperative-sticky" upgrade does not work here.
+    //
+    // Migrating a live group is one hard switch. Old and new members share no
+    // common protocol, so the group consumes nothing until the last old member
+    // leaves. librdkafka retries the join instead of failing, so it recovers on its
+    // own. Expect a lag spike. A group shared with another service cannot migrate
+    // until that service moves too.
     pub kafka_consumer_partition_strategy: Option<String>,
 
     // WarpStream recommends "0" so the kernel auto-tunes TCP buffers.

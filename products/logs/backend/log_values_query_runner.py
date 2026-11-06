@@ -1,4 +1,5 @@
 import datetime as dt
+from functools import cached_property
 from zoneinfo import ZoneInfo
 
 from posthog.schema import IntervalType, LogValueResult, LogValuesQuery, LogValuesQueryResponse
@@ -11,7 +12,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.logs.backend.logs_query_runner import LogsQueryRunnerMixin, ilike_pattern
 
@@ -90,6 +90,9 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
                 )
             )
 
+        # Level and service also arrive as `log` filters in filterGroup, so a scoped viewer does not
+        # suggest values from services it has filtered out.
+        exprs.extend(self.column_filter_exprs())
         exprs.append(self.resource_filter(existing_filters=exprs))
 
         return ast.And(exprs=exprs)

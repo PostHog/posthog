@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -6,6 +8,7 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.logs.backend.alert_signal_emitter import (
+    AlertSignalAction,
     NotifiedAlert,
     build_signal_description,
     build_signal_extra,
@@ -16,7 +19,7 @@ from products.logs.backend.alert_state_machine import NotificationAction
 from products.signals.backend.contracts import LogsAlertStateChangeSignalExtra
 
 
-def _notified(action: str = "firing") -> NotifiedAlert:
+def _notified(action: AlertSignalAction = "firing") -> NotifiedAlert:
     return NotifiedAlert(
         alert_id="11111111-1111-1111-1111-111111111111",
         team_id=7,
@@ -67,11 +70,20 @@ class TestBuildSignalExtra:
         assert extra["filters"] == {"serviceNames": ["checkout"], "severityLevels": ["error"]}
         assert extra["url"].endswith("/project/7/logs")
 
-    @parameterized.expand([("firing",), ("broken",)])
-    def test_built_extra_satisfies_signal_schema(self, action):
+    @parameterized.expand(
+        [
+            ("firing", "firing", {}),
+            ("broken", "broken", {}),
+            ("grouped_firing", "firing", {"service_name": "checkout", "severity_text": "error"}),
+        ]
+    )
+    def test_built_extra_satisfies_signal_schema(
+        self, _name: str, action: AlertSignalAction, group_labels: dict[str, str]
+    ) -> None:
         # emit_signal validates extra against this variant with extra="forbid";
         # if build_signal_extra drifts from the schema, every emit fails validation.
-        LogsAlertStateChangeSignalExtra.model_validate(build_signal_extra(_notified(action)))
+        notified = dataclasses.replace(_notified(action), group_labels=group_labels)
+        LogsAlertStateChangeSignalExtra.model_validate(build_signal_extra(notified))
 
 
 class TestBuildSignalDescription:

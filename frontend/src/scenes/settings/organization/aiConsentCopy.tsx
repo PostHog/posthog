@@ -17,10 +17,11 @@ export function AIHipaaDisclaimer(): JSX.Element {
     )
 }
 
-export function aiConsentLegalDialogProps({ onConfirm }: { onConfirm: () => void }): LemonDialogProps {
+export function aiConsentLegalDialogProps({ onConfirm }: { onConfirm: () => void | Promise<void> }): LemonDialogProps {
     return {
         title: 'The legal bits',
         maxWidth: '65ch',
+        shouldAwaitSubmit: true,
         content: (
             <div className="flex flex-col gap-2">
                 <p className="mb-0">
@@ -37,7 +38,7 @@ export function aiConsentLegalDialogProps({ onConfirm }: { onConfirm: () => void
         primaryButton: {
             children: 'Enable AI analysis',
             'data-attr': 'ai-consent-legal-confirm',
-            onClick: onConfirm,
+            onClick: () => onConfirm(),
         },
         secondaryButton: {
             children: 'Cancel',
@@ -46,6 +47,6 @@ export function aiConsentLegalDialogProps({ onConfirm }: { onConfirm: () => void
     }
 }
 
-export function openAIConsentLegalDialog(args: { onConfirm: () => void }): void {
+export function openAIConsentLegalDialog(args: { onConfirm: () => void | Promise<void> }): void {
     LemonDialog.open(aiConsentLegalDialogProps(args))
 }

@@ -30,7 +30,7 @@ Cache Invalidation:
 -------------------
 Caches are invalidated automatically when:
 - Team is saved (via Django signal → Celery task)
-- Team is deleted (via Django signal → immediate clear)
+- Team is deleted (via Django signal → retrying Celery task that clears the entry by token after commit)
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Manual invalidation:
@@ -65,7 +65,12 @@ from posthog.storage.hypercache_manager import (
     get_cache_stats as get_cache_stats_generic,
 )
 
-from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.cohorts.backend.models.team_access import RealtimeCohortLevel, RealtimeCohortTeamAccess
+from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.models.team_feature_flags_config import (
+    PropertyMatchingVersion,
+    TeamFeatureFlagsConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -156,7 +161,45 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     return value
 
 
-def _serialize_team_to_metadata(team: Team, minimal_flag_called_events: bool | None = None) -> dict[str, Any]:
+MISSING_KEY_DEFAULTS: dict[str, Any] = {
+    "flags_blocked_hosts": [],
+    "flags_blocked_ips": [],
+    "realtime_cohort_level": RealtimeCohortLevel.OFF.value,
+}
+
+
+def _load_request_blocklists(team_ids: list[int]) -> dict[int, dict[str, list[str]]]:
+    """Map each team id to its request blocklist cache fields, with empty lists when it has no policy row."""
+    blocklists: dict[int, dict[str, list[str]]] = {
+        team_id: {"flags_blocked_hosts": [], "flags_blocked_ips": []} for team_id in team_ids
+    }
+    for team_id, blocked_hosts, blocked_ips in TeamFeatureFlagPolicyConfig.objects.filter(
+        team_id__in=team_ids
+    ).values_list("team_id", "blocked_hosts", "blocked_ips"):
+        blocklists[team_id] = {"flags_blocked_hosts": blocked_hosts, "flags_blocked_ips": blocked_ips}
+    return blocklists
+
+
+def _load_realtime_cohort_levels(team_ids: list[int]) -> dict[int, str]:
+    """Map each team id to the level of its realtime cohort access row, with `off` when it has no row.
+
+    The flags service routes a team's realtime cohorts to the membership table at `serving`. It reads
+    the row's level from Postgres too, so the cache carries the row's level and the two reads agree.
+    Django's effective level also counts REALTIME_COHORT_TEAM_ALLOWLIST, which can name every team.
+    """
+    levels = dict.fromkeys(team_ids, RealtimeCohortLevel.OFF.value)
+    for team_id, level in RealtimeCohortTeamAccess.objects.filter(team_id__in=team_ids).values_list("team_id", "level"):
+        levels[team_id] = level
+    return levels
+
+
+def _serialize_team_to_metadata(
+    team: Team,
+    minimal_flag_called_events: bool | None = None,
+    property_matching_version: int | None = None,
+    request_blocklist: dict[str, list[str]] | None = None,
+    realtime_cohort_level: str | None = None,
+) -> dict[str, Any]:
     """
     Serialize a Team object to metadata dictionary.
 
@@ -164,6 +207,12 @@ def _serialize_team_to_metadata(team: Team, minimal_flag_called_events: bool | N
         team: Team object with organization and project already loaded
         minimal_flag_called_events: Pre-fetched value from TeamFeatureFlagsConfig, to let
             batch callers avoid an N+1 query. If None, this looks it up itself.
+        property_matching_version: Pre-fetched property matching semantics version. If None,
+            this looks it up with the other feature flags config value.
+        request_blocklist: Pre-fetched entry from _load_request_blocklists. If None, this
+            looks it up itself.
+        realtime_cohort_level: Pre-fetched entry from _load_realtime_cohort_levels. If None,
+            this looks it up itself.
 
     Returns:
         Dictionary containing full team metadata
@@ -176,19 +225,30 @@ def _serialize_team_to_metadata(team: Team, minimal_flag_called_events: bool | N
     metadata["organization_name"] = team.organization.name if team.organization else None
     metadata["project_name"] = team.project.name if team.project else None
 
-    if minimal_flag_called_events is None:
+    if minimal_flag_called_events is None or property_matching_version is None:
         # Deliberately not team.teamfeatureflagsconfig: the reverse O2O accessor gets
         # cache-populated as a side effect of register_team_extension_signal's
         # get_or_create(team=instance, ...) at team-creation time, so an already-loaded
         # Team object can carry a stale cached value if the config row changes after
         # the Team was loaded. An explicit query is always fresh.
-        minimal_flag_called_events = (
+        config_values = (
             TeamFeatureFlagsConfig.objects.filter(team_id=team.id)
-            .values_list("minimal_flag_called_events", flat=True)
+            .values_list("minimal_flag_called_events", "property_matching_version")
             .first()
-            or False
         )
-    metadata["minimal_flag_called_events"] = minimal_flag_called_events
+        if config_values is not None:
+            minimal_flag_called_events = config_values[0]
+            property_matching_version = config_values[1]
+    metadata["minimal_flag_called_events"] = minimal_flag_called_events or False
+    metadata["property_matching_version"] = property_matching_version or PropertyMatchingVersion.LEGACY
+
+    if request_blocklist is None:
+        request_blocklist = _load_request_blocklists([team.id])[team.id]
+    metadata.update(request_blocklist)
+
+    if realtime_cohort_level is None:
+        realtime_cohort_level = _load_realtime_cohort_levels([team.id])[team.id]
+    metadata["realtime_cohort_level"] = realtime_cohort_level
 
     return metadata
 
@@ -207,14 +267,21 @@ def _batch_load_team_metadata(teams: list[Team]) -> dict[int, dict[str, Any]]:
     Returns:
         Dict mapping team_id -> metadata dict
     """
-    minimal_flag_called_events_by_team = dict(
-        TeamFeatureFlagsConfig.objects.filter(team_id__in=[team.id for team in teams]).values_list(
-            "team_id", "minimal_flag_called_events"
-        )
-    )
+    config_by_team_id = {
+        team_id: (minimal_flag_called_events, property_matching_version)
+        for team_id, minimal_flag_called_events, property_matching_version in TeamFeatureFlagsConfig.objects.filter(
+            team_id__in=[team.id for team in teams]
+        ).values_list("team_id", "minimal_flag_called_events", "property_matching_version")
+    }
+    blocklist_by_team_id = _load_request_blocklists([team.id for team in teams])
+    level_by_team_id = _load_realtime_cohort_levels([team.id for team in teams])
     return {
         team.id: _serialize_team_to_metadata(
-            team, minimal_flag_called_events=minimal_flag_called_events_by_team.get(team.id, False)
+            team,
+            minimal_flag_called_events=config_by_team_id.get(team.id, (False, PropertyMatchingVersion.LEGACY))[0],
+            property_matching_version=config_by_team_id.get(team.id, (False, PropertyMatchingVersion.LEGACY))[1],
+            request_blocklist=blocklist_by_team_id[team.id],
+            realtime_cohort_level=level_by_team_id[team.id],
         )
         for team in teams
     }
@@ -332,11 +399,20 @@ def verify_team_metadata(
 
     # Compare only fields we care about (defined in TEAM_METADATA_FIELDS + derived fields).
     # This allows removing fields from the cache without triggering unnecessary fixes.
-    fields_to_check = set(TEAM_METADATA_FIELDS) | {"organization_name", "project_name", "minimal_flag_called_events"}
+    fields_to_check = set(TEAM_METADATA_FIELDS) | {
+        "organization_name",
+        "project_name",
+        "minimal_flag_called_events",
+        "property_matching_version",
+        *MISSING_KEY_DEFAULTS,
+    }
     diffs = []
     for key in fields_to_check:
         db_val = db_data.get(key)
-        cached_val = cached_data.get(key)
+        # A blob without one of these keys reads as this value in the flags service, so it only
+        # needs a fix when the team's value differs. Otherwise the first verification after a new
+        # key ships would rewrite every team's entry.
+        cached_val = cached_data.get(key, MISSING_KEY_DEFAULTS.get(key))
         if db_val != cached_val:
             diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
 

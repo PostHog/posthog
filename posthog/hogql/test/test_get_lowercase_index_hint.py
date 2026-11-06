@@ -249,6 +249,20 @@ class TestGetLowercaseIndexHintClickhouse(ClickhouseTestMixin, APIBaseTest):
             f"Expected idx_body_ngram3 to be used in EXPLAIN output for query:\n{clickhouse_sql}"
         )
 
+    def test_sql_panel_body_equals_uses_ngram_index(self):
+        executor = HogQLQueryExecutor(
+            query_type="HogQLQuery",
+            query="SELECT count() FROM logs WHERE body = 'test'",
+            team=self.team,
+            workload=Workload.LOGS,
+        )
+        clickhouse_sql, _ = executor.generate_clickhouse_sql()
+        values = cast(HogQLContext, executor.clickhouse_context).values
+        index_info = get_index_from_explain(clickhouse_sql, "idx_body_ngram3", placeholder_values=values)
+        assert index_info is not None, (
+            f"Expected idx_body_ngram3 to be used in EXPLAIN output for query:\n{clickhouse_sql}"
+        )
+
     def test_index_hint_prints_without_ifnull(self):
         """The printed ClickHouse SQL inside indexHint must not contain ifNull — it defeats index usage."""
         hint_node = get_lowercase_index_hint(

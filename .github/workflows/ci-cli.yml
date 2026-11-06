@@ -25,13 +25,22 @@ concurrency:
 jobs:
     tests:
         name: Run tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         defaults:
             run:
                 working-directory: cli
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /cli/
+                      /rust/cymbal/tests/static/native/
+                      /rust/cymbal/tests/static/apple/
+                  sparse-checkout-cone-mode: false
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -48,13 +57,20 @@ jobs:
 
     clippy:
         name: Clippy
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         defaults:
             run:
                 working-directory: cli
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /cli/
+                      /rust/cymbal/tests/static/native/
+                      /rust/cymbal/tests/static/apple/
+                  sparse-checkout-cone-mode: false
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -67,13 +83,20 @@ jobs:
 
     format:
         name: Format
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         defaults:
             run:
                 working-directory: cli
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /cli/
+                      /rust/cymbal/tests/static/native/
+                      /rust/cymbal/tests/static/apple/
+                  sparse-checkout-cone-mode: false
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -86,10 +109,30 @@ jobs:
 
     api-cli-release-bundle:
         name: API CLI release bundle
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      **/package.json
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /.husky/
+                      /bin/fix-rdkafka-paths
+                      /patches/
+                      /services/mcp/
+                      /packages/llm-normalizer/
+                      /packages/quill/packages/
+                      /tools/openapi-codegen/
+                      /products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
+                      /products/ai_observability/backend/prompts/parser_recipe_examples.yaml
+                      /products/notebooks/
+                      /products/product_analytics/mcp/apps/explainChart/
+                  sparse-checkout-cone-mode: false
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install

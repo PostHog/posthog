@@ -4,6 +4,8 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -31,13 +33,64 @@ from posthog.hogql.errors import ResolutionError
 
 from posthog.api.services.query import process_query_model
 from posthog.exceptions import DatabaseSchemaUnavailable
+from posthog.models import Team, User
 
+from products.data_tools.backend.models.expression import DataWarehouseExpression
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+
+class TestEditorAssistDatabase(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("hogql", "hogQL", True),
+            ("expression", "hogQLExpr", True),
+            ("hog", "hog", False),
+            ("hog_template", "hogTemplate", False),
+            ("liquid", "liquid", False),
+            ("hog_json", "hogJson", False),
+        ]
+    )
+    @patch("posthog.api.services.query.create_default_modifiers_for_team")
+    @patch("posthog.api.services.query.resolve_database_for_connection", return_value=(None, MagicMock()))
+    @patch("posthog.api.services.query.get_hogql_autocomplete")
+    def test_autocomplete_builds_the_database_only_for_sql_languages(
+        self,
+        _name: str,
+        language: str,
+        builds_database: bool,
+        python_autocomplete: MagicMock,
+        resolve_database: MagicMock,
+        _modifiers: MagicMock,
+    ) -> None:
+        query = HogQLAutocomplete.model_validate(
+            {
+                "query": "SELECT event FROM events",
+                "language": language,
+                "startPosition": 6,
+                "endPosition": 6,
+                "globals": None if builds_database else {"event": {}},
+            }
+        )
+        python_autocomplete.return_value = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+
+        response = process_query_model(
+            cast(Team, SimpleNamespace(pk=12, modifiers={})),
+            query,
+            user=cast(User, SimpleNamespace(pk=34)),
+        )
+
+        assert response is python_autocomplete.return_value
+        timing_values = {timing.k for timing in response.timings or []}
+        assert resolve_database.called is builds_database
+        assert (python_autocomplete.call_args.kwargs["database_arg"] is None) is not builds_database
+        assert ("./editor_assist/database" in timing_values) is builds_database
+        assert "./editor_assist/autocomplete" in timing_values
 
 
 class TestQueryService(APIBaseTest):
@@ -152,6 +205,89 @@ class TestQueryService(APIBaseTest):
             source_table_name__in={"selected_table", "selected_table_2"},
             joining_table_name__in={"selected_table", "selected_table_2"},
         )
+
+    def test_database_schema_query_supports_shallow_and_filtered_modes(self):
+        full = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
+        shallow = cast(
+            DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery(includeFields=False))
+        )
+        filtered = cast(
+            DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery(tables=["events"]))
+        )
+
+        assert set(shallow.tables.keys()) == set(full.tables.keys())
+        assert all(table.fields == {} for table in shallow.tables.values())
+        assert full.tables["events"].fields != {}
+
+        assert set(filtered.tables.keys()) == {"events"}
+        assert filtered.tables["events"] == full.tables["events"]
+
+    @parameterized.expand(
+        [
+            ("dotted", "postgres.shop.orders", None),
+            ("alias", "shop_postgres_orders", None),
+            ("join", "postgres.shop.orders", "join"),
+            ("expression", "postgres.shop.orders", "expression"),
+        ]
+    )
+    def test_filtered_warehouse_schema_preserves_related_fields(
+        self, _label: str, requested: str, dependency: str | None
+    ) -> None:
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.POSTGRES, prefix="shop"
+        )
+        for name, columns in {
+            "customers": ["id"],
+            "orders": ["id", "customer_id"],
+            "items": ["id", "order_id"],
+        }.items():
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=f"shop_postgres_{name}",
+                external_data_source=source,
+                credential=credential,
+                format="Parquet",
+                url_pattern="https://example.com/data/*",
+                columns={column: {"hogql": "StringDatabaseField", "clickhouse": "String"} for column in columns},
+            )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="external_lookup",
+            credential=credential,
+            format="Parquet",
+            url_pattern="https://example.com/lookup/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String"}},
+        )
+        if dependency == "join":
+            DataWarehouseJoin.objects.create(
+                team=self.team,
+                source_table_name="postgres.shop.orders",
+                source_table_key="id",
+                joining_table_name="external_lookup",
+                joining_table_key="id",
+                field_name="lookup",
+            )
+        elif dependency == "expression":
+            DataWarehouseExpression.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk,
+                table_name="postgres.shop.orders",
+                field_name="lookup",
+                expression="(SELECT id FROM external_lookup LIMIT 1)",
+            )
+
+        full = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
+        filtered = cast(
+            DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery(tables=[requested]))
+        )
+
+        assert set(filtered.tables) == {"postgres.shop.orders"}
+        table = filtered.tables["postgres.shop.orders"]
+        assert table == full.tables["postgres.shop.orders"]
+        assert table.fields["customer"].fields == ["id", "properties", "orders"]
+        assert table.fields["items"].fields == ["id", "order_id", "properties", "order"]
+        if dependency:
+            assert "lookup" in table.fields
 
     @parameterized.expand(
         [
@@ -409,7 +545,10 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+        assert isinstance(response, HogQLAutocompleteResponse)
+        self.assertEqual(response.suggestions, [])
+        self.assertFalse(response.incomplete_list)
+        self.assertIsNotNone(response.timings)
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.resolve_database_for_connection")
@@ -461,7 +600,10 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+        assert isinstance(response, HogQLAutocompleteResponse)
+        self.assertEqual(response.suggestions, [])
+        self.assertFalse(response.incomplete_list)
+        self.assertIsNotNone(response.timings)
         self.assertEqual(mock_resolve_database_for_connection.call_args.kwargs["user"], None)
         self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], None)
 
@@ -516,7 +658,10 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+        assert isinstance(response, HogQLAutocompleteResponse)
+        self.assertEqual(response.suggestions, [])
+        self.assertFalse(response.incomplete_list)
+        self.assertIsNotNone(response.timings)
         self.assertEqual(mock_resolve_database_for_connection.call_args.kwargs["user"], None)
         self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], None)
 
@@ -581,7 +726,10 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+        assert isinstance(response, HogQLAutocompleteResponse)
+        self.assertEqual(response.suggestions, [])
+        self.assertFalse(response.incomplete_list)
+        self.assertIsNotNone(response.timings)
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.resolve_database_for_connection")

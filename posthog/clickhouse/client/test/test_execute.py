@@ -1,10 +1,25 @@
+from datetime import date
+from ipaddress import IPv4Address, IPv6Address
+from types import SimpleNamespace
+from typing import Any
+
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.client.limit import RateLimit, get_llm_analytics_rate_limiter
-from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
+from clickhouse_driver.columns.datecolumn import DateColumn
+
+from posthog.hogql.query_stats import query_stats_scope
+
+from posthog.clickhouse.client.connection import (
+    ClickHouseClient,
+    ClickHouseUser,
+    ProxyClient,
+    Workload,
+    get_default_clickhouse_workload_type,
+)
+from posthog.clickhouse.client.execute import query_with_columns, sync_execute
+from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
 
 
 @pytest.fixture
@@ -21,7 +36,8 @@ def llm_analytics_slots():
     """Counts concurrency slots taken per query, with the limiter forced on (it is inert in tests)."""
     limiter = get_llm_analytics_rate_limiter()
     with patch.object(limiter, "applicable", lambda *args, **kwargs: True):
-        with patch.object(RateLimit, "use", return_value=("key", "task")) as use, patch.object(RateLimit, "release"):
+        slot = ConcurrencySlot(running_tasks_key="key", task_id="task")
+        with patch.object(RateLimit, "use", return_value=slot) as use, patch.object(RateLimit, "release"):
             yield use
 
 
@@ -49,6 +65,20 @@ def test_process_query_task_workload_routing(
     called_workload, _, _, called_ch_user = client_from_pool.call_args[0]
     assert called_workload == expected_workload
     assert called_ch_user == expected_ch_user
+
+
+@pytest.mark.parametrize(
+    "access_method,expected_workload",
+    [
+        (None, Workload.ONLINE),
+        (AccessMethod.PERSONAL_API_KEY, Workload.OFFLINE),
+    ],
+)
+def test_celery_cache_warming_workload_routing(client_from_pool, access_method, expected_workload):
+    with tags_context(kind="celery", feature=Feature.CACHE_WARMUP, access_method=access_method):
+        sync_execute("SELECT 1", flush=False)
+
+    assert client_from_pool.call_args[0][0] == expected_workload
 
 
 @pytest.mark.parametrize(
@@ -90,6 +120,51 @@ def test_llm_analytics_ch_user_routing(client_from_pool, product, kind, tag_id, 
 
 
 @pytest.mark.parametrize(
+    "tagged_ch_user,feature,service_name,requested_ch_user,expected_ch_user",
+    [
+        (
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+            None,
+            None,
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ),
+        (None, None, None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, None, ClickHouseUser.META, ClickHouseUser.META),
+        (ClickHouseUser.EXPERIMENTS, Feature.CACHE_WARMUP, None, ClickHouseUser.DEFAULT, ClickHouseUser.EXPERIMENTS),
+        (None, Feature.CACHE_WARMUP, None, ClickHouseUser.DEFAULT, ClickHouseUser.CACHE_WARMUP),
+        (
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+            None,
+            "temporal-worker-max-ai",
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ),
+        (None, None, "temporal-worker-max-ai", ClickHouseUser.DEFAULT, ClickHouseUser.MAX_AI),
+    ],
+)
+def test_tagged_ch_user_routing(
+    client_from_pool: MagicMock,
+    tagged_ch_user: ClickHouseUser | None,
+    feature: Feature | None,
+    service_name: str | None,
+    requested_ch_user: ClickHouseUser,
+    expected_ch_user: ClickHouseUser,
+) -> None:
+    with tags_context(
+        product=Product.PRODUCT_ANALYTICS,
+        feature=feature,
+        kind="temporal",
+        id="alerts",
+        ch_user=tagged_ch_user,
+        service_name=service_name,
+    ):
+        sync_execute("SELECT 1", flush=False, ch_user=requested_ch_user)
+
+    assert client_from_pool.call_args[0][3] == expected_ch_user
+
+
+@pytest.mark.parametrize(
     "product,expected_slots",
     [
         (Product.LLM_ANALYTICS, 1),
@@ -104,3 +179,127 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
         sync_execute("SELECT 1", flush=False)
 
     assert llm_analytics_slots.call_count == expected_slots
+
+
+def _fake_query_info(rows: int, elapsed_ns: int) -> SimpleNamespace:
+    return SimpleNamespace(progress=SimpleNamespace(rows=rows, elapsed_ns=elapsed_ns))
+
+
+class _FakeNativeClient(ClickHouseClient):
+    # Nothing here connects, so disconnect() only clears last_query.
+    def __init__(self, fails: str | None = None, last_query: SimpleNamespace | None = None) -> None:
+        super().__init__(host="localhost")
+        self.last_query = last_query
+        self._fails = fails
+
+    def execute(self, *args: Any, **kwargs: Any) -> list[tuple[int]]:
+        if self._fails == "connect":
+            self.disconnect()
+            raise ValueError("Connection refused")
+        self.last_query = _fake_query_info(rows=7, elapsed_ns=3_000_000)
+        if self._fails == "kill":
+            self.disconnect()
+            raise ValueError("Memory limit (for query) exceeded")
+        return [(1,)]
+
+
+def _proxy_client() -> ProxyClient:
+    summary = {"read_rows": "7", "elapsed_ns": "3000000"}
+    http_client = SimpleNamespace(query=lambda **kwargs: SimpleNamespace(summary=summary, result_set=[(1,)]))
+    return ProxyClient(http_client)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "make_client,raises,tags,expected,expected_workload",
+    [
+        (_FakeNativeClient, False, {}, (7, 3.0), "default"),
+        (_FakeNativeClient, False, {"kind": "celery"}, (7, 3.0), "OFFLINE"),
+        (
+            _FakeNativeClient,
+            False,
+            {"kind": "celery", "id": "posthog.tasks.tasks.process_query_task"},
+            (7, 3.0),
+            "ONLINE",
+        ),
+        (lambda: _FakeNativeClient(fails="kill"), True, {}, (7, 3.0), "default"),
+        # Counting the previous query's progress would charge this query with another query's rows.
+        (
+            lambda: _FakeNativeClient(fails="connect", last_query=_fake_query_info(rows=99, elapsed_ns=1)),
+            True,
+            {},
+            (0, 0.0),
+            None,
+        ),
+        (_proxy_client, False, {}, (7, 3.0), "default"),
+    ],
+    ids=[
+        "ok",
+        "celery_resolves_to_offline",
+        "app_query_task_resolves_to_online",
+        "killed_by_the_server",
+        "connect_failed",
+        "http_client",
+    ],
+)
+def test_sync_execute_records_what_clickhouse_read(make_client, raises, tags, expected, expected_workload):
+    with patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool, tags_context(**tags):
+        pool.return_value.__enter__.return_value = make_client()
+        with query_stats_scope() as stats:
+            if raises:
+                with pytest.raises(ValueError):
+                    sync_execute("SELECT 1", flush=False)
+            else:
+                sync_execute("SELECT 1", flush=False)
+
+    assert (stats.rows_read, stats.duration_ms) == expected
+    if expected_workload == "default":
+        expected_workload = get_default_clickhouse_workload_type().value
+    assert stats.workload() == expected_workload
+
+
+@pytest.mark.parametrize(
+    "types,row,expected",
+    [
+        # `system.query_log` grew `connection_address` on top of the two IP columns the
+        # callers used to name, and one unserializable value fails the whole API response.
+        (
+            [("duration", "Float64"), ("connection_address", "IPv6"), ("address", "IPv6")],
+            (1.0, IPv6Address("::1"), IPv6Address("::1")),
+            {"duration": 1.0},
+        ),
+        (
+            [("duration", "Float64"), ("client", "Nullable(IPv4)")],
+            (1.0, IPv4Address("127.0.0.1")),
+            {"duration": 1.0},
+        ),
+        (
+            [("duration", "Float64"), ("query", "String")],
+            (1.0, "SELECT 1"),
+            {"duration": 1.0, "query": "SELECT 1"},
+        ),
+    ],
+)
+def test_query_with_columns_removes_columns_by_type(types, row, expected):
+    with patch("posthog.clickhouse.client.execute.sync_execute", return_value=([row], types)):
+        rows = query_with_columns("SELECT *", column_types_to_remove=("IPv4", "IPv6"))
+
+    assert rows == [expected]
+
+
+@pytest.mark.parametrize(
+    "raw_day_number_hex,expected",
+    [
+        ("aeba0500", date(2998, 1, 1)),
+        ("8c29f5ff", date(25, 5, 17)),
+    ],
+)
+def test_sync_execute_decodes_date32_outside_driver_default_range(raw_day_number_hex, expected):
+    # RowBinary keeps the raw day number, the same way ClickHouse 26.9+ passes through out-of-range
+    # Parquet and CAST values. The driver's default lookup table stops at 1900-2299.
+    lookup_size = len(DateColumn.date_lut)
+
+    rows = sync_execute(f"SELECT d FROM format(RowBinary, 'd Date32', unhex('{raw_day_number_hex}'))", flush=False)
+
+    assert rows == [(expected,)]
+    # The lookup is shared by every query in the process, so out-of-range days must not be cached in it.
+    assert len(DateColumn.date_lut) == lookup_size

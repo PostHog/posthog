@@ -5,8 +5,8 @@
     },
     "dependencies": {
         "@posthog/quill-primitives": "workspace:*",
+        "@posthog/react": "catalog:",
         "@tanstack/react-virtual": "*",
-        "@toon-format/toon": "^2.1.0",
         "eventsource-parser": "*",
         "kea-subscriptions": "catalog:",
         "marked": "*",
@@ -23,10 +23,12 @@
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
         "kea": "catalog:",
+        "kea-disposables": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",

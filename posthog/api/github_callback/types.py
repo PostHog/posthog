@@ -4,12 +4,15 @@ import re
 from enum import StrEnum
 from typing import Any, Literal, Self
 from urllib.parse import parse_qsl, urlencode, urlparse
+from uuid import UUID, uuid4
 
 from django.conf import settings
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 from rest_framework.exceptions import ValidationError as ApiValidationError
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.models.instance_setting import get_instance_settings
 
 # Server-side state cache used by the personal GitHub linking flow (the install
@@ -90,6 +93,8 @@ class GitHubAuthorizeState(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     token: str
+    flow_id: UUID = Field(default_factory=uuid4)
+    originating_organization_id: UUID | None = None
     flow: FlowKind
     user_id: int
     team_id: int | None = None
@@ -150,19 +155,26 @@ def github_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
 
 
-def github_app_install_url(state: str) -> str:
+def github_app_install_url_shareable() -> str:
+    """The App's install page with no PostHog state attached, safe to hand to a GitHub org owner
+    who has no PostHog session to resume."""
     instance_settings = get_instance_settings(["GITHUB_APP_SLUG"])
     app_slug = instance_settings.get("GITHUB_APP_SLUG")
     if not app_slug:
         raise ApiValidationError("GitHub App is not configured on this instance (missing GITHUB_APP_SLUG).")
-    return f"https://github.com/apps/{app_slug}/installations/new?{urlencode({'state': state})}"
+    return f"https://github.com/apps/{app_slug}/installations/new"
+
+
+def github_app_install_url(state: str) -> str:
+    return f"{github_app_install_url_shareable()}?{urlencode({'state': state})}"
 
 
 def github_oauth_authorize_url(state: str) -> str:
-    if not settings.GITHUB_APP_CLIENT_ID:
+    client_id = get_or_settings("GITHUB_APP_CLIENT_ID", CredentialsCaller.INTEGRATIONS)
+    if not client_id:
         raise ApiValidationError("GitHub App client ID is not configured (GITHUB_APP_CLIENT_ID missing).")
     return "https://github.com/login/oauth/authorize?" + urlencode(
-        {"client_id": settings.GITHUB_APP_CLIENT_ID, "redirect_uri": github_oauth_redirect_uri(), "state": state}
+        {"client_id": client_id, "redirect_uri": github_oauth_redirect_uri(), "state": state}
     )
 
 

@@ -1,12 +1,24 @@
-from django.utils import timezone
+import uuid
+from datetime import datetime
+from typing import cast
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.oauth.cimd import is_cimd_client_id
 from posthog.auth import SessionAuthentication
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, revoke_oauth_session
+from posthog.models.oauth import (
+    OAuthApplication,
+    live_oauth_access_tokens,
+    live_oauth_refresh_tokens,
+    revoke_oauth_session,
+)
+from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.user import User
+from posthog.permissions import TimeSensitiveActionPermission
 
 
 class ConnectedAppSerializer(serializers.Serializer):
@@ -17,43 +29,67 @@ class ConnectedAppSerializer(serializers.Serializer):
     authorized_at = serializers.DateTimeField(help_text="When the user first authorized this application")
     is_verified = serializers.BooleanField(help_text="Whether this application has been verified by PostHog")
     is_first_party = serializers.BooleanField(help_text="Whether this is a first-party PostHog application")
+    requires_access_confirmation = serializers.BooleanField(
+        help_text=(
+            "Whether the user must choose to keep or disconnect this application, because it set up one of "
+            "the user's organizations and PostHog has not verified it"
+        )
+    )
+    is_self_registered = serializers.BooleanField(
+        help_text=(
+            "Whether the application registered itself, through dynamic client registration or a client ID "
+            "metadata document. MCP clients connect this way; applications PostHog registers do not."
+        )
+    )
 
 
-@extend_schema(tags=["oauth"])
+@extend_schema(tags=["oauth"], extensions={"x-product": "core"})
 class ConnectedAppsViewSet(viewsets.ViewSet):
     """
     ViewSet for listing and revoking OAuth applications connected to the current user.
     """
 
+    scope_object = "INTERNAL"
     authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission]
     http_method_names = ["get", "post"]
 
     @extend_schema(
         responses={200: ConnectedAppSerializer(many=True)},
         summary="List connected OAuth applications",
-        description="Returns all OAuth applications that have active (non-expired) access tokens for the current user.",
+        description=(
+            "Returns all OAuth applications that can currently act as the requesting user, "
+            "whether they hold an unexpired access token or an unrevoked refresh token."
+        ),
     )
     def list(self, request: Request) -> Response:
-        now = timezone.now()
-
-        tokens = OAuthAccessToken.objects.filter(
-            user=request.user,
-            application__isnull=False,
-            expires__gt=now,
-        ).values("application_id", "scope", "created")
-
+        user = cast(User, request.user)
         app_map: dict[str, dict] = {}
-        for token in tokens:
-            app_id = str(token["application_id"])
-            if app_id not in app_map:
-                app_map[app_id] = {"authorized_at": token["created"], "scopes": set()}
-            else:
-                if token["created"] < app_map[app_id]["authorized_at"]:
-                    app_map[app_id]["authorized_at"] = token["created"]
-            if token["scope"]:
-                app_map[app_id]["scopes"].update(token["scope"].split())
+
+        def record(application_id: uuid.UUID, created: datetime, scope: str | None) -> None:
+            entry = app_map.setdefault(str(application_id), {"authorized_at": created, "scopes": set()})
+            if created < entry["authorized_at"]:
+                entry["authorized_at"] = created
+            if scope:
+                entry["scopes"].update(scope.split())
+
+        for access_token in live_oauth_access_tokens(user).values("application_id", "scope", "created"):
+            record(access_token["application_id"], access_token["created"], access_token["scope"])
+
+        # An unrevoked refresh token is standing access even in the windows where the app holds no
+        # unexpired access token, so listing on access tokens alone hides a connection the user
+        # still needs to see and revoke. Scope comes from the access token the refresh token was
+        # issued alongside, which survives its own expiry because `clear_expired` only deletes
+        # access tokens that have no refresh token.
+        for refresh_token in live_oauth_refresh_tokens(user).values("application_id", "created", "access_token__scope"):
+            record(refresh_token["application_id"], refresh_token["created"], refresh_token["access_token__scope"])
 
         applications = OAuthApplication.objects.filter(id__in=app_map.keys())
+        provisioner_ids = set(
+            OrganizationProvisioning.objects.filter(
+                application_id__in=app_map.keys(), organization__membership__user=user
+            ).values_list("application_id", flat=True)
+        )
 
         results = []
         for app in applications:
@@ -67,6 +103,10 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
                     "authorized_at": app_data["authorized_at"],
                     "is_verified": app.is_verified,
                     "is_first_party": app.is_first_party,
+                    "requires_access_confirmation": (
+                        app.id in provisioner_ids and not app.is_verified and not app.is_first_party
+                    ),
+                    "is_self_registered": app.is_dcr_client or is_cimd_client_id(app.client_id),
                 }
             )
 
@@ -75,25 +115,29 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
     @extend_schema(
+        request=None,
         responses={204: None},
         summary="Revoke a connected OAuth application",
         description="Revokes all tokens and grants for the specified application for the current user.",
     )
     def revoke(self, request: Request, pk: str | None = None) -> Response:
-        now = timezone.now()
+        user = cast(User, request.user)
 
-        access_token = OAuthAccessToken.objects.filter(
-            user=request.user,
-            application_id=pk,
-            expires__gt=now,
-        ).first()
+        access_token = live_oauth_access_tokens(user).filter(application_id=pk).first()
+        if access_token:
+            revoke_oauth_session(access_token=access_token)
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
-        if not access_token:
-            return Response(
-                {"detail": "No active connection found for this application."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        # Same reason the listing considers refresh tokens: without this fallback, an app the user
+        # can see in the list is un-revocable whenever its access token has lapsed, which is most
+        # of the time for a connection that refreshes on demand. Either entry point sweeps the
+        # whole (user, application) pair, so the outcome is identical.
+        refresh_token = live_oauth_refresh_tokens(user).filter(application_id=pk).first()
+        if refresh_token:
+            revoke_oauth_session(refresh_token=refresh_token)
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
-        revoke_oauth_session(access_token=access_token)
-
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(
+            {"detail": "No active connection found for this application."},
+            status=status.HTTP_404_NOT_FOUND,
+        )

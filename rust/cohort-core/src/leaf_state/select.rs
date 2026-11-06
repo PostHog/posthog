@@ -396,7 +396,6 @@ fn explicit_window_days(from: Option<&str>, to: Option<&str>) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use chrono::{NaiveDate, TimeZone, Utc};
     use chrono_tz::America::New_York;
@@ -437,7 +436,6 @@ mod tests {
             explicit_datetime_to: None,
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
-            bytecode: Arc::new(vec![]),
             negated: false,
         }
         .with_state_key()

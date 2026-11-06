@@ -2,7 +2,7 @@ from collections import Counter
 from datetime import datetime
 
 import structlog
-from langchain_core.messages import HumanMessage, SystemMessage
+from openai import OpenAI
 
 from posthog.schema import SurveyQuestionType
 
@@ -10,13 +10,13 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.api.utils import ServerTimingsGathered
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
+from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config
 from posthog.models import Team, User
 
 from products.surveys.backend.models import Survey
+from products.surveys.backend.responses.fetch_rows import RESPONSE_EVENT_FILTER, SUBMISSION_GROUPING_KEY
 from products.surveys.backend.util import get_archived_response_uuids, get_survey_response_clickhouse_query
-
-from ee.hogai.llm import MaxChatOpenAI
 
 logger = structlog.get_logger(__name__)
 
@@ -104,35 +104,36 @@ def generate_survey_headline(
     end_date = (survey.end_date or datetime.now()).replace(hour=23, minute=59, second=59, microsecond=0)
 
     select_fields = []
+    merged_fields = []
     for orig_idx, q in questions_with_idx:
         is_multiple_choice = q.get("type", "").lower() == SurveyQuestionType.MULTIPLE_CHOICE
         field = get_survey_response_clickhouse_query(orig_idx, q.get("id"), is_multiple_choice)
         select_fields.append(f"{field} as q{orig_idx}")
-
-    if survey.enable_partial_responses:
-        partial_filter = f"AND uniqueSurveySubmissionsFilter('{survey.id}')"
-    else:
-        partial_filter = """AND (
-            NOT JSONHas(properties, '$survey_completed')
-            OR JSONExtractBool(properties, '$survey_completed') = true
-        )"""
+        presence = f"length(q{orig_idx}) > 0" if is_multiple_choice else f"isNotNull(q{orig_idx})"
+        merged_fields.append(f"argMaxIf(q{orig_idx}, timestamp, {presence}) as answer_{orig_idx}")
 
     # Get archived response UUIDs to exclude
     # UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive
     archived_uuids = get_archived_response_uuids(survey.id, team.pk)
-    archived_filter = " AND uuid NOT IN {exclude_uuids}" if archived_uuids else ""
+    archived_filter = " HAVING response_uuid NOT IN {exclude_uuids}" if archived_uuids else ""
 
     with timer("query"):
         query = f"""
-            SELECT {", ".join(select_fields)}
-            FROM events
-            WHERE event == 'survey sent'
-                AND properties.$survey_id = {{survey_id}}
-                AND timestamp >= {{start_date}}
-                AND timestamp <= {{end_date}}
-                {partial_filter}
+            SELECT {", ".join(f"answer_{idx}" for idx, _ in questions_with_idx)}
+            FROM (
+                SELECT {", ".join(merged_fields)}, argMax(uuid, timestamp) as response_uuid,
+                    max(timestamp) as submitted_at
+                FROM (
+                    SELECT {", ".join(select_fields)}, uuid, timestamp,
+                        {SUBMISSION_GROUPING_KEY} as submission_key
+                    FROM events
+                    WHERE {RESPONSE_EVENT_FILTER}
+                        AND properties.$survey_id = {{survey_id}}
+                        AND timestamp >= {{start_date}}
+                        AND timestamp <= {{end_date}}
+                ) GROUP BY submission_key
                 {archived_filter}
-            ORDER BY timestamp DESC
+            ) ORDER BY submitted_at DESC
         """
 
         placeholders: dict[str, ast.Expr] = {
@@ -175,36 +176,24 @@ def generate_survey_headline(
     with timer("llm"):
         logger.info("[survey_headline_summary] starting LLM call", survey_id=str(survey.id))
         try:
-            llm = MaxChatOpenAI(
-                user=user,
-                team=team,
+            completion = _headline_client(survey, team, user).chat.completions.create(
                 model="gpt-4.1-mini",
                 temperature=0.3,
-                billable=False,
-                inject_context=True,
-                streaming=False,
-                disable_streaming=True,
+                messages=[
+                    {"role": "system", "content": HEADLINE_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": HEADLINE_USER_PROMPT.format(
+                            survey_name=survey.name,
+                            formatted_data=formatted_data,
+                        ),
+                    },
+                ],
+                user=user.distinct_id or "",
             )
-
-            messages = [
-                SystemMessage(content=HEADLINE_SYSTEM_PROMPT),
-                HumanMessage(
-                    content=HEADLINE_USER_PROMPT.format(
-                        survey_name=survey.name,
-                        formatted_data=formatted_data,
-                    )
-                ),
-            ]
-
-            llm_result = llm.invoke(messages)
             logger.info("[survey_headline_summary] LLM call completed", survey_id=str(survey.id))
-            content = llm_result.content
-            if isinstance(content, str):
-                headline = content.strip()
-            elif content:
-                headline = str(content[0]).strip() if content else "Unable to generate summary"
-            else:
-                headline = "Unable to generate summary"
+            content = completion.choices[0].message.content if completion.choices else None
+            headline = content.strip() if content else "Unable to generate summary"
         except Exception as e:
             logger.exception("[survey_headline_summary] LLM call failed", survey_id=str(survey.id), error=str(e))
             raise
@@ -217,3 +206,15 @@ def generate_survey_headline(
         "has_more": has_more,
         "timings_header": timer.to_header_string(),
     }
+
+
+def _headline_client(survey: Survey, team: Team, user: User) -> OpenAI:
+    if resolve_ai_gateway_config() is None:
+        return OpenAI()
+    client = build_openai_client(
+        product="django",
+        ai_product="surveys",
+        distinct_id=user.distinct_id,
+        properties={"ai_feature": "survey_headline", "survey_id": str(survey.id), "team_id": str(team.id)},
+    )
+    return client.with_options(default_headers={"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"})

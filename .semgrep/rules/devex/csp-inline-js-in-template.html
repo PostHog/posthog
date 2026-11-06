@@ -1,0 +1,71 @@
+{% extends "admin/base_site.html" %}
+{% comment %}
+Fixture for csp-inline-js-in-template. Markup quoted in a comment never reaches the browser:
+<a href="javascript:void(0)">x</a> <button onclick="go()">x</button> <script>go()</script>
+{% endcomment %}
+{# <script>go()</script> <a href="javascript:go()">x</a> #}
+<!-- <button onclick="go()">x</button> <script>go()</script> -->
+{% block content %}
+    <!-- ruleid: csp-javascript-url-in-template -->
+    <a href="javascript:history.back()" class="button">Back</a>
+    <!-- ruleid: csp-javascript-url-in-template -->
+    <a href='javascript:void(0)'>Nothing</a>
+    <!-- ruleid: csp-javascript-url-in-template -->
+    <a HREF="  JavaScript:go()">Mixed case</a>
+    <!-- ruleid: csp-javascript-url-in-template -->
+    <form method="post" action="javascript:submitIt()">
+        <!-- ruleid: csp-javascript-url-in-template -->
+        <button type="submit" formaction="javascript:submitIt()">Save</button>
+    </form>
+    <!-- ok: csp-javascript-url-in-template -->
+    <a href="{{ settings_url }}" class="button">Settings</a>
+    <!-- ok: csp-javascript-url-in-template -->
+    <span data-href="javascript:go()">A script reads this attribute; the browser does not follow it.</span>
+    <!-- ok: csp-javascript-url-in-template -->
+    <p>Links that start with javascript: do not run under the policy.</p>
+    <!-- ok: csp-javascript-url-in-template -->
+    <p>Do not write <code>href="javascript:go()"</code> in a template.</p>
+
+    <!-- ruleid: csp-inline-event-handler-in-template -->
+    <button type="button" onclick="go()">Go</button>
+    <!-- ruleid: csp-inline-event-handler-in-template -->
+    <input type="text"
+           readonly
+           value="{{ value }}"
+           onclick="this.select()" />
+    <!-- ruleid: csp-inline-event-handler-in-template -->
+    <img src="{{ image_url }}" alt="" ONERROR='this.remove()'>
+    <!-- ruleid: csp-inline-event-handler-in-template -->
+    <select name="mode" class="x"onchange="this.form.submit()"></select>
+    <!-- ok: csp-inline-event-handler-in-template -->
+    <div data-onboarding="step-1" class="card">Onboarding</div>
+    <!-- ok: csp-inline-event-handler-in-template -->
+    <button type="button" x-on:click="open = true">Open</button>
+    <!-- ok: csp-inline-event-handler-in-template -->
+    <p>Turn the setting on = off to reset it.</p>
+
+    <!-- ruleid: csp-inline-script-without-nonce -->
+    <script>
+        document.addEventListener("click", function () {});
+    </script>
+    <!-- ruleid: csp-inline-script-without-nonce -->
+    <script type="module">import "/static/x.js"</script>
+    <!-- ruleid: csp-inline-script-without-nonce -->
+    <SCRIPT type="text/javascript">go()</SCRIPT>
+    <!-- ok: csp-inline-script-without-nonce -->
+    <script nonce="{{ request.csp_nonce }}">
+        var button = document.getElementById("go");
+        button.onclick = function () {};
+        for (var i = 0; i<n; i++) { button.onfocus = null; }
+    </script>
+    <!-- ok: csp-inline-script-without-nonce -->
+    <script
+        type="module"
+        nonce="{{ request.csp_nonce }}">go()</script>
+    <!-- ok: csp-inline-script-without-nonce -->
+    <script src="/static/admin/x.js"></script>
+    <!-- ok: csp-inline-script-without-nonce -->
+    <script type="application/json" id="config">{"a": 1}</script>
+    <!-- ok: csp-inline-script-without-nonce -->
+    <script type="text/template" id="row"><tr><td></td></tr></script>
+{% endblock %}

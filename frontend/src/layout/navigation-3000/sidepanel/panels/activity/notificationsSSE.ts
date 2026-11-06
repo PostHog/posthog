@@ -21,6 +21,7 @@ export function connectToNotificationsSSE(
     hooks: NotificationsSSEHooks = {}
 ): Promise<void> {
     let firstMessageSeen = false
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
     return api.stream(url, {
         headers: {
             Authorization: `Bearer ${token}`,

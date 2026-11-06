@@ -1,0 +1,22 @@
+# Excluded from EAS Build upload archives (eas-cli reads this at the git root).
+# When present, this file replaces .gitignore for the upload in some modes, so
+# it must re-list the heavy ignored directories. Only list untracked paths:
+# pruning a tracked file would break the remote build.
+.claude/worktrees/
+.flox/cache/
+.flox/run/
+.flox/lib/
+.flox/log/
+node_modules/
+.vite/
+.parcel-cache/
+.postgres-backups/
+.typegen/
+.venv/
+.expo/
+.turbo/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+rust/target/

@@ -29,7 +29,7 @@ const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
 const tickerListeners = new Set<() => void>()
 let tickerId: number | null = null
 
-function subscribeToTicker(listener: () => void): () => void {
+export function subscribeToTicker(listener: () => void): () => void {
     tickerListeners.add(listener)
     if (tickerId === null) {
         tickerId = window.setInterval(() => tickerListeners.forEach((tick) => tick()), 1000)

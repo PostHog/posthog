@@ -1,14 +1,21 @@
 import os
-from datetime import date, datetime, timedelta
+import re
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta
+from fnmatch import fnmatch
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+import time_machine
+from unittest.mock import MagicMock, call, patch
 
 import duckdb
 import psycopg
+from clickhouse_driver.errors import Error as ClickHouseError
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.dags.common import JobOwners
 from posthog.dags.events_backfill_to_duckling import (
     _DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR,
@@ -17,12 +24,16 @@ from posthog.dags.events_backfill_to_duckling import (
     EVENTS_COLUMNS,
     EVENTS_CONCURRENCY_TAG,
     EVENTS_TABLE_DDL,
+    EVENTS_TRINO_COLUMN_TYPES,
+    EVENTS_TRINO_COLUMNS,
     EXPECTED_DUCKLAKE_EVENTS_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
     MAX_S3_FILE_FANOUT,
     PERSONS_COLUMNS,
     PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
+    PERSONS_TRINO_COLUMN_TYPES,
+    PERSONS_TRINO_COLUMNS,
     TARGET_ROWS_PER_FILE,
     DucklingBackfillConfig,
     DucklingTarget,
@@ -41,6 +52,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _resolve_duckling_target,
     _resolve_table_names,
     _run_duckling_events_backfill,
+    _run_duckling_persons_backfill,
     _set_table_partitioning,
     _stale_run_outcome,
     _validate_identifier,
@@ -62,10 +74,16 @@ from posthog.dags.events_backfill_to_duckling import (
 )
 
 from products.data_warehouse.backend.facade.backfill_status import BackfillOutcome, get_months_in_range
-from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE, NO_HISTORY_SENTINEL
+from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE
+from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeDayReplacement,
+    DuckLakeTableLayoutError,
+    DuckLakeTableReplacement,
+    DucklingTables,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
+    ServiceCredentialConnect,
 )
 
 
@@ -177,14 +195,14 @@ class TestResolveTableNames:
     def test_passes_through_resolved_names(self):
         with patch(
             "posthog.dags.events_backfill_to_duckling.resolve_events_persons_tables",
-            return_value=("events_alpha", "persons_alpha"),
+            return_value=DucklingTables(events_table="events_alpha", persons_table="persons_alpha"),
         ):
             assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
 
     def test_unsafe_resolved_name_is_rejected(self):
         with patch(
             "posthog.dags.events_backfill_to_duckling.resolve_events_persons_tables",
-            return_value=("events_a-b; DROP", "persons"),
+            return_value=DucklingTables(events_table="events_a-b; DROP", persons_table="persons"),
         ):
             with pytest.raises(ValueError):
                 _resolve_table_names(1)
@@ -699,28 +717,6 @@ class TestFullBackfillSensorEarliestDate:
         # The same tick uses the freshly resolved date (the contract is frozen, so the
         # sensor replaces its local value rather than mutating the control-plane row).
 
-    @patch("posthog.dags.events_backfill_to_duckling.resolve_team_earliest_event_date")
-    @patch("posthog.dags.events_backfill_to_duckling.list_enabled_backfill_team_memberships")
-    @patch("posthog.dags.events_backfill_to_duckling.timezone")
-    @patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", new=MagicMock(return_value=[]))
-    def test_no_events_returns_empty(self, mock_tz, mock_list_rows, mock_get_earliest):
-        from dagster import DagsterInstance, SensorResult, build_sensor_context
-
-        mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
-        mock_get_earliest.return_value = NO_HISTORY_SENTINEL
-
-        backfill = self._bf(1)
-        mock_list_rows.return_value = [backfill]
-
-        instance = DagsterInstance.ephemeral()
-        context = build_sensor_context(instance=instance)
-        result = duckling_events_full_backfill_sensor(context)
-        assert isinstance(result, SensorResult)
-        assert result.run_requests is not None
-
-        assert len(result.run_requests) == 0
-        # No events produces no historical partitions in this tick.
-
     def test_earliest_backfill_date_is_2015(self):
         assert EARLIEST_BACKFILL_DATE == datetime(2015, 1, 1)
 
@@ -757,18 +753,9 @@ class TestFullBackfillSensorEarliestDate:
             mock_list_rows.return_value = backfills
             mock_projection.objects.unscoped.return_value.filter.return_value.values_list.return_value = []
             if isinstance(get_earliest, list):
-                mock_ge.side_effect = [
-                    value.date() if isinstance(value, datetime) else NO_HISTORY_SENTINEL if value is None else value
-                    for value in get_earliest
-                ]
+                mock_ge.side_effect = [value.date() if isinstance(value, datetime) else value for value in get_earliest]
             else:
-                mock_ge.return_value = (
-                    get_earliest.date()
-                    if isinstance(get_earliest, datetime)
-                    else NO_HISTORY_SENTINEL
-                    if get_earliest is None
-                    else get_earliest
-                )
+                mock_ge.return_value = get_earliest.date() if isinstance(get_earliest, datetime) else get_earliest
 
             instance = DagsterInstance.ephemeral()
             if existing:
@@ -892,19 +879,13 @@ class TestFullBackfillSensorEarliestDate:
         runs_filter = mock_get_runs.call_args.kwargs["filters"]
         assert runs_filter.tags == {"duckling_backfill_type": "full"}
 
-    @parameterized.expand(
-        [
-            ("resolved_date", datetime(2020, 6, 15), date(2020, 6, 15)),
-            ("no_events_pushes_sentinel", None, NO_HISTORY_SENTINEL),
-        ]
-    )
-    def test_pushes_freshly_resolved_earliest_date_to_control_plane(self, _name, earliest_dt, expected_pushed):
-        # The resolved date (or the no-history sentinel) is persisted onto the team's
-        # duckgres control-plane row — the sensors' read source.
+    def test_pushes_freshly_resolved_earliest_date_to_control_plane(self):
+        # The resolved date is persisted onto the team's duckgres control-plane row — the
+        # sensors' read source.
         backfill = self._bf(1)
         with patch("products.managed_warehouse.backend.facade.api.update_team_earliest_event_date") as mock_push:
-            self._run_full_sensor([backfill], now=datetime(2020, 8, 10, 12, 0, 0), get_earliest=earliest_dt)
-        mock_push.assert_called_once_with(backfill.organization_id, 1, expected_pushed)
+            self._run_full_sensor([backfill], now=datetime(2020, 8, 10, 12, 0, 0), get_earliest=datetime(2020, 6, 15))
+        mock_push.assert_called_once_with(backfill.organization_id, 1, date(2020, 6, 15))
 
     def test_control_plane_push_failure_does_not_fail_tick(self):
         # The CP push is the persistence, but it is best-effort within a tick: a push
@@ -954,13 +935,7 @@ class TestFullBackfillSensorCpEnumeration:
             patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", return_value=[]),
             patch(
                 "posthog.dags.events_backfill_to_duckling.resolve_team_earliest_event_date",
-                return_value=(
-                    get_earliest.date()
-                    if isinstance(get_earliest, datetime)
-                    else NO_HISTORY_SENTINEL
-                    if get_earliest is None
-                    else get_earliest
-                ),
+                return_value=get_earliest.date() if isinstance(get_earliest, datetime) else get_earliest,
             ),
             patch("products.managed_warehouse.backend.facade.api.update_team_earliest_event_date") as mock_push,
         ):
@@ -1361,6 +1336,43 @@ class TestConnectionDropped:
 
     @parameterized.expand(
         [
+            # duckgres reaps a client session that idled past duckgres.idle_timeout
+            # (the backfill holds its connection across the ClickHouse->S3 export).
+            # It sends a FATAL 57P05 before closing; older builds just dropped the
+            # socket, which landed in the transport-marker branch instead. The two
+            # halves of that classification are guarded independently below, so
+            # neither can regress while the other keeps these cases green.
+            #
+            # The real observed shape: sqlstate AND message both present.
+            (
+                "idle_session_timeout",
+                psycopg.errors.IdleSessionTimeout(
+                    "terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"
+                ),
+            ),
+            # Message alone, no sqlstate — psycopg surfacing the text without a
+            # parsed ErrorResponse. Guards the _CONNECTION_DROPPED_MARKERS entry.
+            (
+                "idle_timeout_message_without_sqlstate",
+                psycopg.OperationalError("terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"),
+            ),
+            # Sqlstate alone. PostgreSQL's own idle_session_timeout wording is
+            # hyphenated ("idle-session timeout") and so does NOT match the
+            # duckgres-shaped marker — which is exactly why this guards the
+            # _CONNECTION_DROPPED_SQLSTATES entry on its own.
+            (
+                "idle_session_timeout_sqlstate_without_marker",
+                psycopg.errors.IdleSessionTimeout("terminating connection due to idle-session timeout"),
+            ),
+        ]
+    )
+    def test_idle_session_reap_is_dropped(self, _label, exc):
+        # Safest possible replay: the session was idle, so no statement was in
+        # flight and a retry cannot double-apply.
+        assert _connection_dropped(exc) is True
+
+    @parameterized.expand(
+        [
             ("disk_full", psycopg.errors.DiskFull()),
             ("undefined_table", psycopg.errors.UndefinedTable()),
             ("value_error", ValueError("nope")),
@@ -1557,6 +1569,141 @@ class TestDuckgresSessionRetry:
             session.run("register", op)
         assert op.call_count == _DuckgresSession.MAX_ATTEMPTS
         assert mock_connect.call_count == 1  # never reconnects for an S3 hiccup
+
+
+class TestDuckgresSessionServiceCredential:
+    # Fixed datetimes, never datetime.now(): these payloads are what the CP
+    # hands a session, and the session's refresh decision is "expiry vs now"
+    # — so a stale credential is one expired in the PAST (fixed: far behind)
+    # and a fresh credential is one comfortably in the FUTURE (fixed: far
+    # ahead). Deterministic under any wall clock.
+    _STALE_EXPIRY = datetime(2020, 1, 1, tzinfo=UTC)
+    _FRESH_EXPIRY = datetime(2040, 1, 1, tzinfo=UTC)
+    _FIRST_CREDENTIAL_ID = "svc_0123456789abcdef01234567"
+    _SECOND_CREDENTIAL_ID = "svc_89abcdef0123456789abcdef"
+    _CONNECT = ServiceCredentialConnect(
+        host="019740a8-ac01-0000-cad1-4626cafbc273.dw.us.postwh.com",
+        port=443,
+        database="ducklake",
+        sslmode="require",
+    )
+
+    def _credential(
+        self,
+        credential_secret: str,
+        *,
+        credential_id: str,
+        expires_at: datetime | None = None,
+    ):
+        return ServiceCredential(
+            credential_id=credential_id,
+            credential_secret=credential_secret,
+            expires_at=expires_at or self._FRESH_EXPIRY,
+            connect=self._CONNECT,
+        )
+
+    @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_mints_once_and_no_refresh_while_fresh(self, mock_connect, mock_mint):
+        credential = self._credential("grant", credential_id=self._FIRST_CREDENTIAL_ID)
+        mock_mint.return_value = credential
+        mock_connect.return_value = MagicMock()
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
+
+        session = _DuckgresSession(MagicMock(), target)
+
+        mock_mint.assert_called_once_with("org-1", 2, principal="dagster:events-backfill")
+        session._reconnect()
+        assert mock_mint.call_count == 1  # still fresh — no refresh
+        assert mock_connect.call_args_list[1].kwargs["service_credential"] is credential
+
+    @patch("posthog.dags.events_backfill_to_duckling.refresh_service_credential")
+    @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_concurrent_sessions_with_same_principal_manage_distinct_credentials(
+        self, mock_connect, mock_mint, mock_refresh
+    ):
+        mock_mint.side_effect = [
+            self._credential("first-secret", credential_id=self._FIRST_CREDENTIAL_ID, expires_at=self._STALE_EXPIRY),
+            self._credential(
+                "second-secret",
+                credential_id=self._SECOND_CREDENTIAL_ID,
+                expires_at=self._STALE_EXPIRY,
+            ),
+        ]
+        mock_refresh.side_effect = [
+            self._credential("first-refreshed", credential_id=self._FIRST_CREDENTIAL_ID),
+            self._credential("second-refreshed", credential_id=self._SECOND_CREDENTIAL_ID),
+        ]
+        mock_connect.return_value = MagicMock()
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
+
+        first_session = _DuckgresSession(MagicMock(), target)
+        second_session = _DuckgresSession(MagicMock(), target)
+        first_session._reconnect()
+        second_session._reconnect()
+
+        assert mock_mint.call_args_list == [
+            call("org-1", 2, principal="dagster:events-backfill"),
+            call("org-1", 2, principal="dagster:events-backfill"),
+        ]
+        assert [call.kwargs["service_credential"].credential_id for call in mock_connect.call_args_list] == [
+            self._FIRST_CREDENTIAL_ID,
+            self._SECOND_CREDENTIAL_ID,
+            self._FIRST_CREDENTIAL_ID,
+            self._SECOND_CREDENTIAL_ID,
+        ]
+        assert mock_refresh.call_args_list == [
+            call("org-1", self._FIRST_CREDENTIAL_ID),
+            call("org-1", self._SECOND_CREDENTIAL_ID),
+        ]
+
+    @patch("posthog.dags.events_backfill_to_duckling.refresh_service_credential")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
+    def test_reconnect_refreshes_expired_credential(self, mock_mint, mock_connect, mock_refresh):
+        # A session whose TTL lapses mid-run (long export, worker drops at
+        # t+2h) must NOT present the dead credential on reconnect — the CP
+        # rotates the SECRET for that credential_id on refresh. The same
+        # identity comes back; with per-credential grants this refresh is
+        # scoped to exactly the credential the session holds.
+        stale = self._credential("stale", credential_id=self._FIRST_CREDENTIAL_ID, expires_at=self._STALE_EXPIRY)
+        fresh = self._credential("fresh-secret", credential_id=self._FIRST_CREDENTIAL_ID)
+        mock_mint.return_value = stale
+        mock_refresh.return_value = fresh
+        mock_connect.side_effect = [MagicMock(name="c0"), MagicMock(name="c1")]
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
+
+        session = _DuckgresSession(MagicMock(), target)
+        session._reconnect()
+
+        assert mock_mint.call_count == 1  # the initial session mint only — NO re-mint
+        mock_refresh.assert_called_once_with("org-1", self._FIRST_CREDENTIAL_ID)
+        assert mock_connect.call_args_list[1].kwargs["service_credential"] is fresh
+
+    @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_falls_back_to_root_when_mint_unavailable(self, mock_connect, mock_mint):
+        mock_mint.side_effect = ServiceCredentialUnavailable("cp down")
+        mock_connect.return_value = MagicMock()
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
+
+        _DuckgresSession(MagicMock(), target)
+        # The CP being down must not fail the run while root still works —
+        # transitional path until DuckgresServer dies entirely.
+        assert mock_connect.call_args_list[0].kwargs["service_credential"] is None
+
+    @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_falls_back_to_root_on_unexpected_error(self, mock_connect, mock_mint):
+        # Rollout reality: unexpected error SHAPES (import hiccups, settings
+        # errors), not just the typed unavailable, degrade to root.
+        mock_mint.side_effect = ValueError("weird cp response")
+        mock_connect.return_value = MagicMock()
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
+
+        _DuckgresSession(MagicMock(), target)
+        assert mock_connect.call_args_list[0].kwargs["service_credential"] is None
 
 
 class TestDuckgresBackfillOptions:
@@ -2479,3 +2626,406 @@ class TestFannedOutLayoutRoundTrip:
         # The missing column is NULL-filled for every backfilled row.
         cap_vals = [r[0] for r in conn.execute(f"SELECT captured_at FROM {DUCKLAKE_ALIAS}.posthog.events").fetchall()]
         assert cap_vals == [None] * 5
+
+
+class _FakeTrinoBackfillCatalog:
+    def __init__(self, layout_mismatch: bool = False, max_files: int = 2_000) -> None:
+        self.layout_mismatch = layout_mismatch
+        self.max_files = max_files
+        self.rebuilt = False
+        self.calls: list[tuple[Any, ...]] = []
+        self.tables: list[tuple[str, dict[str, str]]] = []
+        self.registered: list[tuple[str, list[str], str, DuckLakeDayReplacement | DuckLakeTableReplacement | None]] = []
+        self.deleted: list[tuple[str, DuckLakeDayReplacement | DuckLakeTableReplacement]] = []
+        self.connection_open = False
+        self.exports_at_connect = 0
+        self.count_exports: Callable[[], int] = lambda: 0
+
+    @contextmanager
+    def connect(self, *_args: Any, **_kwargs: Any) -> Iterator["_FakeTrinoBackfillCatalog"]:
+        self.connection_open = True
+        self.exports_at_connect = self.count_exports()
+        try:
+            yield self
+        finally:
+            self.connection_open = False
+
+    def _require_live_connection(self) -> None:
+        assert self.connection_open, "a statement ran without an open Trino connection"
+        assert self.count_exports() == self.exports_at_connect, (
+            "a Trino connection stayed open across an export, so its credential lapsed"
+        )
+
+    def ensure_table(
+        self, table: str, columns: dict[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None:
+        self._require_live_connection()
+        if self.layout_mismatch and validate and not self.rebuilt:
+            raise DuckLakeTableLayoutError("the table has unsigned columns")
+        self.tables.append((table, dict(columns)))
+
+    def replace_table(self, table: str, columns: dict[str, str]) -> None:
+        self._require_live_connection()
+        self.calls.append(("replace", table))
+        self.rebuilt = True
+
+    def validate_file_count(self, files: list[str]) -> None:
+        if len(files) > self.max_files:
+            raise ValueError(f"The export wrote {len(files)} files, more than {self.max_files}")
+
+    def register_files(
+        self,
+        table: str,
+        files: list[str],
+        *,
+        import_id: str,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int:
+        self._require_live_connection()
+        self.calls.append(("register", table, replacement))
+        self.registered.append((table, list(files), import_id, replacement))
+        return len(files)
+
+    def delete_rows(self, table: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement) -> None:
+        self._require_live_connection()
+        self.deleted.append((table, replacement))
+
+
+class _FakeExportClickHouse:
+    def __init__(self, files_per_export: int) -> None:
+        self.files_per_export = files_per_export
+        self.inserts: list[tuple[str, dict[str, Any]]] = []
+        self.objects: list[str] = []
+
+    def execute(
+        self, query: str, params: object = None, settings: dict[str, Any] | None = None
+    ) -> list[tuple[Any, ...]]:
+        if "INSERT INTO FUNCTION" in query:
+            self.inserts.append((query, settings or {}))
+            url = re.search(r"s3\(\s*'([^']+)'", query)
+            assert url is not None
+            self.objects += [url[1].replace("{_partition_id}", str(index)) for index in range(self.files_per_export)]
+            return []
+        if "'One'" in query:
+            pattern = re.search(r"s3\('([^']+)'", query)
+            assert pattern is not None
+            matched = [(url.rsplit("/", 1)[1],) for url in sorted(self.objects) if fnmatch(url, pattern[1])]
+            if not matched and (settings or {}).get("s3_throw_on_zero_files_match"):
+                raise ClickHouseError(f"Can not match any files with path {pattern[1]}")
+            return matched
+        return [(10,)]
+
+
+class TestDuckgresPersonsExportColumns:
+    @parameterized.expand(
+        [
+            ("bigint_column_gets_a_signed_version", "BIGINT", "2", "toInt64(p.version) AS person_version"),
+            ("ubigint_column_keeps_the_unsigned_version", "UBIGINT", "2", "p.version AS person_version"),
+            ("daily_run_follows_the_table_too", "BIGINT", "2_2026-06-17", "toInt64(p.version) AS person_version"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_exports_the_version_type_that_the_persons_table_accepts(
+        self, _name, version_type, partition_key, expected_column
+    ):
+        clickhouse = _FakeExportClickHouse(files_per_export=1)
+        cluster = MagicMock()
+        cluster.any_host_by_role.side_effect = lambda fn, **_: MagicMock(result=MagicMock(return_value=fn(clickhouse)))
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [("person_version", version_type)]
+
+        def run_op(what: str, op: Any) -> Any:
+            return op(conn) if what == "read persons column types" else 0
+
+        context = MagicMock(partition_key=partition_key)
+        context.run.run_id = "0123456789abcdef-run"
+        target = TestBackfillThroughTrino.TARGET
+        with (
+            patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target", return_value=target),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=False),
+            patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
+            patch("posthog.dags.events_backfill_to_duckling._DuckgresSession") as duckgres,
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_workload"),
+        ):
+            duckgres.return_value.run.side_effect = run_op
+            _run_duckling_persons_backfill(
+                context,
+                DucklingBackfillConfig(
+                    create_tables_if_missing=False, skip_schema_validation=True, cleanup_existing_partition_data=False
+                ),
+            )
+
+        (insert, _settings) = clickhouse.inserts[0]
+        assert expected_column in insert
+
+
+class TestBackfillThroughTrino:
+    TARGET = DucklingTarget(
+        team_id=2,
+        organization_id="org-1",
+        bucket="bkt",
+        bucket_region="us-east-1",
+        events_table="events_team_2",
+        persons_table="persons_team_2",
+    )
+
+    def _run(
+        self,
+        run,
+        partition_key: str,
+        clickhouse: _FakeExportClickHouse,
+        config: DucklingBackfillConfig,
+        catalog: _FakeTrinoBackfillCatalog | None = None,
+        org_on_flag: bool = True,
+    ):
+        catalog = catalog or _FakeTrinoBackfillCatalog()
+        cluster = MagicMock()
+        cluster.any_host_by_role.side_effect = lambda fn, **_: MagicMock(result=MagicMock(return_value=fn(clickhouse)))
+        context = MagicMock(partition_key=partition_key)
+        context.run.run_id = "0123456789abcdef-run"
+        with (
+            patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target", return_value=self.TARGET),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=org_on_flag),
+            patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_catalog,
+            patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
+            patch("posthog.dags.events_backfill_to_duckling._DuckgresSession") as duckgres,
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_workload"),
+            patch("tenacity.nap.time.sleep"),
+        ):
+            catalog.count_exports = lambda: len(clickhouse.inserts)
+            connect_catalog.side_effect = catalog.connect
+            run(context, config)
+            run(context, config)
+        duckgres.assert_not_called()
+        return catalog, connect_catalog
+
+    @parameterized.expand(
+        [
+            (
+                "events_day",
+                _run_duckling_events_backfill,
+                "2_2026-06-17",
+                "events_team_2",
+                EVENTS_TRINO_COLUMN_TYPES,
+                DuckLakeDayReplacement(column="timestamp", day=date(2026, 6, 17)),
+                "toString(person_mode) as person_mode",
+            ),
+            (
+                "persons_day",
+                _run_duckling_persons_backfill,
+                "2_2026-06-17",
+                "persons_team_2",
+                PERSONS_TRINO_COLUMN_TYPES,
+                DuckLakeDayReplacement(column="_timestamp", day=date(2026, 6, 17)),
+                "toInt64(p.version) AS person_version",
+            ),
+            (
+                "persons_full",
+                _run_duckling_persons_backfill,
+                "2",
+                "persons_team_2",
+                PERSONS_TRINO_COLUMN_TYPES,
+                DuckLakeTableReplacement(),
+                "toInt64(p.version) AS person_version",
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_registers_each_export_in_one_snapshot_under_a_new_prefix(
+        self, _name, run, partition_key, table, column_types, replacement, cast_column
+    ):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+
+        catalog, connect_catalog = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
+
+        connect_catalog.assert_called_with("org-1", canary=False, team_id=2)
+        assert catalog.tables == [(table, column_types)] * 2
+        assert [(t, r) for t, _, _, r in catalog.registered] == [(table, replacement)] * 2
+        first, second = catalog.registered
+        assert len(first[1]) == 2 and all(path.startswith("s3://bkt/backfill/") for path in first[1])
+        assert all(f"/{first[2]}_" in path for path in first[1])
+        assert first[2] != second[2] and not set(first[1]) & set(second[1])
+        for insert, settings in clickhouse.inserts:
+            assert cast_column in insert
+            assert settings["output_format_parquet_string_as_string"] == 1
+
+    @parameterized.expand(
+        [
+            ("full_rebuilds_once_then_registers", "2", True, True, ["replace", "register", "register"]),
+            ("full_without_rebuild_refuses", "2", False, True, None),
+            ("full_without_cleanup_refuses", "2", True, False, None),
+            ("day_refuses", "2_2026-06-17", True, True, None),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_rebuilds_a_table_with_other_column_types_only_when_the_run_replaces_the_table(
+        self, _name, partition_key, rebuild, cleanup, expected_calls
+    ):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+        catalog = _FakeTrinoBackfillCatalog(layout_mismatch=True)
+        config = DucklingBackfillConfig(rebuild_mismatched_table=rebuild, cleanup_existing_partition_data=cleanup)
+
+        def run() -> None:
+            self._run(_run_duckling_persons_backfill, partition_key, clickhouse, config, catalog)
+
+        if expected_calls is None:
+            with pytest.raises(DuckLakeTableLayoutError):
+                run()
+            assert "replace" not in [call[0] for call in catalog.calls]
+            assert catalog.registered == []
+        else:
+            run()
+            assert [call[0] for call in catalog.calls] == expected_calls
+            assert {call[2] for call in catalog.calls if call[0] == "register"} == {DuckLakeTableReplacement()}
+            assert len(catalog.registered) == 2
+
+    @parameterized.expand(
+        [
+            ("too_many_files", 1, DucklingBackfillConfig(rebuild_mismatched_table=True), "more than 1"),
+            (
+                "no_schema_validation",
+                2_000,
+                DucklingBackfillConfig(rebuild_mismatched_table=True, skip_schema_validation=True),
+                "needs the schema validation",
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_refuses_before_it_rebuilds_the_table(self, _name, max_files, config, message):
+        catalog = _FakeTrinoBackfillCatalog(layout_mismatch=True, max_files=max_files)
+
+        with pytest.raises(ValueError, match=message):
+            self._run(_run_duckling_persons_backfill, "2", _FakeExportClickHouse(files_per_export=2), config, catalog)
+
+        assert catalog.calls == []
+
+    @parameterized.expand(
+        [
+            ("empty_day_deletes_its_rows", 0, True),
+            ("append_keeps_existing_rows", 2, False),
+            ("empty_append_changes_nothing", 0, False),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_replaces_the_day_only_when_cleanup_is_on(self, _name, files_per_export, cleanup):
+        clickhouse = _FakeExportClickHouse(files_per_export=files_per_export)
+        day = DuckLakeDayReplacement(column="timestamp", day=date(2026, 6, 17))
+
+        catalog, _ = self._run(
+            _run_duckling_events_backfill,
+            "2_2026-06-17",
+            clickhouse,
+            # A server profile or a Launchpad override can make ClickHouse throw for a glob that matches no files.
+            DucklingBackfillConfig(
+                cleanup_existing_partition_data=cleanup, clickhouse_settings={"s3_throw_on_zero_files_match": 1}
+            ),
+        )
+
+        assert catalog.deleted == ([("events_team_2", day)] * 2 if cleanup and not files_per_export else [])
+        assert [r for _, _, _, r in catalog.registered] == ([None] * 2 if files_per_export else [])
+
+    @parameterized.expand(
+        [
+            ("events_day", _run_duckling_events_backfill, "2_2026-06-17", "toString(person_mode) as person_mode"),
+            ("persons_day", _run_duckling_persons_backfill, "2_2026-06-17", "toInt64(p.version) AS person_version"),
+            ("persons_full", _run_duckling_persons_backfill, "2", "toInt64(p.version) AS person_version"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_export_only_runs_write_the_trino_types_without_registering(self, _name, run, partition_key, cast_column):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+
+        catalog, connect_catalog = self._run(
+            run, partition_key, clickhouse, DucklingBackfillConfig(skip_ducklake_registration=True)
+        )
+
+        connect_catalog.assert_not_called()
+        assert catalog.registered == []
+        assert len(clickhouse.inserts) == 2
+        for insert, settings in clickhouse.inserts:
+            assert cast_column in insert
+            assert settings["output_format_parquet_string_as_string"] == 1
+
+    @parameterized.expand(
+        [
+            ("events", _run_duckling_events_backfill, "2_2026-06-17"),
+            ("persons", _run_duckling_persons_backfill, "2"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_opted_in_runs_register_through_the_canary_host(self, _name, run, partition_key):
+        _, connect_catalog = self._run(
+            run, partition_key, _FakeExportClickHouse(files_per_export=1), DucklingBackfillConfig(use_trino_canary=True)
+        )
+
+        connect_catalog.assert_called_with("org-1", canary=True, team_id=2)
+
+    @parameterized.expand(
+        [
+            ("events", _run_duckling_events_backfill, "2_2026-06-17"),
+            ("persons", _run_duckling_persons_backfill, "2"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_opted_in_runs_register_through_trino_when_the_org_is_not_on_the_flag(self, _name, run, partition_key):
+        catalog, connect_catalog = self._run(
+            run,
+            partition_key,
+            _FakeExportClickHouse(files_per_export=1),
+            DucklingBackfillConfig(register_through_trino=True),
+            org_on_flag=False,
+        )
+
+        connect_catalog.assert_called_with("org-1", canary=False, team_id=2)
+        assert catalog.registered
+
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_dry_runs_neither_export_nor_open_the_catalog(self):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+
+        _, connect_catalog = self._run(
+            _run_duckling_events_backfill, "2_2026-06-17", clickhouse, DucklingBackfillConfig(dry_run=True)
+        )
+
+        connect_catalog.assert_not_called()
+        assert clickhouse.inserts == []
+
+
+# The Trino column type that DuckLake reads back from the Parquet type ClickHouse writes for a ClickHouse type.
+TRINO_TYPE_OF_CLICKHOUSE_TYPE = {
+    "String": "varchar",
+    "Int64": "bigint",
+    "Int16": "smallint",
+    "Bool": "boolean",
+    "DateTime64(6)": "timestamp(6) with time zone",
+    "DateTime64(6, 'UTC')": "timestamp(6) with time zone",
+}
+EVENTS_SOURCE = (
+    "generateRandom('uuid UUID, event String, properties String, timestamp DateTime64(6, ''UTC''), team_id Int64, "
+    "distinct_id String, elements_chain String, created_at DateTime64(6, ''UTC''), person_id UUID, "
+    "person_created_at DateTime64(3), person_properties String, group0_properties String, group1_properties String, "
+    "group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), "
+    "group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), "
+    "group4_created_at DateTime64(3), person_mode Enum8(''full'' = 0, ''propertyless'' = 1, ''force_upgrade'' = 2), "
+    "historical_migration Bool')"
+)
+PERSONS_SOURCE = (
+    "generateRandom('id UUID, created_at DateTime64(3), team_id Int64, properties String, is_identified Int8, "
+    "version UInt64, _timestamp DateTime') AS p "
+    "CROSS JOIN generateRandom('team_id Int64, distinct_id String, person_id UUID, version Int64') AS pd"
+)
+
+
+class TestTrinoExportColumnTypes:
+    @parameterized.expand(
+        [
+            ("events", f"SELECT {EVENTS_TRINO_COLUMNS} FROM {EVENTS_SOURCE}", EVENTS_TRINO_COLUMN_TYPES),
+            ("persons", f"SELECT {PERSONS_TRINO_COLUMNS} FROM {PERSONS_SOURCE}", PERSONS_TRINO_COLUMN_TYPES),
+        ]
+    )
+    def test_export_writes_the_types_of_the_trino_table(self, _name, select, column_types):
+        with get_client_from_pool() as client:
+            described = client.execute(f"DESCRIBE ({select})")
+
+        exported = {str(row[0]): TRINO_TYPE_OF_CLICKHOUSE_TYPE.get(str(row[1]), str(row[1])) for row in described}
+        assert exported == column_types

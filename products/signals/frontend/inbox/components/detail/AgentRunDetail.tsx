@@ -23,12 +23,13 @@ import { urls } from 'scenes/urls'
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { isPiTaskRuntime, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/reportPresentation'
+import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant'
 import { DetailSection } from './DetailSection'
@@ -43,7 +44,7 @@ import { RunLogContainer } from './RunLogContainer'
  * call-to-action to open the result.
  */
 function RunOutputReadyCard({ report }: { report: SignalReport }): JSX.Element {
-    const prUrl = report.implementation_pr_url ?? null
+    const prUrl = primaryReportPullRequest(report).url ?? null
     const isPr = !!prUrl
     const prSlug = prUrl ? parsePrRepoSlug(prUrl) : null
     const prNumber = prUrl ? (parsePrUrlParts(prUrl)?.number ?? null) : null
@@ -52,7 +53,7 @@ function RunOutputReadyCard({ report }: { report: SignalReport }): JSX.Element {
 
     return (
         <Link
-            to={urls.inboxReport(isPr ? 'pulls' : 'reports', report.id)}
+            to={urls.inboxReport('reports', report.id)}
             className="group flex flex-col gap-2 rounded border border-primary bg-surface-primary px-4 py-3.5 no-underline text-inherit transition-colors duration-150 hover:border-primary hover:bg-surface-secondary"
         >
             <div className="flex items-center gap-2 flex-wrap">
@@ -89,7 +90,7 @@ function RunOutputReadyCard({ report }: { report: SignalReport }): JSX.Element {
  * Mirrors desktop `RunOutputWidget`.
  */
 function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
-    if (report.status === SignalReportStatus.READY || report.implementation_pr_url) {
+    if (report.status === SignalReportStatus.READY || primaryReportPullRequest(report).url) {
         return <RunOutputReadyCard report={report} />
     }
 
@@ -100,10 +101,12 @@ function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
                     <IconWarning className="size-4" />
                 </span>
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                    <span className="font-medium text-sm text-primary">Run failed</span>
+                    <span className="font-medium text-sm text-primary">
+                        {report.startup_failure ? 'Research could not start' : 'Run failed'}
+                    </span>
                     <span className="text-xs text-secondary leading-snug">
-                        Research couldn't complete. Check the linked run below for the error. The agent may retry
-                        automatically.
+                        {report.startup_failure?.message ??
+                            "Research couldn't complete. Check the linked run below for the error before retrying."}
                     </span>
                 </div>
             </div>
@@ -136,7 +139,7 @@ function RunStateStrip({ report }: { report: SignalReport }): JSX.Element {
     const isLive =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.PENDING_INPUT
     const variant = resolveRunVariant(report.status)
-    const prSlug = report.implementation_pr_url ? parsePrRepoSlug(report.implementation_pr_url) : null
+    const prSlug = primaryReportPullRequest(report).url ? parsePrRepoSlug(primaryReportPullRequest(report).url) : null
     const timestamp = report.updated_at ?? report.created_at
 
     return (
@@ -221,7 +224,7 @@ export function OpenTaskButton({
 }: {
     taskId: string
     runStatus?: TaskRunStatus
-    runtime: RuntimeEnumApi
+    runtime: TaskRuntimeEnumApi
 }): JSX.Element | null {
     const { openSidePanelMaxWithTaskBind } = useActions(maxGlobalLogic)
     const isTerminal = isTerminalRunStatus(runStatus)

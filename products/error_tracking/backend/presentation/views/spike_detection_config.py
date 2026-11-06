@@ -1,4 +1,4 @@
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -8,6 +8,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from products.error_tracking.backend.facade import api as error_tracking_api
 
 
+# many=False: the read action is named `list` for routing but returns the project's single
+# config. Without this drf-spectacular types the response as an array of configs.
+@extend_schema_serializer(many=False)
 class ErrorTrackingSpikeDetectionConfigSerializer(serializers.Serializer):
     snooze_duration_minutes = serializers.IntegerField(
         min_value=1,

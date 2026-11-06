@@ -1,19 +1,27 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
+
+from django.conf import settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
+from products.experiments.backend.recalculation import (
+    RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG,
+    RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+)
+from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -24,6 +32,12 @@ def _mean_metric(uuid: str) -> dict:
         "metric_type": "mean",
         "source": {"kind": "EventsNode", "event": "purchase"},
     }
+
+
+def _calculation_key(experiment: Experiment, metric_uuid: str, *, other_version: bool = False) -> str:
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.key_for_version(2) if other_version else calculation_config.calculation_key()
 
 
 class TestMetricsRecalculationAPI(APIBaseTest):
@@ -50,7 +64,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             created_by=self.user,
             feature_flag=self._flag(flag_key),
             name="exp",
-            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            start_date=timezone.now() - timedelta(days=30),
         )
         exp.metrics = [_mean_metric("m1")]
         exp.save()
@@ -69,40 +83,103 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # POST /metrics_recalculation/
     # ------------------------------------------------------------------
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
-    def test_post_creates_and_starts_workflow(self, mock_run, mock_connect):
+    @parameterized.expand(
+        [
+            # name, activity queue flag outcome, expected activity_task_queue
+            ("activity_queue_flag_off", False, None),
+            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE),
+            ("activity_queue_flag_error", RuntimeError("flags down"), None),
+        ]
+    )
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_post_creates_and_starts_workflow(
+        self,
+        _name: str,
+        flag_outcome: bool | Exception,
+        expected_activity_task_queue: str | None,
+        mock_run,
+        mock_connect,
+    ):
+        def evaluate_flag(key: str, *args, **kwargs) -> bool:
+            if key != RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG:
+                return False
+            if isinstance(flag_outcome, Exception):
+                raise flag_outcome
+            return flag_outcome
+
         exp = self._launched_experiment()
-        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        with mock.patch(
+            "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+        ):
+            resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
         body = resp.json()
         assert body["status"] == "pending"
-        assert body["trigger"] == "manual"
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
         assert mock_run.called
+        mock_connect.return_value.start_workflow.assert_called_once_with(
+            "experiment-metrics-recalculation-workflow",
+            ExperimentMetricsRecalculationWorkflowInputs(
+                recalculation_id=body["id"],
+                activity_task_queue=expected_activity_task_queue,
+            ),
+            id=f"experiment-metrics-recalculation-{body['id']}",
+            task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        )
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_from_mcp_client_attributes_trigger_to_agent(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         resp = self.client.post(self._post_url(exp.id), format="json", headers={"X-PostHog-Client": "mcp"})
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
-        assert resp.json()["trigger"] == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
         assert (
             ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger
             == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
         )
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
-    def test_post_without_mcp_header_honors_body_trigger(self, mock_run, mock_connect):
+    @parameterized.expand(
+        [
+            ("manual", ExperimentMetricsRecalculation.Trigger.MANUAL),
+            ("stale_refresh", ExperimentMetricsRecalculation.Trigger.STALE_REFRESH),
+        ]
+    )
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_post_without_mcp_header_honors_body_trigger(
+        self, trigger: str, expected_trigger: str, mock_run, mock_connect
+    ):
         exp = self._launched_experiment()
-        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        resp = self.client.post(self._post_url(exp.id), {"trigger": trigger}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
-        assert resp.json()["trigger"] == ExperimentMetricsRecalculation.Trigger.MANUAL
+        assert ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger == expected_trigger
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_each_endpoint_returns_only_its_own_fields(self, mock_run, mock_connect):
+        exp = self._launched_experiment()
+        created = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json").json()
+        assert "is_existing" in created
+        assert {"results", "rows_read", "active_run", "result_source", "trigger"}.isdisjoint(created)
+
+        by_id = self.client.get(self._by_id_url(exp.id, created["id"])).json()
+        assert "results" in by_id
+        assert {"is_existing", "active_run", "result_source", "trigger"}.isdisjoint(by_id)
+
+        latest = self.client.get(self._latest_url(exp.id)).json()
+        assert "results" in latest
+        assert latest["active_run"] == {"id": created["id"], "status": "pending"}
+        assert {"is_existing", "trigger"}.isdisjoint(latest)
+
+    def test_post_rejects_server_only_trigger(self):
+        exp = self._launched_experiment()
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "timeseries_sync"}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
+        assert not ExperimentMetricsRecalculation.objects.filter(experiment=exp).exists()
+
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_is_idempotent_returns_200(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         first = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
@@ -112,8 +189,75 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert second.json()["id"] == first.json()["id"]
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_post_manual_inside_refresh_window_returns_429_without_a_workflow(self, mock_run, mock_connect, _mock_flag):
+        exp = self._launched_experiment()
+        now = timezone.now()
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            query_to=now - timedelta(minutes=3),
+            completed_at=now - timedelta(minutes=2),
+        )
+
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS, resp.content
+        assert resp.json()["code"] == "recalculation_rate_limited"
+        assert 170 <= int(resp["Retry-After"]) <= 180
+        assert not mock_connect.called
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    @mock.patch(
+        "products.experiments.backend.recalculation.feature_enabled_or_false",
+        side_effect=lambda key, *args, **kwargs: key == RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+    )
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_post_for_old_experiment_rejects_without_a_workflow_and_keeps_earlier_results(
+        self, mock_run, mock_connect, _mock_flag
+    ):
+        exp = self._launched_experiment()
+        exp.start_date = timezone.now() - timedelta(days=200)
+        exp.save()
+        previous_window = timezone.now() - timedelta(days=1)
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            metric_uuids=["m1"],
+            status="completed",
+            query_to=previous_window,
+            completed_at=previous_window,
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=_recalc_fingerprint(_calculation_key(exp, "m1")),
+            query_from=exp.start_date,
+            query_to=previous_window,
+            status="completed",
+            result={"ok": True},
+        )
+
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        body = resp.json()
+        assert body["status"] == "failed"
+        assert body["is_existing"] is False
+        assert body["metric_errors"]["m1"]["error_type"] == "recalculation_window_too_long"
+        assert not mock_connect.called
+
+        latest = self.client.get(self._latest_url(exp.id)).json()
+        assert latest["id"] == body["id"]
+        assert latest["metric_errors"]["m1"]["error_type"] == "recalculation_window_too_long"
+        assert [(r["metric_uuid"], r["result"]) for r in latest["results"]] == [("m1", {"ok": True})]
+
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_rejects_unlaunched_experiment(self, mock_run, mock_connect):
         exp = Experiment.objects.create(
             team=self.team, created_by=self.user, feature_flag=self._flag("unlaunched"), name="draft"
@@ -121,10 +265,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    @mock.patch(
-        "products.experiments.backend.presentation.views.sync_connect", side_effect=RuntimeError("temporal down")
-    )
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect", side_effect=RuntimeError("temporal down"))
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_marks_failed_when_workflow_start_errors(self, mock_run, mock_connect):
         # When the workflow start fails, the view marks the freshly-created row FAILED then re-raises.
         # The DRF test client converts the exception into a 500 response rather than propagating it.
@@ -133,6 +275,28 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
         assert row.status == ExperimentMetricsRecalculation.Status.FAILED
+
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_post_rollback_spares_row_already_started_by_workflow(self, mock_run, mock_connect):
+        # start_workflow can raise after Temporal accepted the start (RPC failure on the response leg).
+        # By then the worker may have run mark_started; flipping that row to FAILED would release the
+        # per-experiment uniqueness constraint and let a retry launch a second concurrent workflow.
+        exp = self._launched_experiment()
+
+        def _start_lands_then_rpc_fails(*args, **kwargs):
+            ExperimentMetricsRecalculation.objects.filter(experiment=exp).update(
+                status=ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                started_at=datetime(2026, 1, 2, tzinfo=UTC),
+                query_to=datetime(2026, 1, 2, tzinfo=UTC),
+            )
+            raise RuntimeError("deadline exceeded")
+
+        mock_run.side_effect = _start_lands_then_rpc_fails
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
+        assert row.status == ExperimentMetricsRecalculation.Status.IN_PROGRESS
 
     # ------------------------------------------------------------------
     # GET /metrics_recalculation/latest/
@@ -162,45 +326,57 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert body["status"] == "pending"
         assert body["active_run"] == {"id": str(active.id), "status": "pending"}
 
-    def test_get_latest_returns_most_recent_completed_with_results(self):
+    @parameterized.expand(
+        [
+            ("current_keys", ("current", "current")),
+            # A run under the other key version. On page load the frontend starts a run when a completed
+            # run leaves a metric uncovered, so those rows must cover every metric of it.
+            ("run_under_the_other_key_version", ("other_version", "other_version")),
+            ("run_partly_recomputed_under_the_current_key", ("other_version", "current")),
+        ]
+    )
+    def test_get_latest_returns_most_recent_completed_with_results(
+        self, _name: str, key_families: tuple[str, str]
+    ) -> None:
         exp = self._launched_experiment()
+        exp.metrics = [_mean_metric("m1"), _mean_metric("m2")]
+        exp.save()
         recalc = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,
-            metric_uuids=["m1"],
+            metric_uuids=["m1", "m2"],
+            total_metrics=2,
             status="completed",
             query_to=datetime(2026, 6, 1, tzinfo=UTC),
+            completed_at=timezone.now() - timedelta(minutes=5),
         )
-        # Narrow nullable fields populated above. _launched_experiment always sets metrics + start_date,
+        # Narrow nullable fields populated above. _launched_experiment always sets start_date,
         # and we just set query_to on the recalc above.
-        assert exp.metrics and exp.start_date is not None
+        assert exp.start_date is not None
         assert recalc.query_to is not None
-        config_fp = compute_metric_fingerprint(
-            exp.metrics[0],
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
-        ExperimentMetricResult.objects.create(
-            experiment=exp,
-            metric_uuid="m1",
-            fingerprint=recalc_fp,
-            query_from=exp.start_date,
-            query_to=recalc.query_to,
-            status="completed",
-            result={"ok": True},
-        )
+        for metric_uuid, family in zip(("m1", "m2"), key_families):
+            ExperimentMetricResult.objects.create(
+                experiment=exp,
+                metric_uuid=metric_uuid,
+                fingerprint=_recalc_fingerprint(
+                    _calculation_key(exp, metric_uuid, other_version=family == "other_version")
+                ),
+                query_from=exp.start_date,
+                query_to=recalc.query_to,
+                status="completed",
+                result={"ok": metric_uuid},
+            )
 
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK, resp.content
         body = resp.json()
         assert body["id"] == str(recalc.id)
         assert body["status"] == "completed"
-        assert len(body["results"]) == 1
-        assert body["results"][0]["metric_uuid"] == "m1"
-        assert body["results"][0]["result"] == {"ok": True}
+        assert body["completed_metrics"] + body["failed_metrics"] == body["total_metrics"] == 2
+        assert [(result["metric_uuid"], result["result"]) for result in body["results"]] == [
+            ("m1", {"ok": "m1"}),
+            ("m2", {"ok": "m2"}),
+        ]
         assert body.get("active_run") is None
 
     # ------------------------------------------------------------------
@@ -239,45 +415,45 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # GET /metrics_recalculation/latest/ — timeseries cold-start fallback
     # ------------------------------------------------------------------
 
-    def _store_timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime) -> None:
-        assert exp.metrics and exp.start_date is not None
-        metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
-        config_fp = compute_metric_fingerprint(
-            metric_dict,
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
+    def _store_timeseries_point(
+        self, exp: Experiment, metric_uuid: str, query_to: datetime, *, other_version: bool = False
+    ) -> None:
+        assert exp.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=config_fp,
+            fingerprint=_calculation_key(exp, metric_uuid, other_version=other_version),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",
             result={"ok": True},
         )
 
-    def test_get_latest_returns_timeseries_fallback_on_cold_start(self):
+    @parameterized.expand([("current_point", False), ("point_under_the_other_key_version", True)])
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
+    def test_get_latest_returns_timeseries_fallback_on_cold_start(self, _name: str, other_version: bool) -> None:
         # No real recalc row, but a completed timeseries point exists → 200 with source=timeseries_fallback.
+        # The frontend starts a cold run for any metric the fallback leaves out, so a version 1 point must cover it.
         exp = self._launched_experiment(flag_key="ts-fallback")
-        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), other_version=other_version)
 
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK, resp.content
         body = resp.json()
         assert body["result_source"] == "timeseries_fallback"
+        # The latest response type declares metric_retries; the fallback has no run, so it reports none.
+        assert body["metric_retries"] == {}
         assert body["status"] == "completed"
-        assert len(body["results"]) == 1
-        assert body["results"][0]["result"] == {"ok": True}
+        assert body["completed_metrics"] == body["total_metrics"] == 1
+        assert [result["result"] for result in body["results"]] == [{"ok": True}]
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_get_latest_prefers_timeseries_fallback_over_first_active_run(self):
         # Reload during the first-ever run: the pending run has no results yet, so returning it would blank
         # out the timeseries data on screen. The fallback keeps the results visible while active_run rides
         # along so the client still polls the executing run.
         exp = self._launched_experiment(flag_key="ts-fallback-active")
-        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
         active = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
 
         resp = self.client.get(self._latest_url(exp.id))
@@ -292,11 +468,12 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
     def test_get_latest_fallback_does_not_start_a_workflow(self, mock_connect):
         # GET stays a pure read: the fallback path must never connect to Temporal.
         exp = self._launched_experiment(flag_key="ts-pure-read")
-        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
 
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK

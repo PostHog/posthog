@@ -1,17 +1,23 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh, IconTrends } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
+import { EvaluationExplanation } from '../../components/EvaluationExplanation'
+import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
-import { evaluationSupportsRunSummary } from '../evaluationCapabilities'
+import { EvaluationRunTimestampCell } from '../../components/EvaluationRunTimestampCell'
+import { TraceDrawerHost } from '../../redesign/trace/TraceDrawerHost'
+import { useTraceDrawerTable } from '../../redesign/trace/TraceDrawerRowsHost'
+import { TraceListRow } from '../../redesign/trace/traceListRows'
+import { evaluationIsDetector } from '../constants'
+import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
-import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
+import { EvaluationRun, EvaluationRunsFilter, SentimentEvaluationRunsFilter } from '../types'
+import { EvaluationRunsFilters } from './EvaluationRunsFilters'
 
 const SENTIMENT_FILTER_OPTIONS: { value: SentimentEvaluationRunsFilter; label: string }[] = [
     { value: 'negative', label: 'Negative' },
@@ -20,15 +26,24 @@ const SENTIMENT_FILTER_OPTIONS: { value: SentimentEvaluationRunsFilter; label: s
     { value: 'all', label: 'All' },
 ]
 
+const TRACE_DRAWER_LIST_ID = 'evaluation-runs'
+const TRACE_LINK = '[data-attr="llma-eval-run-target-link"]'
+
+// A run's timestamp can be long after its trace, so it makes a poor lookup hint.
+// A trace-level run shows on the root only, and with no step the view can open on a generation instead.
+function toTraceDrawerRow(run: EvaluationRun): TraceListRow | null {
+    return run.trace_id ? { traceId: run.trace_id, timestamp: null, stepId: run.generation_id || run.trace_id } : null
+}
+
 function SentimentEvaluationRunsFilters(): JSX.Element {
-    const { evaluationSummaryFilter } = useValues(llmEvaluationLogic)
-    const { setEvaluationSummaryFilter } = useActions(llmEvaluationLogic)
+    const { evaluationRunsFilter } = useValues(llmEvaluationLogic)
+    const { setEvaluationRunsFilter } = useActions(llmEvaluationLogic)
 
     return (
         <LemonSegmentedButton
-            value={evaluationSummaryFilter as SentimentEvaluationRunsFilter}
+            value={evaluationRunsFilter as SentimentEvaluationRunsFilter}
             onChange={(value) => {
-                setEvaluationSummaryFilter(value as SentimentEvaluationRunsFilter, evaluationSummaryFilter)
+                setEvaluationRunsFilter(value as SentimentEvaluationRunsFilter, evaluationRunsFilter)
             }}
             options={SENTIMENT_FILTER_OPTIONS}
             size="small"
@@ -37,17 +52,96 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
     )
 }
 
+function TrendInsightButton(): JSX.Element | null {
+    const { trendInsightUrl } = useValues(llmEvaluationLogic)
+    if (!trendInsightUrl) {
+        return null
+    }
+    return (
+        <LemonButton
+            type="secondary"
+            icon={<IconTrends />}
+            to={trendInsightUrl}
+            targetBlank
+            size="small"
+            data-attr="llma-evaluation-trend-insight"
+        >
+            Trend insight
+        </LemonButton>
+    )
+}
+
 export function EvaluationRunsTable(): JSX.Element {
-    const { filteredEvaluationRuns, evaluation, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
-    const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
-    const showSummary = evaluationSupportsRunSummary(evaluation)
+    const {
+        filteredEvaluationRuns,
+        evaluationRuns,
+        evaluationRunsError,
+        originalEvaluation: evaluation,
+        evaluationRunsLoading,
+        runsDateRange,
+        runsBackfillId,
+        evaluationRunsHasMore,
+        evaluationRunsFilter,
+        runsSummary,
+    } = useValues(llmEvaluationLogic)
+    const { refreshEvaluationRuns, setRunsDates, loadOlderEvaluationRuns } = useActions(llmEvaluationLogic)
+    const drawerTableProps = useTraceDrawerTable(TRACE_DRAWER_LIST_ID, TRACE_LINK, toTraceDrawerRow)
+    const showOutcomeFilters =
+        evaluation?.output_type === 'numeric' ||
+        evaluation?.output_type === 'categorical' ||
+        evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
+    // Every run in this table belongs to `evaluation`, so its polarity applies to the whole column.
+    const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
+
+    // Pass and fail counts come from the stats query, so the total matches the header over the whole range.
+    const filterTotals: Partial<Record<EvaluationRunsFilter, number>> = runsSummary
+        ? { all: runsSummary.total, pass: runsSummary.successful, fail: runsSummary.failed }
+        : {}
+    const matchingRunsTotal = filterTotals[evaluationRunsFilter]
+    // A filter is hiding rows when the evaluation has runs but none match the current filter.
+    const filterHidesRuns = evaluationRunsFilter !== 'all' && filteredEvaluationRuns.length === 0
+    // LemonTable drops its empty state as soon as it has rows, so a failed refresh over rows that
+    // are already on screen needs its own surface. Without it the spinner just stops and the user
+    // reads the stale rows as current.
+    const showStaleRunsBanner = evaluationRunsError && filteredEvaluationRuns.length > 0
+
+    const emptyState = evaluationRunsError ? (
+        <div className="text-center py-8">
+            <div className="text-muted mb-2">Could not load evaluation runs</div>
+            <div className="text-sm text-muted mb-3">The query failed. This is usually temporary. Try again.</div>
+            <LemonButton
+                type="secondary"
+                icon={<IconRefresh />}
+                onClick={refreshEvaluationRuns}
+                loading={evaluationRunsLoading}
+                size="small"
+                data-attr="llma-evaluation-runs-retry"
+            >
+                Retry
+            </LemonButton>
+        </div>
+    ) : filterHidesRuns ? (
+        <div className="text-center py-8">
+            <div className="text-muted mb-2">No runs match this filter</div>
+            <div className="text-sm text-muted">Change the filter above to see this evaluation's other runs.</div>
+        </div>
+    ) : (
+        <div className="text-center py-8">
+            <div className="text-muted mb-2">No evaluation runs found</div>
+            <div className="text-sm text-muted">
+                {runsBackfillId
+                    ? 'Runs will appear here as this backfill progresses.'
+                    : 'Try a wider date range, or check that the evaluation is enabled and its triggers match your data.'}
+            </div>
+        </div>
+    )
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
             title: 'Timestamp',
             key: 'timestamp',
-            render: (_, run) => <TZLabel time={run.timestamp} />,
+            render: (_, run) => <EvaluationRunTimestampCell run={run} />,
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
@@ -58,21 +152,20 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Result',
             key: 'result',
-            render: (_, run) => <EvaluationResultTag run={run} />,
-            sorter: (a, b) => {
-                return getEvaluationResultSortValue(b) - getEvaluationResultSortValue(a)
-            },
+            render: (_, run) => (
+                <EvaluationResultTag
+                    run={run}
+                    trueIsFailure={trueIsFailure}
+                    passingRule={evaluation?.output_config.passing_rule}
+                    categoryOptions={evaluation?.output_config.options}
+                />
+            ),
+            sorter: (a, b) => compareEvaluationResults(b, a, { trueIsFailure }),
         },
         {
-            title: 'Reasoning',
+            title: 'Details',
             key: 'reasoning',
-            render: (_, run) => (
-                <Tooltip title={run.reasoning}>
-                    <div className="max-w-md cursor-default">
-                        <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
-                    </div>
-                </Tooltip>
-            ),
+            render: (_, run) => <EvaluationExplanation reasoning={run.reasoning} probability={run.probability} />,
         },
         {
             title: 'Status',
@@ -90,46 +183,89 @@ export function EvaluationRunsTable(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
-            <div className="flex justify-between items-center">
-                {showSummary ? (
-                    <EvaluationSummaryControls />
-                ) : showSentimentFilters ? (
-                    <SentimentEvaluationRunsFilters />
-                ) : (
-                    <div />
-                )}
-                <LemonButton
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    onClick={refreshEvaluationRuns}
-                    loading={evaluationRunsLoading}
-                    size="small"
-                    data-attr="llma-evaluation-refresh-runs"
-                >
-                    Refresh
-                </LemonButton>
-            </div>
-
-            {showSummary && <EvaluationSummaryPanel runsLookup={runsLookup} />}
-
-            <LemonTable
-                columns={columns}
-                dataSource={filteredEvaluationRuns}
-                loading={evaluationRunsLoading}
-                rowKey="id"
-                pagination={{
-                    pageSize: 50,
-                }}
-                emptyState={
-                    <div className="text-center py-8">
-                        <div className="text-muted mb-2">No evaluation runs yet</div>
-                        <div className="text-sm text-muted">
-                            Runs will appear here once this evaluation starts executing based on your triggers.
-                        </div>
+        <>
+            <div className="space-y-4">
+                <div className="flex flex-wrap gap-2 justify-between items-center">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {!runsBackfillId && (
+                            <DateFilter
+                                dateFrom={runsDateRange.date_from}
+                                dateTo={runsDateRange.date_to}
+                                onChange={setRunsDates}
+                                size="small"
+                            />
+                        )}
+                        {showOutcomeFilters ? (
+                            <EvaluationRunsFilters />
+                        ) : showSentimentFilters ? (
+                            <SentimentEvaluationRunsFilters />
+                        ) : null}
                     </div>
-                }
-            />
-        </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {evaluationRuns.length > 0 && !evaluationRunsError && (
+                            <>
+                                <span className="text-muted text-sm">
+                                    {!evaluationRunsHasMore
+                                        ? evaluationRuns.length === 1
+                                            ? 'Showing 1 run.'
+                                            : `Showing all ${evaluationRuns.length.toLocaleString()} runs.`
+                                        : matchingRunsTotal && matchingRunsTotal > evaluationRuns.length
+                                          ? `Showing the latest ${evaluationRuns.length.toLocaleString()} of ${matchingRunsTotal.toLocaleString()} runs.`
+                                          : `Showing the latest ${evaluationRuns.length.toLocaleString()} runs.`}
+                                </span>
+                                {evaluationRunsHasMore && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => loadOlderEvaluationRuns()}
+                                        loading={evaluationRunsLoading}
+                                        data-attr="llma-evaluation-runs-load-older"
+                                    >
+                                        Load older runs
+                                    </LemonButton>
+                                )}
+                            </>
+                        )}
+                        <TrendInsightButton />
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={refreshEvaluationRuns}
+                            loading={evaluationRunsLoading}
+                            size="small"
+                            data-attr="llma-evaluation-refresh-runs"
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
+                </div>
+
+                {showStaleRunsBanner && (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: refreshEvaluationRuns,
+                            'data-attr': 'llma-evaluation-runs-stale-retry',
+                        }}
+                    >
+                        We couldn't refresh the evaluation runs. The runs below may be out of date.
+                    </LemonBanner>
+                )}
+
+                <LemonTable
+                    columns={columns}
+                    dataSource={filteredEvaluationRuns}
+                    loading={evaluationRunsLoading}
+                    rowKey="id"
+                    pagination={{
+                        pageSize: 50,
+                    }}
+                    emptyState={emptyState}
+                    {...drawerTableProps}
+                />
+            </div>
+            <TraceDrawerHost listId={TRACE_DRAWER_LIST_ID} />
+        </>
     )
 }

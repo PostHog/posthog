@@ -7,13 +7,22 @@ import {
 } from "@posthog/core/canvas/freeformWhitelist";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
 import {
+  CANVAS_SDK_MODULE_SOURCE,
+  CANVAS_SDK_SPECIFIER,
+} from "@posthog/shared";
+import {
+  compileCanvasProject,
+  installCanvasEditing,
+} from "@posthog/ui/features/canvas/blocks/canvasEditRuntime";
+import { EDIT_LABELS } from "@posthog/ui/features/canvas/blocks/libraryCatalog";
+import {
   commentActionAnchorRect,
   installSelectionSettleGate,
 } from "@posthog/ui/features/sessions/components/selectionCommentAction";
 
 // Builds the HTML document loaded into the freeform-canvas sandbox iframe.
 //
-// Security notes (see docs/canvas-freeform-react-plan.md):
+// Security notes (see docs/CANVAS-FREEFORM-REACT-PLAN.md):
 //   - The iframe is mounted with sandbox="allow-scripts" and NO
 //     allow-same-origin, so this document runs at a null origin: it cannot read
 //     the host's cookies/storage or touch the host DOM. That is also why all
@@ -21,18 +30,27 @@ import {
 //   - The user's canvas code is NEVER interpolated into this HTML. It arrives
 //     later as a postMessage `init` frame and is run from a Blob module URL, so
 //     there is no string-injection path through the document itself.
-//   - The CSP is the third isolation layer. Edit mode allows the esm.sh CDN (for
-//     Babel + whitelisted packages). View/published mode (Phase 2) self-hosts
-//     and forbids third-party egress entirely.
-export type SandboxMode = "edit" | "view";
+//   - The CSP is the third isolation layer. It allows the esm.sh CDN, because
+//     this document transpiles and resolves imports in the browser.
+//
+// This is the AUTHORING surface only: it renders a canvas whose build hasn't
+// succeeded yet, and card previews. A published canvas is a compiled artifact
+// rendered by BuiltCanvas, which self-hosts its assets behind its own CSP and
+// gates `ph.*` on the build's capability manifest.
 
-// Which in-browser Tailwind engine the EDIT-mode sandbox runs. "v4" matches the
+// Which in-browser Tailwind engine the sandbox runs. "v4" matches the
 // Quill version we ship (Quill is authored for Tailwind v4) and lets us drop the
 // v3 Play CDN's preflight-off hack, the `not-disabled` variant shim, the manual
 // `@layer base` reset, and the hand-mirrored color map — v4's layered preflight
 // and `@theme inline` token mapping cover all of it. "v3" keeps the legacy Play
 // CDN path as a one-line fallback while v4 is validated against real canvases.
 const TAILWIND_ENGINE: "v3" | "v4" = "v4";
+
+// Retry tuning for the in-iframe data shim below. The host refuses only after
+// its queue has stayed full for seconds, so the first retry waits about a
+// second, jittered to keep a refused batch from coming back in one burst.
+const MAX_CALL_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 1_000;
 
 // Tailwind v4 browser JIT. `@import "tailwindcss"` brings in v4's layered theme/
 // base(preflight)/components/utilities — so preflight sits in `@layer base`,
@@ -177,35 +195,28 @@ export function isInteractiveCanvasCommentTarget(target: unknown): boolean {
 }
 
 export function buildSandboxDocument(
-  mode: SandboxMode,
   // The PostHog host, when in-iframe analytics/replay is enabled. Opens CSP for
   // posthog-js to load its recorder and POST events/replay to ingest.
   analyticsApiHost?: string,
 ): string {
   const importMap = JSON.stringify(buildImportMap());
-  const csp = contentSecurityPolicy(mode, analyticsApiHost);
+  const csp = contentSecurityPolicy(analyticsApiHost);
 
   // Quill components emit Tailwind utility classes (layout — `inline-flex`,
   // `items-center` — AND token colors like `bg-card`, `text-muted-foreground`)
   // ALONGSIDE their `.quill-*` BEM classes. The linked Quill stylesheets style
   // the BEM half; the utilities are dead without Tailwind, so the sandbox runs a
-  // JIT-in-browser Tailwind in EDIT mode (View/published mode forbids the CDN —
-  // that tier self-hosts a compiled stylesheet, Phase 2). Quill is authored for
-  // Tailwind v4, so we run the v4 browser engine: its preflight is properly
-  // `@layer base` (sorts BELOW Quill's `@layer components`, so it can't clobber
-  // them — no preflight-off hack, no hand-rolled reset), it has native `not-*`
-  // variants (no `not-disabled` shim), and `@theme inline` maps Quill's tokens
-  // straight to v4 color keys. The whole hand-mirrored color map + reset the v3
-  // Play CDN forced us into collapses to the token block below.
-  const tailwind =
-    mode === "edit"
-      ? TAILWIND_ENGINE === "v4"
-        ? TAILWIND_V4
-        : TAILWIND_V3
-      : "";
+  // JIT-in-browser Tailwind. Quill is authored for Tailwind v4, so we run the v4
+  // browser engine: its preflight is properly `@layer base` (sorts BELOW Quill's
+  // `@layer components`, so it can't clobber them — no preflight-off hack, no
+  // hand-rolled reset), it has native `not-*` variants (no `not-disabled` shim),
+  // and `@theme inline` maps Quill's tokens straight to v4 color keys. The whole
+  // hand-mirrored color map + reset the v3 Play CDN forced us into collapses to
+  // the token block below.
+  const tailwind = TAILWIND_ENGINE === "v4" ? TAILWIND_V4 : TAILWIND_V3;
   // v4 preflight is the layered reset; only the legacy v3 path needs the manual
   // `@layer base` reset (v3's Play CDN preflight is unlayered, so it's off).
-  const reset = mode === "edit" && TAILWIND_ENGINE === "v3" ? LEGACY_RESET : "";
+  const reset = TAILWIND_ENGINE === "v3" ? LEGACY_RESET : "";
 
   // The bootstrap module. It is static (no user input) so it can be inlined
   // safely. It waits for `init`, transpiles the canvas with Babel, runs it from
@@ -214,15 +225,41 @@ export function buildSandboxDocument(
   const bootstrap = /* js */ `
     import * as Babel from "${FREEFORM_BABEL_URL}";
     const CHANNEL = "posthog-canvas";
-    const post = (msg) => parent.postMessage({ channel: CHANNEL, ...msg }, "*");
+    const portOnly = new URLSearchParams(location.hash.slice(1)).get("bridge") === "port";
+    let bridgePort = null;
+    let sendToHost = null;
+    let disconnectBridge = null;
+    const post = (msg) => {
+      const message = { channel: CHANNEL, ...msg };
+      if (sendToHost) sendToHost(message);
+      else if (!portOnly) parent.postMessage(message, "*");
+    };
 
     // --- data shim: the ONLY way canvas code reaches PostHog. No token here. ---
     const pending = new Map();
     let reqSeq = 0;
-    const call = (method, payload) =>
+    // The host caps how many requests run at once and queues the rest. Past
+    // that queue it refuses the request and marks it retryable.
+    const MAX_CALL_RETRIES = ${MAX_CALL_RETRIES};
+    const RETRY_BASE_DELAY_MS = ${RETRY_BASE_DELAY_MS};
+    const call = (method, payload, attempt = 0) =>
       new Promise((resolve, reject) => {
         const id = String(++reqSeq);
-        pending.set(id, { resolve, reject });
+        pending.set(id, {
+          resolve,
+          reject: (error, retryable) => {
+            if (!retryable || attempt >= MAX_CALL_RETRIES) {
+              reject(error);
+              return;
+            }
+            const delay =
+              RETRY_BASE_DELAY_MS * Math.pow(2, attempt) * (0.5 + Math.random());
+            setTimeout(
+              () => call(method, payload, attempt + 1).then(resolve, reject),
+              delay,
+            );
+          },
+        });
         post({ type: "data-request", id, method, payload });
       });
     // posthog-js runs IN here (the only way replay records the app's DOM). It is
@@ -230,25 +267,35 @@ export function buildSandboxDocument(
     // back to the host-mediated path.
     let phClient = null;
     window.ph = {
-      // Run a named, server-stored query (the only shape allowed in view mode).
+      // Run a named, server-stored query — the published tier's model. The host
+      // still rejects it (Phase 3).
       run: (name, params) => call("run", { name, params: params ?? {} }),
       // PREFERRED data path: load a SAVED, validated insight by its short id and
       // render its STORED result from the insights endpoint (not a fresh /query/
       // run). Pass the date picker's window to re-scope it:
       // \`ph.loadInsight("AbC123", { dateRange: { date_from, date_to } })\`.
+      // A SQL insight's \`{variables.x}\` placeholders are set per call, keyed by
+      // code name: \`ph.loadInsight("AbC123", { variables: { product: "surveys" } })\`
+      // — so one saved insight serves a whole board. The host REJECTS a variable the
+      // insight doesn't use, rather than quietly falling back to its saved value.
       // Returns \`{ columns, results }\` — SAME shape as ph.query: a trends-style
       // insight returns SERIES OBJECTS, a SQL insight returns ROWS.
       loadInsight: (shortId, opts) =>
-        call("loadInsight", { shortId, dateRange: opts && opts.dateRange }),
+        call("loadInsight", {
+          shortId,
+          dateRange: opts && opts.dateRange,
+          variables: opts && opts.variables,
+          refresh: opts && opts.refresh,
+        }),
       // Run a query. Pass a TYPED query node (\`{ kind: "TrendsQuery", … }\`) for
       // UI-matching numbers (preferred), or an inline HogQL string (escape hatch).
-      // Edit mode only; rejected by the host in view mode.
-      query: (queryOrHogql, params) =>
+      // A built canvas needs \`capabilities.posthog.inlineQueries\` for this.
+      query: (queryOrHogql, params, opts) =>
         call(
           "query",
           typeof queryOrHogql === "string"
-            ? { hogql: queryOrHogql, params: params ?? {} }
-            : { query: queryOrHogql, params: params ?? {} },
+            ? { hogql: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh }
+            : { query: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh },
         ),
       // Send an analytics event. Prefer in-iframe posthog-js (so it shares the
       // session/replay); otherwise host-mediated (no replay, still captured).
@@ -259,7 +306,53 @@ export function buildSandboxDocument(
         }
         return call("capture", { event, properties: properties ?? {}, distinctId });
       },
-      // Brokered by the host: PostHog-only https URLs, rate-limited, and
+      // Durable key-value memory, declared in capabilities.posthog.state.
+      // Scope "user" (default) is private to this viewer; "shared" is one
+      // value per canvas, visible to the whole team. Values are JSON, capped
+      // at 64 KB serialized and 256 keys per scope; setting null deletes:
+      // \`ph.state.set("board", { columns: 3 }, { scope: "shared" })\`.
+      state: {
+        get: (key, opts) => call("stateGet", { key, scope: (opts && opts.scope) || "user" }),
+        set: (key, value, opts) =>
+          call("stateSet", { key, value: value === undefined ? null : value, scope: (opts && opts.scope) || "user" }),
+        list: (opts) => call("stateList", { scope: opts && opts.scope }),
+      },
+      // Write into PostHog as the viewer. Every verb must be declared in
+      // capabilities.posthog.actions; wire invocations to explicit user
+      // gestures (a button), never to load or render:
+      // \`ph.actions.invoke("tasks.create", { title, description })\`.
+      actions: {
+        invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
+      },
+      // Run a PostHog MCP tool as the viewer. Every tool must be declared in
+      // capabilities.posthog.tools. \`read\` takes read-only tools and may run on
+      // load; \`call\` changes data, so wire it to a click (the host confirms):
+      // \`ph.tools.call("feature-flag-enable", { id })\`.
+      tools: {
+        read: (tool, args) => call("toolRead", { tool, arguments: args ?? {} }),
+        call: (tool, args) => call("toolCall", { tool, arguments: args ?? {} }),
+      },
+      // Read live third-party data with the viewer's own connection. Every
+      // provider and tool must be declared in capabilities.connectors; the
+      // result is cached per canvas for \`refresh\` seconds (default 60):
+      // \`ph.connectors.call("github", "list_pull_requests", { repository: "app" })\`.
+      // A "not_connected" status carries a connect_path; \`connect(provider)\`
+      // opens that settings page from a click.
+      connectors: {
+        call: (provider, tool, args, options) =>
+          call("connectorCall", { provider, tool, arguments: args ?? {}, refresh: options?.refresh }),
+        connect: (provider) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Connecting a provider requires a user action");
+          post({ type: "navigate", nav: { target: "connect", provider } });
+        },
+      },
+      // Ask the authoring agent for a change; the host shows the exact prompt
+      // and asks the viewer to approve before anything is dispatched:
+      // \`ph.agent.request("Make the square blue")\`.
+      agent: {
+        request: (prompt) => call("agentRequest", { prompt }),
+      },
+      // Brokered by the host: PostHog and GitHub PR HTTPS URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
       openExternal: (url) => post({ type: "open-external", url }),
       // Navigate the host app. Fire-and-forget: the host validates the intent
@@ -267,7 +360,10 @@ export function buildSandboxDocument(
       // cannot pick the channel or an arbitrary path — only these four targets.
       navigate: {
         toTask: (taskId) => post({ type: "navigate", nav: { target: "task", taskId } }),
-        toNewTask: () => post({ type: "navigate", nav: { target: "new-task" } }),
+        toNewTask: (options) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Opening a task requires a user action");
+          post({ type: "navigate", nav: { target: options ? "compose-task" : "new-task", prompt: options?.prompt, repository: options?.repository } });
+        },
         toCanvas: (dashboardId) => post({ type: "navigate", nav: { target: "canvas", dashboardId } }),
         toNewCanvas: () => post({ type: "navigate", nav: { target: "new-canvas" } }),
       },
@@ -439,7 +535,7 @@ export function buildSandboxDocument(
           if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
             event.preventDefault();
             event.stopPropagation();
-            post({ type: "comment-activate", id: item.id });
+            post({ type: "comment-activate", id: item.id, rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left } });
             return;
           }
         }
@@ -481,6 +577,19 @@ export function buildSandboxDocument(
     const applyTheme = (theme) =>
       document.documentElement.classList.toggle("dark", theme === "dark");
 
+    window.addEventListener("keydown", (e) => {
+      if (!e.isTrusted || (!e.metaKey && !e.ctrlKey)) return;
+      post({
+        type: "keydown",
+        key: e.key,
+        code: e.code,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+      });
+    });
+
     // --- error reporting (feeds the host's self-repair loop) ---
     const reportError = (message, stack) =>
       post({ type: "error", message: String(message ?? "Unknown error"), stack });
@@ -521,6 +630,11 @@ export function buildSandboxDocument(
       },
     });
 
+    const compileCanvasProject = ${compileCanvasProject.toString()};
+    const installCanvasEditing = ${installCanvasEditing.toString()};
+    const editing = installCanvasEditing(post, ${JSON.stringify(EDIT_LABELS)});
+    const moduleCache = new Map();
+
     let root = null;
     // mount() is async and is called once per streamed code snapshot, so several
     // runs overlap on their awaits. Without ordering, a slower EARLIER (partial,
@@ -529,25 +643,25 @@ export function buildSandboxDocument(
     // A monotonic sequence makes only the newest mount commit its render/error;
     // superseded runs bail out after each await.
     let mountSeq = 0;
-    const mount = async (code) => {
+    const mount = async (input) => {
       const seq = ++mountSeq;
       try {
-        const out = Babel.transform(code, {
-          filename: "canvas.tsx",
-          plugins: [jsxUnicodeEscapesPlugin],
-          presets: [
-            ["react", { runtime: "automatic" }],
-            ["typescript", { isTSX: true, allExtensions: true, onlyRemoveTypeImports: true }],
-          ],
-        }).code;
-        const url = URL.createObjectURL(
-          new Blob([out], { type: "text/javascript" }),
+        const revoke = !input.files;
+        const url = compileCanvasProject(
+          Babel,
+          input.files || { "canvas.tsx": input.code },
+          input.files ? input.entry || "src/canvas.tsx" : "canvas.tsx",
+          {
+            editing: !!input.editing,
+            basePlugins: [jsxUnicodeEscapesPlugin],
+            cache: revoke ? new Map() : moduleCache,
+          },
         );
         let mod;
         try {
           mod = await import(url);
         } finally {
-          URL.revokeObjectURL(url);
+          if (revoke) URL.revokeObjectURL(url);
         }
         if (seq !== mountSeq) return; // a newer snapshot superseded this one
         const Comp = mod.default;
@@ -567,34 +681,58 @@ export function buildSandboxDocument(
           static getDerivedStateFromError(error) { return { error }; }
           componentDidCatch(error) { reportError(error.message, error.stack); }
           render() {
-            if (this.state.error) return null;
+            if (this.state.error) return React.createElement(Committed, { key: "failed", failed: true });
             return this.props.children;
           }
         }
+        if (input.editing) editing.capture();
+        const afterCommit = (failed) => {
+          requestAnimationFrame(() => {
+            if (seq !== mountSeq) return;
+            renderCommentHighlights(currentCommentHighlights);
+            editing.setEnabled(!!input.editing);
+            if (input.editing) editing.afterMount(input.rev || 0, input.focusBlockId || null, input.focusSource || null);
+            if (!failed) post({ type: "rendered" });
+          });
+        };
+        function Committed(props) {
+          React.useLayoutEffect(() => {
+            afterCommit(!!props.failed);
+          }, []);
+          return null;
+        }
         root.render(
-          React.createElement(Boundary, null, React.createElement(Comp)),
+          React.createElement(
+            Boundary,
+            null,
+            React.createElement(Comp),
+            React.createElement(Committed, { key: seq }),
+          ),
         );
-        // Let layout settle, then report success.
-        requestAnimationFrame(() => {
-          if (seq !== mountSeq) return;
-          renderCommentHighlights(currentCommentHighlights);
-          post({ type: "rendered" });
-        });
       } catch (err) {
         // Only the latest snapshot reports — a superseded partial's parse error
         // must not surface as the canvas's error or flicker the host banner.
-        if (seq === mountSeq) reportError(err && err.message, err && err.stack);
+        if (seq !== mountSeq) return;
+        let message = err && err.message;
+        // Chrome reports a failed CDN fetch of the code's imports as an opaque
+        // error naming the blob module; name the real dependency instead.
+        if (message && message.indexOf("Failed to fetch dynamically imported module") !== -1) {
+          message = "Couldn't load the canvas libraries from esm.sh. " +
+            "Previewing an unbuilt canvas needs network access to https://esm.sh; " +
+            "published canvases are unaffected.";
+        }
+        reportError(message, err && err.stack);
       }
     };
 
-    window.addEventListener("message", (e) => {
-      const d = e.data;
+    const receive = (d) => {
       if (!d || d.channel !== CHANNEL) return;
+      if (editing.handle(d)) return;
       if (d.type === "init") {
         applyTheme(d.theme);
         currentCommentHighlights = d.highlights || [];
         if (d.analytics) void bootAnalytics(d.analytics);
-        void mount(d.code);
+        void mount(d);
       } else if (d.type === "set-theme") {
         // Re-theme in place — no mount(), so the app keeps all its state.
         applyTheme(d.theme);
@@ -606,9 +744,24 @@ export function buildSandboxDocument(
         const p = pending.get(d.id);
         if (!p) return;
         pending.delete(d.id);
-        d.ok ? p.resolve(d.result) : p.reject(new Error(d.error || "data error"));
+        d.ok
+          ? p.resolve(d.result)
+          : p.reject(new Error(d.error || "data error"), d.retryable === true);
+      }
+    };
+    window.addEventListener("message", (e) => {
+      if (e.source !== parent) return;
+      if (e.data?.channel === CHANNEL && e.data.type === "connect" && e.ports[0] && !bridgePort) {
+        bridgePort = e.ports[0];
+        sendToHost = bridgePort.postMessage.bind(bridgePort);
+        disconnectBridge = bridgePort.close.bind(bridgePort);
+        bridgePort.onmessage = (event) => receive(event.data);
+        post({ type: "ready" });
+      } else if (!portOnly && !bridgePort) {
+        receive(e.data);
       }
     });
+    window.addEventListener("pagehide", () => disconnectBridge?.());
 
     post({ type: "ready" });
   `;
@@ -618,7 +771,19 @@ export function buildSandboxDocument(
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
-<script type="importmap">${importMap}</script>
+<script>
+  // The map is assembled here rather than baked into the HTML because
+  // "@posthog/canvas-sdk" is platform-provided rather than CDN-pinned, and the
+  // blob holding it only exists inside this document. Keep this ahead of the
+  // bootstrap module: a map added after module loading starts is ignored.
+  var canvasImportMap = ${importMap};
+  canvasImportMap.imports[${JSON.stringify(CANVAS_SDK_SPECIFIER)}] =
+    URL.createObjectURL(new Blob([${JSON.stringify(CANVAS_SDK_MODULE_SOURCE)}], { type: "text/javascript" }));
+  var canvasImportMapTag = document.createElement("script");
+  canvasImportMapTag.type = "importmap";
+  canvasImportMapTag.textContent = JSON.stringify(canvasImportMap);
+  document.head.appendChild(canvasImportMapTag);
+</script>
 ${tailwind}
 ${reset}
 ${FREEFORM_QUILL_CSS_URLS.map(
@@ -651,15 +816,12 @@ ${FREEFORM_QUILL_CSS_URLS.map(
 </html>`;
 }
 
-// The iframe CSP (third isolation layer). `connect-src` matters most: in view
-// mode it is otherwise locked down so a published canvas can't phone home. When
-// analytics/replay is on we open ONLY the PostHog ingest + assets hosts (so
-// posthog-js can load its recorder and POST events/replay) — never arbitrary
-// egress.
-function contentSecurityPolicy(
-  mode: SandboxMode,
-  analyticsApiHost?: string,
-): string {
+// The iframe CSP (third isolation layer). This document only ever renders a
+// canvas its own author is editing, so it trusts the CDNs it has to fetch from
+// to transpile and resolve imports. A published canvas is not served from here —
+// it is a compiled artifact in BuiltCanvas, whose host document carries its own,
+// far tighter policy. Do not widen this one on a published canvas's behalf.
+function contentSecurityPolicy(analyticsApiHost?: string): string {
   const esm = FREEFORM_ESM_HOST;
   // posthog-js posts events to the api host and loads the recorder from the
   // region assets host; allow both. Wildcards cover PostHog Cloud regions; the
@@ -667,41 +829,26 @@ function contentSecurityPolicy(
   const ph = analyticsApiHost
     ? `${analyticsApiHost} https://*.posthog.com https://*.i.posthog.com`
     : "";
-
-  if (mode === "edit") {
-    // Only the ACTIVE Tailwind engine's CDN is trusted (not both), and the v4
-    // build is path-scoped to the @tailwindcss namespace on jsdelivr rather than
-    // the whole origin — both narrow the code-execution sandbox's egress to
-    // exactly what it fetches. v3's Play CDN loads from arbitrary sub-paths, so
-    // it stays origin-scoped (it's only the fallback, off by default).
-    const twCdn =
-      TAILWIND_ENGINE === "v4"
-        ? "https://cdn.jsdelivr.net/npm/@tailwindcss/"
-        : "https://cdn.tailwindcss.com";
-    return [
-      "default-src 'none'",
-      // Inline bootstrap + esm.sh modules + the transpiled Blob module + the
-      // posthog-js recorder script + the in-browser Tailwind engine (JIT-compiles,
-      // so 'unsafe-eval' is required). Edit-mode ONLY — view mode keeps egress
-      // locked and self-hosts styles instead.
-      `script-src 'unsafe-inline' 'unsafe-eval' blob: ${twCdn} ${esm} ${ph}`,
-      `style-src 'unsafe-inline' ${esm}`,
-      `font-src data: ${esm}`,
-      "img-src data: blob: https:",
-      `worker-src blob:`,
-      // esm.sh + Tailwind CDN sub-fetches; canvas DATA goes over postMessage (not
-      // connect), but posthog-js events/replay DO use connect to the PostHog hosts.
-      `connect-src ${esm} ${twCdn} ${ph}`,
-    ].join("; ");
-  }
-  // view / published: self-hosted, frozen. Only egress is PostHog analytics.
+  // Only the ACTIVE Tailwind engine's CDN is trusted (not both), and the v4
+  // build is path-scoped to the @tailwindcss namespace on jsdelivr rather than
+  // the whole origin — both narrow the code-execution sandbox's egress to
+  // exactly what it fetches. v3's Play CDN loads from arbitrary sub-paths, so
+  // it stays origin-scoped (it's only the fallback, off by default).
+  const twCdn =
+    TAILWIND_ENGINE === "v4"
+      ? "https://cdn.jsdelivr.net/npm/@tailwindcss/"
+      : "https://cdn.tailwindcss.com";
   return [
     "default-src 'none'",
-    `script-src 'unsafe-inline' blob: 'self' ${ph}`,
-    "style-src 'unsafe-inline' 'self'",
-    "font-src data: 'self'",
-    "img-src data: blob: 'self'",
+    // Inline bootstrap + esm.sh modules + the transpiled Blob module + the
+    // posthog-js recorder script + the in-browser Tailwind engine.
+    `script-src 'unsafe-inline' blob: ${twCdn} ${esm} ${ph}`,
+    `style-src 'unsafe-inline' ${esm}`,
+    `font-src data: ${esm}`,
+    "img-src data: blob: https:",
     `worker-src blob:`,
-    `connect-src 'self' ${ph}`,
+    // esm.sh + Tailwind CDN sub-fetches; canvas DATA goes over postMessage (not
+    // connect), but posthog-js events/replay DO use connect to the PostHog hosts.
+    `connect-src ${esm} ${twCdn} ${ph}`,
   ].join("; ");
 }

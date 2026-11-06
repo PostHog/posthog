@@ -1,13 +1,17 @@
 import time
 from typing import Optional
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models.integration import Integration
-from posthog.tasks.integrations import refresh_integration, refresh_integrations
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
+from posthog.models.integration import GitHubIntegration, Integration
+from posthog.redis import get_client as get_redis_client
+from posthog.tasks.integrations import refresh_github_branch_cache, refresh_integration, refresh_integrations
 
 
 class TestIntegrationsTasks(APIBaseTest):
@@ -56,7 +60,7 @@ class TestIntegrationsTasks(APIBaseTest):
         # id reaches refresh_integration, it must not spend the rotating token via the unlocked path.
         integration = self.create_integration("resend", config={"refreshed_at": time.time() - 3600})
 
-        with patch("posthog.models.integration.OauthIntegration.refresh_access_token") as refresh_mock:
+        with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
             refresh_integration(integration.id)
 
         assert refresh_mock.called is False
@@ -91,7 +95,7 @@ class TestIntegrationsTasks(APIBaseTest):
             },
         )
 
-        with patch("posthog.models.integration.OauthIntegration.refresh_access_token") as refresh_mock:
+        with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
             refresh_integration(integration.id)
 
         assert refresh_mock.called is False
@@ -109,7 +113,42 @@ class TestIntegrationsTasks(APIBaseTest):
         # just-loaded row so a task that finds it already fresh skips the mint instead of re-minting.
         integration = self.create_integration("github", config={"refreshed_at": refreshed_at, "expires_in": 3600})
 
-        with patch("posthog.models.integration.GitHubIntegration.refresh_access_token") as refresh_mock:
+        with patch("posthog.models.integration.github.GitHubIntegration.refresh_access_token") as refresh_mock:
             refresh_integration(integration.id)
 
         assert refresh_mock.called is expected_refreshed
+
+    @parameterized.expand(
+        [
+            ("budget_shed_keeps_lock_for_the_retry", GitHubEgressBudgetExhausted("shed", scope="1"), True),
+            ("other_error_releases_lock", RuntimeError("boom"), False),
+        ]
+    )
+    def test_branch_refresh_holds_its_lock_only_while_a_retry_is_pending(
+        self, _name: str, error: Exception, lock_held: bool
+    ) -> None:
+        integration = self.create_integration("github", config={"installation_id": "INSTALL"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.BATCH)
+        lock_key = github._branch_refresh_lock_key("posthog/posthog")
+        get_redis_client().set(lock_key, "token")
+        self.addCleanup(get_redis_client().delete, lock_key)
+
+        with (
+            patch("posthog.models.integration.github.GitHubIntegration.refresh_branch_cache", side_effect=error),
+            pytest.raises(type(error)),
+        ):
+            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "token")
+
+        assert (get_redis_client().get(lock_key) == b"token") is lock_held
+
+    def test_branch_refresh_leaves_a_newer_refresh_lock_alone(self) -> None:
+        integration = self.create_integration("github", config={"installation_id": "INSTALL"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.BATCH)
+        lock_key = github._branch_refresh_lock_key("posthog/posthog")
+        get_redis_client().set(lock_key, "newer")
+        self.addCleanup(get_redis_client().delete, lock_key)
+
+        with patch("posthog.models.integration.github.GitHubIntegration.refresh_branch_cache"):
+            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "older")
+
+        assert get_redis_client().get(lock_key) == b"newer"

@@ -3,26 +3,22 @@ import csv
 import json
 import uuid
 import asyncio
-import hashlib
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 from urllib import parse
 
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import UploadedFile
-from django.db import IntegrityError, transaction
 from django.forms import ModelForm, ValidationError
 from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, path, reverse
-from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from django.utils.html import escapejs, format_html, format_html_join
+from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from structlog import get_logger
@@ -30,17 +26,23 @@ from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
+from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.inline_registry import extra_inlines_for
+from posthog.admin.inlines.events_retention_config_inline import TeamEventsRetentionConfigInline
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
-from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.helpers.impersonation import is_impersonated
-from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
-from posthog.models import Team
+from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, get_wallet
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
+from posthog.models.events_retention_config import (
+    OrganizationEventsRetentionConfig,
+    TeamEventsRetentionConfig,
+    describe_months_range,
+)
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
-from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.personhog_client.client import get_personhog_client
 from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
@@ -69,12 +71,15 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.facade.api import (
+    get_email_sending_state,
+    get_email_sending_tier_limits,
+    max_email_sending_tier,
+    suspend_email_sending,
+    unsuspend_email_sending,
+)
 
 logger = get_logger()
-
-# Upper bound on a single admin AI gateway top-up, to catch fat-fingered amounts.
-MAX_CREDIT_USD = Decimal("1000000")
 
 
 def _format_group_type_created_at(value: datetime | None) -> str:
@@ -94,13 +99,6 @@ class ReplayActivityContext(ActivityContextBase):
 @dataclasses.dataclass(frozen=True)
 class EmailSendingSuspensionActivityContext(ActivityContextBase):
     reason: str
-
-
-@dataclasses.dataclass(frozen=True)
-class AIGatewayCreditActivityContext(ActivityContextBase):
-    amount_usd: str
-    reason: str
-    balance_usd: str
 
 
 class TeamAdminForm(ModelForm):
@@ -181,15 +179,22 @@ class TeamAdmin(admin.ModelAdmin):
         "group_type_mappings_display",
         "email_sending_suspension_state",
         "email_sending_suspension_actions",
+        "email_sending_tier_state",
+        "email_sending_tier_actions",
+        "events_retention_display",
     ]
 
     exclude = DEPRECATED_ATTRS
     inlines = [
         OrganizationMemberForRelatedInline,
         TeamMarketingAnalyticsConfigInline,
-        TeamExperimentsConfigInline,
-        UserProductListInline,
+        TeamEventsRetentionConfigInline,
     ]
+
+    def get_inlines(self, request, obj=None):
+        # Inlines other apps registered for Team, so a product can show a panel on
+        # this page without core importing it. See posthog.admin.inline_registry.
+        return [*super().get_inlines(request, obj), *extra_inlines_for(Team)]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request
@@ -289,6 +294,15 @@ class TeamAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Events retention",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "events_retention_display",
+                ],
+            },
+        ),
+        (
             "Group type mappings",
             {
                 "classes": ["collapse"],
@@ -338,12 +352,16 @@ class TeamAdmin(admin.ModelAdmin):
                 "fields": [
                     "email_sending_suspension_state",
                     "email_sending_suspension_actions",
+                    "email_sending_tier_state",
+                    "email_sending_tier_actions",
                 ],
                 "description": mark_safe(
                     "Kill switch for all workflow email from this team, used when its sender reputation "
                     "(hard bounce / spam complaint rates) endangers shared SES deliverability. Suspending "
                     "notifies the team by email and in-app; the CDP email worker picks the flag up within "
-                    "a few minutes."
+                    "a few minutes.<br><br>The trust tier below sets how fast this team may send. Teams "
+                    "earn tiers automatically by sending cleanly over time; pinning holds a team at a tier "
+                    "and stops both automatic promotion and automatic demotion."
                 ),
             },
         ),
@@ -373,7 +391,7 @@ class TeamAdmin(admin.ModelAdmin):
             return "-"
         client = get_personhog_client()
         if client is None:
-            return format_html("<em>personhog client not configured</em>")
+            return mark_safe("<em>personhog client not configured</em>")
         try:
             resp = client.get_group_type_mappings_by_team_id(GetGroupTypeMappingsByTeamIdRequest(team_id=team.id))
             mappings_raw = sorted(
@@ -382,7 +400,7 @@ class TeamAdmin(admin.ModelAdmin):
             )
         except Exception as exc:
             logger.warning("admin_group_type_mappings_fetch_failed", team_id=team.id, error=str(exc))
-            return format_html(
+            return mark_safe(
                 '<p style="color: #856404; background: #fff3cd; border: 1px solid #ffc107; '
                 'padding: 8px 12px; border-radius: 4px; margin: 4px 0; font-size: 13px;">'
                 "Failed to fetch group type mappings from personhog</p>",
@@ -572,15 +590,45 @@ class TeamAdmin(admin.ModelAdmin):
             props.append("API_QUERIES_RATE_LIMIT_BYPASS")
         return format_html("<span>{}</span>", ", ".join(props) or "-")
 
+    @admin.display(description="Events retention")
+    def events_retention_display(self, team: Team):
+        if not team.pk:
+            return "-"
+        team_months = (
+            TeamEventsRetentionConfig.objects.filter(team_id=team.pk)
+            .values_list("events_retention_months", flat=True)
+            .first()
+        )
+        org_config = OrganizationEventsRetentionConfig.objects.filter(organization_id=team.organization_id).first()
+        org_default = org_config.default_events_retention_months if org_config else None
+        if team_months is not None:
+            deletion = f"Deleted after {team_months} months, from the team setting."
+        elif org_default is not None:
+            deletion = f"Deleted after {org_default} months, from the organization default."
+        else:
+            deletion = "Never deleted. Neither the team nor the organization has a setting."
+        if org_config and (org_config.min_events_retention_months or org_config.max_events_retention_months):
+            allowed = describe_months_range(
+                org_config.min_events_retention_months, org_config.max_events_retention_months
+            )
+            deletion += f" The organization allows {allowed}."
+
+        hidden = (
+            "Older events are hidden from queries."
+            if should_enforce_events_retention(team.pk)
+            else "Older events are not hidden yet, because enforcement is off for this team."
+        )
+        billing = f"{team.event_retention_months} months from the billing plan. {hidden}"
+        return format_html("<div>{}</div><div>{}</div>", deletion, billing)
+
     @admin.display(description="API token")
     def api_token_display(self, team: Team):
         if not team.pk:
             return "-"
-        set_url = reverse("admin:posthog_team_set_api_token", args=[team.pk])
         return format_html(
-            '<span>{}</span> &nbsp; <a class="button" href="{}">Set API token</a>',
+            "<span>{}</span> &nbsp; {}",
             team.api_token,
-            set_url,
+            MovedToConsole.team_action(team, "api-token", "Set API token"),
         )
 
     @admin.display(description="Delete recordings")
@@ -599,7 +647,7 @@ class TeamAdmin(admin.ModelAdmin):
         if not team.pk:
             return "-"
         return format_html(
-            '<a class="button" href="/feature_flags/staff?team_id={}" target="_blank" rel="noopener noreferrer">Open flags staff tools</a>',
+            '<a class="button" href="/feature-flags/staff?team_id={}" target="_blank" rel="noopener noreferrer">Open flags staff tools</a>',
             team.pk,
         )
 
@@ -614,105 +662,11 @@ class TeamAdmin(admin.ModelAdmin):
                 "admin/posthog/team/remote_config_cache_actions.html",
                 {
                     "view_url": reverse("admin:posthog_team_view_cache", args=[team.pk]),
-                    "rebuild_url": reverse("admin:posthog_team_rebuild_cache", args=[team.pk]),
-                    "team_name_escaped": escapejs(team.name),
+                    "rebuild_moved": MovedToConsole.team_action(team, "remote-config", "Rebuild cache"),
                     "cache_key": RemoteConfig.get_hypercache().get_cache_key(team.api_token),
                 },
             )
         )
-
-    def _resolve_ai_gateway_team(self, request, object_id):
-        if request.method != "POST":
-            return None, HttpResponseNotAllowed(["POST"])
-        team = Team.objects.get(pk=object_id)
-        if not self.has_change_permission(request, team):
-            raise PermissionDenied
-        return team, None
-
-    def _refresh_ai_gateway_policy_cache(self, team: Team) -> None:
-        # Sync write: the post_save signal's Celery task races the redirect,
-        # and idempotent clicks skip team.save() so the signal never fires.
-        from posthog.storage.team_llm_gateway_policy_cache import update_team_llm_gateway_policy_cache
-
-        update_team_llm_gateway_policy_cache(team)
-
-    def enable_ai_gateway_view(self, request, object_id):
-        team, response = self._resolve_ai_gateway_team(request, object_id)
-        if response is not None:
-            return response
-        if team.llm_gateway_enabled_at is None:
-            team.llm_gateway_enabled_at = timezone.now()
-            team.save()
-            logger.info(
-                "admin_enable_ai_gateway",
-                team_id=team.id,
-                triggered_by=request.user.email,
-            )
-            self.message_user(
-                request,
-                f"Enabled AI gateway access for team '{team.name}'.",
-                level=messages.SUCCESS,
-            )
-        else:
-            self.message_user(
-                request,
-                f"Team '{team.name}' was already enabled (since {team.llm_gateway_enabled_at.isoformat()}).",
-                level=messages.INFO,
-            )
-        self._refresh_ai_gateway_policy_cache(team)
-        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
-
-    def revoke_ai_gateway_view(self, request, object_id):
-        team, response = self._resolve_ai_gateway_team(request, object_id)
-        if response is not None:
-            return response
-        if team.llm_gateway_revoked_at is None:
-            team.llm_gateway_revoked_at = timezone.now()
-            team.save()
-            logger.info(
-                "admin_revoke_ai_gateway",
-                team_id=team.id,
-                triggered_by=request.user.email,
-            )
-            self.message_user(
-                request,
-                f"Revoked AI gateway access for team '{team.name}'.",
-                level=messages.WARNING,
-            )
-        else:
-            self.message_user(
-                request,
-                f"Team '{team.name}' was already revoked (since {team.llm_gateway_revoked_at.isoformat()}).",
-                level=messages.INFO,
-            )
-        self._refresh_ai_gateway_policy_cache(team)
-        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
-
-    def clear_ai_gateway_revoke_view(self, request, object_id):
-        team, response = self._resolve_ai_gateway_team(request, object_id)
-        if response is not None:
-            return response
-        if team.llm_gateway_revoked_at is not None:
-            team.llm_gateway_revoked_at = None
-            team.save()
-            logger.info(
-                "admin_clear_ai_gateway_revoke",
-                team_id=team.id,
-                triggered_by=request.user.email,
-            )
-            self.message_user(
-                request,
-                f"Cleared AI gateway revoke for team '{team.name}'.",
-                level=messages.SUCCESS,
-            )
-        else:
-            self.message_user(
-                request,
-                f"Team '{team.name}' was not revoked.",
-                level=messages.INFO,
-            )
-        self._refresh_ai_gateway_policy_cache(team)
-        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def _log_email_suspension_activity(self, request, team: Team, activity: str, reason: str) -> None:
         log_activity(
@@ -776,21 +730,13 @@ class TeamAdmin(admin.ModelAdmin):
             messages.error(request, "Reason is required")
             return redirect(suspend_url)
 
-        # Row-lock the config while checking + flipping so two concurrent submits (retried POST,
-        # two open admin tabs) can't both pass the idempotency check and both dispatch the
-        # customer email + notification. Side effects stay outside the atomic block.
-        get_or_create_team_extension(team, TeamWorkflowsConfig)
-        with transaction.atomic():
-            config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team.pk)
-            if config.email_sending_suspended_at is not None:
-                already_suspended_at = config.email_sending_suspended_at
-                suspended_at = None
-            else:
-                already_suspended_at = None
-                suspended_at = timezone.now()
-                config.email_sending_suspended_at = suspended_at
-                config.email_sending_suspension_reason = reason
-                config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+        # The facade row-locks the config while checking + flipping, so concurrent submits can't
+        # both dispatch the customer email + notification. Side effects stay outside that lock.
+        change = suspend_email_sending(
+            team.pk, reason, user_id=cast(User, request.user).pk, was_impersonated=is_impersonated(request)
+        )
+        already_suspended_at = change.previously_suspended_at
+        suspended_at = change.changed_at
 
         if already_suspended_at is not None:
             self.message_user(
@@ -841,19 +787,8 @@ class TeamAdmin(admin.ModelAdmin):
             raise PermissionDenied
 
         team_url = reverse("admin:posthog_team_change", args=[object_id])
-        # Symmetric to suspend: lock the row, re-check, flip inside the transaction so racing
-        # submits can't both fire the re-enable side effects.
-        with transaction.atomic():
-            config = TeamWorkflowsConfig.objects.select_for_update().filter(team_id=team.pk).first()
-            if not config or config.email_sending_suspended_at is None:
-                was_suspended = False
-                unsuspended_at = None
-            else:
-                was_suspended = True
-                unsuspended_at = timezone.now()
-                config.email_sending_suspended_at = None
-                config.email_sending_suspension_reason = ""
-                config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+        unsuspended_at = unsuspend_email_sending(team.pk).changed_at
+        was_suspended = unsuspended_at is not None
 
         if not was_suspended:
             self.message_user(request, f"Email sending for team '{team.name}' is not suspended.", level=messages.INFO)
@@ -889,164 +824,63 @@ class TeamAdmin(admin.ModelAdmin):
     def email_sending_suspension_state(self, team: Team):
         if not team.pk:
             return "-"
-        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
-        if config and config.email_sending_suspended_at:
+        state = get_email_sending_state(team.pk)
+        if state and state.suspended_at:
             return format_html(
                 '<span style="color:red"><strong>Suspended</strong></span> at {} — {}',
-                config.email_sending_suspended_at.isoformat(),
-                config.email_sending_suspension_reason or "no reason recorded",
+                state.suspended_at.isoformat(),
+                state.suspension_reason or "no reason recorded",
             )
-        return format_html("<em>Sending enabled</em>")
+        return mark_safe("<em>Sending enabled</em>")
 
     @admin.display(description="Email sending actions")
     def email_sending_suspension_actions(self, team: Team):
         if not team.pk:
             return "-"
-        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
-        is_suspended = bool(config and config.email_sending_suspended_at)
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/email_sending_suspension_actions.html",
-                {
-                    "team": team,
-                    "suspend_url": reverse("admin:posthog_team_suspend_email_sending", args=[team.pk]),
-                    "unsuspend_url": reverse("admin:posthog_team_unsuspend_email_sending", args=[team.pk]),
-                    "team_name_escaped": escapejs(team.name),
-                    "is_suspended": is_suspended,
-                },
+        return MovedToConsole.team_action(team, "email-sending", "Suspending and re-enabling email sending")
+
+    @admin.display(description="Email sending tier")
+    def email_sending_tier_state(self, team: Team) -> str:
+        if not team.pk:
+            return "-"
+        state = get_email_sending_state(team.pk)
+        tier = state.tier if state else 0
+        limits = get_email_sending_tier_limits(tier)
+        updated_at = state.tier_updated_at if state else None
+        allowlist_note = ""
+        if team.pk in settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS:
+            # A saved tier changes nothing while the team sits on the legacy allowlist, which the
+            # limit resolution checks first. Say so here rather than letting a staff tier write
+            # look effective when it is not.
+            allowlist_note = (
+                "<br><strong>Note:</strong> this team is on the legacy elevated allowlist "
+                "(HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS), which overrides the tier until the "
+                "team is removed from it."
             )
+        return format_html(
+            "<strong>Tier {}</strong> of {} — {} emails/day, "
+            "{} max batch audience<br>Set at: {}<br>Pinned: {}<br>Rollout mode: <code>{}</code>{}",
+            tier,
+            max_email_sending_tier(),
+            f"{limits.per_day:,}",
+            f"{limits.max_batch_audience:,}",
+            updated_at.isoformat() if updated_at else "never (team has not been evaluated yet)",
+            "yes" if state and state.tier_pinned else "no",
+            settings.WORKFLOWS_EMAIL_TIER_MODE,
+            mark_safe(allowlist_note),  # noqa: S308 - static admin-only string, no user input
         )
 
-    def add_ai_gateway_credit_view(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
-        if not self.has_change_permission(request, team):
-            raise PermissionDenied
-
-        credit_url = reverse("admin:posthog_team_add_ai_gateway_credit", args=[object_id])
-
-        if request.method == "GET":
-            context = {
-                **self.admin_site.each_context(request),
-                "team": team,
-                "title": f"Add AI gateway credit - {team.name}",
-                # Per-render nonce; combined with amount + reason on submit to form the
-                # idempotency key, so a double-submit dedupes but a back-edit-resubmit
-                # of a different amount is treated as a new top-up.
-                "form_nonce": str(uuid.uuid4()),
-            }
-            return render(request, "admin/posthog/team/add_ai_gateway_credit_form.html", context)
-
-        amount_raw = request.POST.get("amount_usd", "").strip()
-        reason = request.POST.get("reason", "").strip()
-        form_nonce = request.POST.get("form_nonce", "").strip() or str(uuid.uuid4())
-
-        if not reason:
-            messages.error(request, "Reason is required")
-            return redirect(credit_url)
-        try:
-            amount = Decimal(amount_raw)
-        except InvalidOperation:
-            messages.error(request, "Amount must be a valid decimal")
-            return redirect(credit_url)
-        # is_finite() rejects NaN/sNaN/±Inf before `amount <= 0`, which raises on NaN.
-        if not amount.is_finite() or amount <= 0:
-            messages.error(request, "Amount must be a positive number")
-            return redirect(credit_url)
-        if amount > MAX_CREDIT_USD:
-            messages.error(request, f"Amount exceeds the ${MAX_CREDIT_USD:,} per-top-up limit")
-            return redirect(credit_url)
-
-        # Bind the key to the amount + reason so editing the amount after a submit
-        # produces a new key instead of replaying the prior top-up.
-        idempotency_key = hashlib.sha256(f"{form_nonce}:{amount}:{reason}".encode()).hexdigest()
-        try:
-            result = add_credit(team.id, str(amount), reason, idempotency_key)
-        except AIGatewayInternalError as exc:
-            logger.warning(
-                "admin_add_ai_gateway_credit_failed",
-                team_id=team.id,
-                amount_usd=amount_raw,
-                error=str(exc),
-                triggered_by=request.user.email,
-            )
-            messages.error(request, f"Failed to add credit: {exc}")
-            return redirect(credit_url)
-
-        logger.info(
-            "admin_add_ai_gateway_credit",
-            team_id=team.id,
-            amount_usd=str(amount),
-            entry_id=result.entry_id,
-            duplicate=result.duplicate,
-            triggered_by=request.user.email,
-        )
-        # Audit is keyed by the ledger entry_id, so write it whenever one is missing;
-        # a replay backfills the audit if an earlier attempt's write was lost after the
-        # money moved (the credit and this record can't share a transaction). The credit
-        # has already succeeded, so an audit-side failure is logged and swallowed rather
-        # than surfaced as an error to the admin. The existence check dedupes best-effort.
-        try:
-            if not ActivityLog.objects.filter(
-                scope="AIGatewayCredit", team_id=team.id, item_id=result.entry_id
-            ).exists():
-                log_activity(
-                    organization_id=team.organization_id,
-                    team_id=team.id,
-                    user=request.user,
-                    was_impersonated=is_impersonated(request),
-                    item_id=result.entry_id,
-                    scope="AIGatewayCredit",
-                    activity="credit_added",
-                    detail=Detail(
-                        name=f"AI gateway credit — ${result.amount_usd}",
-                        type="admin_add_credit",
-                        context=AIGatewayCreditActivityContext(
-                            amount_usd=result.amount_usd,
-                            reason=reason,
-                            balance_usd=result.balance_usd,
-                        ),
-                    ),
-                )
-        except Exception:
-            logger.warning(
-                "admin_add_ai_gateway_credit_audit_failed",
-                team_id=team.id,
-                entry_id=result.entry_id,
-                triggered_by=request.user.email,
-                exc_info=True,
-            )
-        if result.duplicate:
-            messages.info(
-                request,
-                f"Idempotent replay — no new credit. Team '{team.name}' balance: ${result.balance_usd}.",
-            )
-        else:
-            messages.success(
-                request,
-                f"Added ${result.amount_usd} to team '{team.name}'. New balance: ${result.balance_usd}.",
-            )
-        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+    @admin.display(description="Email sending tier actions")
+    def email_sending_tier_actions(self, team: Team) -> str:
+        if not team.pk:
+            return "-"
+        return MovedToConsole.team_action(team, "email-sending", "Setting and recomputing the tier")
 
     @admin.display(description="Actions")
     def ai_gateway_actions(self, team: Team):
         if not team.pk:
             return "-"
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/ai_gateway_actions.html",
-                {
-                    "team": team,
-                    "enable_url": reverse("admin:posthog_team_enable_ai_gateway", args=[team.pk]),
-                    "revoke_url": reverse("admin:posthog_team_revoke_ai_gateway", args=[team.pk]),
-                    "clear_revoke_url": reverse("admin:posthog_team_clear_ai_gateway_revoke", args=[team.pk]),
-                    "team_name_escaped": escapejs(team.name),
-                    "is_enabled": team.llm_gateway_enabled_at is not None,
-                    "is_revoked": team.llm_gateway_revoked_at is not None,
-                },
-            )
-        )
+        return MovedToConsole.team_action(team, "ai-gateway", "Enabling and revoking access")
 
     @admin.display(description="Admit state")
     def admit_state(self, team: Team):
@@ -1062,7 +896,7 @@ class TeamAdmin(admin.ModelAdmin):
                 '<span style="color:green"><strong>Enrolled</strong></span> since {}',
                 team.llm_gateway_enabled_at.isoformat(),
             )
-        return format_html("<em>Not enrolled</em>")
+        return mark_safe("<em>Not enrolled</em>")
 
     @admin.display(description="Wallet (AI gateway credits)")
     def ai_gateway_wallet(self, team: Team):
@@ -1077,7 +911,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "admin/posthog/team/ai_gateway_wallet_actions.html",
                 {
                     "wallet_url": reverse("admin:posthog_team_ai_gateway_wallet", args=[team.pk]),
-                    "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
+                    "add_credit_moved": MovedToConsole.team_action(team, "ai-gateway", "Add credit"),
                 },
             )
         )
@@ -1094,7 +928,7 @@ class TeamAdmin(admin.ModelAdmin):
             .order_by("-created_at")[:20]
         )
         if not entries:
-            return format_html("<em>(no top-ups recorded)</em>")
+            return mark_safe("<em>(no top-ups recorded)</em>")
         rows = format_html_join(
             "",
             "<tr><td>{}</td><td>{}</td><td>${}</td><td>{}</td></tr>",
@@ -1124,7 +958,7 @@ class TeamAdmin(admin.ModelAdmin):
             **self.admin_site.each_context(request),
             "team": team,
             "title": f"AI gateway wallet - {team.name}",
-            "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
+            "add_credit_moved": MovedToConsole.team_action(team, "ai-gateway", "Add credit"),
         }
         try:
             context["wallet"] = get_wallet(team.id)
@@ -1145,9 +979,9 @@ class TeamAdmin(admin.ModelAdmin):
         except Exception as exc:
             return format_html("<em>(cache read failed: {})</em>", str(exc))
         if source == "absent":
-            return format_html("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
+            return mark_safe("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
         if source == "redis_negative":
-            return format_html(
+            return mark_safe(
                 "<em>(negative-cache sentinel in Redis; gateway treats as default-deny "
                 "until the entry expires, default 24h)</em>"
             )
@@ -1165,16 +999,6 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/view-cache/",
                 self.admin_site.admin_view(self.view_cache),
                 name="posthog_team_view_cache",
-            ),
-            path(
-                "<path:object_id>/rebuild-cache/",
-                self.admin_site.admin_view(self.rebuild_cache),
-                name="posthog_team_rebuild_cache",
-            ),
-            path(
-                "<path:object_id>/set-api-token/",
-                self.admin_site.admin_view(self.set_api_token_view),
-                name="posthog_team_set_api_token",
             ),
             path(
                 "<path:object_id>/delete-recordings/",
@@ -1197,26 +1021,6 @@ class TeamAdmin(admin.ModelAdmin):
                 name="posthog_team_delete_recordings_workflows",
             ),
             path(
-                "<path:object_id>/enable-ai-gateway/",
-                self.admin_site.admin_view(self.enable_ai_gateway_view),
-                name="posthog_team_enable_ai_gateway",
-            ),
-            path(
-                "<path:object_id>/revoke-ai-gateway/",
-                self.admin_site.admin_view(self.revoke_ai_gateway_view),
-                name="posthog_team_revoke_ai_gateway",
-            ),
-            path(
-                "<path:object_id>/clear-ai-gateway-revoke/",
-                self.admin_site.admin_view(self.clear_ai_gateway_revoke_view),
-                name="posthog_team_clear_ai_gateway_revoke",
-            ),
-            path(
-                "<path:object_id>/add-ai-gateway-credit/",
-                self.admin_site.admin_view(self.add_ai_gateway_credit_view),
-                name="posthog_team_add_ai_gateway_credit",
-            ),
-            path(
                 "<path:object_id>/ai-gateway-wallet/",
                 self.admin_site.admin_view(self.ai_gateway_wallet_view),
                 name="posthog_team_ai_gateway_wallet",
@@ -1233,46 +1037,6 @@ class TeamAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
-
-    def set_api_token_view(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
-        if not self.has_change_permission(request, team):
-            raise PermissionDenied
-
-        if request.method == "GET":
-            context = {
-                **self.admin_site.each_context(request),
-                "team": team,
-                "title": f"Set API token - {team.name}",
-            }
-            return render(request, "admin/posthog/team/set_api_token_form.html", context)
-
-        new_token = request.POST.get("new_token", "").strip()
-        if not new_token:
-            messages.error(request, "New API token is required")
-            return redirect(reverse("admin:posthog_team_set_api_token", args=[object_id]))
-
-        try:
-            with transaction.atomic():
-                team.set_token_and_save(
-                    new_token=new_token,
-                    user=request.user,
-                    is_impersonated_session=False,
-                )
-        except ValueError as e:
-            messages.error(request, str(e))
-            return redirect(reverse("admin:posthog_team_set_api_token", args=[object_id]))
-        except IntegrityError:
-            messages.error(request, "Another team already owns this API token. Pick a different value.")
-            return redirect(reverse("admin:posthog_team_set_api_token", args=[object_id]))
-
-        logger.info(
-            "admin_set_api_token",
-            team_id=team.id,
-            triggered_by=request.user.email,
-        )
-        messages.success(request, f"API token updated for team '{team.name}'.")
-        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def view_cache(self, request, object_id):
         team = Team.objects.get(pk=object_id)
@@ -1292,16 +1056,6 @@ class TeamAdmin(admin.ModelAdmin):
         return JsonResponse(
             {"cached": True, "cache_key": cache_key, "data": cached_data}, json_dumps_params={"indent": 2}
         )
-
-    def rebuild_cache(self, request, object_id):
-        if request.method != "POST":
-            return HttpResponseNotAllowed(["POST"])
-
-        team = Team.objects.get(pk=object_id)
-        RemoteConfig.get_hypercache().update_cache(team.api_token)
-
-        self.message_user(request, f"Cache rebuilt for team '{team.name}' (token: {team.api_token})")
-        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def _get_delete_workflows(self, team_id: int) -> list[dict]:
         """Fetch recent delete-recordings workflows for this team from Temporal."""

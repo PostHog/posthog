@@ -29,17 +29,13 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from products.endpoints.backend import rate_limit
+from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 
 from . import contracts
 
 if TYPE_CHECKING:
-    from products.endpoints.backend.logic.ai_materialization_fix import (
-        REWRITE_CONTRACT,
-        live_materialization_conditions_source,
-        materialization_fix_enabled,
-        suggest_materialization_fix,
-    )
+    from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
     from products.endpoints.backend.logic.crud import EndpointCrudService
     from products.endpoints.backend.logic.execution import EndpointExecutionService
     from products.endpoints.backend.logic.materialization import (
@@ -51,22 +47,23 @@ if TYPE_CHECKING:
         validate_endpoint_request,
         validate_update_request,
     )
+    from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
     from products.endpoints.backend.openapi import generate_openapi_spec
 
 # symbol -> source module (relative to products.endpoints.backend)
 _LAZY = {
     "EndpointCrudService": "logic.crud",
     "EndpointExecutionService": "logic.execution",
-    "REWRITE_CONTRACT": "logic.ai_materialization_fix",
-    "live_materialization_conditions_source": "logic.ai_materialization_fix",
-    "materialization_fix_enabled": "logic.ai_materialization_fix",
-    "suggest_materialization_fix": "logic.ai_materialization_fix",
     "EndpointMaterializationService": "logic.materialization",
     "build_materialization_info": "logic.materialization",
     "validate_bucket_overrides": "logic.validation",
     "validate_endpoint_request": "logic.validation",
     "validate_update_request": "logic.validation",
     "generate_openapi_spec": "openapi",
+    # The insight-conversion seam. Product analytics owns the runners these two reach through
+    # core's dispatcher, so its tests hold the cases that prove the conversion still works.
+    "build_endpoint_hogql": "materialization_transforms",
+    "transform_materialized_insight_response": "insight_transformers",
 }
 
 
@@ -143,21 +140,36 @@ def is_materialization_ready(team_id: int, endpoint_name: str, version: int | No
     return rate_limit.check_materialization_ready(team_id, endpoint_name, version)
 
 
+def is_materialized_request(team_id: int, endpoint_name: str, version: int | None, request_data: object) -> bool:
+    """Whether this run request will be served from the targeted version's materialized table."""
+    return rate_limit.check_materialized_request(team_id, endpoint_name, version, request_data)
+
+
+def record_throttled_request(
+    team_id: int | None, endpoint_name: str | None, version: int | None, *, materialized: bool, scope: str
+) -> None:
+    """Record a run request refused by a request-rate throttle."""
+    reason = EndpointRateLimitReason.MATERIALIZED_RATE if materialized else EndpointRateLimitReason.INLINE_RATE
+    record_endpoint_rate_limited(
+        team_id=team_id, endpoint_name=endpoint_name, version=version, reason=reason, scope=scope
+    )
+
+
 __all__ = [
-    "REWRITE_CONTRACT",
     "EndpointCrudService",
     "EndpointExecutionService",
     "EndpointMaterializationService",
+    "build_endpoint_hogql",
     "build_materialization_info",
     "generate_openapi_spec",
     "get_endpoint",
     "get_endpoint_version",
     "get_last_execution_times",
     "is_materialization_ready",
+    "is_materialized_request",
     "list_endpoints",
-    "live_materialization_conditions_source",
-    "materialization_fix_enabled",
-    "suggest_materialization_fix",
+    "record_throttled_request",
+    "transform_materialized_insight_response",
     "validate_bucket_overrides",
     "validate_endpoint_request",
     "validate_update_request",

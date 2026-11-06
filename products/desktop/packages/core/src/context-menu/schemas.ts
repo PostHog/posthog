@@ -1,22 +1,42 @@
 import { z } from "zod";
 
+// A "File to…" target. `starred` floats it to the top of the submenu.
+const fileToChannel = z.object({
+  id: z.string(),
+  name: z.string(),
+  channelType: z.enum(["public", "personal", "private"]).optional(),
+  starred: z.boolean().optional(),
+});
+
 export const taskContextMenuInput = z.object({
   taskTitle: z.string(),
   worktreePath: z.string().optional(),
   folderPath: z.string().optional(),
   isPinned: z.boolean().optional(),
+  // Omit to hide the read/unread item.
+  isUnread: z.boolean().optional(),
   isSuspended: z.boolean().optional(),
   canStop: z.boolean().optional(),
   isInCommandCenter: z.boolean().optional(),
   hasEmptyCommandCenterCell: z.boolean().optional(),
   showArchivePrior: z.boolean().optional(),
+  // Only the task's owner may hand it off; callers omit the item otherwise.
+  canHandoff: z.boolean().optional(),
   // The project's channels available as "File to…" targets.
   // Omit (or pass empty) to hide the submenu entirely.
-  channels: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  channels: z.array(fileToChannel).optional(),
 });
 
 export const bulkTaskContextMenuInput = z.object({
   taskCount: z.number().int().min(2),
+  // Every selected session is pinned, so the pin item unpins instead.
+  allPinned: z.boolean().optional(),
+  // How many of the selection are still running; shapes the archive confirm.
+  runningCount: z.number().int().min(0).optional(),
+  // Whether archiving would also shut a cloud sandbox down.
+  stopsCloudSandbox: z.boolean().optional(),
+  // "File to…" targets. Omit (or pass empty) to hide the submenu entirely.
+  channels: z.array(fileToChannel).optional(),
 });
 
 export const archivedTaskContextMenuInput = z.object({
@@ -44,6 +64,8 @@ const externalAppAction = z.discriminatedUnion("type", [
 ]);
 
 const taskAction = z.discriminatedUnion("type", [
+  // Carries no direction: the label and the resolver derive it from `isUnread`.
+  z.object({ type: z.literal("toggle-unread") }),
   z.object({ type: z.literal("rename") }),
   z.object({ type: z.literal("pin") }),
   z.object({ type: z.literal("suspend") }),
@@ -52,12 +74,18 @@ const taskAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive-prior") }),
   z.object({ type: z.literal("delete") }),
   z.object({ type: z.literal("add-to-command-center") }),
+  z.object({ type: z.literal("handoff") }),
   z.object({ type: z.literal("external-app"), action: externalAppAction }),
   z.object({ type: z.literal("file-to-channel"), channelId: z.string() }),
 ]);
 
+// `pin` carries no direction: the label and the resolver both derive it from
+// `allPinned`, the same way the single-task `suspend` action does.
 const bulkTaskAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive") }),
+  z.object({ type: z.literal("pin") }),
+  z.object({ type: z.literal("add-to-command-center") }),
+  z.object({ type: z.literal("file-to-channel"), channelId: z.string() }),
 ]);
 
 const archivedTaskAction = z.discriminatedUnion("type", [
@@ -156,17 +184,7 @@ export type ConfirmDeleteArchivedTaskInput = z.infer<
 export type ConfirmDeleteArchivedTaskResult = z.infer<
   typeof confirmDeleteArchivedTaskOutput
 >;
-export type ConfirmDeleteWorktreeInput = z.infer<
-  typeof confirmDeleteWorktreeInput
->;
-export type ConfirmDeleteWorktreeResult = z.infer<
-  typeof confirmDeleteWorktreeOutput
->;
-
 export type TaskContextMenuResult = z.infer<typeof taskContextMenuOutput>;
-export type BulkTaskContextMenuResult = z.infer<
-  typeof bulkTaskContextMenuOutput
->;
 export type ArchivedTaskContextMenuResult = z.infer<
   typeof archivedTaskContextMenuOutput
 >;

@@ -1,39 +1,149 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable, Iterable
 
 import pyarrow as pa
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 # CDC metadata column names — database-agnostic
 CDC_OP_COLUMN = "_ph_cdc_op"
 CDC_TIMESTAMP_COLUMN = "_ph_cdc_timestamp"
 DELETED_COLUMN = "_ph_deleted"
 DELETED_AT_COLUMN = "_ph_deleted_at"
+# Engine-neutral monotonic position per row (Postgres: the commit LSN as an
+# integer), converted from ChangeEvent.position_serialized by the engine
+# adapter. int64 rather than uint64 because Delta has no unsigned types and
+# real positions never approach 2^63. Names the buffer files' position range
+# and (in Phase B) drives the merge's monotonicity guard.
+CDC_SEQ_COLUMN = "_ph_cdc_seq"
+# Marks CDC_SEQ_COLUMN as engine-produced, so readers can tell it from a source column of the same
+# name.
+CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
+
+
+@frozen
+class HistoryNaming:
+    """The table name suffix, the validity column names and the partition column of one history table.
+
+    A history table keeps the naming it was created with, so code reads it from the table and never
+    from a constant.
+    """
+
+    suffix: str
+    valid_from: str
+    valid_to: str
+    # The SCD2 writer files open rows under `CURRENT_HISTORY_PARTITION` and closed rows under the month their
+    # version ended. A close then rewrites only files of the current partition, which grows with the live
+    # table, not with history.
+    partition_column: str | None = None
+
+    @property
+    def validity_columns(self) -> frozenset[str]:
+        return frozenset({self.valid_from, self.valid_to})
+
+    @property
+    def stamped_columns(self) -> frozenset[str]:
+        """Every column a history table carries next to the source's own columns."""
+        return self.validity_columns | ({self.partition_column} if self.partition_column else set())
+
+
+LEGACY_HISTORY_NAMING = HistoryNaming(suffix="_cdc", valid_from="valid_from", valid_to="valid_to")
+# The `_ph_` names leave a source's own `valid_from` and `valid_to` free to sync.
+HISTORY_PARTITION_COLUMN = "_ph_history_partition"
+HISTORY_NAMING = HistoryNaming(
+    suffix="_history",
+    valid_from="_ph_valid_from",
+    valid_to="_ph_valid_to",
+    partition_column=HISTORY_PARTITION_COLUMN,
+)
+CURRENT_HISTORY_PARTITION = "current"
+
+
+def history_naming_of(column_names: Iterable[str]) -> HistoryNaming:
+    """The naming a stamped history batch or table was written with.
+
+    `_ph_valid_from` is reserved on every history table, so only the stamp can put it there.
+    """
+    return HISTORY_NAMING if HISTORY_NAMING.valid_from in set(column_names) else LEGACY_HISTORY_NAMING
+
+
+def companion_resource_name(schema_name: str, naming: HistoryNaming) -> str:
+    """Storage name for a schema's history table.
+
+    Keyed on the schema's `name`, never its resolved folder: the companion is CDC-only and stays
+    self-consistent with its `name`-keyed snapshot seed. Capture, the snapshot seed and the
+    buffered consumer all write the same table, so they all resolve the name here.
+    """
+    return f"{schema_name}{naming.suffix}"
+
+
 # Per-row list of source columns the change stream omitted because they are
 # unchanged from the previous row version (Postgres: unchanged TOAST values).
 # Consumed by enrich_toast_omitted_rows; the load processor drops it before
 # writing to DeltaLake.
 TOAST_OMITTED_COLUMN = "_ph_toast_omitted"
 
-# SCD Type 2 columns added to the _cdc history table
-SCD2_VALID_FROM_COLUMN = "valid_from"
-SCD2_VALID_TO_COLUMN = "valid_to"
+# Values of `cdc_table_mode` that write the history table.
+CDC_HISTORY_TABLE_MODES: frozenset[str] = frozenset({"cdc_only", "both"})
 
-# Columns that are CDC/SCD2 metadata — always filled from the event itself,
-# never overwritten when enriching DELETE rows with last-known source data.
-_CDC_METADATA_COLUMNS: frozenset[str] = frozenset(
-    {
-        CDC_OP_COLUMN,
-        CDC_TIMESTAMP_COLUMN,
-        DELETED_COLUMN,
-        DELETED_AT_COLUMN,
-        TOAST_OMITTED_COLUMN,
-        SCD2_VALID_FROM_COLUMN,
-        SCD2_VALID_TO_COLUMN,
-    }
+
+def is_history_table_mode(cdc_table_mode: object) -> bool:
+    # The create payload is free-form, so a malformed mode can be stored, and a list or dict is unhashable.
+    return isinstance(cdc_table_mode, str) and cdc_table_mode in CDC_HISTORY_TABLE_MODES
+
+
+# Every column capture stamps onto a change row. The consolidated table and the history table both store them.
+CAPTURE_COLUMNS: frozenset[str] = frozenset(
+    {CDC_OP_COLUMN, CDC_TIMESTAMP_COLUMN, CDC_SEQ_COLUMN, DELETED_COLUMN, DELETED_AT_COLUMN, TOAST_OMITTED_COLUMN}
 )
+
+
+def history_columns(naming: HistoryNaming) -> frozenset[str]:
+    """The columns a history table adds to the capture columns.
+
+    `_ph_valid_*` stays reserved on a legacy history table too, because `history_naming_of` reads the
+    naming from it.
+    """
+    return HISTORY_NAMING.stamped_columns | naming.stamped_columns
+
+
+def reserved_column_names(history: HistoryNaming | None) -> frozenset[str]:
+    """Every name a CDC sync writes next to the source's own columns, `history` when it keeps a history table."""
+    return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history_columns(history)
+
+
+def reserved_column_collisions(
+    column_names: Iterable[str],
+    reserved: frozenset[str],
+    *,
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
+    incremental_field: str | None = None,
+) -> list[str]:
+    """Source columns that would load under a name in `reserved`."""
+    synced = set(column_names)
+    # The same projection capture applies (`filter_columns_by_enabled_columns`), kept inline because
+    # that module's package imports Django models and this one sits on the capture path.
+    if enabled_columns is not None:
+        synced &= {*enabled_columns, *(primary_keys or []), *([incremental_field] if incremental_field else [])}
+    # The load renames columns to snake_case, so `validFrom` and `_PH_CDC_SEQ` collide too. The source
+    # names are returned, because those are what a user renames.
+    return sorted(name for name in synced if NamingConvention.normalize_identifier(name) in reserved)
+
+
+def metadata_columns(history: HistoryNaming | None) -> frozenset[str]:
+    """Columns always filled from the change event itself, never from the last known row.
+
+    `history` names the columns a history table carries next to the source's. A source column that only
+    shares a validity name with another naming is data.
+    """
+    return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.stamped_columns
 
 
 # Micro-batch thresholds for CDC WAL processing.  Flushing periodically
@@ -59,15 +169,26 @@ class ChangeEventBatcher:
         self,
         max_events: int = CDC_FLUSH_MAX_EVENTS,
         max_bytes: int = CDC_FLUSH_MAX_BYTES,
+        position_to_seq: Callable[[str], int] | None = None,
     ) -> None:
         self._events: defaultdict[str, list[ChangeEvent]] = defaultdict(list)
+        self._table_bytes: defaultdict[str, int] = defaultdict(int)
         self._estimated_bytes: int = 0
         self._max_events = max_events
         self._max_bytes = max_bytes
+        # Engine adapter's position_serialized → int converter. When set, flushed
+        # tables carry CDC_SEQ_COLUMN; when None the column is absent entirely.
+        self._position_to_seq = position_to_seq
+        # Tables the last flush could not build, because a source column collides with a capture column.
+        # The caller raises for them only once it knows the table is not waiting for a reset, because a
+        # reset discards the table's changes.
+        self.reserved_collisions: dict[str, CDCReservedColumnError] = {}
 
     def add(self, event: ChangeEvent) -> None:
+        size = self._estimate_event_bytes(event)
         self._events[event.table_name].append(event)
-        self._estimated_bytes += self._estimate_event_bytes(event)
+        self._table_bytes[event.table_name] += size
+        self._estimated_bytes += size
 
     @property
     def should_flush(self) -> bool:
@@ -80,15 +201,25 @@ class ChangeEventBatcher:
         Returns empty dict if no events buffered.
         """
         result: dict[str, pa.Table] = {}
+        self.reserved_collisions = {}
 
         for table_name, events in self._events.items():
             if not events:
                 continue
-            result[table_name] = _events_to_table(events)
+            try:
+                result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
+            except CDCReservedColumnError as error:
+                self.reserved_collisions[table_name] = error
 
         self._events.clear()
+        self._table_bytes.clear()
         self._estimated_bytes = 0
         return result
+
+    def discard(self, table_name: str) -> None:
+        """Drop a table's pending events so no later flush writes them."""
+        self._events.pop(table_name, None)
+        self._estimated_bytes -= self._table_bytes.pop(table_name, 0)
 
     @property
     def event_count(self) -> int:
@@ -140,6 +271,7 @@ def enrich_delete_rows(
     table: pa.Table,
     pk_columns: list[str],
     existing_rows: pa.Table | None = None,
+    history: HistoryNaming | None = None,
 ) -> pa.Table:
     """Fill data columns on DELETE rows from the last known state.
 
@@ -156,8 +288,10 @@ def enrich_delete_rows(
     The processor pre-filters `existing_rows` to only the PKs present in DELETE
     events before calling this, so the materialization is bounded by the batch size.
 
-    Metadata columns (op, timestamp, deleted flags, valid_from/to) are always
-    kept from the DELETE event itself and are never overwritten.
+    Metadata columns (op, timestamp, deleted flags, and the validity columns of
+    `history` when the table is a stamped history batch) are always kept from the
+    DELETE event itself and are never overwritten. A source column that only shares
+    a validity name with another naming is data.
     """
     if not pk_columns or table.num_rows == 0:
         return table
@@ -172,7 +306,8 @@ def enrich_delete_rows(
         return table
 
     pk_set = set(present_pks)
-    table_data_cols = [col for col in table.column_names if col not in _CDC_METADATA_COLUMNS and col not in pk_set]
+    metadata = metadata_columns(history)
+    table_data_cols = [col for col in table.column_names if col not in metadata and col not in pk_set]
 
     # Determine extra columns that exist in existing_rows but not in the current table.
     # A standalone DELETE event may only carry PK columns — we add the missing data
@@ -182,7 +317,7 @@ def enrich_delete_rows(
         extra_cols_from_existing = [
             col
             for col in existing_rows.column_names
-            if col not in _CDC_METADATA_COLUMNS and col not in pk_set and col not in table.column_names
+            if col not in metadata and col not in pk_set and col not in table.column_names
         ]
 
     all_data_cols = table_data_cols + extra_cols_from_existing
@@ -191,12 +326,16 @@ def enrich_delete_rows(
 
     pk_arrays = [table.column(col).to_pylist() for col in present_pks]
 
-    # Build lookup: pk_tuple -> data from last non-DELETE row in this batch
-    batch_lookup: dict[tuple, dict[str, object]] = {}
+    # Each DELETE row's index -> data from the last non-DELETE row before it with the same PK. A row
+    # after the delete is a re-insert of the key, not the state the delete removed.
+    latest_by_key: dict[tuple, dict[str, object]] = {}
+    batch_lookup: dict[int, dict[str, object]] = {}
     for i, op in enumerate(ops):
+        key = tuple(arr[i] for arr in pk_arrays)
         if op != "D":
-            key = tuple(arr[i] for arr in pk_arrays)
-            batch_lookup[key] = {col: table.column(col)[i].as_py() for col in table_data_cols}
+            latest_by_key[key] = {col: table.column(col)[i].as_py() for col in table_data_cols}
+        elif key in latest_by_key:
+            batch_lookup[i] = latest_by_key[key]
 
     # Build lookup from existing DeltaLake rows (cross-batch fallback)
     existing_lookup: dict[tuple, dict[str, object]] = {}
@@ -220,7 +359,7 @@ def enrich_delete_rows(
 
     for i in delete_indices:
         key = tuple(arr[i] for arr in pk_arrays)
-        source = batch_lookup.get(key) or existing_lookup.get(key)
+        source = batch_lookup.get(i) or existing_lookup.get(key)
         if source:
             for col in all_data_cols:
                 # Only fill if the DELETE row's column is currently null
@@ -367,35 +506,8 @@ def enrich_toast_omitted_rows(
     return pa.table(new_columns, schema=pa.schema(new_fields))
 
 
-def deduplicate_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
-    """Keep only the last row per primary key in a CDC batch.
-
-    Rows are assumed to be in WAL order (oldest first). For each unique PK tuple
-    the last (most recent) row survives. If pk_columns is empty or none of the PK
-    columns are present in the table, the original table is returned unchanged.
-    """
-    if not pk_columns or pa_table.num_rows == 0:
-        return pa_table
-
-    present_pks = [col for col in pk_columns if col in pa_table.column_names]
-    if not present_pks:
-        return pa_table
-
-    pk_arrays = [pa_table.column(col).to_pylist() for col in present_pks]
-
-    # Track the last row index seen for each PK tuple
-    pk_to_last_idx: dict[tuple, int] = {}
-    for i in range(pa_table.num_rows):
-        key = tuple(arr[i] for arr in pk_arrays)
-        pk_to_last_idx[key] = i
-
-    # Preserve original row ordering
-    indices = sorted(pk_to_last_idx.values())
-    return pa_table.take(indices)
-
-
-def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
-    """Add SCD Type 2 columns (valid_from, valid_to) to a raw CDC event table.
+def build_scd2_table(pa_table: pa.Table, pk_columns: list[str], naming: HistoryNaming) -> pa.Table:
+    """Add the SCD Type 2 columns of `naming` (valid_from, valid_to) to a raw CDC event table.
 
     valid_from  = _ph_cdc_timestamp (the commit timestamp of this event)
     valid_to    = _ph_cdc_timestamp of the next event for the same PK, or null
@@ -408,12 +520,23 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     A two-step merge + append in the load processor closes previous "current"
     rows (sets valid_to) when a new batch is written for the same PK.
     """
-    ts_type = pa.timestamp("us", tz="UTC")
+    taken = reserved_column_collisions(pa_table.column_names, history_columns(naming))
+    if taken:
+        # Delta refuses a duplicate column name at write time; failing here names the column and
+        # keeps a half-built batch out of the writer.
+        raise CDCReservedColumnError(f"Source column(s) {taken} collide with the history table's validity columns")
+    # Taken from the batch rather than assumed: `valid_from` is the timestamp column's own values,
+    # and declaring a type it does not have makes pyarrow reject the append outright.
+    ts_type = (
+        pa_table.schema.field(CDC_TIMESTAMP_COLUMN).type
+        if CDC_TIMESTAMP_COLUMN in pa_table.column_names
+        else pa.timestamp("us", tz="UTC")
+    )
 
     if pa_table.num_rows == 0:
-        return pa_table.append_column(
-            pa.field(SCD2_VALID_FROM_COLUMN, ts_type), pa.array([], type=ts_type)
-        ).append_column(pa.field(SCD2_VALID_TO_COLUMN, ts_type), pa.array([], type=ts_type))
+        return pa_table.append_column(pa.field(naming.valid_from, ts_type), pa.array([], type=ts_type)).append_column(
+            pa.field(naming.valid_to, ts_type), pa.array([], type=ts_type)
+        )
 
     ts_col = pa_table.column(CDC_TIMESTAMP_COLUMN).to_pylist()
 
@@ -437,15 +560,15 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
                 valid_to[idx] = ts_col[next_idx]
 
     return pa_table.append_column(
-        pa.field(SCD2_VALID_FROM_COLUMN, ts_type),
+        pa.field(naming.valid_from, ts_type),
         pa_table.column(CDC_TIMESTAMP_COLUMN),
     ).append_column(
-        pa.field(SCD2_VALID_TO_COLUMN, ts_type),
+        pa.field(naming.valid_to, ts_type),
         pa.array(valid_to, type=ts_type),
     )
 
 
-def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
+def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str], int] | None = None) -> pa.Table:
     """Convert a list of ChangeEvents (same table) to a PyArrow table with CDC metadata."""
     # Collect all column names across all events (order-preserving). Omitted
     # (unchanged-TOAST) columns are included so the batch table always carries a
@@ -459,6 +582,12 @@ def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
         for col_name in event.omitted_columns:
             all_columns[col_name] = None
     column_names = list(all_columns.keys())
+    taken = reserved_column_collisions(column_names, CAPTURE_COLUMNS)
+    if taken:
+        raise CDCReservedColumnError(
+            f"Table {events[0].table_name} has source column(s) {taken} that collide with the columns change data "
+            "capture writes"
+        )
 
     # Authoritative Arrow type per column from the source schema (same for every event
     # of a relation). Lets all-null micro-batches keep the column's real type.
@@ -524,6 +653,11 @@ def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
     if any(omitted_lists):
         arrays.append(pa.array(omitted_lists, type=pa.list_(pa.string())))
         fields.append(pa.field(TOAST_OMITTED_COLUMN, pa.list_(pa.string())))
+
+    if position_to_seq is not None:
+        seq_values = [position_to_seq(event.position_serialized) for event in events]
+        arrays.append(pa.array(seq_values, type=pa.int64()))
+        fields.append(pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE))
 
     schema = pa.schema(fields)
     return pa.table(arrays, schema=schema)

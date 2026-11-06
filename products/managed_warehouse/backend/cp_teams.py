@@ -1,4 +1,8 @@
-"""Read-side client for the duckgres control-plane org-teams API.
+"""Read-side client for the managed-warehouse control-plane org-teams API.
+
+The control plane is duckgres (``DUCKGRES_API_URL``) unless ``HOGTOWER_API_URL`` is set,
+in which case :mod:`products.managed_warehouse.backend.presentation.hogtower` serves the same reads
+from hogtower's /api/v2 in the duckgres response shape.
 
 The control plane is the source of truth for per-team managed-warehouse state.
 This module exposes the CP rows as :class:`CPTeam` values plus a small process-local
@@ -27,14 +31,21 @@ import time
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date
+from functools import partial
 
 from django.conf import settings
 
 import requests as http_requests
 
+from posthog.dataclasses import frozen
 from posthog.security.outbound_proxy import internal_requests
+
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseTableNames,
+    ManagedWarehouseTeamMembership,
+)
+from products.managed_warehouse.backend.presentation import hogtower
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +54,7 @@ logger = logging.getLogger(__name__)
 CACHE_TTL_SECONDS: float = 60.0
 
 
-@dataclass
+@frozen
 class CPTeam:
     """One duckgres control-plane org-team row."""
 
@@ -69,9 +80,29 @@ class CPTeam:
         return self.persons_table_name or f"persons_{self.schema_name}"
 
     @property
+    def resolved_groups_table(self) -> str:
+        return f"groups_{self.schema_name}"
+
+    @property
     def resolved_data_imports_schema(self) -> str:
         """Data-imports schema: the grandfathered pin, else the transitional derivation."""
         return self.schema_data_imports_name or f"posthog_data_imports_{self.schema_name}"
+
+    def to_membership(self) -> ManagedWarehouseTeamMembership:
+        return ManagedWarehouseTeamMembership(
+            team_id=self.team_id,
+            organization_id=self.organization_id,
+            schema_name=self.schema_name,
+            enabled=self.enabled,
+            backfill_enabled=self.backfill_enabled,
+            table_names=ManagedWarehouseTableNames(
+                events_table=self.resolved_events_table,
+                persons_table=self.resolved_persons_table,
+                groups_table=self.resolved_groups_table,
+                data_imports_schema=self.resolved_data_imports_schema,
+            ),
+            earliest_event_date=self.earliest_event_date,
+        )
 
 
 def _parse_earliest_event_date(raw: object) -> date | None:
@@ -156,7 +187,7 @@ def _cached_rows(
     return rows
 
 
-def _rows_from_response(response: http_requests.Response) -> list[dict] | None:
+def _rows_from_response(response: http_requests.Response | hogtower.TranslatedResponse) -> list[dict] | None:
     """Extract the control-plane team payload without importing DRF presentation code."""
     status_code = response.status_code
     if not 200 <= status_code < 300:
@@ -187,23 +218,32 @@ def _fetch_rows(*, organization_id: str | None) -> list[dict] | None:
     fallback behavior, but returns only its private read-side payload rather than a
     DRF ``Response``. The caller's cache remains responsible for retry behavior.
     """
-    base_url = getattr(settings, "DUCKGRES_API_URL", None)
-    if not base_url:
-        logger.warning("cp_teams_request_rejected_api_not_configured (organization_id=%s)", organization_id)
-        return None
-
-    if organization_id is None:
-        url = f"{base_url.rstrip('/')}/api/v1/teams"
+    send: Callable[[], http_requests.Response | hogtower.TranslatedResponse]
+    if hogtower.is_configured():
+        if organization_id is None:
+            send = partial(hogtower.request, "GET", "", "teams", timeout=30)
+        else:
+            send = partial(hogtower.request, "GET", organization_id, "/teams", timeout=30)
     else:
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{organization_id}/teams"
+        base_url = getattr(settings, "DUCKGRES_API_URL", None)
+        if not base_url:
+            logger.warning("cp_teams_request_rejected_api_not_configured (organization_id=%s)", organization_id)
+            return None
 
-    headers: dict[str, str] = {}
-    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
-    if token:
-        headers["X-Duckgres-Internal-Secret"] = token
+        if organization_id is None:
+            url = f"{base_url.rstrip('/')}/api/v1/teams"
+        else:
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{organization_id}/teams"
+
+        headers: dict[str, str] = {}
+        token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        send = partial(internal_requests.request, "GET", url, json=None, params=None, headers=headers, timeout=30)
 
     try:
-        response = internal_requests.request("GET", url, json=None, params=None, headers=headers, timeout=30)
+        response = send()
     except http_requests.Timeout:
         logger.warning("cp_teams_list_request_timed_out (organization_id=%s)", organization_id)
         return None
@@ -230,6 +270,75 @@ def _fetch_org_rows(organization_id: str) -> list[dict] | None:
 
 def _fetch_all_rows() -> list[dict] | None:
     return _fetch_rows(organization_id=None)
+
+
+def _fetch_ready_warehouse_rows() -> list[dict] | None:
+    """Read warehouses that can accept backfill connections from the discovery API."""
+    send: Callable[[], http_requests.Response | hogtower.TranslatedResponse]
+    if hogtower.is_configured():
+        send = partial(hogtower.request, "GET", "", "warehouses", timeout=30)
+    else:
+        base_url = getattr(settings, "DUCKGRES_API_URL", None)
+        if not base_url:
+            logger.warning("cp_teams_request_rejected_api_not_configured (resource=warehouses)")
+            return None
+
+        headers: dict[str, str] = {}
+        token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        send = partial(
+            internal_requests.request,
+            "GET",
+            f"{base_url.rstrip('/')}/api/v1/warehouses",
+            json=None,
+            params=None,
+            headers=headers,
+            timeout=30,
+        )
+
+    try:
+        response = send()
+    except http_requests.Timeout:
+        logger.warning("cp_teams_list_request_timed_out (resource=warehouses)")
+        return None
+    except http_requests.ConnectionError:
+        logger.warning("cp_teams_list_request_unreachable (resource=warehouses)")
+        return None
+    except Exception:
+        logger.exception("cp_teams_list_request_failed (resource=warehouses)")
+        return None
+
+    if not 200 <= response.status_code < 300:
+        logger.warning(
+            "cp_teams_list_request_error (resource=warehouses, status_code=%s, response_body=%s)",
+            response.status_code,
+            response.text[:500],
+        )
+        return None
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("warehouses"), list):
+        return None
+    return [row for row in data["warehouses"] if isinstance(row, dict) and row.get("state") == "ready"]
+
+
+def _ready_warehouse_org_ids() -> set[str] | None:
+    rows = _cached_rows(("ready_warehouses",), _fetch_ready_warehouse_rows)
+    if rows is None:
+        return None
+
+    organization_ids: set[str] = set()
+    for row in rows:
+        organization_id = row.get("org_id")
+        if isinstance(organization_id, str) and organization_id:
+            organization_ids.add(organization_id)
+        else:
+            logger.warning("cp_teams_ready_warehouse_missing_org_id")
+    return organization_ids
 
 
 def list_org_teams(organization_id: str, *, use_cache: bool = True) -> list[CPTeam] | None:
@@ -265,8 +374,15 @@ def list_member_teams(*, use_cache: bool = True) -> list[CPTeam] | None:
 
 
 def list_enabled_backfills() -> list[CPTeam] | None:
-    """Every CP team row with backfill_enabled, across all orgs, or None when unreachable."""
+    """Backfill-enabled teams whose warehouses are ready, or None when either read is unavailable."""
     teams = list_member_teams()
     if teams is None:
         return None
-    return [team for team in teams if team.backfill_enabled]
+    enabled_teams = [team for team in teams if team.backfill_enabled]
+    if not enabled_teams:
+        return []
+
+    ready_organization_ids = _ready_warehouse_org_ids()
+    if ready_organization_ids is None:
+        return None
+    return [team for team in enabled_teams if team.organization_id in ready_organization_ids]

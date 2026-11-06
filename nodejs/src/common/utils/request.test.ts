@@ -1,13 +1,16 @@
 import dns from 'dns/promises'
 import { range } from 'lodash'
 import http from 'node:http'
-import { AddressInfo } from 'node:net'
+import net, { AddressInfo } from 'node:net'
+import { register } from 'prom-client'
 
 import { getExternalRequestConfig } from '~/common/config'
 
 import { parseJSON } from './json-parse'
+import { logger } from './logger'
 import {
     FetchOptions,
+    ResponseTooLargeError,
     SecureRequestError,
     fetch,
     internalFetch,
@@ -36,6 +39,9 @@ beforeAll(async () => {
         } else if (url.pathname === '/status/404') {
             res.writeHead(404)
             res.end()
+        } else if (url.pathname === '/bom') {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end('\ufeff{"ok":true}')
         } else if (url.pathname === '/stream/50') {
             res.writeHead(200, { 'content-type': 'application/json' })
             for (let i = 0; i < 50; i++) {
@@ -57,12 +63,64 @@ afterAll(async () => {
     await new Promise<void>((resolve, reject) => testServer.close((err) => (err ? reject(err) : resolve())))
 })
 
+async function withIsolatedProxy(
+    proxy: net.Server,
+    run: (fresh: typeof import('./request')) => Promise<void>
+): Promise<void> {
+    const proxySockets = new Set<net.Socket>()
+    proxy.on('connection', (socket: net.Socket) => proxySockets.add(socket))
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    const overrides: Record<string, string> = {
+        NODE_ENV: 'test',
+        HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: '200',
+    }
+    const originalValues = Object.fromEntries(Object.keys(overrides).map((name) => [name, process.env[name]]))
+    Object.assign(process.env, overrides)
+    try {
+        await jest.isolateModulesAsync(async () => {
+            // request.ts reads the proxy URL and the timeouts once, at module load.
+            const fresh: typeof import('./request') = require('./request')
+            try {
+                await run(fresh)
+            } finally {
+                await fresh.closeSharedAgents(100)
+            }
+        })
+    } finally {
+        for (const [name, value] of Object.entries(originalValues)) {
+            if (value === undefined) {
+                delete process.env[name]
+            } else {
+                process.env[name] = value
+            }
+        }
+        proxySockets.forEach((socket) => socket.destroy())
+        proxy.close()
+    }
+}
+
+function createTunnelingProxy(): http.Server {
+    return http.createServer().on('connect', (request: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
+        const target = new URL(`http://${request.url}`)
+        const upstream = net.connect(Number(target.port), target.hostname, () => {
+            socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+            upstream.write(head)
+            upstream.pipe(socket)
+            socket.pipe(upstream)
+        })
+        upstream.on('error', () => socket.destroy())
+        socket.on('error', () => upstream.destroy())
+    })
+}
+
 describe('fetch', () => {
     beforeEach(() => {
         jest.setTimeout(1000)
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
         // NOTE: We are testing production-only features hence the override
         process.env.NODE_ENV = 'production'
+        delete process.env.DEBUG
     })
     describe('raiseIfUserProvidedUrlUnsafe', () => {
         it.each([
@@ -98,6 +156,56 @@ describe('fetch', () => {
         ])('should raise against unsafe URLs: %s', async (url, error) => {
             await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(error)
         })
+    })
+
+    describe('out-of-band domain detection', () => {
+        const originalCloudDeployment = process.env.CLOUD_DEPLOYMENT
+        let info: jest.SpyInstance
+
+        beforeEach(() => {
+            process.env.CLOUD_DEPLOYMENT = 'US'
+            info = jest.spyOn(logger, 'info').mockImplementation(() => undefined)
+            // A real lookup of a listed name is the interaction this detection reports, so answer
+            // it here instead of letting the suite query the collaborator.
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as any)
+        })
+
+        afterEach(() => {
+            info.mockRestore()
+            if (originalCloudDeployment === undefined) {
+                delete process.env.CLOUD_DEPLOYMENT
+            } else {
+                process.env.CLOUD_DEPLOYMENT = originalCloudDeployment
+            }
+        })
+
+        // Both modes run the check, because it sits above the `allowUnsafe` early return. Every
+        // caller passes `!isProdEnv()`, so a check below that return never runs in a test.
+        it.each(['production', 'test'])(
+            'logs a listed host in NODE_ENV=%s and still allows the request',
+            async (nodeEnv) => {
+                const originalNodeEnv = process.env.NODE_ENV
+                process.env.NODE_ENV = nodeEnv
+                try {
+                    // A host per case: noteOobDomain logs one line per host, team and guard per
+                    // window, so a shared host would suppress the second case.
+                    await expect(
+                        raiseIfUserProvidedUrlUnsafe(`https://${nodeEnv}.abc.oast.me/path`)
+                    ).resolves.not.toThrow()
+                } finally {
+                    process.env.NODE_ENV = originalNodeEnv
+                }
+
+                expect(info).toHaveBeenCalledWith(
+                    'security.oob_domain_seen',
+                    expect.objectContaining({
+                        host: `${nodeEnv}.abc.oast.me`,
+                        domain: 'oast.me',
+                        guard: 'node_request',
+                    })
+                )
+            }
+        )
     })
 
     describe('fetch call', () => {
@@ -155,6 +263,69 @@ describe('fetch', () => {
             }
         }, 10000)
 
+        it.each([
+            ['the HTTP/1.1 dispatcher', false],
+            ['the HTTP/2 dispatcher', true],
+        ])(
+            'fails a request through %s at the connect timeout when the proxy never answers the CONNECT',
+            async (_dispatcher, allowH2) => {
+                await withIsolatedProxy(
+                    net.createServer((socket) => socket.on('data', () => undefined)),
+                    async (fresh) => {
+                        let guard: NodeJS.Timeout | undefined
+                        const outcome = await Promise.race([
+                            fresh
+                                .fetchStreamed('https://images.example.com/a.png', { timeoutMs: 30_000, allowH2 })
+                                .then(
+                                    () => 'resolved',
+                                    (error: { code?: string }) => error.code
+                                ),
+                            new Promise((resolve) => {
+                                guard = setTimeout(() => resolve('still pending'), 3000)
+                            }),
+                        ])
+                        clearTimeout(guard)
+
+                        expect(outcome).toBe('UND_ERR_HEADERS_TIMEOUT')
+                    }
+                )
+            },
+            10000
+        )
+
+        it.each([
+            ['the HTTP/1.1 dispatcher', false],
+            ['the HTTP/2 dispatcher', true],
+        ])(
+            'keeps the request timeout through %s for a response that comes after the connect timeout',
+            async (_dispatcher, allowH2) => {
+                const slowOrigin = http.createServer((_request, response) => {
+                    setTimeout(() => {
+                        response.writeHead(200, { 'content-type': 'image/png' })
+                        response.end('image')
+                    }, 1500)
+                })
+                await new Promise<void>((resolve) => slowOrigin.listen(0, '127.0.0.1', resolve))
+                const originPort = (slowOrigin.address() as AddressInfo).port
+                try {
+                    await withIsolatedProxy(createTunnelingProxy(), async (fresh) => {
+                        const response = await fresh.fetchStreamed(`http://127.0.0.1:${originPort}/a.png`, {
+                            timeoutMs: 5000,
+                            allowH2,
+                        })
+                        const { bytes } = await response.read(1024)
+
+                        expect(response.status).toBe(200)
+                        expect(bytes.toString()).toBe('image')
+                    })
+                } finally {
+                    slowOrigin.closeAllConnections()
+                    slowOrigin.close()
+                }
+            },
+            10000
+        )
+
         it('keeps a timeout the caller set explicitly', async () => {
             const originalNodeEnv = process.env.NODE_ENV
             process.env.NODE_ENV = 'test'
@@ -207,6 +378,14 @@ describe('fetch', () => {
             await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
         })
 
+        it('uses secure DNS lookup when HTTP/2 is enabled', async () => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '10.0.0.1', family: 4 }] as any)
+
+            await expect(fetch('https://example.com', { allowH2: true })).rejects.toThrow(
+                new SecureRequestError('Hostname is not allowed')
+            )
+        })
+
         it.each([
             ['::ffff:169.254.169.254', 'IPv6-mapped IMDS'],
             ['::ffff:127.0.0.1', 'IPv6-mapped loopback'],
@@ -238,10 +417,32 @@ describe('fetch', () => {
             // This will fail to connect since it's a mock DNS result, but it should NOT throw SecureRequestError
             await expect(fetch(`http://example.com`)).rejects.not.toThrow(SecureRequestError) // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
         })
+
+        // A gauge that is incremented but not decremented drifts up forever, and nothing else reads this one, so a
+        // leak on either path would go unnoticed until it had already made the metric useless.
+        it.each([
+            [
+                'a lookup that resolves',
+                () => jest.mocked(dns.lookup).mockResolvedValue([{ address: '10.0.0.1', family: 4 }] as any),
+            ],
+            ['a lookup that rejects', () => jest.mocked(dns.lookup).mockRejectedValue(new Error('ENOTFOUND'))],
+        ])('releases the in-flight DNS gauge after %s', async (_name, applyMock) => {
+            const readGauge = async (): Promise<number> =>
+                (await register.getSingleMetric('node_dns_lookups_in_flight')!.get()).values[0].value
+
+            applyMock()
+            const before = await readGauge()
+
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            await expect(fetch(`http://example.com`)).rejects.toThrow()
+
+            expect(dns.lookup).toHaveBeenCalled()
+            expect(await readGauge()).toEqual(before)
+        })
     })
 
     describe('parallel requests execution', () => {
-        jest.retryTimes(3)
+        jest.retryTimes(3, { logErrorsBeforeRetry: true })
         // NOTE: This is inherently flakey so we disable it except when validating changes for it
         it.skip('should execute requests in parallel - completion time test', async () => {
             const delayMs = 200
@@ -265,12 +466,96 @@ describe('fetch', () => {
     })
 })
 
+type IsolatedRequest = {
+    request: typeof import('./request')
+    lookup: jest.Mock
+    readNegativeCacheCounter: (result: string) => Promise<number>
+}
+
+// The DNS negative cache and the hosts file names are module state, so each case loads a fresh copy of request.ts.
+async function withIsolatedRequest(run: (isolated: IsolatedRequest) => Promise<void>, hostsFile = '') {
+    await jest.isolateModulesAsync(async () => {
+        const actualFs = jest.requireActual('node:fs')
+        jest.doMock('node:fs', () => ({
+            ...actualFs,
+            readFileSync: (path: string, ...args: unknown[]) =>
+                path === '/etc/hosts' ? hostsFile : actualFs.readFileSync(path, ...args),
+        }))
+        const request: typeof import('./request') = require('./request')
+        const lookup = jest.mocked(require('dns/promises').lookup)
+        const registry: typeof register = require('prom-client').register
+        const readNegativeCacheCounter = async (result: string): Promise<number> =>
+            (await registry.getSingleMetric('node_dns_negative_cache_total')!.get()).values.find(
+                (value) => value.labels.result === result
+            )?.value ?? 0
+        try {
+            await run({ request, lookup, readNegativeCacheCounter })
+        } finally {
+            await request.closeSharedAgents(100)
+        }
+    })
+}
+
+const dnsError = (code: string): Error => Object.assign(new Error(`getaddrinfo ${code} example.com`), { code })
+
+describe('DNS lookups', () => {
+    it('resolves dotted hostnames as absolute names and leaves other names as given', async () => {
+        await withIsolatedRequest(async ({ request, lookup }) => {
+            lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
+
+            await request.raiseIfUserProvidedUrlUnsafe('https://example.com/path')
+            await request.raiseIfUserProvidedUrlUnsafe('https://already-absolute.com./path')
+            await request.raiseIfUserProvidedUrlUnsafe('https://1.1.1.1/path')
+            await request.raiseIfUserProvidedUrlUnsafe('http://maildev:1080/path')
+            await request.raiseIfUserProvidedUrlUnsafe('http://My.Alias.test:1080/path')
+
+            expect(lookup.mock.calls.map(([hostname]) => hostname)).toEqual([
+                'example.com.',
+                'already-absolute.com.',
+                '1.1.1.1',
+                'maildev',
+                'my.alias.test',
+            ])
+        }, '127.0.0.1 localhost\n# 10.0.0.9 commented.test\n10.1.2.3\tmy.alias.test other.alias.test\n')
+    })
+
+    it('skips the lookup for a hostname that recently returned ENOTFOUND', async () => {
+        await withIsolatedRequest(async ({ request, lookup, readNegativeCacheCounter }) => {
+            lookup.mockRejectedValue(dnsError('ENOTFOUND'))
+
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
+                'Invalid hostname'
+            )
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
+                'Invalid hostname'
+            )
+
+            expect(lookup).toHaveBeenCalledTimes(1)
+            expect(await readNegativeCacheCounter('hit')).toEqual(1)
+        })
+    })
+
+    // A timeout can come from an overloaded resolver rather than from the hostname. Caching it would fail healthy
+    // destinations for as long as the resolver stays slow.
+    it.each(['EAI_AGAIN', 'ETIMEOUT'])('does not cache a %s failure', async (code) => {
+        await withIsolatedRequest(async ({ request, lookup }) => {
+            lookup.mockRejectedValue(dnsError(code))
+
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
+
+            expect(lookup).toHaveBeenCalledTimes(2)
+        })
+    })
+})
+
 describe('legacyFetch', () => {
     beforeEach(() => {
         jest.setTimeout(1000)
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
         // NOTE: We are testing production-only features hence the override
         process.env.NODE_ENV = 'production'
+        delete process.env.DEBUG
     })
 
     describe('calls', () => {
@@ -330,7 +615,7 @@ describe('legacyFetch', () => {
 
     // NOTE: Skipped as this is mostly to validate against the new request implementation
     describe.skip('parallel requests execution', () => {
-        jest.retryTimes(3)
+        jest.retryTimes(3, { logErrorsBeforeRetry: true })
         it('should execute requests in parallel', async () => {
             const start = performance.now()
             const timings: number[] = []
@@ -404,6 +689,29 @@ describe('_fetch response body handling', () => {
     it('should parse headers', async () => {
         const response = await internalFetch(baseUrl)
         expect(response.headers['content-type']).toBeDefined()
+    })
+
+    const streamedBodyBytes = range(50).reduce((total, i) => total + JSON.stringify({ id: i }).length + 1, 0)
+
+    it.each([
+        ['under the limit', streamedBodyBytes + 1, false],
+        ['exactly at the limit', streamedBodyBytes, false],
+        ['over the limit', streamedBodyBytes - 1, true],
+    ])('caps a streamed body %s', async (_name, maxResponseBytes, rejects) => {
+        const response = await internalFetch(`${baseUrl}/stream/50`, { maxResponseBytes })
+        if (rejects) {
+            await expect(response.text()).rejects.toBeInstanceOf(ResponseTooLargeError)
+        } else {
+            expect(await response.text()).toHaveLength(streamedBodyBytes)
+        }
+    })
+
+    it.each([
+        ['uncapped', undefined],
+        ['capped', 1024],
+    ])('strips a leading BOM from a %s body', async (_name, maxResponseBytes) => {
+        const response = await internalFetch(`${baseUrl}/bom`, { maxResponseBytes })
+        expect(await response.json()).toEqual({ ok: true })
     })
 
     it('should fully read streamed/chunked response bodies', async () => {

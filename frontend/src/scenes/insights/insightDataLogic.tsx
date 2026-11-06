@@ -15,37 +15,46 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { cohortsModel, getReferencedCohortIds, isIndividualInsightPath } from '~/models/cohortsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import {
+    applyVisualizationType,
+    columnsFromResponse,
+    getAutoVisualizationType,
+    rowCountFromResponse,
+} from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { compareQuery, isDraftQueryWorthSaving } from '~/queries/nodes/InsightViz/queryUtils'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
-import { DataVisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import {
     isDataTableNode,
     isDataVisualizationNode,
+    isDataVisualizationNodeWithHogQLQuery,
     isHogQLQuery,
-    isHogQuery,
     isInsightQueryNode,
     isInsightVizNode,
-    isWebAnalyticsInsightQuery,
-    shouldQueryBeAsync,
-} from '~/queries/utils'
-import { ExportContext, InsightLogicProps, InsightType } from '~/types'
+} from '~/queries/schema/node-guards'
+import { VisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { isHogQuery, isWebAnalyticsInsightQuery, shouldQueryBeAsync } from '~/queries/utils'
+import { ChartDisplayType, ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'products/data_warehouse/frontend/utils'
 
@@ -67,6 +76,7 @@ import type {
     QuerySchema,
     QueryStatus,
     RefreshType,
+    ResolvedDateRangeResponse,
     SessionsQueryResponse,
     TraceSpansAggregationQueryResponse,
     TraceSpansAttributeBreakdownQueryResponse,
@@ -77,7 +87,7 @@ import type {
     AccessControlLevel,
     DashboardTileBasicType,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
     SetInsightOptions,
     UserBasicType,
 } from '../../types'
@@ -87,11 +97,83 @@ import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
-import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
-export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
-    sceneLogic.values.activeSceneId === Scene.Insight &&
-    insightSceneLogic.findMounted()?.values.insightLogicRef?.logic.key === keyForInsightLogicProps('new')(props)
+// insightId/dashboardId are reducers set synchronously by the same action that matches the URL.
+// insightLogicRef is set by a separate listener that rebuilds and mounts a new logic instance, a
+// side effect that can still be running right after the scene mounts. Comparing against the ref
+// can read a stale value while insightId/dashboardId are already correct, letting a save through
+// while the editor is still showing this insight.
+export const isInsightSceneInstance = (props: InsightLogicProps): boolean => {
+    if (sceneLogic.values.activeSceneId !== Scene.Insight) {
+        return false
+    }
+    const sceneValues = insightSceneLogic.findMounted()?.values
+    return (
+        sceneValues?.insightId === props.dashboardItemId &&
+        (sceneValues?.dashboardId ?? null) === (props.dashboardId ?? null)
+    )
+}
+
+const isMatchingSqlQuery = (
+    query: Node | null | undefined,
+    reference: Node | null | undefined
+): query is VisualizationNode =>
+    !!query &&
+    isDataVisualizationNodeWithHogQLQuery(query) &&
+    query.kind === NodeKind.DataVisualizationNode &&
+    !!reference &&
+    isDataVisualizationNodeWithHogQLQuery(reference) &&
+    reference.kind === NodeKind.DataVisualizationNode &&
+    query.source.query === reference.source.query &&
+    objectsEqual(query.source.variables ?? {}, reference.source.variables ?? {})
+
+// A tile's query carries the dashboard's filters in these fields (resolve_effective_dashboard_filters and
+// QueryRunner.apply_dashboard_filters). Saving them back bakes the filters into the insight, nesting
+// properties one group deeper per save.
+const DASHBOARD_FILTERED_SOURCE_KEYS = [
+    'series',
+    'properties',
+    'dateRange',
+    'breakdownFilter',
+    'interval',
+    'filterTestAccounts',
+    'compareFilter',
+] as const
+
+// Restores a field from the stored query only when the tile left it as loaded, so a change the tile
+// made on purpose (switching to World map adds a country breakdown) is still saved.
+const withStoredDashboardFilteredFields = (
+    query: Node,
+    tileBaseQuery: Node | null | undefined,
+    storedQuery: Node | null | undefined
+): Node => {
+    if (
+        !isInsightVizNode(query) ||
+        !isInsightVizNode(tileBaseQuery) ||
+        !isInsightVizNode(storedQuery) ||
+        query.source.kind !== storedQuery.source.kind
+    ) {
+        return query
+    }
+    const source: Record<string, any> = { ...query.source }
+    const baseSource: Record<string, any> = tileBaseQuery.source
+    const storedSource: Record<string, any> = storedQuery.source
+    for (const key of DASHBOARD_FILTERED_SOURCE_KEYS) {
+        if (!objectsEqual(source[key], baseSource[key])) {
+            continue
+        }
+        if (key in storedSource) {
+            source[key] = storedSource[key]
+        } else {
+            delete source[key]
+        }
+    }
+    return { ...query, source } as InsightVizNode
+}
+
+export type SqlVisualizationUpdate =
+    | { type: 'chart-type'; display: ChartDisplayType }
+    | { type: 'display-options'; query: VisualizationNode }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface insightDataLogicValues {
@@ -112,14 +194,15 @@ export interface insightDataLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     insightLoadingTimeSeconds: number // dataNodeLogic
     insightPollResponse: Record<string, QueryStatus | null> | null // dataNodeLogic
     insightQuery: DataNode<Record<string, any>> // dataNodeLogic
     queryId: string | null // dataNodeLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
-    insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
-    savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
+    insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
+    savedInsight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     currentTeamId: number | null // teamLogic
     canEditInSqlEditor: boolean
     exportContext: ExportContext | undefined
@@ -137,8 +220,11 @@ export interface insightDataLogicValues {
     query: Node | null
     queryChanged: boolean
     queryFromUrl: boolean
+    savingDisplayOptions: boolean
+    savingSqlVisualization: SqlVisualizationUpdate['type'] | null
     showDebugPanel: boolean
     showQueryEditor: boolean
+    sqlVisualizationVersion: number
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -175,8 +261,8 @@ export interface insightDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
-            | null
-            | undefined,
+            | TraceSpansTreeQueryResponse
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -206,8 +292,8 @@ export interface insightDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
-            | undefined
     } // dataNodeLogic
     setInsightData: (
         response:
@@ -249,10 +335,11 @@ export interface insightDataLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards: number[] | null
+            dashboards?: number[] | undefined
             deleted: boolean
             derived_name?: string | null | undefined
             description?: string | undefined
@@ -271,16 +358,26 @@ export interface insightDataLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at: string
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?:
+                | (
+                      | import('~/queries/schema/schema-general').AccessControlFilterWarning
+                      | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
+                  )[]
+                | null
+                | undefined
         },
         payload?:
             | {
@@ -295,10 +392,11 @@ export interface insightDataLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards: number[] | null
+            dashboards?: number[] | undefined
             deleted: boolean
             derived_name?: string | null | undefined
             description?: string | undefined
@@ -317,16 +415,26 @@ export interface insightDataLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at: string
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?:
+                | (
+                      | import('~/queries/schema/schema-general').AccessControlFilterWarning
+                      | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
+                  )[]
+                | null
+                | undefined
         }
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -336,23 +444,23 @@ export interface insightDataLogicActions {
         }
     } // insightLogic
     setInsight: (
-        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+        insight: Partial<InsightModel<Node<Record<string, any>>>>,
         options: SetInsightOptions
     ) => {
-        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+        insight: Partial<InsightModel<Node<Record<string, any>>>>
         options: SetInsightOptions
     } // insightLogic
     setInsightMetadata: (
         metadataUpdate: Partial<
-            Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
+            Pick<InsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
         >
     ) => {
         metadataUpdate: Partial<
-            Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
+            Pick<InsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
         >
     } // insightLogic
-    renameInsightSuccess: (item: QueryBasedInsightModel<Node<Record<string, any>>>) => {
-        item: QueryBasedInsightModel<Node<Record<string, any>>>
+    renameInsightSuccess: (item: InsightModel<Node<Record<string, any>>>) => {
+        item: InsightModel<Node<Record<string, any>>>
     } // insightsModel
     cancelChanges: () => {
         value: true
@@ -378,8 +486,23 @@ export interface insightDataLogicActions {
         } | null
         payload?: any
     }
+    loadReferencedCohorts: () => {
+        value: true
+    }
     persistDisplayOptions: (query: Node) => {
         query: Node<Record<string, any>>
+    }
+    persistDisplayOptionsSettled: () => {
+        value: true
+    }
+    persistSqlVisualization: (update: SqlVisualizationUpdate) => {
+        update: SqlVisualizationUpdate
+    }
+    persistSqlVisualizationFailed: (update: SqlVisualizationUpdate) => {
+        update: SqlVisualizationUpdate
+    }
+    persistSqlVisualizationSettled: () => {
+        value: true
     }
     setQuery: (
         query: Node | null,
@@ -405,7 +528,7 @@ export interface insightDataLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         query: (
             propsQuery: QuerySchema | null | undefined,
-            insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+            insight: Partial<InsightModel<Node<Record<string, any>>>>,
             internalQuery: Node<Record<string, any>> | null,
             filterTestAccountsDefault: boolean,
             isDataWarehouseQuery: boolean
@@ -414,11 +537,11 @@ export interface insightDataLogicMeta {
         propsQuery: (arg: any) => QuerySchema | null | undefined
         exportContext: (
             query: Node<Record<string, any>> | null,
-            insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+            insight: Partial<InsightModel<Node<Record<string, any>>>>
         ) => ExportContext | undefined
         queryChanged: (
             query: Node<Record<string, any>> | null,
-            savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+            savedInsight: Partial<InsightModel<Node<Record<string, any>>>>,
             filterTestAccountsDefault: boolean
         ) => boolean
         insightData: (
@@ -436,6 +559,7 @@ export interface insightDataLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => Record<string, any>
         hogQL: (insightData: Record<string, any>, query: Node<Record<string, any>> | null) => string | null
@@ -493,15 +617,41 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
 
     actions({
+        loadReferencedCohorts: true,
         setQuery: (query: Node | null, fromUrl: boolean = false) => ({ query, fromUrl }),
         syncQueryFromProps: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
         toggleDebugPanel: true,
         cancelChanges: true,
         persistDisplayOptions: (query: Node) => ({ query }),
+        persistDisplayOptionsSettled: true,
+        persistSqlVisualization: (update: SqlVisualizationUpdate) => ({ update }),
+        persistSqlVisualizationFailed: (update: SqlVisualizationUpdate) => ({ update }),
+        persistSqlVisualizationSettled: true,
     }),
 
     reducers({
+        savingDisplayOptions: [
+            false,
+            {
+                persistDisplayOptions: () => true,
+                persistDisplayOptionsSettled: () => false,
+            },
+        ],
+        savingSqlVisualization: [
+            null as SqlVisualizationUpdate['type'] | null,
+            {
+                persistSqlVisualization: (_, { update }) => update.type,
+                persistSqlVisualizationFailed: () => null,
+                persistSqlVisualizationSettled: () => null,
+            },
+        ],
+        sqlVisualizationVersion: [
+            0,
+            {
+                persistSqlVisualizationFailed: (state) => state + 1,
+            },
+        ],
         internalQuery: [
             null as Node | null,
             {
@@ -549,11 +699,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                                 : { kind: NodeKind.InsightVizNode, source: insightQuery }
                         const response = await api.insights.generateMetadata(query)
 
-                        eventUsageLogic.actions.reportInsightMetadataAiGenerated(insightQuery.kind)
+                        posthog.capture('insight metadata ai generated', { query_kind: insightQuery.kind })
 
                         return { name: response.name, description: response.description }
                     } catch (e) {
-                        eventUsageLogic.actions.reportInsightMetadataAiGenerationFailed(insightQuery.kind)
+                        posthog.capture('insight metadata ai generation failed', { query_kind: insightQuery.kind })
                         throw e
                     }
                 },
@@ -566,7 +716,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
             (
                 propsQuery: null | import('~/queries/schema/schema-general').QuerySchema | undefined,
-                insight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>,
+                insight: Partial<import('~/types').InsightModel<Node<Record<string, any>>>>,
                 internalQuery: Node | null,
                 filterTestAccountsDefault: boolean,
                 isDataWarehouseQuery: boolean
@@ -592,10 +742,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
         exportContext: [
             (s) => [s.query, s.insight],
-            (
-                query: Node | null,
-                insight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>
-            ) => {
+            (query: Node | null, insight: Partial<import('~/types').InsightModel<Node<Record<string, any>>>>) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
                     return undefined
@@ -618,12 +765,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (s) => [s.query, s.savedInsight, s.filterTestAccountsDefault],
             (
                 query: Node | null,
-                savedInsight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>,
+                savedInsight: Partial<import('~/types').InsightModel<Node<Record<string, any>>>>,
                 filterTestAccountsDefault: boolean
             ) => {
                 let savedOrDefaultQuery
                 if (savedInsight.query) {
-                    savedOrDefaultQuery = savedInsight.query as InsightVizNode | DataVisualizationNode
+                    savedOrDefaultQuery = savedInsight.query as InsightVizNode | VisualizationNode
                 } else if (isInsightVizNode(query)) {
                     // Web Analytics insights don't have traditional defaults, they come from tiles
                     // and should always be considered "changed" for URL hash purposes
@@ -647,7 +794,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     return false
                 }
 
-                return !compareQuery(savedOrDefaultQuery, query as InsightVizNode | DataVisualizationNode)
+                return !compareQuery(savedOrDefaultQuery, query as InsightVizNode | VisualizationNode)
             },
         ],
 
@@ -719,39 +866,184 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, cache, values, props }) => ({
+        loadReferencedCohorts: () => {
+            if (isIndividualInsightPath(router.values.location.pathname)) {
+                const ids = getReferencedCohortIds(values.query)
+                if (ids.length) {
+                    cohortsModel.actions.loadCohortsByIds({ ids })
+                }
+            }
+        },
+        syncQueryFromProps: () => actions.loadReferencedCohorts(),
         persistDisplayOptions: async ({ query }, breakpoint) => {
             // Never auto-persist while the user is editing this insight in the insight scene.
             // insightDataLogic is keyed `${shortId}/on-dashboard-${dashboardId}`, so an insight
-            // opened from a dashboard shares its instance with the dashboard tile — which wired
+            // opened from a dashboard shares its instance with the dashboard tile, which wired
             // props.setQuery to persistDisplayOptions. Without this guard, any edit in the scene
             // (a display toggle or removing a filter) would PATCH the insight before the user
             // clicks Save. Edits there must persist only through an explicit save.
             if (isInsightSceneInstance(props)) {
+                actions.persistDisplayOptionsSettled()
                 return
             }
-            // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
-            // only cancels concurrent saves for THIS insight — not unrelated tiles.
-            await breakpoint(700)
             const insightId = values.insight.id
             if (!insightId) {
+                actions.persistDisplayOptionsSettled()
                 return
             }
             // Only persist when the query actually differs from what's saved. The setQuery →
             // props.setQuery path fires for any InsightVizNode change, including programmatic
-            // re-syncs (tile re-renders, results refreshes) that carry an unchanged query —
+            // re-syncs (tile re-renders, results refreshes) that carry an unchanged query;
             // persisting those produces spurious saves and activity-log churn.
             if (objectsEqual(query, values.savedInsight.query)) {
+                actions.persistDisplayOptionsSettled()
                 return
             }
+            const refreshResults = values.savedInsight.query
+                ? !compareQuery(query, values.savedInsight.query, { ignoreVisualizationOnlyChanges: true })
+                : false
+            const saveId = (cache.displayOptionsSaveId ?? 0) + 1
+            cache.displayOptionsSaveId = saveId
             try {
-                const updatedItem = await insightsApi.update(insightId, { query })
-                // Drop the response if a newer save started while this request was in flight.
+                // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
+                // only cancels concurrent saves for this insight without affecting unrelated tiles.
+                await breakpoint(700)
+                // Breakpoints cannot cancel PATCHes that have already started, so serialize them per insight.
+                await cache.displayOptionsSave
+                breakpoint()
+                const shortId = values.insight.short_id
+                const tileBaseQuery = values.savedInsight.query
+                const save = withTimeout(
+                    async (signal) => {
+                        const storedInsight =
+                            props.dashboardId != null && shortId ? await insightsApi.getByShortId(shortId, true) : null
+                        const persistedQuery = withStoredDashboardFilteredFields(
+                            query,
+                            tileBaseQuery,
+                            storedInsight?.query
+                        )
+                        return insightsApi.update(insightId, { query: persistedQuery }, { signal })
+                    },
+                    15_000,
+                    'Saving display options timed out'
+                )
+                // The next save only needs to know when this request finishes.
+                cache.displayOptionsSave = save.catch(() => undefined)
+                const updatedItem = await save
+                if (saveId !== cache.displayOptionsSaveId) {
+                    return
+                }
+                // The response holds the stored query; the tile keeps its dashboard-filtered one.
+                const tileItem = props.dashboardId != null ? { ...updatedItem, query } : updatedItem
+                actions.renameInsightSuccess(tileItem)
+                if (refreshResults) {
+                    props.refreshAfterDisplayOptionsChange?.(tileItem)
+                }
+                actions.persistDisplayOptionsSettled()
+                lemonToast.success('Insight updated')
+            } catch (e) {
+                // A breakpoint means a newer save superseded this one, and that save owns the state.
+                if (!isBreakpoint(e as Error) && saveId === cache.displayOptionsSaveId) {
+                    if (e instanceof PromiseTimeoutError) {
+                        actions.persistDisplayOptionsSettled()
+                        lemonToast.warning(
+                            "Couldn't confirm whether the insight was updated. Refresh the dashboard to check."
+                        )
+                        return
+                    }
+                    actions.syncQueryFromProps(values.savedInsight.query ?? null)
+                    actions.persistDisplayOptionsSettled()
+                    lemonToast.error('Failed to update insight')
+                }
+            }
+        },
+
+        persistSqlVisualization: async ({ update }, breakpoint) => {
+            const fail = (reason: 'mismatch' | 'unsupported' | 'no_columns' | 'error'): void => {
+                actions.persistSqlVisualizationFailed(update)
+                posthog.capture('dashboard_sql_visualization_failed', {
+                    insight_id: values.insight.id,
+                    type: update.type,
+                    reason,
+                })
+                lemonToast.error(
+                    update.type === 'chart-type'
+                        ? "Couldn't update chart type. Refresh the dashboard and try again."
+                        : "Couldn't update display options. Refresh the dashboard and try again."
+                )
+            }
+
+            if (isInsightSceneInstance(props)) {
+                actions.persistSqlVisualizationSettled()
+                return
+            }
+
+            try {
+                await breakpoint(update.type === 'display-options' ? 700 : 0)
+                const insightId = values.insight.id
+                const shortId = values.insight.short_id
+                if (!insightId || !shortId) {
+                    actions.persistSqlVisualizationSettled()
+                    return
+                }
+
+                const savedQuery = (await insightsApi.getByShortId(shortId, true))?.query
+                if (!isMatchingSqlQuery(savedQuery, values.query)) {
+                    fail('mismatch')
+                    return
+                }
+
+                let nextQuery: VisualizationNode
+                if (update.type === 'chart-type') {
+                    const columns = columnsFromResponse(values.insightData)
+                    const rowCount = rowCountFromResponse(values.insightData)
+                    const autoVisualizationType = getAutoVisualizationType(columns, rowCount)
+                    if (columns.length === 0) {
+                        fail('no_columns')
+                        return
+                    }
+                    if (
+                        sqlVisualizationDisabledReason(
+                            update.display,
+                            savedQuery,
+                            columns,
+                            rowCount,
+                            autoVisualizationType
+                        )
+                    ) {
+                        fail('unsupported')
+                        return
+                    }
+                    nextQuery = applyVisualizationType(savedQuery, update.display, columns, rowCount)
+                } else {
+                    if (
+                        !isMatchingSqlQuery(update.query, values.query) ||
+                        savedQuery.display !== update.query.display
+                    ) {
+                        fail('mismatch')
+                        return
+                    }
+                    nextQuery = { ...savedQuery, chartSettings: update.query.chartSettings }
+                }
+
+                if (objectsEqual(nextQuery, savedQuery)) {
+                    actions.persistSqlVisualizationSettled()
+                    return
+                }
+
+                const updatedItem = await insightsApi.update(insightId, { query: nextQuery })
                 await breakpoint(0)
                 actions.renameInsightSuccess(updatedItem)
+                actions.persistSqlVisualizationSettled()
+                posthog.capture('dashboard_sql_visualization_changed', {
+                    insight_id: insightId,
+                    type: update.type,
+                    display: update.type === 'chart-type' ? update.display : update.query.display,
+                })
                 lemonToast.success('Insight updated')
             } catch (e) {
                 if (!isBreakpoint(e as Error)) {
-                    lemonToast.error('Failed to update insight')
+                    fail('error')
                 }
             }
         },
@@ -782,6 +1074,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
+            actions.loadReferencedCohorts()
             // A shared link's query (`#q=`) is applied before the saved insight arrives, so re-syncing
             // here would silently discard the date range and interval the sender chose.
             if (values.queryFromUrl) {
@@ -789,7 +1082,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
 
             // `internalQuery` wins over `insight.query` in the `query` selector, and the SQL editor
-            // updates a different logic instance — so a reload alone leaves this scene on the stale
+            // updates a different logic instance, so a reload alone leaves this scene on the stale
             // query until a hard refresh. Re-sync the override to the freshly loaded query.
             if (insight.query && !objectsEqual(insight.query, values.query)) {
                 actions.syncQueryFromProps(insight.query)
@@ -802,6 +1095,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
+            actions.loadReferencedCohorts()
             // When this is the insight scene's own insight, sync the query to the URL
             if (isInsightSceneInstance(props)) {
                 const insightId = insightSceneLogic.findMounted()?.values.insightId
@@ -839,7 +1133,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // a draft that only differs from the type's default in cosmetic ways (or that the
             // editor marks as changed by construction) is noise when resurfaced as "unsaved insight"
             if (!isDraftQueryWorthSaving(query, values.filterTestAccountsDefault)) {
-                // reverting a meaningful edit supersedes the draft this editor persisted — but an
+                // reverting a meaningful edit supersedes the draft this editor persisted, but an
                 // editor that never persisted one must not delete a draft from an earlier session
                 if (cache.persistedDraftQuery) {
                     cache.persistedDraftQuery = false
@@ -890,7 +1184,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             return
         }
         // On dashboard tiles props.setQuery persists edits, and `setQuery` is shared with
-        // insightVizDataLogic whose listener calls props.setQuery — so re-syncing a stale incoming
+        // insightVizDataLogic whose listener calls props.setQuery, so re-syncing a stale incoming
         // cached query (e.g. from a tile results refresh) via setQuery loops back and PATCHes it,
         // reverting a just-saved display option. syncQueryFromProps updates local state without the
         // loop. The insight scene keeps setQuery for its URL/draft sync.
@@ -906,6 +1200,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         }
     }),
     afterMount(({ actions, props }) => {
+        actions.loadReferencedCohorts()
         // On a dashboard, the first response for a tile can say “we don’t have chart numbers yet”
         // (`result: null`) instead of leaving the field unset. Without a real fetch, the UI can look
         // like a failed load (“Chart data didn’t load”) even though we simply haven’t run the query.

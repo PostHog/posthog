@@ -9,8 +9,72 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
-import { appendToolCallChunk, describeError, llmPlaygroundRunLogic, mergeUsage } from './llmPlaygroundRunLogic'
+import { modelPickerLogic } from '../modelPickerLogic'
+import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import {
+    appendToolCallChunk,
+    describeError,
+    escapeMarkdownInline,
+    findPromptModel,
+    llmPlaygroundRunLogic,
+    mergeUsage,
+} from './llmPlaygroundRunLogic'
+import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
+import { createResponseFormat } from './playgroundPromptConfig'
+
+// Same contract as fetch-event-source: an error from the request or from onmessage goes to onerror,
+// and the request is sent again unless onerror throws.
+function mockStreamWithRetryContract(
+    produce: (options: any) => void | Promise<void>,
+    onRetry: () => void
+): (url: string, options: any) => Promise<void> {
+    return async (_url, options) => {
+        try {
+            await produce(options)
+        } catch (error) {
+            options.onError(error)
+            onRetry()
+        }
+    }
+}
+
+function useSystemOneKeyMocks(): void {
+    useMocks({
+        get: {
+            '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                results: [{ id: 'key-s1', provider: 'system_one', name: 'System One', state: 'ok' }],
+            },
+            '/api/llm_proxy/models/': ({ request }) => [
+                200,
+                new URL(request.url).searchParams.get('provider_key_id')
+                    ? [
+                          {
+                              id: 'jev-1',
+                              name: 'jev-1',
+                              provider: 'System One',
+                              supports_decisions: true,
+                              supports_chat: false,
+                          },
+                      ]
+                    : [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }],
+            ],
+            '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                200,
+                params.key_id
+                    ? [
+                          {
+                              id: 'jev-1',
+                              name: 'jev-1',
+                              provider: 'System One',
+                              supports_decisions: true,
+                              supports_chat: false,
+                          },
+                      ]
+                    : [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }],
+            ],
+        },
+    })
+}
 
 function setPlaygroundAccessLevel(level: AccessControlLevel): void {
     window.POSTHOG_APP_CONTEXT = {
@@ -88,6 +152,8 @@ describe('llmPlaygroundRunLogic', () => {
         llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
         llmPlaygroundPromptsLogic.actions.setTemperature(0.4)
         llmPlaygroundPromptsLogic.actions.setTopP(0.9)
+        const responseFormat = createResponseFormat({ type: 'object', properties: { ok: { type: 'boolean' } } })
+        llmPlaygroundPromptsLogic.actions.setResponseFormat(responseFormat)
         llmPlaygroundRunLogic.actions.submitPrompt()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -96,10 +162,295 @@ describe('llmPlaygroundRunLogic', () => {
         expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
             temperature: 0.4,
             top_p: 0.9,
+            response_format: responseFormat,
         })
+        expect(logic.values.comparisonItems[0]).toMatchObject({ expectsJson: true })
 
         logic.unmount()
         streamSpy.mockRestore()
+    })
+
+    it('carries the conversation into the System One input and sends it to the decision endpoint', async () => {
+        useSystemOneKeyMocks()
+        const result = {
+            model: 'jev-1.13',
+            answers: {
+                q1: {
+                    type: 'noul',
+                    probability: 0.9,
+                    choice: null,
+                    score: null,
+                    confidence: null,
+                    probabilities: null,
+                },
+            },
+            input_tokens: 12,
+            output_tokens: null,
+        }
+        const createSpy = jest.spyOn(api, 'create').mockResolvedValue(result)
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const question = { id: 'q1', type: 'noul' as const, instructions: 'Is {{topic}} discussed?', options: [] }
+        llmPlaygroundPromptsLogic.actions.setMessages([
+            { role: 'user', content: 'Tell me about {{topic}}' },
+            { role: 'assistant', content: 'They swim.' },
+        ])
+        llmPlaygroundPromptsLogic.actions.setModel('jev-1', 'key-s1')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(llmPlaygroundPromptsLogic.values.promptConfigs[0].decisionInput).toBe(
+            'user: Tell me about {{topic}}\n\nassistant: They swim.'
+        )
+        // The input alone makes a System One panel runnable, so the Run button must not wait for messages.
+        llmPlaygroundPromptsLogic.actions.setMessages([])
+        expect(logic.values.hasRunnablePrompts).toBe(true)
+        llmPlaygroundPromptsLogic.actions.setDecisionQuestions([question])
+        llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).not.toHaveBeenCalled()
+        expect(createSpy).toHaveBeenCalledWith(
+            '/api/llm_proxy/decision/',
+            {
+                provider_key_id: 'key-s1',
+                state: 'user: Tell me about penguins\n\nassistant: They swim.',
+                questions: { q1: { type: 'noul', instructions: 'Is penguins discussed?' } },
+            },
+            expect.anything()
+        )
+        expect(logic.values.comparisonItems[0]).toMatchObject({
+            error: false,
+            decision: { questions: [question], result },
+            usage: { prompt_tokens: 12 },
+        })
+
+        logic.unmount()
+        createSpy.mockRestore()
+        streamSpy.mockRestore()
+    })
+
+    it.each([
+        ['its models load', 200],
+        ['its model load fails', 500],
+    ])('keeps a System One panel on its model when the key list reloads and %s', async (_case, systemOneStatus) => {
+        // A chat key too, so the reload has chat models to match a System One panel against.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    results: [
+                        { id: 'key-s1', provider: 'system_one', name: 'System One', state: 'ok' },
+                        { id: 'key-oa', provider: 'openai', name: 'OpenAI', state: 'ok' },
+                    ],
+                },
+                '/api/llm_proxy/models/': ({ request }) => {
+                    const keyId = new URL(request.url).searchParams.get('provider_key_id')
+                    if (keyId === 'key-s1') {
+                        return systemOneStatus === 200
+                            ? [200, [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]]
+                            : [systemOneStatus, { detail: 'Could not list models' }]
+                    }
+                    return [200, [{ id: 'gpt-5-mini', name: 'gpt-5-mini', provider: 'OpenAI', description: '' }]]
+                },
+                '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                    const keyId = params.key_id
+                    if (keyId === 'key-s1') {
+                        return systemOneStatus === 200
+                            ? [200, [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]]
+                            : [systemOneStatus, { detail: 'Could not list models' }]
+                    }
+                    return [200, [{ id: 'gpt-5-mini', name: 'gpt-5-mini', provider: 'OpenAI', description: '' }]]
+                },
+            },
+        })
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('jev-1', 'key-s1')
+        modelPickerLogic.actions.loadByokModels()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmPlaygroundPromptsLogic.values.promptConfigs[0]).toMatchObject({
+            model: 'jev-1',
+            selectedProviderKeyId: 'key-s1',
+        })
+        logic.unmount()
+    })
+
+    it('starts a new trace with an empty System One input, so the next prefill uses the new conversation', async () => {
+        useSystemOneKeyMocks()
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setDecisionInput('user: the first trace')
+        llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input: 'the second trace' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmPlaygroundPromptsLogic.values.promptConfigs[0].decisionInput).toBe('')
+        logic.unmount()
+    })
+
+    it('shows the rate limit banner when the decision endpoint throttles', async () => {
+        useSystemOneKeyMocks()
+        const createSpy = jest
+            .spyOn(api, 'create')
+            .mockRejectedValue(new ApiError('Throttled', 429, new Headers({ 'Retry-After': '30' })))
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('jev-1', 'key-s1')
+        llmPlaygroundPromptsLogic.actions.setDecisionInput('user: hello')
+        llmPlaygroundPromptsLogic.actions.setDecisionQuestions([
+            { id: 'q1', type: 'noul', instructions: 'Is it a greeting?', options: [] },
+        ])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.rateLimitedUntil).not.toBeNull()
+
+        logic.unmount()
+        createSpy.mockRestore()
+    })
+
+    it('picks the model entry of the selected key when two connections share a model id', () => {
+        const prompt = createPromptConfig({ model: 'jev-1', selectedProviderKeyId: 'key-s1' })
+        const options = [
+            { id: 'jev-1', name: 'jev-1', provider: 'OpenRouter', description: '', providerKeyId: 'key-or' },
+            { id: 'jev-1', name: 'jev-1', provider: 'System One', description: '', providerKeyId: 'key-s1' },
+        ]
+
+        expect(findPromptModel(prompt, options)?.provider).toBe('System One')
+    })
+
+    it('normalizes a display-name provider to its enum value in the completion payload', async () => {
+        useMocks({
+            get: {
+                '/api/llm_proxy/models/': [
+                    {
+                        id: 'my-gpt4-deployment',
+                        name: 'my-gpt4-deployment',
+                        provider: 'Azure OpenAI',
+                        description: '',
+                    },
+                ],
+            },
+        })
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('my-gpt4-deployment')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).toHaveBeenCalledTimes(1)
+        expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({ provider: 'azure_openai' })
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
+    it('sends variable-substituted content while the editor keeps the raw template', async () => {
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setSystemPrompt('You answer questions about {{topic}}.')
+        llmPlaygroundPromptsLogic.actions.setMessages([
+            { role: 'user', content: 'Tell me about {{topic}} and {{missing}}' },
+            {
+                role: 'assistant',
+                content: '',
+                toolCalls: [{ id: 'call_1', name: 'search', arguments: '{"query": "{{topic}}"}' }],
+            },
+        ])
+        llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).toHaveBeenCalledTimes(1)
+        // Filled variables resolve, unfilled ones stay in place (same as SDK compile)
+        expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
+            system: 'You answer questions about penguins.',
+            messages: [
+                { role: 'user', content: 'Tell me about penguins and {{missing}}' },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: { query: 'penguins' } }],
+                },
+            ],
+        })
+        // Substitution must not write back into the editor state
+        expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You answer questions about {{topic}}.')
+        expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Tell me about {{topic}} and {{missing}}')
+        expect(llmPlaygroundPromptsLogic.values.messages[1].toolCalls?.[0].arguments).toBe('{"query": "{{topic}}"}')
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
+    it('warns about unfilled variables on run and stays quiet once they are filled', async () => {
+        // Without the warning, a run with a literal {{placeholder}} in it gives no signal;
+        // a warning that names a skipped panel's variable, or keeps firing after the
+        // values are filled, misreports what was sent.
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+        const toastSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The second panel has no messages, so it is skipped: {{ghost}} is never sent
+        llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+            createPromptConfig({
+                model: 'gpt-5-mini',
+                messages: [{ role: 'user', content: '{{topic}} in a {{tone}} tone' }],
+            }),
+            createPromptConfig({ model: 'gpt-5-mini', systemPrompt: 'About {{ghost}}', messages: [] }),
+        ])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{topic}}, {{tone}}. The placeholders are sent as written.')
+        expect(captureSpy).toHaveBeenCalledWith(
+            'llma playground prompt submitted',
+            expect.objectContaining({ variable_count: 2, unfilled_variable_count: 2 })
+        )
+
+        toastSpy.mockClear()
+        llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{tone}}. The placeholder is sent as written.')
+
+        toastSpy.mockClear()
+        llmPlaygroundVariablesLogic.actions.setVariableValue('tone', 'formal')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        toastSpy.mockRestore()
+        captureSpy.mockRestore()
     })
 
     it('does not run a completion without editor access to the playground and explains why', async () => {
@@ -134,9 +485,10 @@ describe('llmPlaygroundRunLogic', () => {
         const apiError = new ApiError('fallback message', 400, undefined, {
             error: 'Thinking is not supported for this model',
         })
-        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
-            options.onError?.(apiError)
-        })
+        const retried = jest.fn()
+        const streamSpy = jest
+            .spyOn(api, 'stream')
+            .mockImplementation(mockStreamWithRetryContract((options) => options.onError(apiError), retried))
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
 
         const logic = llmPlaygroundRunLogic()
@@ -152,8 +504,10 @@ describe('llmPlaygroundRunLogic', () => {
         const items = llmPlaygroundRunLogic.values.comparisonItems
         expect(items).toHaveLength(1)
         expect(items[0].error).toBe(true)
-        expect(items[0].response).toContain('**Error:** Thinking is not supported for this model')
+        expect(items[0].response.match(/\*\*Error:\*\* Thinking is not supported for this model/g)).toHaveLength(1)
         expect(items[0].response).not.toContain('Stream Connection Error')
+        expect(retried).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
         expect(captureExceptionSpy).toHaveBeenCalledWith(
             apiError,
             expect.objectContaining({ tag: 'llma-playground-prompt-run', status: 400 })
@@ -164,11 +518,14 @@ describe('llmPlaygroundRunLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
-    it('labels non-ApiError stream failures as connection errors and captures them', async () => {
+    it('labels network failures as connection errors, captures them once and does not retry', async () => {
         const connectionError = new Error('network down')
-        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
-            options.onError?.(connectionError)
-        })
+        const retried = jest.fn()
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(
+            mockStreamWithRetryContract(() => {
+                throw connectionError
+            }, retried)
+        )
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
 
         const logic = llmPlaygroundRunLogic()
@@ -185,6 +542,8 @@ describe('llmPlaygroundRunLogic', () => {
         expect(items).toHaveLength(1)
         expect(items[0].error).toBe(true)
         expect(items[0].response).toContain('**Stream Connection Error:** network down')
+        expect(retried).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
         expect(captureExceptionSpy).toHaveBeenCalledWith(
             connectionError,
             expect.objectContaining({ tag: 'llma-playground-prompt-run', status: undefined })
@@ -193,6 +552,112 @@ describe('llmPlaygroundRunLogic', () => {
         logic.unmount()
         streamSpy.mockRestore()
         captureExceptionSpy.mockRestore()
+    })
+
+    it('stops a superseded run silently and keeps submitting until the newer run ends', async () => {
+        let releaseFirstStream: () => void = () => {}
+        const firstStreamGate = new Promise<void>((resolve) => {
+            releaseFirstStream = resolve
+        })
+        let releaseSecondStream: () => void = () => {}
+        const secondStreamGate = new Promise<void>((resolve) => {
+            releaseSecondStream = resolve
+        })
+        const retried = jest.fn()
+        const streamSpy = jest
+            .spyOn(api, 'stream')
+            .mockImplementationOnce(
+                mockStreamWithRetryContract(async (options) => {
+                    await firstStreamGate
+                    options.onMessage({ data: JSON.stringify({ type: 'text', text: 'stale' }) })
+                }, retried)
+            )
+            .mockImplementationOnce(() => secondStreamGate)
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        releaseFirstStream()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(logic.values.submitting).toBe(true)
+        expect(logic.values.comparisonItems.map((item) => item.response)).toEqual([''])
+
+        releaseSecondStream()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.submitting).toBe(false)
+        expect(streamSpy).toHaveBeenCalledTimes(2)
+        expect(retried).not.toHaveBeenCalled()
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'llma playground prompt completed')).toHaveLength(1)
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+        expect(toastSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        captureSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+        toastSpy.mockRestore()
+    })
+
+    describe('when a streaming run is interrupted', () => {
+        let streamSignal: AbortSignal | undefined
+        let streamSpy: jest.SpyInstance
+        let captureSpy: jest.SpyInstance
+
+        const completedEvents = (): unknown[] =>
+            captureSpy.mock.calls
+                .filter(([event]) => event === 'llma playground prompt completed')
+                .map(([, properties]) => properties)
+
+        beforeEach(async () => {
+            streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+                streamSignal = options.signal
+                options.onMessage({ data: JSON.stringify({ type: 'text', text: 'partial' }) })
+                // fetch-event-source resolves, rather than rejects, when its signal aborts.
+                await new Promise((resolve) => options.signal.addEventListener('abort', resolve))
+            })
+            captureSpy = jest.spyOn(posthog, 'capture')
+
+            llmPlaygroundRunLogic.mount()
+            await expectLogic(llmPlaygroundRunLogic).toFinishAllListeners()
+            llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+            llmPlaygroundRunLogic.actions.submitPrompt()
+            await expectLogic(llmPlaygroundRunLogic).toDispatchActions(['addToComparison'])
+        })
+
+        afterEach(() => {
+            streamSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('marks the run as stopped when the user stops it', async () => {
+            llmPlaygroundRunLogic.actions.abortRun()
+            await expectLogic(llmPlaygroundRunLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundRunLogic.values.comparisonItems[0].response).toBe('partial\n\n*Generation stopped.*')
+            expect(llmPlaygroundRunLogic.values.submitting).toBe(false)
+            expect(completedEvents()).toEqual([expect.objectContaining({ aborted: true, success: true })])
+
+            llmPlaygroundRunLogic.unmount()
+        })
+
+        it('ends the stream silently when the user leaves the playground', async () => {
+            llmPlaygroundRunLogic.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(streamSignal?.aborted).toBe(true)
+            expect(completedEvents()).toEqual([])
+        })
     })
 
     it('captures exceptions thrown before the stream opens', async () => {
@@ -228,6 +693,39 @@ describe('llmPlaygroundRunLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
+    it('names the model when it is not one of the available models', async () => {
+        // The model can arrive without passing through the picker — from a trace, or a saved
+        // prompt written when the key set still offered it.
+        const streamSpy = jest.spyOn(api, 'stream')
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('claude-3-sonnet-20240229')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const items = llmPlaygroundRunLogic.values.comparisonItems
+        expect(items).toHaveLength(1)
+        expect(items[0].error).toBe(true)
+        // The toast is plain text; the card is markdown, so the model id reaches it escaped.
+        expect(toastSpy).toHaveBeenCalledWith(
+            "Model 'claude-3-sonnet-20240229' is not one of your available models. Pick a different model and try again."
+        )
+        expect(items[0].response).toContain(
+            "**Error:** Model 'claude\\-3\\-sonnet\\-20240229' is not one of your available models."
+        )
+        expect(streamSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        toastSpy.mockRestore()
+    })
+
     describe('describeError', () => {
         it('prefers structured backend error string over detail and message', () => {
             const err = new ApiError('fallback', 400, undefined, { error: 'backend says no' })
@@ -248,6 +746,20 @@ describe('llmPlaygroundRunLogic', () => {
 
         it('returns the fallback for non-Error values', () => {
             expect(describeError('nope', 'fallback')).toEqual({ message: 'fallback' })
+        })
+    })
+
+    describe('escapeMarkdownInline', () => {
+        // A model id can reach the result card straight from an ingested `$ai_model` property,
+        // and that card renders markdown with images enabled.
+        it('defuses image syntax so an ingested model id cannot issue a request', () => {
+            expect(escapeMarkdownInline('![x](https://example.com/pixel)')).toBe(
+                '\\!\\[x\\]\\(https\\:\\/\\/example\\.com\\/pixel\\)'
+            )
+        })
+
+        it('leaves an ordinary model id alone apart from its punctuation', () => {
+            expect(escapeMarkdownInline('gpt-4-turbo')).toBe('gpt\\-4\\-turbo')
         })
     })
 })

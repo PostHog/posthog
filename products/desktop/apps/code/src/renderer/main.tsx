@@ -26,6 +26,7 @@ import App from "@posthog/ui/shell/App";
 import { logger } from "@posthog/ui/shell/logger";
 import { initializePostHog } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { REQUIRED_HOST_CAPABILITIES } from "@posthog/ui/shell/requiredHostCapabilities";
+import { hydrateCustomCloud } from "@renderer/custom-cloud";
 import { registerDesktopContributions } from "@renderer/desktop-contributions";
 import { container } from "@renderer/di/container";
 import "@renderer/desktop-services";
@@ -94,35 +95,37 @@ if (!rootElement) throw new Error("Root element not found");
 
 const root = ReactDOM.createRoot(rootElement);
 
-try {
-  registerDesktopContributions();
-  // Fail loudly (into BootErrorScreen) if a capability the shared app resolves
-  // via service location is unbound, rather than deferring to the first
-  // navigation that needs it. The renderer container backs every useService, so
-  // all required tokens must resolve here. Shared with the web host.
-  assertHostCapabilities(container, REQUIRED_HOST_CAPABILITIES);
-  boot(container).catch((error: unknown) => {
-    bootLog.error("Renderer boot sequence failed", error);
-    // Replaces the mounted tree without running effect cleanup; acceptable
-    // because a failed boot leaves the app unusable regardless.
-    root.render(<BootErrorScreen error={error} />);
-  });
+void hydrateCustomCloud().then(() => {
+  try {
+    registerDesktopContributions();
+    // Fail loudly (into BootErrorScreen) if a capability the shared app resolves
+    // via service location is unbound, rather than deferring to the first
+    // navigation that needs it. The renderer container backs every useService, so
+    // all required tokens must resolve here. Shared with the web host.
+    assertHostCapabilities(container, REQUIRED_HOST_CAPABILITIES);
+    boot(container).catch((error: unknown) => {
+      bootLog.error("Renderer boot sequence failed", error);
+      // Replaces the mounted tree without running effect cleanup; acceptable
+      // because a failed boot leaves the app unusable regardless.
+      root.render(<BootErrorScreen error={error} />);
+    });
 
-  root.render(
-    <React.StrictMode>
-      <BootErrorBoundary>
-        <ServiceProvider container={container}>
-          <Providers>
-            <App devToolbar={<DevToolbarHost />} />
-            {/* Beside the app, not in a route: the overlay must outlive every
-                gate and shell the router renders. */}
-            <MissionControlOverlay />
-          </Providers>
-        </ServiceProvider>
-      </BootErrorBoundary>
-    </React.StrictMode>,
-  );
-} catch (error) {
-  bootLog.error("Renderer failed to start", error);
-  root.render(<BootErrorScreen error={error} />);
-}
+    root.render(
+      <React.StrictMode>
+        <BootErrorBoundary>
+          <ServiceProvider container={container}>
+            <Providers>
+              <App devToolbar={<DevToolbarHost />} />
+              {/* Beside the app, not in a route: the overlay must outlive every
+                  gate and shell the router renders. */}
+              <MissionControlOverlay />
+            </Providers>
+          </ServiceProvider>
+        </BootErrorBoundary>
+      </React.StrictMode>,
+    );
+  } catch (error) {
+    bootLog.error("Renderer failed to start", error);
+    root.render(<BootErrorScreen error={error} />);
+  }
+});

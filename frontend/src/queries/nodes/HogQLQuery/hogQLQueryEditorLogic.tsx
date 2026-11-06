@@ -27,10 +27,10 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from 'scenes/data-warehouse/saved_queries/savedQueryNameValidation'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -70,13 +70,13 @@ export interface hogQLQueryEditorLogicActions {
         types: string[][]
     } // dataWarehouseSettingsSceneLogic
     createDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
-            dag_id?: string
+        payload: Partial<DataWarehouseSavedQuery> & {
+            deferCreatedToast?: boolean
             folder_id?: string | null
             types: string[][]
         }
     ) => Partial<DataWarehouseSavedQuery> & {
-        dag_id?: string
+        deferCreatedToast?: boolean
         folder_id?: string | null
         types: string[][]
     } // dataWarehouseViewsLogic
@@ -215,6 +215,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 )
             }
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const result = await api.get(
                     combineUrl(`api/projects/${values.currentProjectId}/query/draft_sql/`, {
                         prompt: values.prompt,
@@ -236,6 +237,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 )
             }
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const result = await api.get(
                     combineUrl(`api/projects/@current/query/draft_sql/`, {
                         prompt,

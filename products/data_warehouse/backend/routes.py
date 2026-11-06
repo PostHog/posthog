@@ -3,18 +3,19 @@ from posthog.api.routing import RouterRegistry
 import products.data_warehouse.backend.presentation.views.fix_hogql as fix_hogql
 from products.data_warehouse.backend.presentation.views import (
     column_annotation,
-    column_statistics,
     data_modeling_job,
     data_warehouse,
     expression,
     managed_viewset,
-    modeling,
     query_tab_state,
-    saved_query,
     saved_query_column_annotation,
     saved_query_draft,
     table,
     view_link,
+)
+from products.data_warehouse.backend.presentation.views.saved_query import (
+    folders as saved_query_folders,
+    viewset as saved_query_viewset,
 )
 
 
@@ -22,13 +23,13 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"warehouse_tables", table.TableViewSet, "project_warehouse_tables", ["team_id"])
     routers.projects.register(
         r"warehouse_saved_query_folders",
-        saved_query.DataWarehouseSavedQueryFolderViewSet,
+        saved_query_folders.DataWarehouseSavedQueryFolderViewSet,
         "project_warehouse_saved_query_folders",
         ["team_id"],
     )
     routers.projects.register(
         r"warehouse_saved_queries",
-        saved_query.DataWarehouseSavedQueryViewSet,
+        saved_query_viewset.DataWarehouseSavedQueryViewSet,
         "project_warehouse_saved_queries",
         ["team_id"],
     )
@@ -46,12 +47,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"data_warehouse", data_warehouse.DataWarehouseViewSet, "project_data_warehouse", ["team_id"]
-    )
-    routers.projects.register(
-        r"warehouse_dag", modeling.DataWarehouseModelDagViewSet, "project_warehouse_dag", ["team_id"]
-    )
-    routers.projects.register(
-        r"warehouse_model_paths", modeling.DataWarehouseModelPathViewSet, "project_warehouse_model_paths", ["team_id"]
     )
     routers.projects.register(
         r"query_tab_state", query_tab_state.QueryTabStateViewSet, "project_query_tab_state", ["project_id"]
@@ -82,11 +77,5 @@ def register_routes(routers: RouterRegistry) -> None:
         r"saved_query_column_annotations",
         saved_query_column_annotation.DataWarehouseSavedQueryColumnAnnotationViewSet,
         "project_saved_query_column_annotations",
-        ["team_id"],
-    )
-    routers.projects.register(
-        r"warehouse_column_statistics",
-        column_statistics.WarehouseColumnStatisticsViewSet,
-        "project_warehouse_column_statistics",
         ["team_id"],
     )

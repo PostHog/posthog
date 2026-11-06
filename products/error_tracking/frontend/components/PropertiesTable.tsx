@@ -3,7 +3,7 @@ import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-type PropertyTableRow = {
+export type PropertyTableRow = {
     key: string
     value: unknown
     filterKey?: string
@@ -13,12 +13,16 @@ type PropertyTableRow = {
 export type PropertiesTableProps = {
     entries: ([string, unknown] | PropertyTableRow)[]
     alternatingColors?: boolean
+    firstColumnWidth?: string | number
+    tableLayout?: 'auto' | 'fixed'
     onFilterValue?: (key: string, value: string | number | boolean) => void
 }
 
 export function PropertiesTable({
     entries,
     alternatingColors = true,
+    firstColumnWidth = 0,
+    tableLayout = 'auto',
     onFilterValue,
 }: PropertiesTableProps): JSX.Element {
     const rows: PropertyTableRow[] = entries
@@ -34,6 +38,7 @@ export function PropertiesTable({
         <LemonTable
             embedded
             size="small"
+            tableLayout={tableLayout}
             dataSource={rows}
             showHeader={false}
             columns={[
@@ -41,12 +46,14 @@ export function PropertiesTable({
                     title: 'Key',
                     key: 'key',
                     dataIndex: 'key',
-                    width: 0,
+                    width: firstColumnWidth,
                     className: 'font-medium bg-inherit',
                     render: (dataValue, record) => (
                         <div className="flex gap-x-2 justify-between items-center">
-                            <div>{String(dataValue)}</div>
-                            <div className="flex items-center gap-1">
+                            <div className={tableLayout === 'fixed' ? 'min-w-0 wrap-anywhere' : undefined}>
+                                {String(dataValue)}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
                                 {onFilterValue &&
                                     record.filterKey &&
                                     getFilterableValue(record.filterValue ?? record.value) !== null && (
@@ -88,7 +95,14 @@ export function PropertiesTable({
                     dataIndex: 'value',
                     className: 'whitespace-nowrap',
                     render: (value) => {
-                        return <div className="whitespace-nowrap">{renderValue(value)}</div>
+                        return (
+                            <div
+                                className={tableLayout === 'fixed' ? 'truncate' : 'whitespace-nowrap'}
+                                title={tableLayout === 'fixed' ? copyValue(value) : undefined}
+                            >
+                                {renderValue(value)}
+                            </div>
+                        )
                     },
                 },
             ]}

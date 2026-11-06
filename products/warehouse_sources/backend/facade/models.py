@@ -12,21 +12,43 @@ at ``django.setup()``.
 Consumers that only read fields should use ``facade.api`` (contracts) instead.
 """
 
+from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+from products.warehouse_sources.backend.models.column_statistics import (
+    WarehouseColumnStatistics,
+    clear_masked_column_bounds,
+)
 from products.warehouse_sources.backend.models.credential import (
     DataWarehouseCredential,
     get_or_create_datawarehouse_credential,
 )
-from products.warehouse_sources.backend.models.custom_oauth2_integration import (
-    CustomOAuth2Integration,
-    get_custom_oauth2_integration,
+from products.warehouse_sources.backend.models.external_data_destination import (
+    ExternalDataDestination,
+    ExternalDataSchemaDestination,
+    ExternalDataSourceDestination,
+    get_or_create_warehouse_destination,
+    resolve_destinations,
 )
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_data_job import (
+    ExternalDataJob,
+    get_latest_run_if_exists,
+    latest_completed_job_prefetch,
+)
 from products.warehouse_sources.backend.models.external_data_schema import (
+    CDC_SNAPSHOT_LANE_KEY,
+    MAX_FULL_REFRESH_INTERVAL_DAYS,
+    SCHEDULED_FULL_REFRESH_SYNC_TYPES,
+    SCHEMA_RESOURCE_ID_METADATA_KEY,
+    WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
     auto_enable_new_schemas,
+    discovered_schema_finder,
     get_all_schemas_for_source_id,
+    get_schemas_for_direct_reconciliation,
+    is_pinned_schema,
+    mark_schema_running_unless_halted,
+    resolve_sync_type,
+    self_managed_table_ref,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
@@ -34,22 +56,28 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import (
+    MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
+    MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+    MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSource,
     get_direct_external_data_source_for_connection,
+    is_managed_warehouse_connection_ready,
 )
 from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
-from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import (
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
     DataWarehouseTableColumns,
     acreate_datawarehousetable,
     asave_datawarehousetable,
+    create_datawarehousetable,
 )
 from products.warehouse_sources.backend.models.util import (
     clickhouse_column_to_dwh_column,
     clickhouse_columns_to_dwh_columns,
+    motherduck_column_to_dwh_column,
+    motherduck_columns_to_dwh_columns,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
@@ -57,46 +85,74 @@ from products.warehouse_sources.backend.models.util import (
     remove_named_tuples,
     snowflake_column_to_dwh_column,
     snowflake_columns_to_dwh_columns,
+    trino_column_to_dwh_column,
+    trino_columns_to_dwh_columns,
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
 
 __all__ = [
-    "CustomOAuth2Integration",
     "DataWarehouseCredential",
     "DataWarehouseTable",
     "DataWarehouseTableColumns",
+    "ExternalDataDestination",
     "ExternalDataJob",
     "ExternalDataSchema",
+    "ExternalDataSchemaDestination",
     "ExternalDataSource",
+    "ExternalDataSourceDestination",
+    "MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS",
+    "MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND",
+    "MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
+    "MAX_FULL_REFRESH_INTERVAL_DAYS",
     "PendingSourceCredential",
+    "SCHEMA_RESOURCE_ID_METADATA_KEY",
+    "SCHEDULED_FULL_REFRESH_SYNC_TYPES",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
-    "SSHTunnel",
+    "WORKER_RESTART_ERROR_MESSAGE",
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",
     "acreate_datawarehousetable",
     "asave_datawarehousetable",
     "auto_enable_new_schemas",
-    "get_custom_oauth2_integration",
+    "discovered_schema_finder",
+    "is_pinned_schema",
+    "self_managed_table_ref",
+    "create_datawarehousetable",
     "get_all_schemas_for_source_id",
+    "get_schemas_for_direct_reconciliation",
     "get_direct_external_data_source_for_connection",
+    "is_managed_warehouse_connection_ready",
     "get_latest_run_if_exists",
+    "latest_completed_job_prefetch",
     "get_or_create_datawarehouse_credential",
+    "get_or_create_warehouse_destination",
+    "clear_masked_column_bounds",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
+    "motherduck_column_to_dwh_column",
+    "motherduck_columns_to_dwh_columns",
+    "trino_column_to_dwh_column",
+    "trino_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
     "postgres_columns_to_dwh_columns",
     "remove_named_tuples",
+    "resolve_destinations",
     "snowflake_column_to_dwh_column",
     "snowflake_columns_to_dwh_columns",
     "sync_frequency_interval_to_sync_frequency",
     "sync_frequency_to_sync_frequency_interval",
     "sync_old_schemas_with_new_schemas",
     "update_should_sync",
+    "mark_schema_running_unless_halted",
     "update_sync_type_config_keys",
+    "UnsupportedSyncTypeError",
+    "resolve_sync_type",
+    "self_managed_table_ref",
+    "CDC_SNAPSHOT_LANE_KEY",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
 ]

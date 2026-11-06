@@ -11,13 +11,20 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 
+import structlog
+
+from products.data_modeling.backend.facade.contracts import MaterializationEngine
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJobEngine
 from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
+logger = structlog.get_logger(__name__)
+
 SUSPENDED_KEY = "suspended"
 RESET_KEY = "suspension_reset"
+SUSPENSION_FIELDS = frozenset({"at", "reason", "job_id"})
 
 
 def _now() -> str:
@@ -60,7 +67,7 @@ def mark_node_suspended(node: Node, *, engine: str, reason: str, job_id: str, fi
         "job_id": job_id,
         "query_fingerprint": fingerprint,
     }
-    # A fresh suspension supersedes the resume that preceded it.
+    # A fresh suspension supersedes the watermark that preceded it.
     (system.get(RESET_KEY) or {}).pop(str(engine), None)
     node.properties = properties
 
@@ -104,34 +111,87 @@ def _persist_change(node: Node, change: Callable[[Node], bool]) -> bool:
     return True
 
 
-def resume_nodes(nodes: Iterable[Node], *, by: str, engine: str | None = None) -> int:
-    """Returns how many of the nodes were actually suspended, not how many were passed in."""
-    return sum(
-        _persist_change(node, lambda locked: clear_node_suspension(locked, engine=engine, by=by)) for node in nodes
-    )
+def unsuspend_nodes(
+    nodes: Iterable[Node],
+    *,
+    by: str,
+    engine: str | None = None,
+    only_if: Callable[[Node], bool] | None = None,
+) -> int:
+    """Returns how many of the nodes were actually suspended, not how many were passed in.
+
+    `only_if` runs against the locked row, so a caller that decided to unsuspend from an earlier read
+    can re-test that decision against state nothing else can change while the check runs.
+    """
+
+    def change(locked: Node) -> bool:
+        if only_if is not None and not only_if(locked):
+            return False
+        return clear_node_suspension(locked, engine=engine, by=by)
+
+    return sum(_persist_change(node, change) for node in nodes)
 
 
-def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> dict[str, dict]:
-    """Merged per-engine suspension state across every node backing the query.
+def merged_suspension_state(nodes: Iterable[Node]) -> dict[str, dict]:
+    """Merged per-engine suspension state across every node backing one query.
 
     When duplicate DAGs give the query several nodes, the earliest suspension per engine wins —
     that is when the model actually stopped updating.
     """
     merged: dict[str, dict] = {}
-    for node in Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id):
+    for node in nodes:
         for engine, entry in suspension_state(node).items():
+            # The saved-query list serializes these fields, so one malformed marker would fail the page.
+            if not (isinstance(entry, dict) and all(isinstance(entry.get(key), str) for key in SUSPENSION_FIELDS)):
+                logger.warning("Skipped a malformed suspension marker", node_id=str(node.pk), engine=engine)
+                continue
             existing = merged.get(engine)
-            if existing is None or (entry.get("at") or "") < (existing.get("at") or ""):
+            if existing is None or entry["at"] < existing["at"]:
                 merged[engine] = entry
     return merged
 
 
-def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
-    """One query can back several nodes when it landed in duplicate DAGs, and "resume this model"
-    means all of them."""
-    return resume_nodes(
+def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> dict[str, dict]:
+    return merged_suspension_state(Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id))
+
+
+def suspended_saved_query_ids_by_team(engine: str) -> dict[int, list[str]]:
+    """Every saved query with a node suspended on this engine, grouped by team.
+
+    Cross-team on purpose: the daily digest classifies the whole fleet in one pass rather than one
+    query per team. Duplicate DAGs give a query several nodes, so the ids are deduplicated.
+    """
+    by_team: dict[int, set[str]] = {}
+    nodes = (
+        Node.objects.filter(
+            saved_query_id__isnull=False,
+            properties__system__suspended__has_key=str(engine),
+        )
+        .exclude(saved_query__deleted=True)
+        .values_list("team_id", "saved_query_id")
+    )
+
+    for team_id, saved_query_id in nodes.iterator():
+        by_team.setdefault(team_id, set()).add(str(saved_query_id))
+    return {team_id: sorted(ids) for team_id, ids in by_team.items()}
+
+
+_SUSPENSION_ENGINES = {
+    MaterializationEngine.CLICKHOUSE: DataModelingJobEngine.CLICKHOUSE,
+    MaterializationEngine.TRINO: DataModelingJobEngine.MANAGED_WAREHOUSE,
+}
+
+
+def unsuspend_saved_query(
+    saved_query: "DataWarehouseSavedQuery", *, by: str = "api", engine: MaterializationEngine | None = None
+) -> int:
+    """Clears the marker on every node the query backs, which is more than one when it landed in
+    duplicate DAGs. Schedules nothing: the next tier fire runs the node because no marker stops it.
+    Without an engine, every engine's marker is cleared."""
+    return unsuspend_nodes(
         Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id),
         by=by,
+        engine=_SUSPENSION_ENGINES[engine].value if engine is not None else None,
     )
 
 

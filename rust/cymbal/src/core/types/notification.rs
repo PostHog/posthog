@@ -200,6 +200,18 @@ impl IssueNotificationContext {
     }
 }
 
+/// How ingestion chose the severity of a new issue. The issue-created workflow only
+/// lets a model replace a `Heuristic` severity or a missing one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeveritySource {
+    /// The event carried an explicit `$issue_severity`.
+    Event,
+    Rule,
+    /// Derived from the exception level and handled flag.
+    Heuristic,
+}
+
 /// Payload for [`IngestionNotification::IssueCreated`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueCreated {
@@ -211,6 +223,8 @@ pub struct IssueCreated {
     pub event_uuid: Uuid,
     pub event_timestamp: String,
     pub assignee: Option<String>,
+    #[serde(default)]
+    pub severity_source: Option<SeveritySource>,
 }
 
 /// Payload for [`IngestionNotification::IssueReopened`].
@@ -249,6 +263,8 @@ pub struct IssueSnapshot {
     pub name: Option<String>,
     pub description: Option<String>,
     pub status: String,
+    #[serde(default)]
+    pub severity: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -270,6 +286,7 @@ mod tests {
                     name: Some("Example".to_string()),
                     description: Some("Example issue".to_string()),
                     status: "active".to_string(),
+                    severity: Some("high".to_string()),
                     created_at: DateTime::from_timestamp(0, 0).unwrap(),
                 },
                 event_properties: serde_json::from_value(serde_json::json!({
@@ -289,6 +306,7 @@ mod tests {
             event_uuid: Uuid::nil(),
             event_timestamp: "1970-01-01T00:00:00Z".to_string(),
             assignee: None,
+            severity_source: Some(SeveritySource::Rule),
         });
 
         assert_eq!(notification.validate(), Ok(()));
@@ -297,6 +315,8 @@ mod tests {
         assert_eq!(json["type"], "issue_created");
         assert_eq!(json["team_id"], 42);
         assert_eq!(json["fingerprint"], "abc");
+        assert_eq!(json["issue"]["severity"], "high");
+        assert_eq!(json["severity_source"], "rule");
         assert_eq!(json["event_properties"]["$exception_fingerprint"], "abc");
 
         // Round-trips back to the same JSON through the typed enum.
@@ -346,6 +366,7 @@ mod tests {
                     name: Some("Example".to_string()),
                     description: Some("Example issue".to_string()),
                     status: "active".to_string(),
+                    severity: None,
                     created_at: DateTime::from_timestamp(0, 0).unwrap(),
                 },
                 event_properties: serde_json::from_value(serde_json::json!({
@@ -372,6 +393,12 @@ mod tests {
         object.remove("notification_id");
         object.remove("event_uuid");
         object.remove("event_timestamp");
+        object
+            .get_mut("issue")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove("severity");
 
         let decoded: IngestionNotification = serde_json::from_value(legacy_json).unwrap();
         let fallback_key = format!(

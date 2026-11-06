@@ -7,7 +7,14 @@ by both frequentist and Bayesian methods.
 
 import numpy as np
 
-from .statistics import AnyStatistic, ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
+from .statistics import (
+    AnyStatistic,
+    ProportionStatistic,
+    QuantileStatistic,
+    RatioStatistic,
+    SampleMeanStatistic,
+    StatisticError,
+)
 
 
 def get_mean(statistic: AnyStatistic) -> float:
@@ -18,6 +25,8 @@ def get_mean(statistic: AnyStatistic) -> float:
         return statistic.proportion
     elif isinstance(statistic, RatioStatistic):
         return statistic.ratio
+    elif isinstance(statistic, QuantileStatistic):
+        return statistic.mean
     else:
         raise StatisticError(f"Unknown statistic type: {type(statistic)}")
 
@@ -64,6 +73,8 @@ def validate_statistic_inputs(statistic: AnyStatistic) -> list[str]:
             errors.extend(_validate_sample_mean(statistic))
         elif isinstance(statistic, ProportionStatistic):
             errors.extend(_validate_proportion(statistic))
+        elif isinstance(statistic, QuantileStatistic):
+            errors.extend(_validate_quantile(statistic))
 
     except Exception as e:
         errors.append(f"Failed to validate statistic: {str(e)}")
@@ -110,38 +121,23 @@ def _validate_proportion(stat: ProportionStatistic) -> list[str]:
     return errors
 
 
-def check_sample_size_adequacy(treatment_stat: AnyStatistic, control_stat: AnyStatistic, min_size: int = 30) -> None:
-    """
-    Check if sample sizes are adequate for statistical testing.
+def _validate_quantile(stat: QuantileStatistic) -> list[str]:
+    """Validate QuantileStatistic."""
+    errors = []
 
-    Args:
-        treatment_stat: Treatment group statistic
-        control_stat: Control group statistic
-        min_size: Minimum required sample size
+    if stat.has_zero_variance:
+        errors.append("Quantile has zero variance - not enough events or too many tied values")
 
-    Raises:
-        StatisticError: If sample sizes are too small
-    """
-    treatment_n = get_sample_size(treatment_stat)
-    control_n = get_sample_size(control_stat)
-
-    if treatment_n < min_size:
-        raise StatisticError(f"Treatment sample size ({treatment_n}) below minimum ({min_size})")
-
-    if control_n < min_size:
-        raise StatisticError(f"Control sample size ({control_n}) below minimum ({min_size})")
+    return errors
 
 
-def validate_test_inputs(
-    treatment_stat: AnyStatistic, control_stat: AnyStatistic, check_sample_size: bool = False
-) -> None:
+def validate_test_inputs(treatment_stat: AnyStatistic, control_stat: AnyStatistic) -> None:
     """
     Comprehensive validation of test inputs.
 
     Args:
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
-        check_sample_size: Whether to enforce minimum sample size requirements
 
     Raises:
         StatisticError: If validation fails
@@ -158,7 +154,3 @@ def validate_test_inputs(
     # Check compatibility
     if type(treatment_stat) is not type(control_stat):
         raise StatisticError("Treatment and control statistics must be the same type")
-
-    # Additional checks (optional for different methods)
-    if check_sample_size:
-        check_sample_size_adequacy(treatment_stat, control_stat)

@@ -1,5 +1,6 @@
 import json
 import hashlib
+from collections.abc import Iterable
 from typing import Optional
 
 from django.db import models
@@ -127,6 +128,16 @@ class HogFunctionTemplate(UUIDTModel):
             )
             return None
 
+    @classmethod
+    def get_latest_templates(cls, template_ids: Iterable[str]) -> dict[str, "HogFunctionTemplate"]:
+        """Resolves the latest version of each template id, as get_template does, in one query."""
+        latest = (
+            cls.objects.filter(template_id__in=set(template_ids))
+            .order_by("template_id", "-created_at")
+            .distinct("template_id")
+        )
+        return {template.template_id: template for template in latest}
+
     def compile_bytecode(self):
         """
         Compiles the Hog code_language code to bytecode and stores it in the bytecode field.
@@ -136,7 +147,7 @@ class HogFunctionTemplate(UUIDTModel):
             self.bytecode = None
             return
         try:
-            from posthog.cdp.validation import compile_hog
+            from products.cdp.backend.validation import compile_hog
 
             # Compile the hog code_language to bytecode and store it in the database field
             self.bytecode = compile_hog(self.code, self.type)

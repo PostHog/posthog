@@ -1,7 +1,7 @@
 import datetime as dt
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from unittest import TestCase, mock
 
 from parameterized import parameterized
@@ -22,8 +22,20 @@ def _make_job(
     rows_synced: int | None = 1234,
     finished_at: dt.datetime | None = None,
     team_id: int = 42,
+    destination_ids: list[str] | None = None,
 ) -> mock.Mock:
-    job = mock.Mock(spec_set=("id", "team_id", "status", "rows_synced", "finished_at", "pipeline_id", "schema_id"))
+    job = mock.Mock(
+        spec_set=(
+            "id",
+            "team_id",
+            "status",
+            "rows_synced",
+            "finished_at",
+            "pipeline_id",
+            "schema_id",
+            "destination_ids",
+        )
+    )
     job.id = uuid4()
     job.team_id = team_id
     job.status = status
@@ -31,10 +43,110 @@ def _make_job(
     job.finished_at = finished_at or dt.datetime(2026, 4, 15, 12, 30, 45, tzinfo=dt.UTC)
     job.pipeline_id = uuid4()
     job.schema_id = uuid4()
+    job.destination_ids = destination_ids or []
     return job
 
 
-class TestEmitDataImportAppMetrics(TestCase):
+class WarehouseDestinationFallbackTestCase(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.metrics.get_or_create_warehouse_destination"
+        )
+        self.mock_get_warehouse_destination = patcher.start()
+        self.mock_get_warehouse_destination.return_value.id = "warehouse-destination"
+        self.addCleanup(patcher.stop)
+
+
+class TestDestinationScopedAppMetrics(WarehouseDestinationFallbackTestCase):
+    def _payloads(self, job) -> list[dict]:
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.metrics.get_producer"
+        ) as mock_producer_cls:
+            emit_data_import_app_metrics(job)
+        return [call.kwargs["data"] for call in mock_producer_cls.return_value.produce.call_args_list]
+
+    def test_a_run_without_destinations_is_attributed_to_the_warehouse(self) -> None:
+        job = _make_job(status=ExternalDataJob.Status.COMPLETED)
+
+        payloads = self._payloads(job)
+
+        assert len(payloads) == 6
+        assert {p["instance_id"] for p in payloads} == {
+            str(job.schema_id),
+            f"{job.schema_id}/warehouse-destination",
+            "warehouse-destination",
+        }
+        self.mock_get_warehouse_destination.assert_called_once_with(job.team_id)
+
+    def test_a_warehouse_destination_lookup_error_keeps_schema_metrics(self) -> None:
+        self.mock_get_warehouse_destination.side_effect = RuntimeError("database unavailable")
+        job = _make_job(status=ExternalDataJob.Status.COMPLETED)
+
+        payloads = self._payloads(job)
+
+        assert len(payloads) == 2
+        assert {p["instance_id"] for p in payloads} == {str(job.schema_id)}
+
+    def test_each_destination_repeats_the_metrics_under_its_own_instance_id(self) -> None:
+        job = _make_job(status=ExternalDataJob.Status.COMPLETED, destination_ids=["dest-a", "dest-b"])
+
+        payloads = self._payloads(job)
+
+        # Two per instance: the terminal status and the row count.
+        assert len(payloads) == 10
+        assert {p["instance_id"] for p in payloads} == {
+            str(job.schema_id),
+            f"{job.schema_id}/dest-a",
+            f"{job.schema_id}/dest-b",
+            "dest-a",
+            "dest-b",
+        }
+
+    def test_a_destination_is_queryable_without_naming_a_schema(self) -> None:
+        # The source-level surfaces want one series per destination across every table, and the
+        # API filters instance_id by equality.
+        job = _make_job(status=ExternalDataJob.Status.COMPLETED, destination_ids=["dest-a"])
+
+        rows = [p for p in self._payloads(job) if p["instance_id"] == "dest-a"]
+
+        assert [(p["metric_name"], p["count"]) for p in rows] == [("succeeded", 1), ("rows_synced", 1234)]
+        assert {p["app_source_id"] for p in rows} == {str(job.pipeline_id)}
+
+    def test_the_schema_scoped_rows_are_unchanged_by_destinations(self) -> None:
+        # The number a chart already shows must not move because a destination was added.
+        job_without = _make_job(status=ExternalDataJob.Status.COMPLETED)
+        without = [p for p in self._payloads(job_without) if p["instance_id"] == str(job_without.schema_id)]
+        job_with = _make_job(status=ExternalDataJob.Status.COMPLETED, destination_ids=["dest-a"])
+        with_destination = [p for p in self._payloads(job_with) if p["instance_id"] == str(job_with.schema_id)]
+
+        assert [(p["metric_kind"], p["metric_name"], p["count"]) for p in with_destination] == [
+            (p["metric_kind"], p["metric_name"], p["count"]) for p in without
+        ]
+
+    def test_destination_rows_reuse_the_existing_metric_names(self) -> None:
+        # metric_name is LowCardinality on a table several products share, so a destination id
+        # must never end up in it.
+        job = _make_job(status=ExternalDataJob.Status.COMPLETED, destination_ids=["dest-a"])
+
+        payloads = self._payloads(job)
+
+        assert {p["metric_name"] for p in payloads} == {"succeeded", "rows_synced"}
+        assert {p["metric_kind"] for p in payloads} == {"success", "rows"}
+
+    def test_a_run_with_no_rows_still_records_the_destination_outcome(self) -> None:
+        job = _make_job(status=ExternalDataJob.Status.FAILED, rows_synced=0, destination_ids=["dest-a"])
+
+        payloads = self._payloads(job)
+
+        assert [(p["instance_id"], p["metric_name"]) for p in payloads] == [
+            (str(job.schema_id), "failed"),
+            (f"{job.schema_id}/dest-a", "failed"),
+            ("dest-a", "failed"),
+        ]
+
+
+class TestEmitDataImportAppMetrics(WarehouseDestinationFallbackTestCase):
     @parameterized.expand(
         [
             (ExternalDataJob.Status.COMPLETED, "success", "succeeded"),
@@ -53,7 +165,7 @@ class TestEmitDataImportAppMetrics(TestCase):
             emit_data_import_app_metrics(job)
 
         produce_calls = mock_producer.produce.call_args_list
-        assert len(produce_calls) == 2
+        assert len(produce_calls) == 6
 
         status_payload = produce_calls[0].kwargs["data"]
         assert produce_calls[0].kwargs["topic"] == KAFKA_APP_METRICS2
@@ -83,7 +195,7 @@ class TestEmitDataImportAppMetrics(TestCase):
         status_calls = [
             call for call in mock_producer.produce.call_args_list if call.kwargs["data"]["metric_kind"] == "failure"
         ]
-        assert len(status_calls) == 2
+        assert len(status_calls) == 6
         assert all(call.kwargs["data"]["metric_name"] == "billing_limited" for call in status_calls)
 
     @parameterized.expand(
@@ -102,8 +214,8 @@ class TestEmitDataImportAppMetrics(TestCase):
             emit_data_import_app_metrics(job)
 
         produce_calls = mock_producer.produce.call_args_list
-        assert len(produce_calls) == 1
-        assert produce_calls[0].kwargs["data"]["metric_kind"] == "success"
+        assert len(produce_calls) == 3
+        assert all(call.kwargs["data"]["metric_kind"] == "success" for call in produce_calls)
 
     def test_non_terminal_status_emits_nothing(self):
         job = _make_job(status=ExternalDataJob.Status.RUNNING)
@@ -132,7 +244,7 @@ class TestEmitDataImportAppMetrics(TestCase):
         frozen_now = dt.datetime(2026, 4, 15, 9, 0, 0, tzinfo=dt.UTC)
 
         with (
-            freeze_time(frozen_now),
+            time_machine.travel(frozen_now, tick=False),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.metrics.get_producer"
             ) as mock_producer_cls,

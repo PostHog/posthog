@@ -231,6 +231,7 @@ export interface InputsItemApi {
     value?: unknown
     templating?: HogFunctionTemplatingEnumApi
     readonly bytecode: readonly unknown[]
+    readonly bytecode_contract: string
     readonly order: number
     readonly transpiled: unknown
 }
@@ -249,6 +250,7 @@ export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
  * * `site_app` - Site App
  * * `transformation` - Transformation
  * * `transformation_log` - Transformation Log
+ * * `legacy_destination` - Legacy Destination
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -261,6 +263,7 @@ export const HogFunctionTypeEnumApi = {
     SiteApp: 'site_app',
     Transformation: 'transformation',
     TransformationLog: 'transformation_log',
+    LegacyDestination: 'legacy_destination',
 } as const
 
 /**
@@ -281,6 +284,13 @@ export const HogFunctionTypeEnumApi = {
  * * `non_failure_status_codes` - non_failure_status_codes
  * * `customer_analytics_account_properties` - customer_analytics_account_properties
  * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
+ * * `task_model` - task_model
+ * * `task_repository` - task_repository
+ * * `task_mcp_installations` - task_mcp_installations
+ * * `signals_scout` - signals_scout
+ * * `posthog_survey` - posthog_survey
+ * * `task_skills` - task_skills
+ * * `replay_vision_scan` - replay_vision_scan
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -302,6 +312,13 @@ export const InputsSchemaItemTypeEnumApi = {
     NonFailureStatusCodes: 'non_failure_status_codes',
     CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
     CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
+    TaskModel: 'task_model',
+    TaskRepository: 'task_repository',
+    TaskMcpInstallations: 'task_mcp_installations',
+    SignalsScout: 'signals_scout',
+    PosthogSurvey: 'posthog_survey',
+    TaskSkills: 'task_skills',
+    ReplayVisionScan: 'replay_vision_scan',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -327,16 +344,20 @@ export interface InputsSchemaItemApi {
 
 /**
  * * `events` - events
+ * * `internal-events` - internal-events
  * * `person-updates` - person-updates
  * * `data-warehouse-table` - data-warehouse-table
+ * * `data-warehouse-view` - data-warehouse-view
  */
 export type HogFunctionFiltersSourceEnumApi =
     (typeof HogFunctionFiltersSourceEnumApi)[keyof typeof HogFunctionFiltersSourceEnumApi]
 
 export const HogFunctionFiltersSourceEnumApi = {
     Events: 'events',
+    InternalEvents: 'internal-events',
     PersonUpdates: 'person-updates',
     DataWarehouseTable: 'data-warehouse-table',
+    DataWarehouseView: 'data-warehouse-view',
 } as const
 
 export type HogFunctionFiltersApiActionsItem = { [key: string]: unknown }
@@ -357,6 +378,7 @@ export interface HogFunctionFiltersApi {
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
+    bytecode_contract?: string
 }
 
 export interface HogFunctionMaskingApi {
@@ -380,9 +402,9 @@ export interface HogFunctionMaskingApi {
 export type MappingsApiInputs = { [key: string]: InputsItemApi }
 
 export interface MappingsApi {
-    name?: string
     inputs_schema?: InputsSchemaItemApi[]
     inputs?: MappingsApiInputs
+    name?: string
     filters?: HogFunctionFiltersApi
 }
 
@@ -397,7 +419,8 @@ export interface HogFunctionApi {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
-     * * `transformation_log` - Transformation Log */
+     * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -486,7 +509,8 @@ export interface PatchedHogFunctionApi {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
-     * * `transformation_log` - Transformation Log */
+     * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -640,6 +664,7 @@ export interface HogFunctionPublishResponseApi {
  * * `running` - running
  * * `succeeded` - succeeded
  * * `failed` - failed
+ * * `canceled` - canceled
  */
 export type HogInvocationRerunFilterStatusEnumApi =
     (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
@@ -648,6 +673,7 @@ export const HogInvocationRerunFilterStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
+    Canceled: 'canceled',
 } as const
 
 /**
@@ -662,6 +688,11 @@ export interface HogInvocationRerunFilterApi {
     status?: HogInvocationRerunFilterStatusEnumApi[]
     /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
     error_kind?: string[]
+    /**
+     * Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind).
+     * @maxLength 200
+     */
+    error_message_contains?: string
     /**
      * Skip invocations that have already been attempted this many times or more.
      * @minimum 1
@@ -734,6 +765,21 @@ export interface HogFunctionRevisionRestoreRequestApi {
     overwrite?: boolean
 }
 
+export interface HogFunctionMaskedSecretApi {
+    /** ID of the hog function. */
+    id: string
+    /** Name of the hog function. */
+    name: string
+    /** Hog function type, for example 'destination'. */
+    type: string
+    /** Whether the hog function is enabled. */
+    enabled: boolean
+    /** Keys of the live secret inputs to enter again. Only keys are returned, never values. */
+    input_keys: string[]
+    /** Keys of the staged draft's secret inputs to enter again. Only keys are returned. */
+    draft_input_keys: string[]
+}
+
 /**
  * Map of hog function UUIDs to their new execution_order values.
  */
@@ -758,11 +804,11 @@ export const PluginLogEntrySourceEnumApi = {
 } as const
 
 /**
- * * `DEBUG` - DEBUG
- * * `LOG` - LOG
- * * `INFO` - INFO
- * * `WARN` - WARN
- * * `ERROR` - ERROR
+ * * `DEBUG` - Debug
+ * * `LOG` - Log
+ * * `INFO` - Info
+ * * `WARN` - Warn
+ * * `ERROR` - Error
  */
 export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
 
@@ -864,6 +910,11 @@ export type HogFunctionsLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -904,12 +955,12 @@ export type HogFunctionsMetricsRetrieveParams = {
      */
     interval?: HogFunctionsMetricsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
@@ -966,12 +1017,12 @@ export type HogFunctionsMetricsTotalsRetrieveParams = {
      */
     interval?: HogFunctionsMetricsTotalsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
@@ -1007,14 +1058,50 @@ export type HogFunctionsRevisionsListParams = {
 
 export type PluginConfigsLogsListParams = {
     /**
-     * Number of results to return per page.
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Maximum number of log entries to return (1-1000, default 100).
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number
     /**
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     */
+    search?: string
+    /**
+     * Log types to include. Repeat the parameter to include more than one type.
+     */
+    type_filter?: PluginConfigsLogsListTypeFilterItem[]
 }
+
+/**
+ * * `DEBUG` - Debug
+ * * `LOG` - Log
+ * * `INFO` - Info
+ * * `WARN` - Warn
+ * * `ERROR` - Error
+ */
+export type PluginConfigsLogsListTypeFilterItem =
+    (typeof PluginConfigsLogsListTypeFilterItem)[keyof typeof PluginConfigsLogsListTypeFilterItem]
+
+export const PluginConfigsLogsListTypeFilterItem = {
+    Debug: 'DEBUG',
+    Log: 'LOG',
+    Info: 'INFO',
+    Warn: 'WARN',
+    Error: 'ERROR',
+} as const
 
 export type PublicHogFunctionTemplatesListParams = {
     /**

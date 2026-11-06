@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .MCPPreview {
     --mcp-preview-accent: var(--empty-state-accent, var(--color-primary-500));
 
@@ -56,12 +58,6 @@
         color: var(--color-text-primary);
     }
 
-    &__chip img {
-        width: 12px;
-        height: 12px;
-        object-fit: contain;
-    }
-
     &__listening {
         display: flex;
         gap: 0.5rem;
@@ -98,15 +94,10 @@
         width: 20px;
         height: 20px;
         padding: 2px;
+        color: var(--color-text-primary);
         background: var(--color-bg-surface-secondary);
         border: 1px solid var(--color-border-primary);
         border-radius: 5px;
-    }
-
-    &__logo img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
     }
 
     &__tool {
@@ -129,15 +120,6 @@
     }
 }
 
-// Third-party brand marks (Cursor, OpenAI) are near-black with transparent backgrounds,
-// so on the default dark surface plate they disappear. In dark mode give the plate a light
-// backing — the tooltip surface resolves light-on-dark — so the logos stay legible. Light
-// mode is already a light plate, so it's left as-is.
-[theme='dark'] .MCPPreview__logo {
-    background: var(--color-bg-surface-tooltip);
-    border-color: color-mix(in oklab, var(--color-black) 12%, transparent);
-}
-
 // The radios stay keyboard-focusable even while visually hidden, so the chip they
 // label needs a visible focus indicator (WCAG 2.4.7).
 #mcp-preview-all:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--all,
@@ -153,9 +135,10 @@
 #mcp-preview-claude:checked ~ .MCPPreview__chips .MCPPreview__chip--claude,
 #mcp-preview-cursor:checked ~ .MCPPreview__chips .MCPPreview__chip--cursor,
 #mcp-preview-openai:checked ~ .MCPPreview__chips .MCPPreview__chip--openai {
-    color: var(--mcp-preview-accent);
     background: color-mix(in oklab, var(--mcp-preview-accent) 12%, transparent);
     border-color: color-mix(in oklab, var(--mcp-preview-accent) 45%, transparent);
+
+    @include preview-accent-text(var(--mcp-preview-accent));
 }
 
 // Picking a client dims the rows that don't belong to it.
@@ -240,10 +223,7 @@
         margin-top: 0.875rem;
     }
 
-    &__clients img {
-        width: 16px;
-        height: 16px;
-        object-fit: contain;
+    &__clients svg {
         opacity: 0.85;
     }
 
@@ -253,14 +233,11 @@
         transition: opacity 150ms ease;
     }
 
-    &__code img {
-        width: 16px;
-        height: 16px;
-        object-fit: contain;
+    &__code svg {
         opacity: 0.85;
     }
 
-    &__code:hover img {
+    &__code:hover svg {
         opacity: 1;
     }
 

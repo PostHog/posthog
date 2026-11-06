@@ -5,11 +5,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableVisualization } from '~/queries/nodes/DataVisualization/DataVisualization'
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { initKeaTests } from '../init'
+import { setupInsightMocks, type SetupMocksOptions } from './mocks'
 
 export const DATA_VIZ_TEST_KEY = 'sql-test-harness'
 
@@ -34,26 +35,27 @@ export function buildHogQLResponse({ columns, types, results }: DataVizFixture):
     } as HogQLQueryResponse
 }
 
-export function buildDataVisualizationQuery(overrides?: Partial<DataVisualizationNode>): DataVisualizationNode {
+export function buildDataVisualizationQuery(overrides?: Partial<VisualizationNode>): VisualizationNode {
     return {
-        kind: NodeKind.DataVisualizationNode,
         source: {
             kind: NodeKind.HogQLQuery,
             query: 'SELECT month, pageviews FROM events GROUP BY month ORDER BY month',
         },
         display: ChartDisplayType.ActionsLineGraph,
         ...overrides,
+        kind: NodeKind.DataVisualizationNode,
     }
 }
 
 export interface RenderDataVisualizationProps {
-    query?: DataVisualizationNode
+    query?: VisualizationNode
     /** Row-major fixture, fed in via `cachedResults` to skip the network. */
     response: DataVizFixture
     featureFlags?: Record<string, string | boolean>
     readOnly?: boolean
     embedded?: boolean
-    context?: QueryContext<DataVisualizationNode>
+    context?: QueryContext<VisualizationNode>
+    mocks?: SetupMocksOptions
 }
 
 /** Mount a SQL insight (`DataVisualizationNode`) the way the real scene does — through
@@ -69,6 +71,8 @@ export function renderDataVisualization(props: RenderDataVisualizationProps): Re
     const ffLogic = featureFlagLogic()
     ffLogic.mount()
     ffLogic.actions.setFeatureFlags(Object.keys(featureFlags), featureFlags)
+
+    setupInsightMocks(props.mocks)
 
     const cachedResults = buildHogQLResponse(props.response)
 

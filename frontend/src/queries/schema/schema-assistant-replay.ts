@@ -22,6 +22,8 @@ export interface MaxRecordingUniversalFilters {
     order_direction?: RecordingsQuery['order_direction']
     /** How many recordings the user requested to use. Skip if user did not indicate preference. */
     limit?: RecordingsQuery['limit']
+    /** Pin the result to specific recordings by their session id, e.g. the ones just summarized. `$session_id` is not a session property, so it cannot be filtered on in `filter_group`. */
+    session_ids?: RecordingsQuery['session_ids']
 }
 
 export type MaxOuterUniversalFiltersGroup = {
@@ -52,6 +54,8 @@ export interface MaxRecordingEventFilter {
     name?: string
     /** Optional property filters for this event only. */
     properties?: AssistantPropertyFilter[]
+    /** Set to true to match sessions that did NOT contain this event. Only set it when the tool description says excluding sessions by event is supported. */
+    negation?: boolean
 }
 
 export type MaxUniversalFilterValue =

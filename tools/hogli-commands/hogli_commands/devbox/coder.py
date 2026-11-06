@@ -11,6 +11,7 @@ import re
 import csv
 import sys
 import json
+import time
 import shlex
 import base64
 import shutil
@@ -21,16 +22,25 @@ import threading
 import subprocess
 import webbrowser
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
 import click
 import requests
+from hogli import telemetry
+from hogli.cli import send_completion_before_exec
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-_TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
+_TAILSCALE_RUNBOOK_URL = "https://wiki.posthog.com/access/vpn#which-tailnet"
+# The only tailnet that routes to devboxes. PostHog also runs per-environment
+# tailnets (dev, prod-us, prod-eu, internal) for CI runners and subnet routers;
+# none of them reach the Coder control plane. Tailscale only asks which tailnet
+# to join at first sign-in, so someone who picked wrong there stays wrong
+# silently and forever -- worth naming as its own diagnosis.
+EXPECTED_TAILNET = "posthog.com"
 DEFAULT_TEMPLATE = "posthog-linux"
 # Newer coder versions added an interactive "Select a preset" prompt to `coder
 # create` that `--yes` does not bypass. Callers must always forward `--preset`
@@ -41,9 +51,13 @@ NO_PRESET = "none"
 # from a prebuild warm pool (a Coder premium feature). Pass `--preset <name>` to
 # select a template preset explicitly where one is defined.
 DEFAULT_PRESET = NO_PRESET
+# Coder applies the active template version only when a workspace starts, never
+# to a running one, so template fixes reach a box without rebuilding it mid-run.
+AUTOMATIC_UPDATES_ARGS = ("--automatic-updates", "always")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
+REMOTE_REPO_PATH = "/home/coder/posthog"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
@@ -60,8 +74,8 @@ AUTO_START_APP_PARAMETER = "auto_start_app"
 # Create-time region selector. The template defines `workspace_region` with a
 # us-east-1 default; eu-central-1 became a valid option when the EU
 # infrastructure went live. The value is immutable after creation, so it is
-# forwarded on `coder create` only -- never on `coder update` or the pre-start
-# parameter sync. Coder carries an immutable parameter's value forward on its
+# forwarded on `coder create` only, never on `coder update`. Coder carries an
+# immutable parameter's value forward on its
 # own during an update and *rejects* any explicit `--parameter
 # workspace_region=` with "parameter is immutable and cannot be updated". The
 # option-change re-prompt that no flag can bypass only applies to *mutable*
@@ -94,10 +108,9 @@ _RESERVED_LABEL_SUFFIXES: tuple[str, ...] = tuple(s for s in REGION_NAME_SUFFIXE
 
 # Per-user Coder secret holding the SSH public key used to sign commits inside
 # workspaces. Injected as the POSTHOG_GIT_SIGNING_KEY env var on every workspace
-# start (including coder task runs); the workspace template reads it to populate
-# user.signingkey. The matching private key never leaves 1Password. The `GIT_`
-# prefix is reserved by Coder, so the workspace-side env name cannot start with
-# it.
+# start; the workspace template reads it to populate user.signingkey. The
+# matching private key never leaves 1Password. The `GIT_` prefix is reserved by
+# Coder, so the workspace-side env name cannot start with it.
 GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 
 
@@ -119,9 +132,15 @@ class CoderUserInfo(dict[str, str]):
     """Normalized subset of Coder user fields used by hogli."""
 
 
-def _fail(message: str) -> NoReturn:
-    """Print a short actionable error and exit."""
+def _fail(message: str, *, cause: str | None = None) -> NoReturn:
+    """Print a short actionable error and exit.
+
+    ``cause`` is a stable slug recorded on the command's telemetry event.
+    Without it every distinct failure reads as one undifferentiated error.
+    """
     click.echo(click.style(message, fg="red"))
+    if cause:
+        telemetry.add_command_properties(devbox_failure_cause=cause)
     raise SystemExit(1)
 
 
@@ -212,9 +231,17 @@ def _resolve_coder(args: list[str]) -> list[str]:
     return args
 
 
-def _run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+def _run(
+    args: list[str], *, capture_output: bool = False, timeout: float | None = None
+) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent text handling."""
-    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True)
+    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout)
+
+
+def _execvp(file: str, args: list[str]) -> NoReturn:
+    """Replace the current process, sending hogli's command telemetry first."""
+    send_completion_before_exec()
+    os.execvp(file, args)
 
 
 def _run_or_exit(args: list[str]) -> None:
@@ -222,7 +249,7 @@ def _run_or_exit(args: list[str]) -> None:
     resolved = _resolve_coder(args)
     coder_path = resolved[0] if resolved else shutil.which("coder")
     if coder_path:
-        os.execvp(coder_path, resolved)
+        _execvp(coder_path, resolved)
 
     sys.exit(_run(args).returncode)
 
@@ -299,8 +326,7 @@ def _run_with_param_retry(
     Coder validates ``--parameter`` keys client-side before any provisioning
     starts, so retrying after a `parameter "X" is not present in the
     template` error is cheap and safe. All other failures bubble up
-    unchanged. Used by every write path that forwards parameters (`coder
-    create`, `coder update`) so callers never have to know which keys the
+    unchanged, so `coder create` callers never have to know which keys the
     chosen template happens to accept.
     """
     remaining = dict(parameters)
@@ -314,6 +340,20 @@ def _run_with_param_retry(
         dropped = match.group(1)
         click.echo(click.style(f"Template doesn't accept '{dropped}', retrying without it.", fg="yellow"))
         del remaining[dropped]
+
+
+# AWS error code when an availability zone has no free capacity for the requested instance type.
+_CAPACITY_ERROR = "InsufficientInstanceCapacity"
+
+
+class CapacityShortage(SystemExit):
+    """A build failed because AWS had no capacity for the box's instance type in its zone."""
+
+
+def _exit_for_failed_build(returncode: int, output: str) -> NoReturn:
+    if _CAPACITY_ERROR in output:
+        raise CapacityShortage(returncode or 1)
+    raise SystemExit(returncode or 1)
 
 
 def _resolve_tailscale() -> str | None:
@@ -353,10 +393,34 @@ def _tailscale_status() -> dict[str, Any] | None:
         return None
 
 
+def _backend_running(status: dict[str, Any] | None) -> bool:
+    """Return whether a `tailscale status --json` blob reports a live backend."""
+    return bool(status and status.get("BackendState") == "Running")
+
+
+def _tailnet_name(status: dict[str, Any] | None) -> str | None:
+    """Return the active tailnet's name from a `tailscale status --json` blob."""
+    current_tailnet = (status or {}).get("CurrentTailnet")
+    if not isinstance(current_tailnet, dict):
+        return None
+    name = current_tailnet.get("Name")
+    return name if isinstance(name, str) and name else None
+
+
 def tailscale_connected() -> bool:
     """Check if Tailscale is running and connected."""
+    return _backend_running(_tailscale_status())
+
+
+def tailscale_state() -> tuple[bool, str | None]:
+    """Return ``(connected, tailnet name)`` from a single `tailscale status` probe.
+
+    Bundled because each `_tailscale_status()` call is a subprocess, and the
+    two facts are always reported next to each other. The name is ``None``
+    when Tailscale is down or the blob does not name a tailnet.
+    """
     status = _tailscale_status()
-    return bool(status and status.get("BackendState") == "Running")
+    return _backend_running(status), _tailnet_name(status)
 
 
 def _tailscale_install_hint() -> str:
@@ -386,6 +450,21 @@ def _tailscale_cli_missing_on_macos() -> bool:
     return sys.platform == "darwin" and shutil.which("tailscale") is None and os.path.isfile(_MACOS_TAILSCALE_CLI)
 
 
+def _tailnet_switch_hint() -> str:
+    """Return the command for moving to the PostHog tailnet.
+
+    On macOS the GUI is how most people signed in, and `tailscale` is often
+    not on PATH at all -- so name the app-bundle CLI there instead.
+    """
+    cli = _MACOS_TAILSCALE_CLI if _tailscale_cli_missing_on_macos() else "tailscale"
+    return (
+        f"`{cli} switch {EXPECTED_TAILNET}` if you have signed into it before, "
+        f"otherwise `{cli} logout && {cli} login` and pick {EXPECTED_TAILNET} "
+        "at the tailnet picker (in the GUI: Add account, sign in, select "
+        f"{EXPECTED_TAILNET})."
+    )
+
+
 def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     """Fail fast when the host is not connected to a Tailscale tailnet.
 
@@ -402,7 +481,8 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "Tailscale is not installed.\n"
             f"  {_tailscale_install_hint()}\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} for joining the PostHog tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_installed",
         )
 
     # CLI is resolvable, but the daemon is not running -- the user needs to
@@ -417,14 +497,16 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "  To use the CLI from your shell, symlink it once:\n"
             f"    sudo ln -sfn {_MACOS_TAILSCALE_CLI} /usr/local/bin/tailscale\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_connected_cli_missing",
         )
 
     _fail(
         "Tailscale is installed but not connected.\n"
         f"  {_tailscale_connect_hint()}\n"
         f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-        f"  Then {setup_hint}"
+        f"  Then {setup_hint}",
+        cause="tailscale_not_connected",
     )
 
 
@@ -443,14 +525,21 @@ def _tailscale_routes_accepted() -> bool:
     return not any(_ACCEPT_ROUTES_HEALTH_FRAGMENT in (msg or "") for msg in health)
 
 
-def ensure_tailscale_routes_accepted() -> None:
-    """Enable Tailscale subnet route acceptance when peers advertise routes."""
+def ensure_tailscale_routes_accepted() -> bool:
+    """Enable Tailscale subnet route acceptance when peers advertise routes.
+
+    Returns whether this call enabled it.
+    """
     if _tailscale_routes_accepted():
-        return
+        return False
+
+    # The fix below is silent, so without this the number of hosts that land
+    # here stays unknowable.
+    telemetry.add_command_properties(devbox_routes_were_off=True)
 
     tailscale_path = _resolve_tailscale()
     if not tailscale_path:
-        return
+        return False
 
     click.echo("Enabling Tailscale subnet routes (required for devbox access)...")
     cmd = [tailscale_path, "set", "--accept-routes"]
@@ -460,17 +549,26 @@ def ensure_tailscale_routes_accepted() -> None:
     result = subprocess.run(cmd, env=_tailscale_env(tailscale_path))
     if result.returncode != 0:
         manual = "tailscale set --accept-routes" if sys.platform == "darwin" else "sudo tailscale set --accept-routes"
-        _fail(f"Failed to enable Tailscale subnet routes. Run manually: {manual}")
+        _fail(
+            f"Failed to enable Tailscale subnet routes. Run manually: {manual}",
+            cause="accept_routes_failed",
+        )
+    return True
+
+
+def _probe_coder(timeout: float = 5.0) -> requests.Response | None:
+    """Return the response from /api/v2/buildinfo, or None when no response arrives."""
+    coder_url = get_coder_url()
+    try:
+        return requests.get(f"{coder_url}/api/v2/buildinfo", timeout=timeout)
+    except requests.RequestException:
+        return None
 
 
 def coder_reachable(timeout: float = 5.0) -> bool:
     """Return whether the Coder deployment responds on /api/v2/buildinfo."""
-    coder_url = get_coder_url()
-    try:
-        resp = requests.get(f"{coder_url}/api/v2/buildinfo", timeout=timeout)
-    except requests.RequestException:
-        return False
-    return resp.ok
+    resp = _probe_coder(timeout)
+    return resp is not None and resp.ok
 
 
 @dataclass(frozen=True)
@@ -481,8 +579,12 @@ class CoderReachabilityDiagnosis:
     fix rather than a list of commands the user has to interpret. ``facts``
     is a short list of diagnostic data (tailnet name, resolved IP, peer
     health) that is safe to share verbatim when asking for help.
+
+    ``code`` is the same cause as a stable slug. ``cause`` interpolates
+    hostnames and peer names, so it cannot be grouped on.
     """
 
+    code: str
     cause: str
     next_step: str
     facts: list[str]
@@ -527,26 +629,39 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     status = _tailscale_status()
     tailnet_name: str | None = None
     if status:
-        current_tailnet = status.get("CurrentTailnet")
-        if isinstance(current_tailnet, dict):
-            name = current_tailnet.get("Name")
-            if isinstance(name, str) and name:
-                tailnet_name = name
-                facts.append(f"Tailscale tailnet: {name}")
-        if tailnet_name is None:
-            facts.append("Tailscale tailnet: <unknown>")
+        tailnet_name = _tailnet_name(status)
+        facts.append(f"Tailscale tailnet: {tailnet_name or '<unknown>'}")
     else:
         facts.append("Tailscale status: unavailable")
+
+    # Checked before DNS and TCP because every downstream probe fails the same
+    # way from the wrong tailnet, and their fixes (MagicDNS, the ACL grant)
+    # would all be red herrings.
+    if tailnet_name is not None and tailnet_name != EXPECTED_TAILNET:
+        return CoderReachabilityDiagnosis(
+            code="wrong_tailnet",
+            cause=f"Signed into the '{tailnet_name}' tailnet, not '{EXPECTED_TAILNET}'.",
+            next_step=(
+                f"Devboxes only exist on '{EXPECTED_TAILNET}' — the other tailnets are for CI "
+                f"runners and subnet routers. Switch: {_tailnet_switch_hint()} "
+                f"Details: {_TAILSCALE_RUNBOOK_URL}"
+            ),
+            facts=facts,
+        )
 
     resolved_ip = _resolve_host_ip(host)
     if resolved_ip is None:
         facts.append(f"DNS for {host}: failed")
         return CoderReachabilityDiagnosis(
+            code="dns_lookup_failed",
             cause=f"DNS lookup for {host} failed.",
             next_step=(
-                "MagicDNS may be off or you may be on the wrong tailnet. "
-                "Verify the tailnet name above is PostHog's, then run "
-                "`sudo tailscale up --accept-dns`."
+                "MagicDNS is probably off — turn on 'Use Tailscale DNS' in the "
+                "client, or run `sudo tailscale up --accept-dns`. If it is "
+                "already on, a stale router/ISP resolver is the usual culprit: "
+                "add 8.8.8.8 or 1.1.1.1 to this machine's DNS settings. Do not "
+                "reach for an exit node — devboxes are reached as tailnet peers, "
+                "so it only slows everything down and hides the real cause."
             ),
             facts=facts,
         )
@@ -555,6 +670,7 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     if _tcp_reachable(host, 443):
         facts.append(f"TCP {host}:443: open")
         return CoderReachabilityDiagnosis(
+            code="https_probe_failed",
             cause=f"TCP to {host}:443 works but the HTTPS probe failed.",
             next_step=(
                 "The Coder deployment may be restarting, or your system clock "
@@ -591,12 +707,13 @@ def _diagnose_blocked_route(
 
     if not routers:
         return CoderReachabilityDiagnosis(
+            code="no_subnet_routes_advertised",
             cause="No peer on your tailnet advertises subnet routes.",
             next_step=(
-                "Either you are not on the PostHog tailnet (check the name "
-                "above), or your account has not been added to the Tailscale "
-                f"policy yet. See {_TAILSCALE_RUNBOOK_URL} for the policy "
-                "request flow, then reach out to Team DevEx with the facts below."
+                f"Either you are not on the '{EXPECTED_TAILNET}' tailnet (check "
+                "the name above), or your account is outside `group:employees` "
+                f"in the Tailscale policy. See {_TAILSCALE_RUNBOOK_URL} for both, "
+                "then reach out to Team DevEx with the facts below."
             ),
             facts=facts,
         )
@@ -604,6 +721,7 @@ def _diagnose_blocked_route(
     if not online_routers:
         names = ", ".join(str(p.get("HostName") or "?") for p in routers)
         return CoderReachabilityDiagnosis(
+            code="subnet_router_offline",
             cause=f"Subnet router peer is offline ({names}).",
             next_step=(
                 "Wait a minute and retry. If it stays offline, reach out to Team DevEx — the relay likely needs a bounce."
@@ -612,18 +730,19 @@ def _diagnose_blocked_route(
         )
 
     return CoderReachabilityDiagnosis(
+        code="tcp_blocked",
         cause="TCP is blocked despite an online subnet router on your tailnet.",
         next_step=(
             "A non-Tailscale VPN or a local firewall is likely intercepting, "
-            "or the Tailscale policy does not grant your account devbox "
-            f"access. Disable other VPNs and see {_TAILSCALE_RUNBOOK_URL} to "
-            "confirm policy membership, or reach out to Team DevEx."
+            "or your account is outside `group:employees` in the Tailscale "
+            f"policy. Disable other VPNs and see {_TAILSCALE_RUNBOOK_URL}, or "
+            "reach out to Team DevEx."
         ),
         facts=facts,
     )
 
 
-def ensure_coder_reachable() -> None:
+def ensure_coder_reachable(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     """Fail fast with a structured diagnosis when the Coder ALB is unreachable.
 
     Tailscale reporting ``BackendState=Running`` with ``--accept-routes`` does
@@ -631,8 +750,19 @@ def ensure_coder_reachable() -> None:
     and packets still blackhole. Probe the API directly, and on failure pick
     the single most-likely cause + next step instead of dumping a list of
     commands the engineer has to interpret themselves.
+
+    The Tailscale checks run only when the probe gets no response. A host
+    inside the Coder network, such as a devbox, reaches the API without
+    Tailscale, and accepting a subnet route that covers its own network sends
+    local traffic through the tailnet and disconnects its workspace agent. An
+    error response proves the network path works, so Tailscale is not the cause.
     """
-    if coder_reachable():
+    resp = _probe_coder()
+    if resp is None:
+        ensure_tailscale_connected(setup_hint)
+        if ensure_tailscale_routes_accepted():
+            resp = _probe_coder()
+    if resp is not None and resp.ok:
         return
 
     diagnosis = _diagnose_unreachable_coder()
@@ -647,7 +777,7 @@ def ensure_coder_reachable() -> None:
             *(f"  - {fact}" for fact in diagnosis.facts),
         ]
     )
-    _fail(body)
+    _fail(body, cause=diagnosis.code)
 
 
 def _encode_ssh_option(value: str) -> str:
@@ -785,6 +915,49 @@ def _install_coder_cli(*, verbose: bool = False) -> None:
         _fail(f"Coder CLI install reported success but {managed} is missing.\nTry manually: {cmd}")
 
 
+_USER_BIN_DIRS = (Path.home() / ".local" / "bin", Path.home() / "bin")
+
+
+def _display_path(path: Path) -> str:
+    home = Path.home()
+    return f"~/{path.relative_to(home)}" if path.is_relative_to(home) else str(path)
+
+
+def coder_command_hint() -> str:
+    """Return how the user can run the Coder CLI from their own shell."""
+    if shutil.which("coder"):
+        return "coder"
+    return _display_path(_MANAGED_CODER_DIR / "coder")
+
+
+def ensure_coder_on_path() -> None:
+    """Link the managed Coder CLI into a user bin directory on PATH so `coder` runs in the user's shell.
+
+    hogli runs the binary from ~/.hogli/bin by full path, which isn't on PATH,
+    so commands the user runs themselves (like `coder login`) aren't found.
+    """
+    managed = _MANAGED_CODER_DIR / "coder"
+    if not managed.is_file() or shutil.which("coder"):
+        return
+
+    path_entries = {Path(entry).expanduser() for entry in os.environ.get("PATH", "").split(os.pathsep) if entry}
+    for bin_dir in _USER_BIN_DIRS:
+        link = bin_dir / "coder"
+        if bin_dir not in path_entries or not bin_dir.is_dir() or link.is_symlink() or link.exists():
+            continue
+        try:
+            link.symlink_to(managed)
+        except OSError:
+            continue
+        click.echo(f"  Linked `coder` into {_display_path(bin_dir)} so you can run it yourself.")
+        return
+
+    click.echo(
+        f"  To run `coder` yourself, add {_display_path(_MANAGED_CODER_DIR)} to your PATH:\n"
+        '    export PATH="$HOME/.hogli/bin:$PATH"'
+    )
+
+
 def ensure_coder_installed(*, verbose: bool = False) -> None:
     """Install the Coder CLI at the expected version, or reinstall on mismatch."""
     if not coder_installed():
@@ -830,9 +1003,17 @@ def ensure_coder_authenticated() -> None:
         return
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
+    if not sys.stdin.isatty():
+        # `coder login` asks for a token pasted from the browser and fails with
+        # "paste token prompt: EOF" when stdin isn't a terminal.
+        _fail(
+            "Coder login needs you to paste a token, and this shell can't take input.\n"
+            f"  Run `{coder_command_hint()} login {coder_url}` in a terminal, then run `hogli devbox:setup` again.",
+            cause="coder_login_needs_terminal",
+        )
     click.echo(f"Logging in to {coder_url}...")
     result = _run(["coder", "login", coder_url])
     if result.returncode != 0:
@@ -840,16 +1021,14 @@ def ensure_coder_authenticated() -> None:
 
 
 def ensure_runtime_ready() -> None:
-    """Verify runtime prerequisites without mutating host setup."""
-    ensure_tailscale_connected()
-    ensure_tailscale_routes_accepted()
+    """Verify runtime prerequisites, failing with the setup hint instead of installing or logging in."""
     ensure_coder_reachable()
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
+        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
 
     _warn_version_mismatch()
 
@@ -1024,18 +1203,25 @@ def get_default_workspace_prefix() -> str:
     return f"{_WORKSPACE_PREFIX}-{get_username()}"
 
 
-def _list_workspaces() -> list[dict[str, Any]]:
+def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return raw workspace payloads from the Coder CLI."""
-    result = _run(["coder", "list", "--output", "json"], capture_output=True)
+    return _fetch_workspaces(timeout=timeout) or []
+
+
+def _fetch_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]] | None:
+    try:
+        result = _run(["coder", "list", "--output", "json"], capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
     if result.returncode != 0:
-        return []
+        return None
 
     try:
         workspaces = json.loads(result.stdout)
     except json.JSONDecodeError:
-        return []
+        return None
 
-    return workspaces if isinstance(workspaces, list) else []
+    return workspaces if isinstance(workspaces, list) else None
 
 
 def extract_workspace_label(workspace_name: str) -> str | None:
@@ -1078,8 +1264,16 @@ def region_from_workspace_name(workspace_name: str) -> str:
 
 def list_user_workspaces() -> list[dict[str, Any]]:
     """Return all workspaces belonging to the current user with the devbox prefix."""
+    return fetch_user_workspaces() or []
+
+
+def fetch_user_workspaces() -> list[dict[str, Any]] | None:
+    """Like ``list_user_workspaces``, but ``None`` when Coder could not list workspaces."""
+    workspaces = _fetch_workspaces()
+    if workspaces is None:
+        return None
     prefix = get_default_workspace_prefix()
-    return [ws for ws in _list_workspaces() if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
+    return [ws for ws in workspaces if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
 def get_workspace(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
@@ -1187,10 +1381,9 @@ def resolve_template_preset(template: str, requested: str) -> str:
 
 
 def _start_app_param(start_app: bool | None) -> dict[str, str]:
-    """Map the tri-state --start-app flag to a parameter dict (empty = leave as-is).
+    """Map the tri-state --start-app flag to a creation parameter dict.
 
-    ``None`` (flag omitted) returns ``{}`` so the value stays sticky on an
-    existing workspace and falls back to the template default on creation.
+    ``None`` (flag omitted) returns ``{}`` so creation uses the template default.
     ``True``/``False`` are written explicitly so the choice survives even if the
     template default changes.
     """
@@ -1201,7 +1394,7 @@ def _start_app_param(start_app: bool | None) -> dict[str, str]:
 
 def create_workspace(
     name: str,
-    disk_size: int,
+    disk_size: int | None,
     git_name: str | None = None,
     git_email: str | None = None,
     dotfiles_uri: str | None = None,
@@ -1233,10 +1426,11 @@ def create_workspace(
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
-        DISK_SIZE_PARAMETER: str(disk_size),
         "repo": repo,
         WORKSPACE_REGION_PARAMETER: region,
     }
+    if disk_size is not None:
+        parameters[DISK_SIZE_PARAMETER] = str(disk_size)
     if git_name:
         parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:
@@ -1255,11 +1449,12 @@ def create_workspace(
         "--preset",
         resolved_preset,
         "--use-parameter-defaults",
+        *AUTOMATIC_UPDATES_ARGS,
         "--yes",
     ]
     result = _run_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 # A metadata read over ssh is near-instant; keep the ceiling tight so a wedged
@@ -1351,6 +1546,7 @@ def clone_workspace(
             "--preset",
             NO_PRESET,
             "--use-parameter-defaults",
+            *AUTOMATIC_UPDATES_ARGS,
             "--yes",
         ],
         {
@@ -1377,7 +1573,59 @@ def start_workspace(name: str, *, verbose: bool = False) -> None:
     """Start a stopped workspace."""
     result = _run_build(["coder", "start", name, "--yes"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
+
+
+# Must exceed the longest blocking startup script timeout in the posthog-linux
+# template, so that Coder reports `start_timeout` itself before this gives up.
+AGENT_READY_TIMEOUT = 960
+AGENT_READY_POLL_INTERVAL = 3
+_AGENT_START_FAILED_STATES = frozenset({"start_error", "start_timeout"})
+_AGENT_SHUTDOWN_STATES = frozenset({"shutting_down", "shutdown_error", "shutdown_timeout", "off"})
+# A build that is not starting or running lists no agents, so its agent states
+# alone never end the wait.
+_BUILD_STOPPED_STATUSES = frozenset({"stopping", "stopped", "canceling", "canceled", "deleting", "deleted"})
+
+
+def _agents(workspace: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        agent
+        for resource in workspace.get("latest_build", {}).get("resources", [])
+        for agent in resource.get("agents") or []
+    ]
+
+
+def wait_for_agent_ready(name: str, *, timeout: int = AGENT_READY_TIMEOUT) -> str:
+    """Block until the workspace's startup scripts finish, so "started" means usable.
+
+    Returns the state that ended the wait: ``ready``, a Coder lifecycle state
+    (``start_error``, ``start_timeout``), ``build_failed``, ``stopped`` when the
+    box shut down, ``agent_timeout`` when the agent never connected,
+    ``unavailable`` when `coder list` did not return the box, or ``wait_timeout``.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        workspace = get_workspace(name, _list_workspaces(timeout=deadline - time.monotonic()))
+        if workspace is None:
+            return "wait_timeout" if time.monotonic() >= deadline else "unavailable"
+        build_status = get_workspace_status(workspace)
+        if build_status == "failed":
+            return "build_failed"
+        if build_status in _BUILD_STOPPED_STATUSES:
+            return "stopped"
+        agents = _agents(workspace)
+        states = {str(agent.get("lifecycle_state", "")) for agent in agents}
+        if states == {"ready"}:
+            return "ready"
+        if failed := sorted(states & _AGENT_START_FAILED_STATES):
+            return failed[0]
+        if states & _AGENT_SHUTDOWN_STATES:
+            return "stopped"
+        if any(agent.get("status") == "timeout" for agent in agents):
+            return "agent_timeout"
+        if time.monotonic() >= deadline:
+            return "wait_timeout"
+        time.sleep(AGENT_READY_POLL_INTERVAL)
 
 
 def stop_workspace(name: str, *, verbose: bool = False) -> None:
@@ -1388,49 +1636,179 @@ def stop_workspace(name: str, *, verbose: bool = False) -> None:
 
 
 def restart_workspace(name: str, *, verbose: bool = False) -> None:
-    """Restart a running workspace."""
-    result = _run_build(["coder", "restart", name, "--yes"], verbose=verbose)
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
+    """Restart a running workspace.
 
-
-def update_workspace(
-    name: str,
-    parameters: dict[str, str] | None = None,
-    *,
-    verbose: bool = False,
-) -> None:
-    """Update a workspace to the latest template version.
-
-    ``--use-parameter-defaults`` lets coder fall back to the template's own
-    defaults for any parameter not explicitly supplied here, so we never
-    need a hogli-side defaults dict. Parameters carried over from a
-    previous template (e.g. a saved ``dotfiles_uri`` that the new template
-    does not declare) are dropped by the retry shim instead of aborting
-    the update.
+    With automatic updates on, a restart of an outdated workspace is a template
+    update, and Coder prompts for any new parameter. ``_run_build`` captures the
+    output, so the prompt would hang unseen; ``--use-parameter-defaults`` takes
+    the template default instead.
     """
-    base_args = ["coder", "update", name, "--use-parameter-defaults"]
-    result = _run_with_param_retry(base_args, parameters or {}, verbose=verbose)
+    result = _run_build(["coder", "restart", name, "--use-parameter-defaults", "--yes"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
+
+
+def update_workspace(name: str, *, verbose: bool = False) -> None:
+    """Update a workspace to the latest template version and start it.
+
+    ``--use-parameter-defaults`` fills any parameter the new template version
+    adds with its default instead of prompting behind the spinner.
+    """
+    result = _run_build(["coder", "update", name, "--use-parameter-defaults"], verbose=verbose)
+    if result.returncode != 0:
+        _exit_for_failed_build(result.returncode, result.stdout)
+    # `coder update` only streams the build logs, so it exits 0 when the build fails.
+    workspace = get_workspace(name)
+    if workspace is not None and get_workspace_status(workspace) == "failed":
+        if not verbose:
+            click.echo(click.style("Build failed. Full output:", fg="red"))
+            click.echo(result.stdout, nl=False)
+        _exit_for_failed_build(1, result.stdout)
+
+
+# Mutable template parameter. A change to it changes the type of the same EC2
+# instance, so the box keeps its disk.
+INSTANCE_TYPE_PARAMETER = "instance_type"
+BUILD_WAIT_TIMEOUT = 3600
+BUILD_POLL_INTERVAL = 3
+_BUILD_DONE_JOB_STATUSES = frozenset({"succeeded", "failed", "canceled"})
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _FinishedBuild:
+    job_status: str
+    log_output: str
+
+
+class _CoderApi:
+    """The Coder REST API, called as the user and on the deployment the Coder CLI is logged into.
+
+    The Coder CLI cannot change a mutable parameter on an existing workspace,
+    because it resolves the value to the last build's after any ``--parameter``
+    flag (cli/parameterresolver.go). The build API takes a provided value
+    first, as the Coder dashboard does.
+    """
+
+    def __init__(self) -> None:
+        whoami = _run(["coder", "whoami", "-o", "json"], capture_output=True)
+        if whoami.returncode != 0:
+            _fail(f"Could not read your Coder login. {RUNTIME_SETUP_HINT}", cause="coder_login_unreadable")
+        self._base_url = f"{json.loads(whoami.stdout)[0]['url'].rstrip('/')}/api/v2"
+        self._headers = {"Coder-Session-Token": self._session_token()}
+
+    @staticmethod
+    def _session_token() -> str:
+        # The CLI authenticates with CODER_SESSION_TOKEN when it is set, but
+        # `coder login token` prints only the stored login (cli/login.go).
+        if token := os.environ.get("CODER_SESSION_TOKEN"):
+            return token
+        stored = _run(["coder", "login", "token"], capture_output=True)
+        if stored.returncode != 0:
+            _fail(f"Could not read your Coder login. {RUNTIME_SETUP_HINT}", cause="coder_login_unreadable")
+        return stored.stdout.strip()
+
+    def request(self, method: str, path: str, *, body: dict[str, Any] | None = None) -> Any:
+        try:
+            response = requests.request(method, f"{self._base_url}{path}", headers=self._headers, json=body, timeout=30)
+        except requests.RequestException as error:
+            _fail(f"Could not reach Coder: {error}", cause="coder_api_unreachable")
+        if not response.ok:
+            _fail(f"Coder rejected {method} {path}: {response.text}", cause="coder_api_rejected")
+        return response.json()
+
+    def poll(self, path: str) -> Any | None:
+        """GET ``path``, returning None on a network error or a 5xx so the caller polls again."""
+        try:
+            response = requests.request("GET", f"{self._base_url}{path}", headers=self._headers, json=None, timeout=30)
+        except requests.RequestException:
+            return None
+        if response.status_code >= 500:
+            return None
+        if not response.ok:
+            _fail(f"Coder rejected GET {path}: {response.text}", cause="coder_api_rejected")
+        return response.json()
+
+    def instance_type(self, build_id: str) -> str | None:
+        parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
+        return next((p["value"] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), None)
+
+    def instance_type_options(self, template_version_id: str) -> list[str]:
+        parameters = self.request("GET", f"/templateversions/{template_version_id}/rich-parameters")
+        return next(
+            ([o["value"] for o in p["options"]] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), []
+        )
+
+    def start_on_instance_type(self, workspace_id: str, instance_type: str) -> _FinishedBuild:
+        """Start the workspace on ``instance_type`` and wait for the build to finish."""
+        build = self.request(
+            "POST",
+            f"/workspaces/{workspace_id}/builds",
+            body={
+                "transition": "start",
+                "rich_parameter_values": [{"name": INSTANCE_TYPE_PARAMETER, "value": instance_type}],
+            },
+        )
+        deadline = time.monotonic() + BUILD_WAIT_TIMEOUT
+        while (status := build["job"]["status"]) not in _BUILD_DONE_JOB_STATUSES:
+            if time.monotonic() >= deadline:
+                _fail(f"The devbox build did not finish within {BUILD_WAIT_TIMEOUT}s.", cause="build_wait_timeout")
+            time.sleep(BUILD_POLL_INTERVAL)
+            build = self.poll(f"/workspacebuilds/{build['id']}") or build
+        if status == "succeeded":
+            return _FinishedBuild(job_status=status, log_output="")
+        logs = self.request("GET", f"/workspacebuilds/{build['id']}/logs")
+        # A job that fails outside Terraform, such as a lost provisioner, has its cause only in job.error.
+        output = "".join(f"{log['output']}\n" for log in logs) + (build["job"].get("error") or "")
+        return _FinishedBuild(job_status=status, log_output=output)
+
+
+def run_with_capacity_fallback(name: str, build: Callable[[], None]) -> None:
+    """Run a start build, and on a capacity shortage start the box on the template's other instance types.
+
+    EC2 capacity runs out per availability zone and instance type, so another
+    type in the same zone usually has room. The box stays on the type that
+    started, and a later shortage on it moves the box on again.
+    """
+    try:
+        build()
+        return
+    except CapacityShortage:
+        pass
+
+    workspace = get_workspace(name)
+    if workspace is None:
+        raise SystemExit(1)
+    api = _CoderApi()
+    failed_build = workspace["latest_build"]
+    failed_type = api.instance_type(failed_build["id"])
+    options = api.instance_type_options(failed_build["template_version_id"])
+    if failed_type is None or not options:
+        raise SystemExit(1)
+
+    for instance_type in [option for option in options if option != failed_type]:
+        click.echo(
+            click.style(
+                f"AWS has no {failed_type} capacity in the devbox's availability zone. Starting it on {instance_type}...",
+                fg="yellow",
+            )
+        )
+        attempt = api.start_on_instance_type(workspace["id"], instance_type)
+        if attempt.job_status == "succeeded":
+            return
+        if _CAPACITY_ERROR not in attempt.log_output:
+            click.echo(click.style("Build failed. Full output:", fg="red"))
+            click.echo(attempt.log_output, nl=False)
+            raise SystemExit(1)
+        failed_type = instance_type
+    _fail(
+        f"AWS has no capacity in the devbox's availability zone for any of {', '.join(options)}. Try again later.",
+        cause="capacity_exhausted",
+    )
 
 
 def delete_workspace(name: str, *, verbose: bool = False) -> None:
     """Delete a workspace."""
     result = _run_build(["coder", "delete", name, "--yes"], verbose=verbose)
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
-
-
-def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
-    """Update mutable workspace parameters.
-
-    Goes through the same retry shim as ``create_workspace`` so a stale
-    local config key (for example, a saved ``dotfiles_uri`` after the user
-    switches templates) does not abort the pre-start sync.
-    """
-    base_args = ["coder", "update", name, "--use-parameter-defaults"]
-    result = _run_with_param_retry(base_args, parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -1499,7 +1877,7 @@ def ssh_replace(name: str) -> None:
     The wildcard ``Host coder.*`` block written by ``coder config-ssh`` keeps
     the Coder tunnel via its ``ProxyCommand``.
     """
-    os.execvp("ssh", ["ssh", _ssh_host_alias(name)])
+    _execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
 def exec_replace(name: str, command: list[str]) -> None:
@@ -1519,7 +1897,21 @@ def exec_replace(name: str, command: list[str]) -> None:
     shell preserves argument boundaries -- ssh otherwise space-joins argv,
     which would split a token like ``"uname -sm"`` back into two.
     """
-    os.execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+    _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+
+
+def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    """Run one command in the workspace like :func:`exec_replace`, but capture its result.
+
+    For callers that must act on the remote exit code and output instead of
+    handing the terminal over to the command.
+    """
+    return subprocess.run(
+        ["ssh", _ssh_host_alias(name), shlex.join(command)],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
 
 
 def coder_ssh_alias_configured(name: str) -> bool:
@@ -1559,32 +1951,6 @@ def logs_replace(name: str, follow: bool) -> None:
     _run_or_exit(args)
 
 
-def create_task(
-    prompt: str | None,
-    *,
-    task_name: str | None = None,
-    quiet: bool = False,
-    template: str = DEFAULT_TEMPLATE,
-) -> None:
-    """Create a Coder task on the given workspace template.
-
-    When ``prompt`` is None, ``--stdin`` is passed so coder reads the prompt
-    from the parent process's stdin; otherwise it is forwarded as the
-    positional input argument. Execs into the coder CLI so stdin, stdout,
-    and the exit code flow through unchanged.
-    """
-    args = ["coder", "task", "create", "--template", template]
-    if task_name:
-        args += ["--name", task_name]
-    if quiet:
-        args.append("--quiet")
-    if prompt is None:
-        args.append("--stdin")
-    else:
-        args.append(prompt)
-    _run_or_exit(args)
-
-
 def open_in_browser(name: str) -> None:
     """Open the workspace dashboard in the default browser."""
     username = get_username()
@@ -1601,7 +1967,7 @@ def open_cursor(name: str) -> None:
     cursor = shutil.which("cursor")
     if not cursor:
         _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
-    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
+    _execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", REMOTE_REPO_PATH])
 
 
 def open_web_ide(name: str) -> None:

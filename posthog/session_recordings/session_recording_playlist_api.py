@@ -2,7 +2,7 @@ import json
 import builtins
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
@@ -19,26 +19,27 @@ from drf_spectacular.utils import OpenApiParameter
 from opentelemetry import trace
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.schema import RecordingsQuery
 
 from posthog.api.documentation import extend_schema
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.paging import Page, PageRequest
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.redis import get_client
+from posthog.session_recordings.data_retention import retention_period_in_days
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
     current_user_viewed,
@@ -52,6 +53,12 @@ from posthog.session_recordings.synthetic_playlists import (
     get_synthetic_playlist,
 )
 from posthog.utils import relative_date_parse
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -78,16 +85,16 @@ class PlaylistPageSplit:
     db_items: builtins.list[SessionRecordingPlaylist]
 
 
-@dataclass(frozen=True)
-class PaginationLinks:
-    next_link: Optional[str]
-    previous_link: Optional[str]
-
-
-class SessionRecordingPlaylistPagination(LimitOffsetPagination):
+class SessionRecordingPlaylistPagination(FacadeLimitOffsetPagination):
     default_limit = 100
     max_limit = PLAYLIST_LIST_MAX_LIMIT
 
+
+# Built-in (synthetic) collections have no DB row and derive their contents per request,
+# so recordings cannot be pinned to them. Guard the write paths with a clear message.
+SYNTHETIC_PLAYLIST_ADD_ERROR = (
+    "This is a built-in collection, so you can't add recordings to it. Create your own collection to save recordings."
+)
 
 DEFAULT_PLAYLIST_ORDER = "-last_modified_at"
 # Orders the list endpoint supports. An unrecognised `order` normalises to the
@@ -122,21 +129,6 @@ def playlist_name_sort_key(playlist: SessionRecordingPlaylist) -> str:
     return (playlist.name or playlist.derived_name or "").lower()
 
 
-def parse_non_negative_int(value: Any, default: int) -> int:
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return default
-
-
-def parse_positive_int(value: Any, default: int) -> int:
-    """Like parse_non_negative_int but rejects 0. A limit of 0 makes the paginator's
-    next link point back at the same offset — an infinite-paging loop — so non-positive
-    input falls back to the default, matching DRF's LimitOffsetPagination."""
-    parsed = parse_non_negative_int(value, default)
-    return parsed if parsed > 0 else default
-
-
 def create_synthetic_playlist_instance(
     synthetic_def: SyntheticPlaylistDefinition, team: Team, user: User
 ) -> SessionRecordingPlaylist:
@@ -166,18 +158,20 @@ def create_synthetic_playlist_instance(
     return instance
 
 
+def live_playlist_items(
+    items: QuerySet[SessionRecordingPlaylistItem], team: Team
+) -> QuerySet[SessionRecordingPlaylistItem]:
+    cutoff = now() - timedelta(days=retention_period_in_days(team.session_recording_retention_period))
+    return items.exclude(deleted=True).exclude(recording__start_time__lt=cutoff)
+
+
 def count_collection_recordings(
     playlist: SessionRecordingPlaylist, user: User, team: Team
 ) -> dict[str, int | bool | None]:
-    playlist_items: QuerySet[SessionRecordingPlaylistItem] = playlist.playlist_items.exclude(deleted=True)
-    watched_playlist_items = current_user_viewed(
-        list(playlist.playlist_items.values_list("recording_id", flat=True)),
-        user,
-        team,
-    )
+    session_ids = list(live_playlist_items(playlist.playlist_items.all(), team).values_list("recording_id", flat=True))
 
-    item_count = playlist_items.count()
-    watched_count = len(watched_playlist_items)
+    item_count = len(session_ids)
+    watched_count = len(current_user_viewed(session_ids, user, team))
 
     return {
         "count": item_count if item_count > 0 else None,
@@ -325,20 +319,14 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
     # Defense-in-depth: the current caller (`list()`) passes team-scoped playlists
     # from `safely_get_queryset`, but filtering here keeps the helper safe if it's
     # ever reused by a caller that does not pre-scope.
-    base_qs = SessionRecordingPlaylistItem.objects.filter(
-        playlist_id__in=playlist_ids,
-        playlist__team_id=team.id,
+    base_qs = live_playlist_items(
+        SessionRecordingPlaylistItem.objects.filter(playlist_id__in=playlist_ids, playlist__team_id=team.id), team
     )
 
-    # Counts via SQL aggregation — avoids materializing non-deleted rows when we
-    # only need the count. Matches `.exclude(deleted=True)` semantics on the
-    # nullable BooleanField (both True=excluded, False/NULL=included).
     counts_by_playlist: dict[int, int] = dict(
-        base_qs.exclude(deleted=True).values("playlist_id").annotate(c=Count("id")).values_list("playlist_id", "c")
+        base_qs.values("playlist_id").annotate(c=Count("id")).values_list("playlist_id", "c")
     )
 
-    # Separate scan for session_ids — includes soft-deleted rows to preserve the
-    # watched-count semantics of the pre-change count_collection_recordings.
     session_ids_by_playlist: dict[int, list[str]] = defaultdict(list)
     for playlist_id, session_id in base_qs.values_list("playlist_id", "recording_id"):
         if session_id is not None:
@@ -441,6 +429,13 @@ def log_playlist_activity(
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     recordings_counts = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    # Not a model column.
+    creation_method = serializers.ChoiceField(
+        choices=["new", "pin", "duplicate"],
+        required=False,
+        write_only=True,
+        help_text="How the PostHog app created the playlist, for product analytics. Not stored.",
+    )
     is_synthetic = serializers.SerializerMethodField()
     name = serializers.CharField(
         max_length=400,
@@ -492,6 +487,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             "type",
             "is_synthetic",
             "_create_in_folder",
+            "creation_method",
         ]
         read_only_fields = [
             "id",
@@ -548,11 +544,31 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
         return recordings_counts
 
+    def validate_filters(self, value: Any) -> Any:
+        experiment_exposure = value.get("experiment_exposure") if isinstance(value, dict) else None
+        experiment_id = experiment_exposure.get("experiment_id") if isinstance(experiment_exposure, dict) else None
+        if isinstance(experiment_id, int):
+            # Deferred: the experiments facade package imports posthog.api on init, which
+            # circles back into this module through the API router registration.
+            from products.experiments.backend.facade.replay import validate_experiment_exposure_access  # noqa: PLC0415
+
+            try:
+                validate_experiment_exposure_access(
+                    self.context["get_team"](), self.context["request"].user, experiment_id
+                )
+            except UserAccessControlError:
+                raise ValidationError(
+                    "These filters reference an experiment you don't have access to. "
+                    "Ask for access to the experiment to save them."
+                )
+        return value
+
     def create(self, validated_data: dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
         team = self.context["get_team"]()
 
         created_by = validated_data.pop("created_by", request.user)
+        creation_method = validated_data.pop("creation_method", None)
         playlist_type = validated_data.pop("type", None)
         if not playlist_type or playlist_type not in ["collection", "filters"]:
             raise ValidationError("Must provide a valid playlist type: either filters or collection")
@@ -581,6 +597,17 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             user=self.context["request"].user,
             was_impersonated=is_impersonated(self.context["request"]),
         )
+        report_user_action(
+            user=cast(User, request.user),
+            event="recording playlist created",
+            properties={
+                "playlist_id": playlist.short_id,
+                "playlist_type": playlist.type,
+                "creation_method": creation_method,
+            },
+            team=team,
+            request=request,
+        )
 
         return playlist
 
@@ -591,6 +618,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
         # type cannot be changed after creation
         validated_data.pop("type", None)
+        validated_data.pop("creation_method", None)
 
         try:
             before_update = SessionRecordingPlaylist.objects.get(pk=instance.id)
@@ -621,8 +649,40 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             was_impersonated=is_impersonated(self.context["request"]),
             changes=changes,
         )
+        report_user_action(
+            user=cast(User, self.context["request"].user),
+            event="recording playlist updated",
+            properties={
+                "playlist_id": updated_playlist.short_id,
+                "playlist_type": updated_playlist.type,
+                "updated_fields": sorted(validated_data.keys()),
+            },
+            team=self.context["get_team"](),
+            request=self.context["request"],
+        )
 
         return updated_playlist
+
+
+class SessionRecordingPlaylistListQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=SessionRecordingPlaylistPagination.default_limit,
+        min_value=0,
+        help_text=f"Number of playlists to return. Defaults to 100, also for 0. Values above {PLAYLIST_LIST_MAX_LIMIT} are capped.",
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of playlists to skip. Defaults to 0."
+    )
+
+
+class SessionRecordingPlaylistRecordingsQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False, default=50, min_value=1, help_text="Number of recordings to return. Defaults to 50."
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of recordings to skip. Defaults to 0."
+    )
 
 
 @extend_schema(tags=["replay"])
@@ -631,6 +691,15 @@ class SessionRecordingPlaylistViewSet(
 ):
     scope_object = "session_recording_playlist"
     scope_object_read_actions = ["list", "retrieve", "recordings"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "modify_recordings",
+        "bulk_add_recordings",
+        "bulk_delete_recordings",
+    ]
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -638,6 +707,14 @@ class SessionRecordingPlaylistViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
+
+    def dangerously_get_required_scopes(self, request: request.Request, view: Any) -> list[str] | None:
+        # Scope parity with the recordings list: a filters playlist's recordings action parses
+        # the same query params into a RecordingsQuery, so the experiment_exposure filter reads
+        # experiment data here too. The result replaces the default, so both are listed.
+        if getattr(view, "action", None) == "recordings" and request.query_params.get("experiment_exposure"):
+            return ["session_recording_playlist:read", "experiment:read"]
+        return None
 
     def safely_get_object(self, queryset: QuerySet) -> SessionRecordingPlaylist:
         """Override to handle synthetic playlists in retrieve actions"""
@@ -676,60 +753,50 @@ class SessionRecordingPlaylistViewSet(
             sorted_synthetics = self._order_playlists(request, filtered_synthetics)
 
         synth_count = len(sorted_synthetics)
-        total_count = db_count + synth_count
-
-        limit = min(parse_positive_int(request.GET.get("limit"), 100), PLAYLIST_LIST_MAX_LIMIT)
-        offset = parse_non_negative_int(request.GET.get("offset"), 0)
-
+        # Bad paging input answers 400 rather than a silent fall back to the first page.
+        SessionRecordingPlaylistListQuerySerializer(data=request.GET).is_valid(raise_exception=True)
         span.set_attribute("team_id", self.team.id)
         span.set_attribute("db_count", db_count)
         span.set_attribute("synth_count", synth_count)
-        span.set_attribute("limit", limit)
-        span.set_attribute("offset", offset)
 
-        # Pair each synthetic with its global rank at the source so the two never
-        # drift, then split the requested window into in-page synthetics + DB slice.
-        with tracer.start_as_current_span("rank_synthetics"):
-            synth_ranks = self._synthetic_global_ranks(request, queryset, db_count, sorted_synthetics)
-            ranked_synthetics = list(zip(synth_ranks, sorted_synthetics))
+        def fetch(page: PageRequest) -> Page[SessionRecordingPlaylist]:
+            span.set_attribute("limit", page.limit)
+            span.set_attribute("offset", page.offset)
 
-        with tracer.start_as_current_span("split_page"):
-            page_split = self._split_page(offset, limit, ranked_synthetics, queryset)
+            # Pair each synthetic with its global rank at the source so the two never
+            # drift, then split the requested window into in-page synthetics + DB slice.
+            with tracer.start_as_current_span("rank_synthetics"):
+                synth_ranks = self._synthetic_global_ranks(request, queryset, db_count, sorted_synthetics)
+                ranked_synthetics = list(zip(synth_ranks, sorted_synthetics))
 
-        with tracer.start_as_current_span("order_combined_page"):
-            combined = self._order_playlists(request, page_split.synthetics + page_split.db_items)
+            with tracer.start_as_current_span("split_page"):
+                page_split = self._split_page(page.offset, page.limit, ranked_synthetics, queryset)
 
-        span.set_attribute("page_size", len(combined))
+            with tracer.start_as_current_span("order_combined_page"):
+                combined = self._order_playlists(request, page_split.synthetics + page_split.db_items)
 
-        # Batch-fetch recording counts for the page to avoid the per-playlist
-        # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
-        # On failure we log and attach empty prefetched attrs so the serializer
-        # short-circuits to default empty counts instead of retrying per-playlist
-        # (which amplifies load during a Redis/DB partial outage).
-        with tracer.start_as_current_span("precompute_recordings_counts"):
-            try:
-                precompute_recordings_counts(combined, cast(User, request.user), self.team)
-            except Exception as e:
-                logger.exception(
-                    "playlist_recordings_counts_precompute_failed",
-                    team_id=self.team.id,
-                    page_size=len(combined),
-                )
-                posthoganalytics.capture_exception(e)
-                _attach_empty_recordings_counts(combined)
+            span.set_attribute("page_size", len(combined))
 
-        with tracer.start_as_current_span("serialize"):
-            results = self.get_serializer(combined, many=True).data
+            # Batch-fetch recording counts for the page to avoid the per-playlist
+            # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
+            # On failure we log and attach empty prefetched attrs so the serializer
+            # short-circuits to default empty counts instead of retrying per-playlist
+            # (which amplifies load during a Redis/DB partial outage).
+            with tracer.start_as_current_span("precompute_recordings_counts"):
+                try:
+                    precompute_recordings_counts(combined, cast(User, request.user), self.team)
+                except Exception as e:
+                    logger.exception(
+                        "playlist_recordings_counts_precompute_failed",
+                        team_id=self.team.id,
+                        page_size=len(combined),
+                    )
+                    posthoganalytics.capture_exception(e)
+                    _attach_empty_recordings_counts(combined)
 
-        links = self._pagination_links(request, total_count, limit, offset)
-        return response.Response(
-            {
-                "count": total_count,
-                "next": links.next_link,
-                "previous": links.previous_link,
-                "results": results,
-            }
-        )
+            return Page(results=combined, count=db_count + synth_count)
+
+        return facade_page_response(self, fetch)
 
     def _split_page(
         self,
@@ -752,17 +819,6 @@ class SessionRecordingPlaylistViewSet(
         db_take = max(0, limit - len(synth_for_page))
         db_items = list(queryset[db_offset : db_offset + db_take]) if db_take > 0 else []
         return PlaylistPageSplit(synthetics=synth_for_page, db_items=db_items)
-
-    def _pagination_links(
-        self, request: request.Request, total_count: int, limit: int, offset: int
-    ) -> "PaginationLinks":
-        """next/previous links over the merged total via a directly-seeded paginator."""
-        paginator = SessionRecordingPlaylistPagination()
-        paginator.count = total_count
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.request = request
-        return PaginationLinks(next_link=paginator.get_next_link(), previous_link=paginator.get_previous_link())
 
     def _synthetic_global_ranks(
         self,
@@ -927,8 +983,10 @@ class SessionRecordingPlaylistViewSet(
         tag_queries(team_id=self.team.id, product=Product.REPLAY, feature=Feature.QUERY)
         playlist = self.get_object()
 
-        limit = int(request.GET.get("limit", 50))
-        offset = int(request.GET.get("offset", 0))
+        paging = SessionRecordingPlaylistRecordingsQuerySerializer(data=request.GET)
+        paging.is_valid(raise_exception=True)
+        limit: int = paging.validated_data["limit"]
+        offset: int = paging.validated_data["offset"]
 
         # Handle synthetic playlists differently
         if getattr(playlist, "_is_synthetic", False):
@@ -947,7 +1005,7 @@ class SessionRecordingPlaylistViewSet(
 
         # For collections, create a minimal query with only session_ids
         if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
-            query = RecordingsQuery(session_ids=playlist_items, date_from="-1y", date_to=None)
+            query = RecordingsQuery(session_ids=playlist_items, date_from="-1y", date_to=None, limit=limit)
         else:
             data_dict = query_as_params_to_dict(request.GET.dict())
             query = RecordingsQuery.model_validate(data_dict)
@@ -973,6 +1031,9 @@ class SessionRecordingPlaylistViewSet(
         **kwargs: Any,
     ) -> response.Response:
         playlist = self.get_object()
+
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError(SYNTHETIC_PLAYLIST_ADD_ERROR)
 
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
@@ -1014,6 +1075,9 @@ class SessionRecordingPlaylistViewSet(
         **kwargs: Any,
     ) -> response.Response:
         playlist = self.get_object()
+
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError(SYNTHETIC_PLAYLIST_ADD_ERROR)
 
         # Get session_recording_ids from request body
         session_recording_ids = request.data.get("session_recording_ids", [])

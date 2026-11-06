@@ -25,14 +25,22 @@ service PersonHogLeader {
   // this RPC is ever called; a leader taking partition ownership rebuilds
   // its map from the live marks before accepting writes. Fencing produces
   // nothing to the changelog and does not advance the version — the
-  // sealed version is the person's current one. While fenced, writes fail
+  // sealed version is the person's current one raised to the leader's
+  // emitted-version floor, covering a pre-fence write whose outcome is
+  // still indeterminate. While fenced, writes fail
   // FAILED_PRECONDITION with an `x-person-fenced` metadata key carrying
-  // the op type; reads are unaffected. Re-fencing with the same op_id
+  // the op type and `x-person-fenced-op-id` carrying the holder's op id;
+  // reads are unaffected. Re-fencing with the same op_id
   // re-seals with fresh state (what makes the saga's seal step safe to
   // repeat); a different op_id is rejected — at most one lifecycle op
   // holds a person. The fence never lapses on a timer: only ReleaseFence
   // (or the op being observed finished) clears it.
   rpc FencePerson(personhog.types.v1.FencePersonRequest) returns (personhog.types.v1.FencePersonResponse);
+
+  // FencePerson for many persons of one op that share one partition:
+  // every person must hash to the routed partition or the whole batch
+  // is refused INVALID_ARGUMENT; a destroyed person lands in not_found.
+  rpc FencePersons(personhog.types.v1.FencePersonsRequest) returns (personhog.types.v1.FencePersonsResponse);
 
   // The closing half of FencePerson. `committed` (the person was
   // destroyed): verify the op against its live mark row — the request
@@ -40,8 +48,12 @@ service PersonHogLeader {
   // holds no live mark is refused FAILED_PRECONDITION (fail closed) —
   // then produce the death document to the changelog — is_deleted =
   // true, version = max(sealed_version, current) + 1 (sealed + 1 per the
-  // RFC; the max is defense in depth until broker producer fencing lands)
-  // — then evict the cache entry and drop the fence. `aborted`: drop the
+  // RFC; the max is defense in depth until broker producer fencing lands),
+  // raised to the request's tombstone_version when that is higher, so the
+  // changelog never relays a live version over the saga's Postgres
+  // tombstone; a tombstone_version at or below sealed_version is refused
+  // INVALID_ARGUMENT with the fence kept — then evict the cache entry and
+  // drop the fence. `aborted`: drop the
   // fence, keep the entry, produce nothing; the person resumes normal
   // life. Idempotent — the request carries everything needed to re-derive
   // the death document, so a restarted leader produces it
@@ -49,6 +61,11 @@ service PersonHogLeader {
   // a mark already settled as deleted absorbs the retry without a second
   // record.
   rpc ReleaseFence(personhog.types.v1.ReleaseFenceRequest) returns (personhog.types.v1.ReleaseFenceResponse);
+
+  // ReleaseFence for many persons of one op that share one partition,
+  // routed and checked like FencePersons; the marks are read in one
+  // query and the death documents share fencing windows.
+  rpc ReleaseFences(personhog.types.v1.ReleaseFencesRequest) returns (personhog.types.v1.ReleaseFencesResponse);
 
   // Internal, saga-runner only. The merge saga's document write: fold the
   // sealed source snapshots into the target person's document under the
@@ -60,10 +77,12 @@ service PersonHogLeader {
   // $set_once fills.
   // Scalars fold as created_at = min(target, sources),
   // is_identified = true, and last_seen_at = max(target, sources); the
-  // version is max(target, max sealed) + 1 — at or above every sealed
-  // source's death document, which derives from the same sealed + 1
-  // (equal when the highest sealed version dominates; the streams are
-  // per-person, so the relation is a convention, not a collision guard).
+  // version is max(target, max sealed) + 1. Each sealed source's death
+  // document derives from the same sealed + 1, so the fold sits at or
+  // above it, and equals it when the highest sealed version dominates.
+  // A source row that moved after its seal raises its death document
+  // above the fold. The streams are per-person, so the relation is a
+  // convention, not a collision guard.
   // Safe under at-least-once delivery: re-applying the same fold on
   // unchanged target state changes no content and only bumps the version.
   // (The standard re-appliable-merge residual applies — see the request's
@@ -77,4 +96,8 @@ service PersonHogLeader {
   // retry goes through once the healer clears it); a destroyed target
   // answers NOT_FOUND.
   rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
+
+  // Consistency repair only. Writes the person's current state at min_version
+  // or above; a person already there gets no write.
+  rpc RaisePersonVersion(personhog.types.v1.RaisePersonVersionRequest) returns (personhog.types.v1.RaisePersonVersionResponse);
 }

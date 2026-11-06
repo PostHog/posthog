@@ -1,11 +1,13 @@
 from collections.abc import Sequence
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.models.organization import OrganizationMembership
 
+from products.approvals.backend.actions.experiment_holdouts import UpdateExperimentHoldoutAction
 from products.approvals.backend.models import ApprovalPolicy
 from products.approvals.backend.policies import PolicyEngine
 
@@ -61,7 +63,7 @@ class TestPolicyEngineBypass(APIBaseTest):
         assert result is expected_bypass
 
     def test_bypass_rbac_role(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(
             organization=self.organization,
@@ -79,7 +81,7 @@ class TestPolicyEngineBypass(APIBaseTest):
         assert result is True
 
     def test_bypass_rbac_role_user_not_in_role(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(
             organization=self.organization,
@@ -98,7 +100,7 @@ class TestPolicyEngineBypass(APIBaseTest):
     def test_bypass_rbac_role_user_has_other_org_role_but_not_bypass_role(self):
         from posthog.models.organization import Organization
 
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         other_org = Organization.objects.create(name="Other Org")
         other_role = Role.objects.create(
@@ -179,7 +181,7 @@ class TestPolicyEngineEvaluateBypass(APIBaseTest):
         assert "bypass" in decision.reason.lower()
 
     def test_evaluate_returns_allow_when_rbac_role_bypass(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(
             organization=self.organization,
@@ -245,7 +247,7 @@ class TestPolicySnapshotBypassFields(APIBaseTest):
         assert decision.policy_snapshot["bypass_org_membership_levels"] == ["8", "15"]
 
     def test_policy_snapshot_includes_bypass_roles(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(
             organization=self.organization,
@@ -282,7 +284,7 @@ class TestPolicySnapshotBypassFields(APIBaseTest):
 
 class TestPolicyEngineActorIsApprover(APIBaseTest):
     def test_actor_is_approver_via_role(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(organization=self.organization, name="Approvers")
         RoleMembership.objects.create(user=self.user, role=role)
@@ -297,7 +299,7 @@ class TestPolicyEngineActorIsApprover(APIBaseTest):
     def test_actor_is_not_approver_when_role_in_other_org(self):
         from posthog.models.organization import Organization
 
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         other_org = Organization.objects.create(name="Other Org")
         role = Role.objects.create(organization=other_org, name="Approvers")
@@ -314,7 +316,7 @@ class TestBypassRolesValidation(APIBaseTest):
     def test_set_bypass_roles_validates_organization(self):
         from posthog.models.organization import Organization
 
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         other_org = Organization.objects.create(name="Other Org")
         role = Role.objects.create(
@@ -337,7 +339,7 @@ class TestBypassRolesValidation(APIBaseTest):
         assert "same organization" in str(context.exception)
 
     def test_set_bypass_roles_accepts_valid_roles(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(
             organization=self.organization,
@@ -358,7 +360,7 @@ class TestBypassRolesValidation(APIBaseTest):
         assert list(policy.bypass_roles.values_list("id", flat=True)) == [role.id]
 
     def test_set_bypass_roles_clears_when_empty(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(
             organization=self.organization,
@@ -378,3 +380,52 @@ class TestBypassRolesValidation(APIBaseTest):
         policy.set_bypass_roles([])
 
         assert policy.bypass_roles.count() == 0
+
+
+class TestHoldoutFallbackPolicySelection(APIBaseTest):
+    """A holdout change is gated as one operation and borrows the policy that would gate its
+    flag writes. Which policy that is depends on how far the organization has moved between
+    families, and reading the wrong one answers from an hourly mirror instead of the live row.
+    """
+
+    def _policy(self, action_key: str) -> ApprovalPolicy:
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [("before_handoff", False, "feature_flag.update"), ("after_handoff", True, "experiment.update")]
+    )
+    def test_the_borrowed_policy_follows_the_rollout(self, _name: str, scoped: bool, expected: str) -> None:
+        self._policy("feature_flag.update")
+        self._policy("experiment.update")
+
+        with patch(
+            "products.approvals.backend.actions.experiment_holdouts.scope_by_owner_enabled",
+            return_value=scoped,
+        ):
+            policy = PolicyEngine().get_policy_for_action(UpdateExperimentHoldoutAction, self.team, self.organization)
+
+        assert policy is not None
+        assert policy.action_key == expected
+
+    def test_the_mirror_is_not_borrowed_before_handoff(self) -> None:
+        """Only the mirror exists, so the holdout change must find no policy rather than it.
+
+        The mirror lags the flag policy by up to an hour, so honouring it here would keep a
+        revoked bypass working until the next sync run.
+        """
+        self._policy("experiment.update")
+
+        with patch(
+            "products.approvals.backend.actions.experiment_holdouts.scope_by_owner_enabled",
+            return_value=False,
+        ):
+            policy = PolicyEngine().get_policy_for_action(UpdateExperimentHoldoutAction, self.team, self.organization)
+
+        assert policy is None

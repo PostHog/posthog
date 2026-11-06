@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -15,6 +18,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
+
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { webScriptsSceneLogic } from './webScriptsSceneLogic'
 
@@ -22,11 +27,13 @@ export const scene: SceneExport = {
     component: WebScriptsScene,
     logic: webScriptsSceneLogic,
     productKey: ProductKey.SITE_APPS,
+    emptyState: webScriptsEmptyState,
 }
 
 export function WebScriptsScene(): JSX.Element {
     const { activeTab } = useValues(webScriptsSceneLogic)
     const { setActiveTab } = useActions(webScriptsSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const action = (
         <Shortcut
@@ -36,16 +43,28 @@ export function WebScriptsScene(): JSX.Element {
             interaction="click"
             scope={Scene.WebScripts}
         >
-            <LemonButton
-                type="primary"
-                to={urls.webScriptsNew()}
-                icon={<IconPlusSmall />}
-                size="small"
-                tooltip="New web script"
-                data-attr="new-web-script"
-            >
-                New web script
-            </LemonButton>
+            {todayRailNav ? (
+                <Button
+                    variant="primary"
+                    render={<LinkPrimitive to={urls.webScriptsNew()} />}
+                    tooltip="New web script"
+                    data-attr="new-web-script"
+                >
+                    <IconPlus />
+                    New web script
+                </Button>
+            ) : (
+                <LemonButton
+                    type="primary"
+                    to={urls.webScriptsNew()}
+                    icon={<IconPlusSmall />}
+                    size="small"
+                    tooltip="New web script"
+                    data-attr="new-web-script"
+                >
+                    New web script
+                </LemonButton>
+            )}
         </Shortcut>
     )
 
@@ -53,7 +72,7 @@ export function WebScriptsScene(): JSX.Element {
         {
             key: 'all',
             label: 'All web scripts',
-            content: <DataPipelinesHogFunctions kind="site_app" action={action} />,
+            content: <DataPipelinesHogFunctions kind="site_app" />,
         },
         {
             key: 'history',

@@ -5,19 +5,22 @@ from unittest.mock import Mock
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
+from parameterized import parameterized
+
+from posthog.api.search import ENTITY_MAP, SEARCHABLE_ENTITIES, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.endpoints.backend.facade.models import Endpoint
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-
-from ee.models.rbac.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 class TestSearch(APIBaseTest):
@@ -79,6 +82,18 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["insight"], 3)
         self.assertEqual(response.json()["counts"]["notebook"], 2)
 
+    def test_archived_feature_flags_are_excluded(self):
+        FeatureFlag.objects.create(
+            key="archived-flag", team=self.team, created_by=self.user, archived=True, active=False
+        )
+
+        response = self.client.get("/api/projects/@current/search?entities=feature_flag")
+
+        self.assertEqual(response.status_code, 200)
+        result_ids = [result["extra_fields"]["key"] for result in response.json()["results"]]
+        self.assertNotIn("archived-flag", result_ids)
+        self.assertEqual(response.json()["counts"]["feature_flag"], 3)
+
     def test_search_filtered_by_entity(self):
         response = self.client.get(
             "/api/projects/@current/search?q=sec&entities=insight&entities=dashboard&entities=notebook"
@@ -89,6 +104,61 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["dashboard"], 1)
         self.assertEqual(response.json()["counts"]["insight"], 1)
         self.assertEqual(response.json()["counts"]["notebook"], 1)
+
+    def test_search_returns_views_and_endpoints_without_internal_views(self):
+        dag = DAG.get_or_create_default(self.team)
+        view = DataWarehouseSavedQuery.objects.create(
+            name="searchable_view",
+            team=self.team,
+            created_by=self.user,
+            origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+            is_materialized=True,
+            deleted=None,
+        )
+        node = Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.MAT_VIEW)
+
+        for name, origin in (
+            ("searchable_endpoint_backing_view", DataWarehouseSavedQuery.Origin.ENDPOINT),
+            ("searchable_managed_view", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
+        ):
+            internal_view = DataWarehouseSavedQuery.objects.create(name=name, team=self.team, origin=origin)
+            Node.objects.create(team=self.team, dag=dag, saved_query=internal_view, type=NodeType.VIEW)
+
+        endpoint = Endpoint.objects.create(
+            name="searchable_endpoint", team=self.team, created_by=self.user, deleted=None
+        )
+
+        deleted_view = DataWarehouseSavedQuery.objects.create(
+            name="searchable_deleted_view", team=self.team, deleted=True
+        )
+        Node.objects.create(team=self.team, dag=dag, saved_query=deleted_view, type=NodeType.VIEW)
+        Endpoint.objects.create(name="searchable_deleted_endpoint", team=self.team, deleted=True)
+
+        response = self.client.get(
+            "/api/projects/@current/search?q=searchable&entities=data_warehouse_view&entities=endpoint"
+        )
+        sorted_results = sorted(response.json()["results"], key=lambda result: result["type"])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            sorted_results,
+            [
+                {
+                    "rank": sorted_results[0]["rank"],
+                    "type": "data_warehouse_view",
+                    "result_id": str(view.id),
+                    "extra_fields": {"name": "searchable_view", "node_id": str(node.id)},
+                    "user_access_level": "manager",
+                },
+                {
+                    "rank": sorted_results[1]["rank"],
+                    "type": "endpoint",
+                    "result_id": str(endpoint.id),
+                    "extra_fields": {"name": "searchable_endpoint"},
+                    "user_access_level": "manager",
+                },
+            ],
+        )
 
     def test_response_format_and_ids(self):
         response = self.client.get(
@@ -155,14 +225,28 @@ class TestSearch(APIBaseTest):
         response = self.client.get("/api/projects/@current/search?q=%21%3A%28%29%5B%5D%26%7C%3C%3E%20str1%20str2")
         self.assertEqual(response.status_code, 200)
 
-    def test_event_definitions(self):
-        EventDefinition.objects.create(name="first event", team=self.team)
-        EventDefinition.objects.create(name="second event", team=self.team)
-        EventDefinition.objects.create(name="third event", team=self.team)
+    @parameterized.expand(
+        [
+            ("prefix", "sec", {"second event"}),
+            ("every word", "first event", {"first event"}),
+            ("some words, as the rank allows", "first event missing", {"first event"}),
+            ("shared word", "event", {"first event", "second event", "third event"}),
+            ("word inside a snake_case name", "view", {"page_view_v2"}),
+            ("dotted capital I folded like the rank", "istanbul", {"İstanbul office"}),
+            ("no match", "missing", set()),
+        ]
+    )
+    def test_event_definitions(self, _name: str, query: str, expected: set[str]) -> None:
+        for name in ("first event", "second event", "third event", "page_view_v2", "İstanbul office"):
+            EventDefinition.objects.create(name=name, team=self.team)
 
-        response = self.client.get("/api/projects/@current/search?q=sec&entities=event_definition")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/projects/@current/search?q={query}&entities=event_definition")
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual({result["extra_fields"]["name"] for result in response.json()["results"]}, expected)
+        definition_sql = next(q["sql"] for q in queries.captured_queries if "posthog_eventdefinition" in q["sql"])
+        self.assertIn("LIKE", definition_sql)
 
     def test_early_access_features(self):
         EarlyAccessFeature.objects.create(name="first feature", team=self.team, stage="beta")
@@ -180,9 +264,9 @@ class TestSearch(APIBaseTest):
         self.assertEqual(results[0]["extra_fields"]["name"], "second feature")
 
     def test_hog_flows(self):
-        HogFlow.objects.create(name="first workflow", team=self.team)
-        HogFlow.objects.create(name="second workflow", team=self.team)
-        HogFlow.objects.create(name="third workflow", team=self.team)
+        create_workflow_for_test(team_id=self.team.id, name="first workflow")
+        create_workflow_for_test(team_id=self.team.id, name="second workflow")
+        create_workflow_for_test(team_id=self.team.id, name="third workflow")
 
         response = self.client.get("/api/projects/@current/search?q=sec&entities=hog_flow")
 
@@ -265,7 +349,7 @@ class TestSearch(APIBaseTest):
 
         with CaptureQueriesContext(connection) as ctx_with:
             search_entities(
-                entities=set(ENTITY_MAP.keys()),
+                entities=set(SEARCHABLE_ENTITIES),
                 query="sec",
                 project_id=self.team.project_id,
                 view=mock_view,
@@ -275,7 +359,7 @@ class TestSearch(APIBaseTest):
 
         with CaptureQueriesContext(connection) as ctx_without:
             search_entities(
-                entities=set(ENTITY_MAP.keys()),
+                entities=set(SEARCHABLE_ENTITIES),
                 query="sec",
                 project_id=self.team.project_id,
                 view=mock_view,
@@ -284,7 +368,8 @@ class TestSearch(APIBaseTest):
             )
 
         assert len(ctx_with) - len(ctx_without) >= 13
-        assert len(ctx_without) == 1
+        # One query for the unioned entities, and one each for the actions and workflows merged in through their facades.
+        assert len(ctx_without) == 3
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):
@@ -401,18 +486,16 @@ class TestSearchAccessLevels(APIBaseTest):
             if result["type"] == entity_type
         }
 
-    def test_blocked_resource_results_are_annotated_none(self):
+    def test_blocked_resource_results_are_hidden_except_own(self):
         FeatureFlag.objects.create(key="searchable-a", team=self.team, created_by=self.other_user)
-        FeatureFlag.objects.create(key="searchable-b", team=self.team, created_by=self.other_user)
+        own = FeatureFlag.objects.create(key="searchable-b", team=self.team, created_by=self.user)
         EventDefinition.objects.create(team=self.team, name="searchable-event")
         AccessControl.objects.create(team=self.team, resource="feature_flag", resource_id=None, access_level="none")
 
         response = self.client.get("/api/projects/@current/search?q=searchable")
 
         assert response.status_code == 200
-        flag_levels = self._levels_by_result_id(response, "feature_flag")
-        assert len(flag_levels) == 2
-        assert set(flag_levels.values()) == {"none"}
+        assert set(self._levels_by_result_id(response, "feature_flag")) == {str(own.id)}
         assert set(self._levels_by_result_id(response, "event_definition").values()) == {None}
 
     def test_object_grants_resolve_by_pk_for_short_id_entities(self):

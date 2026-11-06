@@ -20,7 +20,8 @@ from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 
 
 @pytest.fixture
-def team_stub() -> MagicMock:
+def team_stub(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    monkeypatch.setattr("products.signals.backend.facade.api.finalized_signal_ids", MagicMock(return_value=set()))
     org = MagicMock()
     org.is_ai_data_processing_approved = True
     team = MagicMock()
@@ -46,9 +47,20 @@ SESSION_PROBLEM_EXTRA = {
     ],
 }
 
+# Retired payload shape: one signal per evaluation run. Kept here to pin that it is rejected.
 EVALUATION_EXTRA = {
     "evaluation_id": "eval-001",
     "trace_id": "trace-abc",
+}
+
+EVALUATION_REPORT_EXTRA = {
+    "evaluation_id": "eval-001",
+    "evaluation_name": "Answer grounded in context",
+    "evaluation_description": "Checks that answers cite the retrieved context",
+    "report_id": "report-001",
+    "report_run_id": "report-run-001",
+    "period_start": "2025-06-01T00:00:00Z",
+    "period_end": "2025-06-08T00:00:00Z",
 }
 
 ZENDESK_TICKET_EXTRA = {
@@ -73,15 +85,41 @@ GITHUB_ISSUE_EXTRA = {
 
 @pytest.mark.asyncio
 class TestEmitSignalValidation:
+    @pytest.mark.parametrize("ai_approved, source_enabled", [(False, True), (True, False)])
+    @pytest.mark.parametrize("has_spend_owner", [False, True])
+    async def test_disabled_emission_completes_existing_spend(
+        self, team_stub: MagicMock, ai_approved: bool, source_enabled: bool, has_spend_owner: bool
+    ) -> None:
+        team_stub.organization.is_ai_data_processing_approved = ai_approved
+        signal_id = str(uuid.uuid4()) if has_spend_owner else None
+        with (
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=source_enabled),
+            patch("products.signals.backend.facade.api.complete_signal_pipeline") as complete,
+            patch("products.signals.backend.facade.api.async_connect") as connect,
+        ):
+            await emit_signal(
+                team=team_stub,
+                source_product="zendesk",
+                source_type="ticket",
+                source_id="disabled-source",
+                description="An existing signal cannot enter the disabled pipeline",
+                signal_id=signal_id,
+            )
+        if signal_id:
+            complete.assert_called_once_with(team_id=team_stub.id, signal_id=signal_id, billing_exempt=False)
+        else:
+            complete.assert_not_called()
+        connect.assert_not_called()
+
     @pytest.mark.parametrize(
         "source_product, source_type, extra",
         [
             ("session_replay", "session_problem", SESSION_PROBLEM_EXTRA),
-            ("llm_analytics", "evaluation", EVALUATION_EXTRA),
+            ("llm_analytics", "evaluation_report", EVALUATION_REPORT_EXTRA),
             ("zendesk", "ticket", ZENDESK_TICKET_EXTRA),
             ("github", "issue", GITHUB_ISSUE_EXTRA),
         ],
-        ids=["session_problem", "evaluation", "ticket", "issue"],
+        ids=["session_problem", "evaluation_report", "ticket", "issue"],
     )
     async def test_emit_signal_accepts_valid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()
@@ -116,9 +154,16 @@ class TestEmitSignalValidation:
             ("session_replay", "nonexistent", {}),
             ("github", "issue", {}),
             ("zendesk", "ticket", {**ZENDESK_TICKET_EXTRA, "tags": "not-a-list"}),
-            ("llm_analytics", "evaluation", {**EVALUATION_EXTRA, "bogus": 1}),
+            ("llm_analytics", "evaluation_report", {**EVALUATION_REPORT_EXTRA, "bogus": 1}),
+            ("llm_analytics", "evaluation", EVALUATION_EXTRA),
         ],
-        ids=["unknown_source_type", "missing_extra_fields", "wrong_extra_field_type", "unexpected_extra_field"],
+        ids=[
+            "unknown_source_type",
+            "missing_extra_fields",
+            "wrong_extra_field_type",
+            "unexpected_extra_field",
+            "retired_per_evaluation_run_type",
+        ],
     )
     async def test_emit_signal_rejects_invalid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()
@@ -192,6 +237,7 @@ class TestEmitSignalValidation:
         with (
             patch("products.signals.backend.facade.api.async_connect", return_value=client),
             patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+            patch("products.signals.backend.facade.api.posthoganalytics.capture") as capture,
         ):
             await emit_signal(
                 team=team_stub,
@@ -208,6 +254,11 @@ class TestEmitSignalValidation:
             team_stub.id, "github:issue:notification-1"
         )
         assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+        assert [call.kwargs["event"] for call in capture.call_args_list] == [
+            "signal_emission_started",
+            "signal_data_source_filtered",
+        ]
+        assert capture.call_args_list[1].kwargs["properties"]["filter_reason"] == "duplicate_emission"
 
     @pytest.mark.parametrize("idempotency_key", ["", "   "])
     async def test_emit_signal_rejects_empty_idempotency_keys(self, team_stub, idempotency_key):
@@ -288,6 +339,8 @@ class TestTelemetryPropsFromExtra:
                 "labels": ["bug", "p1"],  # list — dropped
                 "references": [{"queryText": "SELECT * FROM customers"}],  # nested — dropped
                 "time_range": {"date_from": "a", "date_to": "b"},  # dict — dropped
+                "author_login": "octocat",  # identifies a person — dropped
+                "value": '{"private": "customer-authored content"}',  # arbitrary source payload — dropped
             }
         )
         assert props == {"scout_run_id": "run-1", "number": 42, "confidence": 0.9, "locked": False}

@@ -5,18 +5,18 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { BUCKET_FORMAT } from 'lib/utils/timeBuckets'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
+import { HARNESS_BY_LABEL, harnessMark } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
     type BucketRow,
     buildDailyActivity,
     buildKPIs,
-    buildKpiWindow,
     buildToolDailySeries,
     deltaPct,
     mcpDashboardOverviewLogic,
@@ -24,7 +24,6 @@ import {
     type SessionRow,
     type ToolDailyRow,
 } from './mcpDashboardOverviewLogic'
-import { BUCKET_FORMAT } from './timeBuckets'
 
 jest.mock('lib/api')
 jest.mock('./generated/api', () => ({
@@ -47,7 +46,7 @@ function session(overrides: Partial<SessionRow> & { session_id: string }): Sessi
 }
 
 describe('mcpDashboardOverviewLogic', () => {
-    describe('harnessLogo', () => {
+    describe('harnessMark', () => {
         // The expected labels mirror HARNESS_LABELS in mcp_harness.py, minus "Other".
         // If the backend renames or adds a label, update this list to keep it in sync
         // and add the corresponding entry to HARNESS_BY_LABEL in harnessRegistry.ts.
@@ -77,6 +76,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Linear',
             'LibreChat',
             'Pi',
+            'Kimchi',
             'Antigravity',
             'Poke',
             'opencode',
@@ -87,6 +87,15 @@ describe('mcpDashboardOverviewLogic', () => {
 
         it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
             expect(Object.prototype.hasOwnProperty.call(HARNESS_BY_LABEL, label)).toBe(true)
+        })
+
+        it('HARNESS_BY_LABEL has no key the backend does not reserve', () => {
+            // Mirrors MARKED_CLIENT_NAMES in mcp_harness.py. The backend rejects custom harness names
+            // in both lists, because a custom harness with one of these names would lose its icon.
+            const MARKED_CLIENT_NAMES = ['PostHog AI', 'Slack']
+            expect(Object.keys(HARNESS_BY_LABEL).sort()).toEqual(
+                [...EXPECTED_HARNESS_LABELS, ...MARKED_CLIENT_NAMES].sort()
+            )
         })
 
         it.each([
@@ -103,17 +112,24 @@ describe('mcpDashboardOverviewLogic', () => {
             'Manus',
             'LibreChat',
             'Pi',
+            'Kimchi',
             'Antigravity',
-        ])('resolves a logo for the %s category', (category) => {
-            expect(harnessLogo(category)?.src).toBeTruthy()
+            'Anthropic API',
+            'Kiro',
+            'PostHog CLI',
+            'Poke',
+            'Desktop Commander',
+        ])('resolves a brand mark for the %s category', (category) => {
+            expect(harnessMark(category)).not.toEqual('Other harnesses')
         })
 
-        it.each(['Anthropic API', 'Poke', 'Kiro', 'Desktop Commander', 'Other'])(
-            'has no logo for the logo-less %s category',
-            (category) => {
-                expect(harnessLogo(category)).toBeUndefined()
-            }
-        )
+        it.each([
+            ['Other', 'Other harnesses'],
+            ['Unidentified client', 'Unidentified client'],
+            ['A harness with no mark yet', 'Other harnesses'],
+        ])('falls back to a generic mark for %s', (category, expected) => {
+            expect(harnessMark(category)).toEqual(expected)
+        })
     })
 
     describe('deltaPct', () => {
@@ -217,44 +233,6 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(result.successes).toHaveLength(bucketKeys.length)
             expect(result.errors).toHaveLength(bucketKeys.length)
             expect(result.successes).toEqual([0, 5, 0])
-        })
-    })
-
-    describe('buildKpiWindow', () => {
-        it.each([
-            ['2024-01-08', '2024-01-15', 'day', '2024-01-08 00:00:00', '2023-12-31'],
-            ['2024-01-01', '2024-01-31', 'day', '2024-01-01 00:00:00', '2023-12-01'],
-        ])(
-            'extends [%s, %s] back to an equal-length prior window with cutoff at the selected start',
-            (dateFrom, dateTo, interval, expectedCutoff, expectedPriorStart) => {
-                const window = buildKpiWindow({ dateFrom, dateTo }, 'UTC', interval as 'day')
-                expect(window.currentStartBucket).toBe(expectedCutoff)
-                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe(expectedPriorStart)
-            }
-        )
-
-        it('rolls an hour-level range from now and steps the prior window back equally', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:30:00Z'))
-            try {
-                // "-1h" resolves to the trailing hour; prior window is the hour before that.
-                const window = buildKpiWindow({ dateFrom: '-1h', dateTo: null }, 'UTC', 'minute')
-                expect(window.currentStartBucket).toBe('2026-06-18 11:30:00')
-                expect(dayjs(window.dateFrom).toISOString()).toBe('2026-06-18T10:29:00.000Z')
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('resolves the relative -7d default against now', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                const window = buildKpiWindow({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
-                expect(window.currentStartBucket).toBe('2026-06-11 00:00:00')
-                // doubled window: prior 8 day-buckets before the cutoff
-                expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe('2026-06-03')
-            } finally {
-                jest.useRealTimers()
-            }
         })
     })
 
@@ -426,6 +404,49 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
+    describe('model visibility', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+        })
+
+        it.each([
+            { rows: [], visible: false },
+            { rows: [{ model: 'Unknown', total_calls: 12 }], visible: true },
+            { rows: [{ model: 'gpt-5.6-sol', total_calls: 1 }], visible: true },
+            { rows: [{ model: 'claude-sonnet-5', total_calls: 0 }], visible: false },
+        ])('shows model coverage when calls exist: $rows', async ({ rows, visible }) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.loadModelRowsSuccess(rows)
+            expect(logic.values.hasModelData).toBe(visible)
+        })
+    })
+
+    describe('protocol version visibility', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+        })
+
+        it.each([
+            { rows: [], visible: false },
+            { rows: [{ protocol_version: 'Unknown', is_current: false, total_calls: 12 }], visible: true },
+            { rows: [{ protocol_version: '2026-07-28', is_current: true, total_calls: 1 }], visible: true },
+        ])('shows protocol version coverage when any call exists: $rows', async ({ rows, visible }) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.loadProtocolVersionRowsSuccess(rows)
+            expect(logic.values.hasProtocolVersionData).toBe(visible)
+        })
+    })
+
     describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -438,8 +459,8 @@ describe('mcpDashboardOverviewLogic', () => {
         }
 
         // HogQL query nodes carry filters under `.filters`; the typed
-        // MCPHarnessBreakdownQuery node carries dateRange/properties/filterTestAccounts
-        // at the top level. This reads whichever shape a reload used.
+        // Typed MCP breakdown nodes carry dateRange/properties/filterTestAccounts at the
+        // top level. This reads whichever shape a reload used.
         const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
         // The users query returns a single [current_users, prior_users] row; loadUsers maps
@@ -493,11 +514,11 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            // Seven tiles: KPI + users + the five breakdown queries.
-            expect(reloads.length).toBe(7)
-            // The five breakdowns pass the raw selected range straight through.
+            // Nine tiles: KPI + users + the seven breakdown queries.
+            expect(reloads.length).toBe(9)
+            // The seven breakdowns pass the raw selected range straight through.
             const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
-            expect(breakdowns).toHaveLength(5)
+            expect(breakdowns).toHaveLength(7)
             // The KPI and users tiles widen to an absolute doubled window so they can compare against the prior period.
             const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
@@ -521,7 +542,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(7)
+            expect(reloads.length).toBe(9)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
@@ -534,7 +555,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             // No explicit toggle, yet every tile filters internal users because the team default is on.
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
-            expect(reloads.length).toBeGreaterThanOrEqual(7)
+            expect(reloads.length).toBeGreaterThanOrEqual(9)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
         })
 
@@ -544,6 +565,69 @@ describe('mcpDashboardOverviewLogic', () => {
             operator: PropertyOperator.Exact,
             type: PropertyFilterType.Event,
         }
+        it('reloads tiles once when the URL hydrates both shared filters', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.mcpAnalyticsDashboard(), {
+                    properties: [EVENT_FILTER],
+                    filter_test_accounts: true,
+                })
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads).toHaveLength(9)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
+            ).toBe(true)
+        })
+        it('opens a tool report on the dashboard window with the shared filters', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), {
+                properties: [EVENT_FILTER],
+                filter_test_accounts: true,
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openToolReport('search docs')
+
+            const { pathname, searchParams } = router.values.currentLocation
+            expect(pathname.endsWith(urls.mcpAnalyticsTool('search docs'))).toBe(true)
+            expect(searchParams).toEqual({
+                date_from: '-7d',
+                properties: [EVENT_FILTER],
+                filter_test_accounts: true,
+            })
+        })
+        it('reloads tiles once when the URL changes the date and shared filters together', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.mcpAnalyticsDashboard(), {
+                    date_from: '-30d',
+                    properties: [EVENT_FILTER],
+                    filter_test_accounts: true,
+                })
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads).toHaveLength(9)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
+            ).toBe(true)
+            expect(reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')).toHaveLength(7)
+        })
         // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
         const FLAG_FILTER: AnyPropertyFilter = {
             key: '$feature/mcp-new-thing',
@@ -566,34 +650,62 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(7)
+            expect(reloads.length).toBe(9)
             expect(
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
             ).toBe(true)
         })
 
-        it('syncs property filters to the URL and clears the param when emptied', async () => {
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
+        it.each(['date', 'property', 'test accounts'])(
+            'offers feedback after a %s interaction and a successful nonempty refresh',
+            async (filter) => {
+                const populatedResponse = async (
+                    node: Parameters<typeof api.query>[0]
+                ): Promise<{ results: (string | number)[][] }> => ({
+                    results:
+                        'query' in node && typeof node.query === 'string' && node.query.includes('AS bucket')
+                            ? [[dayjs().format('YYYY-MM-DD'), 2, 10, 0, 100]]
+                            : [],
+                })
+                mockApi.query.mockImplementation(populatedResponse)
+                router.actions.push(urls.mcpAnalyticsDashboard(), { date_from: '-14d' })
+                const logic = mcpDashboardOverviewLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.kpis.toolCalls.value).toBe(10)
+                expect(logic.values.canShowFeedback).toBe(false)
 
-            await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([EVENT_FILTER])
-            }).toFinishAllListeners()
-            expect(router.values.searchParams.properties).toEqual([EVENT_FILTER])
+                if (filter === 'date') {
+                    logic.actions.setDateFilter('-30d', null)
+                    logic.actions.markFilterInteraction()
+                } else if (filter === 'property') {
+                    logic.actions.setPropertyFilters([EVENT_FILTER])
+                } else {
+                    logic.actions.setFilterTestAccounts(true)
+                }
+                expect(logic.values.canShowFeedback).toBe(false)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.canShowFeedback).toBe(true)
+                const previousContext = logic.values.feedbackContextKey
 
-            await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([])
-            }).toFinishAllListeners()
-            expect(router.values.searchParams.properties).toBeUndefined()
-        })
+                mockApi.query.mockImplementation(async (node) => {
+                    if (node.kind === 'MCPHarnessBreakdownQuery') {
+                        throw new Error('Example query failure')
+                    }
+                    return populatedResponse(node)
+                })
+                await expectLogic(logic, () => logic.actions.setDateFilter('-7d', null)).toFinishAllListeners()
+                expect(logic.values.feedbackContextKey).toBe(previousContext)
+                expect(logic.values.canShowFeedback).toBe(false)
 
-        it('hydrates property filters from the URL on mount', async () => {
-            router.actions.push(urls.mcpAnalyticsDashboard(), { properties: [EVENT_FILTER] })
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
-        })
+                mockApi.query.mockResolvedValue({ results: [] })
+                await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+                expect(logic.values.canShowFeedback).toBe(false)
+
+                mockApi.query.mockImplementation(populatedResponse)
+                await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+                expect(logic.values.canShowFeedback).toBe(true)
+            }
+        )
     })
 })

@@ -27,6 +27,8 @@ export interface KnowledgeDocumentWindowApi {
     readonly source_name: string
     /** Title of the document this chunk belongs to. */
     readonly document_title: string
+    /** Fetched page URL. Empty for text and file sources. */
+    readonly url: string
 }
 
 /**
@@ -46,7 +48,7 @@ export interface KnowledgeSearchResultApi {
     readonly source_id: string
     /** Human label of the knowledge source this chunk belongs to. */
     readonly source_name: string
-    /** Source type (text, url, or file). */
+    /** Source type: text, URL, or file. */
     readonly source_type: string
     /** Title of the document this chunk belongs to. */
     readonly document_title: string
@@ -54,6 +56,10 @@ export interface KnowledgeSearchResultApi {
     readonly heading_path: string
     /** The chunk's text content. */
     readonly content: string
+    /** True when this chunk comes from a generated source learned from a past support ticket. */
+    readonly is_generated: boolean
+    /** Fetched page URL. Empty for text and file sources. */
+    readonly url: string
 }
 
 export interface KnowledgeGapSuggestionApi {
@@ -115,14 +121,342 @@ export interface GapTopicActionResultApi {
 }
 
 /**
+ * * `running` - Reading past tickets
+ * * `completed` - Read every past ticket
+ */
+export type LearningBackfillStatusEnumApi =
+    (typeof LearningBackfillStatusEnumApi)[keyof typeof LearningBackfillStatusEnumApi]
+
+export const LearningBackfillStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+} as const
+
+export interface LearningBackfillProgressApi {
+    /** `running` while PostHog reads past tickets. `completed` once every ticket in the window is read.
+     *
+     * * `running` - Reading past tickets
+     * * `completed` - Read every past ticket */
+    status: LearningBackfillStatusEnumApi
+    /** When someone started learning from past tickets. */
+    started_at: string
+    /**
+     * When every past ticket was read. Null while the run continues.
+     * @nullable
+     */
+    finished_at: string | null
+    /** Tickets analyzed since the run started, including tickets from the regular 7-day pass. */
+    tickets_read: number
+    /** Tickets that are being analyzed now. */
+    tickets_in_progress: number
+    /** Analyzed tickets that added a learned source to business knowledge. */
+    knowledge_created: number
+}
+
+export interface BusinessKnowledgeSettingsApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+    learn_from_support_enabled: boolean
+    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+    readonly support_enabled: boolean
+    /** The last run of learning from past tickets. Null when none ran since learning was turned on. */
+    readonly learning_backfill: LearningBackfillProgressApi | null
+}
+
+export interface KnowledgeLibraryApi {
+    /** Library id. */
+    id: string
+    /** Library name. Unique in this project, ignoring case. */
+    name: string
+    /** True for the library new learned sources join. There is at most one. */
+    is_default: boolean
+    /** How many sources are in this library. */
+    source_count: number
+    /** Selected repositories in this library that this environment is allowed to read. */
+    repos: string[]
+}
+
+export interface KnowledgeLibraryCreateApi {
+    /**
+     * Name for the new library.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface PatchedKnowledgeLibraryUpdateApi {
+    /**
+     * New name. Omit to keep the current name.
+     * @maxLength 255
+     */
+    name?: string
+    /** Replaces every source in this library. Omit to leave sources unchanged. An empty list removes them all. */
+    source_ids?: string[]
+    /** Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay. */
+    repos?: string[]
+}
+
+export interface PlaygroundChatListApi {
+    /** Playground chat id. */
+    id: string
+    /** First question, truncated. Empty until someone asks. */
+    title: string
+    /** When this chat was created. */
+    created_at: string
+    /** When this chat was last asked in. */
+    updated_at: string
+    /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+    has_open_turn: boolean
+}
+
+export interface PaginatedPlaygroundChatListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PlaygroundChatListApi[]
+}
+
+/**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type SandboxPollStatusEnumApi = (typeof SandboxPollStatusEnumApi)[keyof typeof SandboxPollStatusEnumApi]
+
+export const SandboxPollStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface SandboxSourceApi {
+    /** Source reference the reply relies on. */
+    ref: string
+    /** Short excerpt that supports the reply. */
+    excerpt: string
+}
+
+/**
+ * * `business-knowledge-documents-search` - Search
+ * * `business-knowledge-document-window-retrieve` - Window
+ * * `business-knowledge-repositories-search` - Repository search
+ * * `business-knowledge-repositories-file-retrieve` - Repository file
+ */
+export type SandboxToolNameEnumApi = (typeof SandboxToolNameEnumApi)[keyof typeof SandboxToolNameEnumApi]
+
+export const SandboxToolNameEnumApi = {
+    BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
+    BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+    BusinessKnowledgeRepositoriesSearch: 'business-knowledge-repositories-search',
+    BusinessKnowledgeRepositoriesFileRetrieve: 'business-knowledge-repositories-file-retrieve',
+} as const
+
+export interface SandboxSearchApi {
+    /** Business knowledge tool the agent called.
+     *
+     * * `business-knowledge-documents-search` - Search
+     * * `business-knowledge-document-window-retrieve` - Window
+     * * `business-knowledge-repositories-search` - Repository search
+     * * `business-knowledge-repositories-file-retrieve` - Repository file */
+    tool: SandboxToolNameEnumApi
+    /** Tool input the agent sent. */
+    input: string
+}
+
+export interface SandboxRunApi {
+    /** Sandbox task id. */
+    task_id: string
+    /** Latest run id for this task. */
+    run_id: string
+    /** running while the agent works. completed carries reply and sources. failed and cancelled carry error.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
+    status: SandboxPollStatusEnumApi
+    /**
+     * Answer text when status is completed. Null otherwise.
+     * @nullable
+     */
+    reply: string | null
+    /** Sources cited in a completed answer. Empty when the run has not completed. */
+    sources: SandboxSourceApi[]
+    /** Business knowledge search and window calls observed in the run log. */
+    searches: SandboxSearchApi[]
+    /**
+     * Why the run did not produce an answer. Null while running and on a completed answer.
+     * @nullable
+     */
+    error: string | null
+    /** True when the run log contains an exact docs-search call. That tool is not granted to this sandbox. */
+    docs_search_called: boolean
+}
+
+export interface PlaygroundTurnApi {
+    /** Turn id. */
+    id: string
+    /** Question that started this turn's sandbox run. */
+    question: string
+    /** Sandbox task id for this turn. */
+    task_id: string
+    /** Order of this turn in the chat, starting at 0. */
+    position: number
+    /** Current sandbox run for this turn. Null when the run cannot be loaded. */
+    run: SandboxRunApi | null
+    /**
+     * Why this turn could not be loaded. Null when run is present.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface PlaygroundChatApi {
+    /** Playground chat id. */
+    id: string
+    /** First question, truncated. Empty until someone asks. */
+    title: string
+    /** When this chat was created. */
+    created_at: string
+    /** When this chat was last asked in. */
+    updated_at: string
+    /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+    has_open_turn: boolean
+    /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
+    turns: PlaygroundTurnApi[]
+}
+
+export interface SandboxQuestionApi {
+    /**
+     * Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters.
+     * @maxLength 4000
+     */
+    question: string
+}
+
+export interface RepositoryConnectApi {
+    /** Id of a GitHub integration on this environment. */
+    integration_id: number
+}
+
+export interface RepositoryConnectionApi {
+    /** True when a GitHub installation is connected for this environment. */
+    connected: boolean
+    /**
+     * Connected GitHub integration id, or null when GitHub is not connected.
+     * @nullable
+     */
+    integration_id: number | null
+    /** GitHub account name for the connected installation. Empty when GitHub is not connected. */
+    integration_name: string
+    /** Lowercased owner/repo names business knowledge is allowed to read. */
+    repos: string[]
+}
+
+export interface RepositoryFileApi {
+    /** Lowercased owner/repo. */
+    repo: string
+    /** File path that was read. */
+    path: string
+    /** Permalink for this file at the cached commit. Cite this when you use the file. */
+    url: string
+    /** File text, cut off at 32,000 characters. */
+    content: string
+    /** True when content was cut off at 32,000 characters. */
+    truncated: boolean
+}
+
+/**
+ * * `path` - Path
+ * * `readme` - Readme
+ */
+export type RepositoryHitKindEnumApi = (typeof RepositoryHitKindEnumApi)[keyof typeof RepositoryHitKindEnumApi]
+
+export const RepositoryHitKindEnumApi = {
+    Path: 'path',
+    Readme: 'readme',
+} as const
+
+export interface RepositorySearchHitApi {
+    /** Lowercased owner/repo the hit came from. */
+    repo: string
+    /** File path. Empty for a README hit. */
+    path: string
+    /** Permalink for the hit. Cite this when you use the hit. */
+    url: string
+    /** path is a file name match. readme is a short excerpt of the repository README.
+     *
+     * * `path` - Path
+     * * `readme` - Readme */
+    kind: RepositoryHitKindEnumApi
+    /** Short README excerpt. Empty for a path hit. */
+    excerpt: string
+}
+
+/**
+ * * `ready` - Ready
+ * * `warming` - Warming
+ */
+export type RepositoryCacheStatusEnumApi =
+    (typeof RepositoryCacheStatusEnumApi)[keyof typeof RepositoryCacheStatusEnumApi]
+
+export const RepositoryCacheStatusEnumApi = {
+    Ready: 'ready',
+    Warming: 'warming',
+} as const
+
+export interface RepositoryCacheStateApi {
+    /** Lowercased owner/repo. */
+    repo: string
+    /** True when the cached file list is incomplete because the repository has too many files. */
+    tree_truncated: boolean
+    /** ready means the file list was cached recently. warming means a refresh was just queued.
+     *
+     * * `ready` - Ready
+     * * `warming` - Warming */
+    cache_status: RepositoryCacheStatusEnumApi
+    /** GitHub description for this repository. Empty when GitHub has none or the cache has not loaded it. */
+    description: string
+}
+
+export interface RepositorySearchResponseApi {
+    /** Path matches, then README excerpts. */
+    results: RepositorySearchHitApi[]
+    /** Cache state for each repository that was searched. */
+    repositories: RepositoryCacheStateApi[]
+}
+
+export interface RepositorySelectionApi {
+    /**
+     * owner/repo names to allow. At most 100. Replaces the current list.
+     * @maxItems 100
+     */
+    repos: string[]
+}
+
+export interface SandboxRunStartedApi {
+    /** Sandbox task id. Poll this id until the run finishes. */
+    task_id: string
+    /** Run id for this question. */
+    run_id: string
+}
+
+export interface PatchedBusinessKnowledgeSettingsUpdateApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment. */
+    learn_from_support_enabled?: boolean
+}
+
+/**
  * * `text` - Text
  * * `url` - URL
  * * `file` - File
  */
-export type KnowledgeSourceSourceTypeEnumApi =
-    (typeof KnowledgeSourceSourceTypeEnumApi)[keyof typeof KnowledgeSourceSourceTypeEnumApi]
+export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
-export const KnowledgeSourceSourceTypeEnumApi = {
+export const SourceTypeEnumApi = {
     Text: 'text',
     Url: 'url',
     File: 'file',
@@ -134,10 +468,9 @@ export const KnowledgeSourceSourceTypeEnumApi = {
  * * `ready` - Ready
  * * `error` - Error
  */
-export type KnowledgeSourceStatusEnumApi =
-    (typeof KnowledgeSourceStatusEnumApi)[keyof typeof KnowledgeSourceStatusEnumApi]
+export type SourceStatusEnumApi = (typeof SourceStatusEnumApi)[keyof typeof SourceStatusEnumApi]
 
-export const KnowledgeSourceStatusEnumApi = {
+export const SourceStatusEnumApi = {
     Pending: 'pending',
     Processing: 'processing',
     Ready: 'ready',
@@ -149,9 +482,9 @@ export const KnowledgeSourceStatusEnumApi = {
  * * `not_modified` - Not modified
  * * `error` - Error
  */
-export type LastRefreshStatusEnumApi = (typeof LastRefreshStatusEnumApi)[keyof typeof LastRefreshStatusEnumApi]
+export type RefreshStatusEnumApi = (typeof RefreshStatusEnumApi)[keyof typeof RefreshStatusEnumApi]
 
-export const LastRefreshStatusEnumApi = {
+export const RefreshStatusEnumApi = {
     Success: 'success',
     NotModified: 'not_modified',
     Error: 'error',
@@ -201,8 +534,10 @@ export interface KnowledgeSourceApi {
     readonly id: string
     readonly team_id: number
     readonly name: string
-    readonly source_type: KnowledgeSourceSourceTypeEnumApi
-    readonly status: KnowledgeSourceStatusEnumApi
+    readonly source_type: SourceTypeEnumApi
+    /** Whether PostHog manages this source with knowledge learned from resolved support tickets. */
+    readonly is_generated: boolean
+    readonly status: SourceStatusEnumApi
     readonly error_message: string
     /** Number of documents belonging to this source. */
     readonly document_count: number
@@ -214,7 +549,7 @@ export interface KnowledgeSourceApi {
     readonly source_url: string
     /** @nullable */
     readonly last_refresh_at: string | null
-    readonly last_refresh_status: LastRefreshStatusEnumApi
+    readonly last_refresh_status: RefreshStatusEnumApi
     readonly last_refresh_error: string
     readonly refresh_interval: RefreshIntervalEnumApi
     /**
@@ -226,6 +561,16 @@ export interface KnowledgeSourceApi {
     readonly has_unsafe_documents: boolean
     /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
     readonly embedding_status: EmbeddingStatusEnumApi
+    /**
+     * Support ticket number this learned source came from. Null for sources you added yourself.
+     * @nullable
+     */
+    readonly learned_from_ticket_number: number | null
+    /**
+     * App URL of the originating support ticket. Null for sources you added yourself.
+     * @nullable
+     */
+    readonly learned_from_ticket_url: string | null
     readonly crawl_mode: CrawlModeEnumApi
     readonly crawl_config: unknown
     readonly original_filename: string
@@ -233,6 +578,8 @@ export interface KnowledgeSourceApi {
     /** @nullable */
     readonly file_size_bytes: number | null
     readonly always_include: boolean
+    /** Libraries this source belongs to. Empty when the source is in none. */
+    readonly library_ids: readonly string[]
 }
 
 export interface PaginatedKnowledgeSourceListApi {
@@ -270,6 +617,52 @@ export interface PatchedUpdateTextSourceApi {
     text?: string
     /** When true, this source's content is injected into every support reply prompt as general context. */
     always_include?: boolean
+    /** Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library. */
+    library_ids?: string[]
+}
+
+/**
+ * * `unknown` - Unknown
+ * * `safe` - Safe
+ * * `unsafe` - Unsafe
+ */
+export type SafetyVerdictEnumApi = (typeof SafetyVerdictEnumApi)[keyof typeof SafetyVerdictEnumApi]
+
+export const SafetyVerdictEnumApi = {
+    Unknown: 'unknown',
+    Safe: 'safe',
+    Unsafe: 'unsafe',
+} as const
+
+export interface KnowledgeSourceDocumentApi {
+    /** Document id. */
+    readonly id: string
+    /** Fetched page URL after redirects. Empty for text and file documents. */
+    readonly url: string
+    /** Page title extracted while indexing. Falls back to empty when the page had none. */
+    readonly title: string
+    /** Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.
+     *
+     * * `unknown` - Unknown
+     * * `safe` - Safe
+     * * `unsafe` - Unsafe */
+    readonly safety_verdict: SafetyVerdictEnumApi
+}
+
+export interface PaginatedKnowledgeSourceDocumentListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: KnowledgeSourceDocumentApi[]
+}
+
+export interface KnowledgeAvailabilityApi {
+    /** True when the project has at least one business knowledge source. */
+    readonly has_sources: boolean
+    /** True when this environment has at least one GitHub repository selected. */
+    readonly has_repositories: boolean
 }
 
 export type BusinessKnowledgeDocumentsWindowListParams = {
@@ -284,6 +677,10 @@ export type BusinessKnowledgeDocumentsWindowListParams = {
 }
 
 export type BusinessKnowledgeDocumentsSearchListParams = {
+    /**
+     * Limit retrieval to sources in this library. Pass the same id to repository search and file read. Omit to search every ready source.
+     */
+    library_id?: string
     /**
      * Maximum number of ranked chunks to return. Defaults to 10, capped at 20.
      */
@@ -313,9 +710,102 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
     ticket_id?: string
 }
 
-export type BusinessKnowledgeSourcesListParams = {
+export type BusinessKnowledgePlaygroundChatsListParams = {
     /**
      * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
+    /**
+     * Require the repository to be in this library. Pass the same id used for document search and repository search. Omit to read any selected repository.
+     */
+    library_id?: string
+    /**
+     * File path returned by the repository search.
+     * @minLength 1
+     */
+    path: string
+    /**
+     * owner/repo to read. It must already be selected.
+     * @minLength 1
+     */
+    repo: string
+}
+
+export type BusinessKnowledgeRepositoriesSearchParams = {
+    /**
+     * Limit the search to repositories in this library. Pass the same id to document search and file read. Omit to search every selected repository.
+     */
+    library_id?: string
+    /**
+     * File names, path fragments, or identifiers to match. Not a full sentence.
+     * @minLength 1
+     */
+    query: string
+    /**
+     * Limit the search to this owner/repo. It must already be selected. Omit to search every selected repository.
+     */
+    repo?: string
+}
+
+export type BusinessKnowledgeSourcesListParams = {
+    /**
+     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
+     */
+    added_by?: BusinessKnowledgeSourcesListAddedBy
+    /**
+     * Return only sources in this library. Do not combine with unfiled.
+     */
+    library_id?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Case-insensitive substring match against the source name and URL.
+     */
+    search?: string
+    /**
+     * Filter to a single source type (text, url, or file).
+     */
+    source_type?: BusinessKnowledgeSourcesListSourceType
+    /**
+     * When true, return only sources that are in no library. Do not combine with library_id.
+     */
+    unfiled?: boolean
+}
+
+export type BusinessKnowledgeSourcesListAddedBy =
+    (typeof BusinessKnowledgeSourcesListAddedBy)[keyof typeof BusinessKnowledgeSourcesListAddedBy]
+
+export const BusinessKnowledgeSourcesListAddedBy = {
+    Human: 'human',
+    Learned: 'learned',
+} as const
+
+export type BusinessKnowledgeSourcesListSourceType =
+    (typeof BusinessKnowledgeSourcesListSourceType)[keyof typeof BusinessKnowledgeSourcesListSourceType]
+
+export const BusinessKnowledgeSourcesListSourceType = {
+    File: 'file',
+    Text: 'text',
+    Url: 'url',
+} as const
+
+export type BusinessKnowledgeSourcesDocumentsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 5000
      */
     limit?: number
     /**

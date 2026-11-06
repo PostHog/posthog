@@ -1,18 +1,16 @@
 import asyncio
+from functools import partial
 
 from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
+from posthog.product_db_migrations import collect_unapplied_product_migrations, configured_product_databases
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.logger import configure_logger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
     configure_process_concurrency,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import (
-    HealthState,
-    start_health_server,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
@@ -20,8 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import (
     process_batch,
+    process_batches,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.thread_pools import (
+    LoaderThreadPools,
+    LoaderThreadPoolSizes,
+    LoaderThreadPoolTooSmallError,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatch
+from products.warehouse_sources_queue.backend.sdk import HealthState, start_health_server
 
 logger = structlog.get_logger(__name__)
 
@@ -53,6 +58,7 @@ def build_consumer_config(options: dict) -> ConsumerConfig:
         "max_attempts": options["max_attempts"],
         "health_port": options["health_port"],
         "health_timeout_seconds": options["health_timeout"],
+        "stall_dump_after_seconds": options["health_timeout"],
         "stuck_batch_timeout_seconds": options["stuck_batch_timeout"] or None,
     }
     if options.get("poll_timeout") is not None:
@@ -70,8 +76,17 @@ def build_consumer_config(options: dict) -> ConsumerConfig:
     return ConsumerConfig(**kwargs)
 
 
+def build_thread_pool_sizes(options: dict, config: ConsumerConfig) -> LoaderThreadPoolSizes:
+    """Size the thread pools from the consumer's concurrency. Fail startup if an override is too small."""
+    try:
+        return LoaderThreadPoolSizes.for_concurrency(config.max_concurrency, options.get("nested_thread_pool_size"))
+    except LoaderThreadPoolTooSmallError as e:
+        raise CommandError(f"--nested-thread-pool-size: {e}") from e
+
+
 async def _run_consumer(
     config: ConsumerConfig,
+    pool_sizes: LoaderThreadPoolSizes,
     health_reporter,
     claim_sync_types: list[str] | None,
     claim_exclude_sync_types: list[str] | None,
@@ -84,15 +99,22 @@ async def _run_consumer(
     set in `BatchConsumer._process_single` carry the keys `LogMessagesRenderer` needs (`workflow_type`,
     `workflow_id`, `workflow_run_id`, `team_id`, plus the event-level `log_source_id` override).
     """
-    configure_logger(loop=asyncio.get_running_loop())
-    consumer = BatchConsumer(
-        config=config,
-        process_batch=process_batch,
-        health_reporter=health_reporter,
-        claim_sync_types=claim_sync_types,
-        claim_exclude_sync_types=claim_exclude_sync_types,
-    )
-    await consumer.run()
+    loop = asyncio.get_running_loop()
+    pools = LoaderThreadPools(pool_sizes)
+    pools.install(loop)
+    try:
+        configure_logger(loop=loop)
+        consumer = BatchConsumer(
+            config=config,
+            process_batch=partial(process_batch, executor=pools.group_executor),
+            process_batches=partial(process_batches, executor=pools.group_executor),
+            health_reporter=health_reporter,
+            claim_sync_types=claim_sync_types,
+            claim_exclude_sync_types=claim_exclude_sync_types,
+        )
+        await consumer.run()
+    finally:
+        pools.shutdown()
 
 
 class Command(BaseCommand):
@@ -104,6 +126,15 @@ class Command(BaseCommand):
             type=int,
             default=16,
             help="Maximum number of (team_id, schema_id) groups processed concurrently (default: 16)",
+        )
+        parser.add_argument(
+            "--nested-thread-pool-size",
+            type=int,
+            default=None,
+            help=(
+                "Threads in the event loop's default executor, which runs the jobs that a load waits for. "
+                "Default: sized from --max-concurrency. Startup fails if the value is below that size"
+            ),
         )
         parser.add_argument(
             "--poll-interval",
@@ -205,6 +236,11 @@ class Command(BaseCommand):
             help="Comma-separated sync types this consumer claims (e.g. 'cdc'). Default: all",
         )
         parser.add_argument(
+            "--skip-migrations-check",
+            action="store_true",
+            help="Skip the startup check that the queue DB has this image's migrations applied (emergency escape hatch)",
+        )
+        parser.add_argument(
             "--claim-exclude-sync-types",
             type=str,
             default=None,
@@ -215,10 +251,33 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Defense-in-depth behind the wave-1 ArgoCD migration-check hook: an image
+        # that expects queue-DB migrations the DB doesn't have would otherwise start
+        # and fail at runtime (UndefinedColumn), so refuse startup instead. Requires
+        # the PRODUCT_DB_WAREHOUSE_SOURCES_QUEUE_* env (a no-op where it is absent).
+        if not options.get("skip_migrations_check"):
+            if not configured_product_databases(databases={"warehouse_sources_queue"}):
+                # Legacy config: consumer reaches the queue DB via WAREHOUSE_SOURCES_DATABASE_URL
+                # alone, so the schema can't be verified. Warn instead of failing so those
+                # deployments keep working, but make the blind spot visible to operators.
+                logger.warning(
+                    "migrations_check_skipped_unconfigured",
+                    note="PRODUCT_DB_WAREHOUSE_SOURCES_QUEUE_* env not set; queue schema not verified against this image",
+                )
+            unapplied = collect_unapplied_product_migrations(databases={"warehouse_sources_queue"})
+            if unapplied:
+                for alias, migrations in unapplied.items():
+                    logger.error("unapplied_product_migrations", database_alias=alias, migrations=migrations)
+                raise CommandError(
+                    "Queue database is missing migrations this image expects: "
+                    + "; ".join(f"{alias}: {', '.join(migrations)}" for alias, migrations in unapplied.items())
+                )
+
         health_port = options["health_port"]
         health_timeout = options["health_timeout"]
 
         config = build_consumer_config(options)
+        pool_sizes = build_thread_pool_sizes(options, config)
 
         # Size deltalite's per-upsert memory slices against this loader's real concurrency (its own
         # max_concurrency), since it is a Kafka consumer, not a Temporal worker, so the governor's
@@ -240,6 +299,8 @@ class Command(BaseCommand):
         logger.info(
             "warehouse_sources_load_starting",
             max_concurrency=config.max_concurrency,
+            group_thread_pool_size=pool_sizes.group_threads,
+            nested_thread_pool_size=pool_sizes.nested_threads,
             poll_interval=config.poll_interval_seconds,
             poll_limit=config.poll_limit,
             max_attempts=config.max_attempts,
@@ -258,4 +319,6 @@ class Command(BaseCommand):
         health_state = HealthState(timeout_seconds=health_timeout)
         start_health_server(port=health_port, health_state=health_state)
 
-        asyncio.run(_run_consumer(config, health_state.report_healthy, claim_sync_types, claim_exclude_sync_types))
+        asyncio.run(
+            _run_consumer(config, pool_sizes, health_state.report_healthy, claim_sync_types, claim_exclude_sync_types)
+        )

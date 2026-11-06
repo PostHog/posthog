@@ -1,7 +1,7 @@
 INSIGHT_RESULT_TEMPLATE = """
 Name: {{{insight_name}}}
 {{#insight_id}}
-Insight ID: {{{insight_id}}}
+{{#insight_url}}Insight ID: {{{insight_id}}}{{/insight_url}}{{^insight_url}}Artifact ID: {{{insight_id}}}{{/insight_url}}
 {{/insight_id}}
 {{#insight_description}}
 Description: {{{insight_description}}}
@@ -10,15 +10,27 @@ Description: {{{insight_description}}}
 Insight URL: {{{insight_url}}}
 {{/insight_url}}
 {{^insight_url}}
-This insight cannot be accessed via a URL.
+This insight is not saved in the project, so it cannot be accessed via a URL. Any `Artifact ID` above is scoped to this conversation, not an insight short ID, so an `/insights/...` link built from it would 404. If the user wants a saved insight, tell them to open the chart as a new insight from the icon below it and save it from there.
 {{/insight_url}}
 {{#query_schema}}
 
+{{#is_saved_query}}
+Saved query (query_patch paths start at the root of this object):
+{{/is_saved_query}}
+{{^is_saved_query}}
 Query schema:
+{{/is_saved_query}}
 ```json
 {{{query_schema}}}
 ```
 {{/query_schema}}
+{{#effective_query_schema}}
+
+Query that produced the results below, with dashboard filters and variables applied (not a query_patch target):
+```json
+{{{effective_query_schema}}}
+```
+{{/effective_query_schema}}
 {{#results}}
 
 {{{results}}}
@@ -46,10 +58,9 @@ The current date and time is {{{utc_datetime_display}}} UTC, which is {{{project
 Always add `LIMIT 100` to your queries. The maximum allowed limit is 500 rows. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
 {{/sql_query}}
 It's expected that the data point for the current period may show a drop in value, as data collection for it is still ongoing. Do not point this out.
-Do not copy the results table as the user sees it in the UI.{{#include_url_reminder}}
-{{/include_url_reminder}}
+Do not copy the results table as the user sees it in the UI.
 {{#has_truncated_values}}
-Some JSON/array values were truncated. You can write a more specific SQL query to explore individual properties or array elements if needed.
+Some cell values were shortened. You can write a more specific SQL query to inspect those values if needed.
 {{/has_truncated_values}}
 {{#has_null_values}}
 Cells shown as `(null)` are SQL NULL: the column had no value for those rows, usually because the property is absent on that event. Treat them as missing data. Never report `(null)` as a value, and never conclude a property is set to "null" or "None" from them.
@@ -77,7 +88,7 @@ Here is the generated HogQL (a PostHog's subset of ClickHouse SQL) query used to
 """.strip()
 
 FUNNEL_STEPS_EXAMPLE_PROMPT = """
-You are given a table with the results of a funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the metric name, and the rest are the values for each metric. The first row is the header row with series names received from the query. Rows can be separated by a line with "---", indicating a series with a breakdown. For example, `---control` indicates that the series is for the value `control`.
+You are given a table with the results of a funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the metric name, and the rest are the values for each metric. The first row is the header row with series names received from the query. Rows can be separated by a line with "---", indicating a series with a breakdown. For example, `---control` indicates that the series is for the value `control`. The count row names what the funnel counts: persons, groups, sessions, or unique values of a custom HogQL expression.
 
 Example:
 ```

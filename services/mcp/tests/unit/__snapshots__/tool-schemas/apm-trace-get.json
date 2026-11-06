@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "dateRange": {
-            "description": "Date range for the query. Defaults to last 24 hours.",
+            "description": "Date range for the query. Omit it to search all retained spans for this trace.",
             "properties": {
                 "date_from": {
                     "anyOf": [
@@ -31,7 +31,7 @@
         },
         "excludeAttributes": {
             "default": false,
-            "description": "Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
+            "description": "Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false.",
             "type": "boolean"
         },
         "offset": {

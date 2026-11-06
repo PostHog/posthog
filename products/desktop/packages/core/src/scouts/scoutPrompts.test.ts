@@ -8,7 +8,6 @@ const base = {
   findingId: "finding-123",
   description: "Spike in TypeError on /checkout over the last hour.",
   severity: "high" as string | null,
-  confidence: 0.82,
 };
 
 describe("buildScoutFindingDiscussPrompt", () => {
@@ -20,9 +19,8 @@ describe("buildScoutFindingDiscussPrompt", () => {
     expect(prompt).toContain("Run ID: run-abc");
     expect(prompt).toContain("Finding ID: finding-123");
     expect(prompt).toContain("Severity: high");
-    expect(prompt).toContain("Confidence: 82%");
     expect(prompt).toContain(base.description);
-    expect(prompt).toContain("exploring-signals-scouts");
+    expect(prompt).toContain("exploring-scouts");
   });
 
   it.each([

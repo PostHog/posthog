@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 
 import { DateMappingOption } from '~/types'
 
@@ -60,6 +60,7 @@ export function ScannerOverviewFilters({ scannerId }: { scannerId: string }): JS
             {scannerType === 'monitor' && (
                 <FilterPill<ObservationVerdictValue>
                     label="Verdict"
+                    dataAttr="vision-overview-verdict-filter"
                     options={VERDICT_OPTIONS}
                     value={overviewVerdictFilter}
                     onChange={setOverviewVerdictFilter}
@@ -67,7 +68,9 @@ export function ScannerOverviewFilters({ scannerId }: { scannerId: string }): JS
             )}
             {scannerType === 'classifier' && tagOptions.length > 0 && (
                 <FilterPill<string>
-                    label="Tag"
+                    label="Category"
+                    dataAttr="vision-overview-category-filter"
+                    searchPlaceholder="Search categories"
                     options={tagOptions}
                     value={overviewTagFilter}
                     onChange={setOverviewTagFilter}

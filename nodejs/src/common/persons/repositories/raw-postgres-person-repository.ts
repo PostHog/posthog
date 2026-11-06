@@ -14,7 +14,7 @@ import {
     TeamId,
 } from '~/types'
 
-import { InternalPersonWithDistinctId } from './person-repository'
+import { InternalPersonWithDistinctId, LifecycleMarkPerson } from './person-repository'
 
 export interface RawPostgresPersonRepository {
     fetchPerson(
@@ -52,13 +52,49 @@ export interface RawPostgresPersonRepository {
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]>
 
     updatePersonsBatch(
-        personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>>
+        personUpdates: PersonUpdate[],
+        tx?: TransactionClient
+    ): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                person?: InternalPerson
+                error?: Error
+            }
+        >
+    >
 
     deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<PersonMessage[]>
 
     /** Batched deletePerson for folded merges; all persons must belong to one team. */
     deletePersons(persons: InternalPerson[], tx?: TransactionClient): Promise<PersonMessage[]>
+
+    /** See PersonRepository.claimLifecycleMarks. */
+    claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        tx?: TransactionClient
+    ): Promise<void>
+
+    /** See PersonRepository.releaseLifecycleMarks. */
+    releaseLifecycleMarks(opId: string, teamId: number, tx?: TransactionClient): Promise<void>
+
+    /** See PersonRepository.isPersonLive. */
+    isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
+
+    readPerson(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<InternalPerson | undefined>
+
+    /** The target and sources are row-locked, in ascending id order, until the transaction ends. */
+    readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        tx?: TransactionClient
+    ): Promise<InternalPerson[]>
 
     addDistinctId(
         person: InternalPerson,

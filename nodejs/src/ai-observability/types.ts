@@ -12,6 +12,7 @@ export type EvaluationStatusReason =
     | 'provider_key_quota_exceeded'
     | 'provider_key_rate_limited'
     | 'model_not_found'
+    | 'model_not_supported'
     | 'hog_error'
 export type EvaluationTarget = 'generation' | 'trace' | 'session'
 export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'

@@ -1,0 +1,11 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:test": {
+            // test_feature_flags_scorers.py reads feature_flags' tools.yaml from disk, so no import edge exists.
+            "dependsOn": ["@posthog/products-feature-flags#backend:mcp-surface"],
+            // backend:test also runs eval_harness/test/, which the root globs miss.
+            "inputs": ["$TURBO_EXTENDS$", "eval_harness/**/*.py"]
+        }
+    }
+}

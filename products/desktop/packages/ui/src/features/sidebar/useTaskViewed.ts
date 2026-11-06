@@ -12,7 +12,11 @@ export function useTaskViewed() {
   const queryClient = useQueryClient();
   const timestampsQueryKey = trpc.workspace.getAllTaskTimestamps.queryKey();
 
-  const { data: rawTimestamps = {}, isLoading } = useQuery(
+  const {
+    data: rawTimestamps = {},
+    isLoading,
+    isSuccess: timestampsReady,
+  } = useQuery(
     trpc.workspace.getAllTaskTimestamps.queryOptions(undefined, {
       staleTime: 30_000,
     }),
@@ -56,6 +60,54 @@ export function useTaskViewed() {
       if (context?.previous) {
         queryClient.setQueryData(timestampsQueryKey, context.previous);
       }
+    },
+  });
+
+  const markUnreadMutation = useMutation({
+    mutationFn: ({
+      taskId,
+      activityAt,
+    }: {
+      taskId: string;
+      activityAt: number;
+    }) => hostClient.workspace.markUnread.mutate({ taskId, activityAt }),
+    onMutate: async ({ taskId, activityAt }) => {
+      await queryClient.cancelQueries({ queryKey: timestampsQueryKey });
+      const previousLastViewedAt =
+        queryClient.getQueryData<Record<string, RawTaskTimestamp>>(
+          timestampsQueryKey,
+        )?.[taskId]?.lastViewedAt ?? null;
+      const lastViewedAt = new Date(activityAt - 1).toISOString();
+      queryClient.setQueryData<Record<string, RawTaskTimestamp>>(
+        timestampsQueryKey,
+        (old) => ({
+          ...old,
+          [taskId]: {
+            pinnedAt: old?.[taskId]?.pinnedAt ?? null,
+            lastActivityAt: old?.[taskId]?.lastActivityAt ?? null,
+            lastViewedAt,
+          },
+        }),
+      );
+      return { previousLastViewedAt, lastViewedAt };
+    },
+    // Roll back only this task's field. Other tasks' updates and a newer view of
+    // this task can land while the request is in flight, and must survive.
+    onError: (_, { taskId }, context) => {
+      if (!context) return;
+      queryClient.setQueryData<Record<string, RawTaskTimestamp>>(
+        timestampsQueryKey,
+        (current) => {
+          const entry = current?.[taskId];
+          if (!current || entry?.lastViewedAt !== context.lastViewedAt) {
+            return current;
+          }
+          return {
+            ...current,
+            [taskId]: { ...entry, lastViewedAt: context.previousLastViewedAt },
+          };
+        },
+      );
     },
   });
 
@@ -104,11 +156,18 @@ export function useTaskViewed() {
   const markViewedMutationRef = useRef(markViewedMutation);
   markViewedMutationRef.current = markViewedMutation;
 
+  const markUnreadMutationRef = useRef(markUnreadMutation);
+  markUnreadMutationRef.current = markUnreadMutation;
+
   const markActivityMutationRef = useRef(markActivityMutation);
   markActivityMutationRef.current = markActivityMutation;
 
   const markAsViewed = useCallback((taskId: string) => {
     markViewedMutationRef.current.mutate({ taskId });
+  }, []);
+
+  const markAsUnread = useCallback((taskId: string, activityAt: number) => {
+    markUnreadMutationRef.current.mutate({ taskId, activityAt });
   }, []);
 
   const markActivity = useCallback((taskId: string) => {
@@ -127,8 +186,10 @@ export function useTaskViewed() {
 
   return {
     timestamps,
+    timestampsReady,
     isLoading,
     markAsViewed,
+    markAsUnread,
     markActivity,
     getLastViewedAt,
     getLastActivityAt,

@@ -1,13 +1,14 @@
-"""Regional routing helpers for conversations webhooks.
+"""Regional proxy for the conversations webhooks that still own their own endpoint.
 
-EU is the primary region (external callback URLs point here).
 If the primary region doesn't own the resource, it proxies the
 request to the secondary region (US).
+
+The endpoints on `posthog/ingress/` forward through that package instead, off a consumer's
+`ownership` answer. This proxy stays only for the endpoints that have not moved yet.
 """
 
 from urllib.parse import urlparse, urlunparse
 
-from django.conf import settings
 from django.http import HttpRequest
 from django.http.request import RawPostDataException
 
@@ -15,18 +16,9 @@ import requests
 import structlog
 from requests import RequestException
 
+from posthog.regions import SECONDARY_REGION_DOMAIN
+
 logger = structlog.get_logger(__name__)
-
-PRIMARY_REGION_DOMAIN = "eu.posthog.com"
-SECONDARY_REGION_DOMAIN = "us.posthog.com"
-
-if settings.DEBUG:
-    PRIMARY_REGION_DOMAIN = urlparse(settings.SITE_URL).netloc
-    SECONDARY_REGION_DOMAIN = "localhost:8000"
-
-
-def is_primary_region(request: HttpRequest) -> bool:
-    return request.get_host() == PRIMARY_REGION_DOMAIN
 
 
 def _build_proxy_kwargs(request: HttpRequest, headers: dict[str, str]) -> dict:
@@ -56,11 +48,7 @@ def _build_proxy_kwargs(request: HttpRequest, headers: dict[str, str]) -> dict:
         return {"data": data, "files": files, "headers": cleaned_headers}
 
 
-def proxy_to_secondary_region(request: HttpRequest, *, log_prefix: str, timeout: int = 3) -> bool:
-    """Forward an incoming webhook to the secondary region.
-
-    Returns True if the proxy request succeeded (2xx), False otherwise.
-    """
+def request_secondary_region_status(request: HttpRequest, *, log_prefix: str, timeout: int = 3) -> int | None:
     parsed_url = urlparse(request.build_absolute_uri())
     target_url = urlunparse(parsed_url._replace(netloc=SECONDARY_REGION_DOMAIN))
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
@@ -86,11 +74,20 @@ def proxy_to_secondary_region(request: HttpRequest, *, log_prefix: str, timeout:
                 target_url=target_url,
                 status_code=response.status_code,
             )
-        return response.ok
+        return response.status_code
     except RequestException as exc:
         logger.exception(
             f"{log_prefix}_proxy_to_secondary_region_failed",
             error=str(exc),
             target_url=target_url,
         )
-        return False
+        return None
+
+
+def proxy_to_secondary_region(request: HttpRequest, *, log_prefix: str, timeout: int = 3) -> bool:
+    """Forward an incoming webhook to the secondary region.
+
+    Returns True if the proxy request succeeded (2xx), False otherwise.
+    """
+    status_code = request_secondary_region_status(request, log_prefix=log_prefix, timeout=timeout)
+    return status_code is not None and 200 <= status_code < 300

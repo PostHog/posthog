@@ -2,16 +2,17 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { AccessControlResponseType, RoleType } from '~/types'
 
 import type { AvailableFeature, OrganizationMemberType } from '../../../../../types'
@@ -87,6 +88,13 @@ export interface roleAccessControlLogicActions {
             members: string[]
             role: RoleType
         }
+    }
+    createRoleWithMember: (
+        name: string,
+        userUuid: string
+    ) => {
+        name: string
+        userUuid: string
     }
     deleteRole: (roleId: RoleType['id']) => {
         roleId: string
@@ -171,6 +179,9 @@ export interface roleAccessControlLogicActions {
             name: string
         }
     }
+    roleMembershipsChanged: () => {
+        value: true
+    }
     selectRoleId: (roleId: RoleType['id'] | null) => {
         roleId: string | null
     }
@@ -247,6 +258,9 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
         deleteRole: (roleId: RoleType['id']) => ({ roleId }),
         removeMemberFromRole: (role: RoleType, roleMemberId: string) => ({ role, roleMemberId }),
         addMembersToRole: (role: RoleType, members: string[]) => ({ role, members }),
+        createRoleWithMember: (name: string, userUuid: string) => ({ name, userUuid }),
+        /** Fired whenever a member is added to or removed from a role, so other logics can refresh. */
+        roleMembershipsChanged: true,
         setEditingRoleId: (roleId: string | null) => ({ roleId }),
     }),
     reducers({
@@ -307,6 +321,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
             null as AccessControlResponseType | null,
             {
                 loadResourceAccessControls: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get<AccessControlResponseType>(
                         `api/projects/${values.currentProjectId}/resource_access_controls`
                     )
@@ -365,6 +380,25 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        createRoleWithMember: async ({ name, userUuid }) => {
+            try {
+                const role = await api.roles.create(name)
+                await api.roles.members.create(role.id, userUuid)
+                lemonToast.success(`Created role "${name}" and assigned member`)
+                actions.loadRoles()
+                actions.roleMembershipsChanged()
+                actions.loadCurrentOrganization()
+            } catch (e) {
+                const error = (e as Record<string, any>).detail || 'Failed to create role'
+                lemonToast.error(error)
+            }
+        },
+        addMembersToRoleSuccess: () => {
+            actions.roleMembershipsChanged()
+        },
+        removeMemberFromRoleSuccess: () => {
+            actions.roleMembershipsChanged()
+        },
         loadRolesSuccess: () => {
             if (router.values.hashParams.role) {
                 actions.selectRoleId(router.values.hashParams.role)
@@ -402,6 +436,15 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
                     role: values.selectedRoleId ?? undefined,
                 },
             ]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.settings('organization-roles')]: (_, __, hashParams) => {
+            const roleId = hashParams.role ?? null
+            if (roleId !== values.selectedRoleId) {
+                actions.selectRoleId(roleId)
+            }
         },
     })),
 ])

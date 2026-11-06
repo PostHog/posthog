@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
@@ -35,7 +35,264 @@ describe('LemonTable', () => {
 
     afterEach(cleanup)
 
+    it('updates bulk checkboxes without rendering data cells again', () => {
+        const renderCell = jest.fn((_: unknown, row: Row) => row.name)
+        const renderActions = jest.fn((_context: { selectedKeys: ReadonlyArray<string | number> }) => (
+            <span>Bulk actions</span>
+        ))
+        render(
+            <LemonTable
+                dataSource={DATA}
+                rowKey="id"
+                columns={[{ title: 'Name', render: renderCell }]}
+                bulkSelection={{
+                    rowAriaLabel: (row) => `Select ${row.name}`,
+                    headerAriaLabel: 'Select page',
+                    renderActions,
+                }}
+            />
+        )
+        renderCell.mockClear()
+
+        fireEvent.click(screen.getByLabelText('Select alpha'))
+
+        expect(screen.getByLabelText('Select alpha')).toBeChecked()
+        expect(screen.getByLabelText('Select beta')).not.toBeChecked()
+        expect(screen.getByLabelText('Select page').closest('.LemonCheckbox')).toHaveClass(
+            'LemonCheckbox--indeterminate'
+        )
+        expect(renderActions.mock.calls.at(-1)?.[0]).toMatchObject({ selectedKeys: [1] })
+        expect(renderCell).not.toHaveBeenCalled()
+
+        fireEvent.click(screen.getByLabelText('Select page'))
+        for (const row of DATA) {
+            expect(screen.getByLabelText(`Select ${row.name}`)).toBeChecked()
+        }
+        expect(screen.getByLabelText('Select page')).toBeChecked()
+        expect(renderCell).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        { children: 'plain data', props: { title: 'data title' } },
+        { props: { dangerouslySetInnerHTML: { __html: '<b>plain data</b>' } } },
+        ['alpha', 'beta'],
+    ])('renders raw object values as text: %j', (value) => {
+        const { container } = render(
+            <LemonTable dataSource={[{ value }]} columns={[{ title: 'Value', dataIndex: 'value' }]} />
+        )
+
+        const cell = container.querySelector('tbody td')!
+        expect(cell.textContent).toBe(JSON.stringify(value))
+        expect(cell.getAttribute('title')).toBeNull()
+        expect(cell.querySelector('b')).toBeNull()
+    })
+
+    it.each([
+        [
+            'circular reference',
+            () => {
+                const value: { self?: unknown } = {}
+                value.self = value
+                return value
+            },
+        ],
+        ['nested bigint', () => ({ nested: { count: 1n } })],
+        [
+            'throwing toJSON',
+            () => ({
+                toJSON: () => {
+                    throw new Error('serialization failed')
+                },
+            }),
+        ],
+    ])('renders %s as safe text and continues to the next row', (_, createValue) => {
+        const { container } = render(
+            <LemonTable
+                dataSource={[{ value: createValue() }, { value: { status: 'next row' } }]}
+                columns={[{ title: 'Value', dataIndex: 'value' }]}
+            />
+        )
+
+        expect(Array.from(container.querySelectorAll('tbody td'), (cell) => cell.textContent)).toEqual([
+            '[Unserializable value]',
+            '{"status":"next row"}',
+        ])
+    })
+
+    it('keeps React elements from raw cell values', () => {
+        render(
+            <LemonTable
+                dataSource={[{ value: <span>formatted value</span> }]}
+                columns={[{ title: 'Value', dataIndex: 'value' }]}
+            />
+        )
+
+        expect(screen.getByText('formatted value').tagName).toBe('SPAN')
+    })
+
+    it('keeps cell properties from a column renderer', () => {
+        const { container } = render(
+            <LemonTable
+                dataSource={[{ value: 'alpha' }]}
+                columns={[{ title: 'Value', render: () => ({ children: 'rendered', props: { title: 'cell title' } }) }]}
+            />
+        )
+
+        const cell = container.querySelector('tbody td')!
+        expect(cell.textContent).toBe('rendered')
+        expect(cell.getAttribute('title')).toBe('cell title')
+    })
+
     const renderedOrder = (): string[] => screen.getAllByTestId('cell-name').map((el) => el.textContent ?? '')
+
+    it.each([false, true].flatMap((virtualized) => [false, true].map((pivot) => ({ virtualized, pivot }))))(
+        'windows wide tables with $virtualized row virtualization and $pivot pivot headers',
+        ({ virtualized, pivot }) => {
+            const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(180)
+            const width = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+            const columns = Array.from({ length: 1801 }, (_, index) => ({
+                title: `Column ${index}`,
+                key: `column-${index}`,
+                width: index === 0 ? 280 : index % 2 ? 240 : undefined,
+                render: (_: unknown, record: { id: number }): string => `${record.id}:${index}`,
+            }))
+            const totalWidth = columns.reduce((sum, column) => sum + (column.width ?? 192), 0)
+            const data = [{ id: 1 }, { id: 2 }]
+            try {
+                const { container, rerender } = render(
+                    <LemonTable
+                        columns={columns}
+                        dataSource={data}
+                        virtualizedColumnWidth={192}
+                        firstColumnSticky={pivot}
+                        headerRows={
+                            pivot
+                                ? [
+                                      [
+                                          { title: 'Dimensions', colSpan: 1 },
+                                          ...Array.from({ length: 900 }, (_, index) => ({
+                                              title: `Group ${index}`,
+                                              colSpan: 2,
+                                          })),
+                                      ],
+                                      [
+                                          { title: 'Detail', colSpan: 1 },
+                                          ...Array.from({ length: 1800 }, (_, index) => ({
+                                              title: `Member ${index}`,
+                                              colSpan: 1,
+                                          })),
+                                      ],
+                                  ]
+                                : undefined
+                        }
+                        allowContentScroll
+                        virtualized={virtualized}
+                    />
+                )
+                const table = container.querySelector('table')!
+                const scroll = container.querySelector('.ScrollableShadows__inner')!
+                expect(table).toHaveAttribute('aria-colcount', '1801')
+                expect(screen.getByText('1:0')).toBeVisible()
+                expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+                expect(table.querySelector('col')).toHaveStyle({ width: '280px' })
+
+                fireEvent.scroll(scroll, {
+                    target: {
+                        scrollLeft: columns.slice(0, 900).reduce((sum, column) => sum + (column.width ?? 192), 0),
+                    },
+                })
+                if (pivot) {
+                    expect(screen.getByText('1:0').closest('td')).toHaveClass('LemonTable__cell--sticky')
+                    expect(screen.getByText('Group 450')).toHaveAttribute('colspan', '2')
+                    const headerRows = table.querySelectorAll('thead tr:not(.LemonTable__loader-row)')
+                    const spanCounts = Array.from(headerRows, (row) =>
+                        Array.from(row.querySelectorAll('th')).reduce((sum, cell) => sum + cell.colSpan, 0)
+                    )
+                    expect(new Set(spanCounts).size).toBe(1)
+                    expect(headerRows[0].querySelectorAll('th').length).toBeLessThan(15)
+                } else {
+                    expect(screen.queryByText('1:0')).not.toBeInTheDocument()
+                }
+                expect(screen.getByText('2:900').closest('td')).toHaveAttribute('aria-colindex', '901')
+                expect(screen.getByText('Column 900').closest('th')).toHaveAttribute('aria-colindex', '901')
+                expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+                expect(
+                    Array.from(table.querySelectorAll('col')).reduce((sum, col) => sum + parseFloat(col.style.width), 0)
+                ).toBe(totalWidth)
+
+                fireEvent.scroll(scroll, { target: { scrollLeft: totalWidth - 800 } })
+                expect(screen.getByText('1:1800')).toBeVisible()
+                expect(screen.getByText('2:1800')).toBeVisible()
+
+                rerender(<LemonTable columns={columns.slice(0, 2)} dataSource={data} />)
+                expect(table).not.toHaveAttribute('aria-colcount')
+                expect(screen.getByText('1:0')).toBeVisible()
+                expect(screen.getByText('2:1')).toBeVisible()
+                expect(container.querySelectorAll('tbody td')).toHaveLength(4)
+            } finally {
+                cleanup()
+                height.mockRestore()
+                width.mockRestore()
+            }
+        }
+    )
+
+    it('reports the rows in sorted order, and again only when they change', () => {
+        const onSortedRowsChange = jest.fn()
+        const table = (dataSource: Row[]): JSX.Element => (
+            <LemonTable
+                rowKey="id"
+                dataSource={dataSource}
+                columns={[...COLUMNS]}
+                defaultSorting={{ columnKey: 'value', order: 1 }}
+                onSortedRowsChange={onSortedRowsChange}
+            />
+        )
+        const { rerender } = render(table(DATA))
+        expect(onSortedRowsChange.mock.calls).toEqual([[[DATA[1], DATA[2], DATA[0]]]])
+
+        rerender(table(DATA))
+        expect(onSortedRowsChange).toHaveBeenCalledTimes(1)
+
+        rerender(table([DATA[0]]))
+        expect(onSortedRowsChange).toHaveBeenLastCalledWith([DATA[0]])
+    })
+
+    it('does not rerender retained virtualized cells when scrolling', () => {
+        const height = jest
+            .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+            .mockImplementation(function (this: HTMLElement): number {
+                return this.tagName === 'TR' ? 36 : 180
+            })
+        const width = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+        const renderCell = jest.fn((value: string | number | undefined): string => String(value))
+        const data = Array.from({ length: 100 }, (_, id) => ({ id, name: `Row ${id}` }))
+
+        try {
+            const { container } = render(
+                <LemonTable
+                    rowKey="id"
+                    dataSource={data}
+                    columns={[{ title: 'Name', dataIndex: 'name', render: renderCell }]}
+                    allowContentScroll
+                    virtualized
+                />
+            )
+            const initialCells = new Set(renderCell.mock.calls.map(([value]) => value))
+            expect(initialCells.size).toBeGreaterThan(0)
+            expect(initialCells.size).toBeLessThan(data.length)
+            renderCell.mockClear()
+
+            fireEvent.scroll(container.querySelector('.ScrollableShadows__inner')!, { target: { scrollTop: 180 } })
+
+            expect(renderCell).toHaveBeenCalled()
+            expect(renderCell.mock.calls.every(([value]) => !initialCells.has(value))).toBe(true)
+        } finally {
+            cleanup()
+            height.mockRestore()
+            width.mockRestore()
+        }
+    })
 
     it.each([
         [true, ['alpha', 'gamma', 'beta']],
@@ -51,6 +308,162 @@ describe('LemonTable', () => {
             />
         )
         expect(renderedOrder()).toEqual(expectedOrder)
+    })
+
+    it('resizes columns and locks sibling widths', () => {
+        const onResize = jest.fn()
+        const onSecondColumnResize = jest.fn()
+        const onResizeEnd = jest.fn()
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        dataIndex: 'value',
+                        resizable: true,
+                        onResize,
+                        onResizeEnd,
+                    },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        dataIndex: 'name',
+                        resizable: true,
+                        onResize: onSecondColumnResize,
+                    },
+                ]}
+            />
+        )
+        jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+            function (this: HTMLElement): DOMRect {
+                return { width: this.textContent === 'Value' ? 150 : 100 } as DOMRect
+            }
+        )
+        jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+            callback(0)
+            return 1
+        })
+
+        fireEvent.mouseDown(screen.getAllByLabelText('Resize column')[0], { button: 0, clientX: 100 })
+        fireEvent.mouseMove(window, { clientX: 175 })
+        fireEvent.mouseUp(window)
+
+        expect(onResize).toHaveBeenLastCalledWith(225)
+        expect(onSecondColumnResize).toHaveBeenCalledWith(100)
+        expect(onResizeEnd).toHaveBeenCalledTimes(1)
+    })
+
+    it('caps a resizable column at its width so the content crops', () => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        dataIndex: 'value',
+                        width: 90,
+                        resizable: true,
+                        onResize: jest.fn(),
+                    },
+                    { title: 'Name', key: 'name', dataIndex: 'name', width: 90 },
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Value').closest('th')).toHaveStyle({ maxWidth: '90px' })
+        expect(document.querySelector('tbody tr:first-child > td')).toHaveStyle({ maxWidth: '90px' })
+        expect(screen.getByText('Name').closest('th')).not.toHaveStyle({ maxWidth: '90px' })
+    })
+
+    it('leaves a cell that spans several columns uncapped', () => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        width: 90,
+                        resizable: true,
+                        onResize: jest.fn(),
+                        render: () => ({ children: 'spans the row', props: { colSpan: 2 } }),
+                    },
+                    { title: 'Name', key: 'name', dataIndex: 'name', width: 90 },
+                ]}
+            />
+        )
+
+        const spanningCell = document.querySelector('tbody tr:first-child > td')
+        expect(spanningCell).toHaveAttribute('colspan', '2')
+        expect(spanningCell).not.toHaveStyle({ maxWidth: '90px' })
+        expect(spanningCell).not.toHaveClass('whitespace-nowrap')
+    })
+
+    it.each([
+        ['auto', '1%'],
+        ['fixed', '3rem'],
+    ] as const)('reserves toggle space and expands rows with %s layout', (tableLayout, toggleWidth) => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA.slice(0, 1)}
+                columns={COLUMNS}
+                tableLayout={tableLayout}
+                expandable={{ expandedRowRender: (row) => <span>{row.name} details</span> }}
+            />
+        )
+
+        expect(document.querySelector('colgroup > col:first-child')).toHaveStyle({ width: toggleWidth })
+        fireEvent.click(screen.getByTitle('Show more'))
+        expect(screen.getByText('alpha details')).toBeInTheDocument()
+        fireEvent.click(screen.getByTitle('Show less'))
+        expect(screen.queryByText('alpha details')).not.toBeInTheDocument()
+    })
+
+    it('keeps headers, expanded rows, and empty states aligned when the row expansion toggle is hidden', () => {
+        const { rerender } = render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={COLUMNS}
+                expandable={{
+                    expandedRowRender: () => <div>Expanded</div>,
+                    isRowExpanded: () => true,
+                    showRowExpansionToggle: false,
+                    noIndent: true,
+                }}
+            />
+        )
+
+        const headerCells = document.querySelectorAll('thead tr:last-child th')
+        const firstRowCells = document.querySelectorAll('tbody tr:first-child > td')
+        const expansionCells = document.querySelectorAll('tbody tr.LemonTable__expansion > td')
+
+        expect(headerCells).toHaveLength(1)
+        expect(firstRowCells).toHaveLength(1)
+        expect(firstRowCells[0]).toHaveTextContent('alpha')
+        expect(expansionCells).toHaveLength(3)
+        expect(expansionCells[0]).toHaveAttribute('colspan', '1')
+
+        rerender(
+            <LemonTable
+                rowKey="id"
+                dataSource={[]}
+                columns={COLUMNS}
+                expandable={{
+                    expandedRowRender: () => <div>Expanded</div>,
+                    showRowExpansionToggle: false,
+                }}
+            />
+        )
+
+        expect(document.querySelector('tbody tr.LemonTable__empty-state > td')).toHaveAttribute('colspan', '1')
     })
 
     it('keeps group headers aligned when the sticky first group has a single column', () => {
@@ -77,5 +490,63 @@ describe('LemonTable', () => {
         const groupingRow = document.querySelector('tr.LemonTable__row--grouping')!
         const spannedColumns = Array.from(groupingRow.querySelectorAll('th')).reduce((sum, th) => sum + th.colSpan, 0)
         expect(spannedColumns).toBe(3)
+    })
+
+    describe('sticky header', () => {
+        const renderWithWidths = (props: { stickyHeader?: boolean }, tableWidth: number, viewportWidth = 500): void => {
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+                return this.tagName === 'TABLE' ? tableWidth : 0
+            })
+            jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+                return this.classList.contains('ScrollableShadows__inner') ? viewportWidth : 0
+            })
+            render(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} {...props} />)
+        }
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('pins the header when the table fits its container', () => {
+            renderWithWidths({ stickyHeader: true }, 400)
+            expect(document.querySelector('.LemonTable')).toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('keeps horizontal scrolling instead when the table is wider than its container', () => {
+            renderWithWidths({ stickyHeader: true }, 800)
+            expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('switches between pinning and horizontal scrolling when the table or its container resizes', () => {
+            const resizeCallbacks: (() => void)[] = []
+            jest.spyOn(globalThis, 'ResizeObserver').mockImplementation((callback: ResizeObserverCallback) => {
+                resizeCallbacks.push(() => callback([], {} as ResizeObserver))
+                return { observe: () => null, unobserve: () => null, disconnect: () => null } as ResizeObserver
+            })
+            let tableWidth = 400
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+                return this.tagName === 'TABLE' ? tableWidth : 0
+            })
+            jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+                return this.classList.contains('ScrollableShadows__inner') ? 500 : 0
+            })
+            render(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} stickyHeader />)
+            const table = document.querySelector('.LemonTable')
+            expect(table).toHaveClass('LemonTable--sticky-header')
+            expect(resizeCallbacks.length).toBeGreaterThan(0)
+
+            tableWidth = 800
+            act(() => resizeCallbacks.forEach((callback) => callback()))
+            expect(table).not.toHaveClass('LemonTable--sticky-header')
+
+            tableWidth = 400
+            act(() => resizeCallbacks.forEach((callback) => callback()))
+            expect(table).toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('does not pin the header by default', () => {
+            renderWithWidths({}, 400)
+            expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
     })
 })

@@ -169,24 +169,12 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
  * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
  */
 export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.object({
-    version: zod.number().optional(),
+    version: zod.number().optional().describe('Endpoint version to preview. Defaults to the current version.'),
     bucket_overrides: zod
         .record(zod.string(), zod.string())
         .nullish()
         .describe('Per-column bucket function overrides, e.g. {\"timestamp\": \"hour\"}'),
 })
-
-/**
- * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
- */
-export const EndpointsMaterializationSuggestionCreateBody = /* @__PURE__ */ zod
-    .object({
-        version: zod
-            .number()
-            .nullish()
-            .describe('Endpoint version to suggest a fix for. Defaults to the latest version.'),
-    })
-    .describe('Request body for the AI materialization-fix suggestion action.')
 
 /**
  * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.

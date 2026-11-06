@@ -196,6 +196,7 @@ export function SessionReplayWidgetTileFilters({
             ) : null}
             {showPropertyFilters && filterDefinitions.length > 0 ? (
                 <WidgetPropertyFiltersSection
+                    context={filterDefinitionsContext}
                     filterDefinitions={filterDefinitions}
                     widgetFilters={widgetFilters}
                     onWidgetFiltersChange={applyWidgetFilters}

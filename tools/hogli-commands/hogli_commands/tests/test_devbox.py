@@ -10,21 +10,53 @@ import hashlib
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli_commands import worktrees
 from hogli_commands.devbox import (
     cli as devbox_cli,
     coder,
     config as devbox_config,
+    herdr as devbox_herdr,
+    hogland as devbox_hogland,
     mutagen as devbox_mutagen,
     sync as devbox_sync,
+    worktree as devbox_worktree,
 )
 
+# Captured at import, before the autouse fixture in conftest.py replaces it.
+_REAL_FORGET_HERDR_MACHINE = devbox_herdr.forget_machine
 runner = CliRunner()
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+@pytest.fixture(autouse=True)
+def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devbox_cli, "wait_for_agent_ready", lambda name: "ready")
 
 
 @pytest.fixture
@@ -32,6 +64,20 @@ def devbox_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_path = tmp_path / "hogli_devbox.json"
     monkeypatch.setattr(devbox_config, "get_config_path", lambda: config_path)
     return config_path
+
+
+@pytest.fixture
+def recorded_properties(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    recorded: dict[str, object] = {}
+    monkeypatch.setattr(coder.telemetry, "add_command_properties", lambda **props: recorded.update(props))
+    return recorded
+
+
+@pytest.fixture
+def stub_mutagen_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devbox_mutagen, "ensure_mutagen_installed", lambda **kw: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_daemon_with_shim", lambda: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_user_mutagen_config", lambda: Path("/tmp/mutagen.yml"))
 
 
 class TestDevboxConfig:
@@ -351,7 +397,9 @@ class TestTailscaleRoutesAccepted:
         )
         assert coder._tailscale_routes_accepted() is False
 
-    def test_ensure_noop_when_already_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ensure_noop_when_already_accepted(
+        self, monkeypatch: pytest.MonkeyPatch, recorded_properties: dict[str, object]
+    ) -> None:
         monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: True)
         calls: list[list[str]] = []
 
@@ -364,8 +412,11 @@ class TestTailscaleRoutesAccepted:
         coder.ensure_tailscale_routes_accepted()
 
         assert calls == []
+        assert recorded_properties == {}
 
-    def test_ensure_invokes_tailscale_set_accept_routes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ensure_invokes_tailscale_set_accept_routes(
+        self, monkeypatch: pytest.MonkeyPatch, recorded_properties: dict[str, object]
+    ) -> None:
         monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: False)
         monkeypatch.setattr(coder, "_resolve_tailscale", lambda: coder._MACOS_TAILSCALE_CLI)
         monkeypatch.setattr(coder.sys, "platform", "darwin")
@@ -380,6 +431,7 @@ class TestTailscaleRoutesAccepted:
         coder.ensure_tailscale_routes_accepted()
 
         assert captured == [[coder._MACOS_TAILSCALE_CLI, "set", "--accept-routes"]]
+        assert recorded_properties == {"devbox_routes_were_off": True}
 
 
 class TestCoderConfig:
@@ -423,8 +475,6 @@ class TestCoderConfig:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.setattr(coder, "ensure_tailscale_connected", lambda setup_hint=coder.RUNTIME_SETUP_HINT: None)
-        monkeypatch.setattr(coder, "ensure_tailscale_routes_accepted", lambda: None)
         monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
 
@@ -541,6 +591,56 @@ class TestCoderVersion:
         with pytest.raises(SystemExit):
             coder.ensure_coder_authenticated()
 
+    def test_ensure_coder_authenticated_points_at_a_terminal_without_stdin(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "coder_command_hint", lambda: "coder")
+        monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: False)
+
+        def boom(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            raise AssertionError("coder login can't read a pasted token without a terminal")
+
+        monkeypatch.setattr(coder, "_run", boom)
+
+        with pytest.raises(SystemExit):
+            coder.ensure_coder_authenticated()
+
+        assert "Run `coder login https://coder.example.com` in a terminal" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("user_bin_on_path", [True, False])
+    def test_ensure_coder_on_path(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        user_bin_on_path: bool,
+    ) -> None:
+        managed_dir = tmp_path / "hogli-bin"
+        managed_dir.mkdir()
+        (managed_dir / "coder").write_text("#!/bin/sh\n")
+        (managed_dir / "coder").chmod(0o755)
+        user_bin = tmp_path / "local-bin"
+        user_bin.mkdir()
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+        monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", managed_dir)
+        monkeypatch.setattr(coder, "_USER_BIN_DIRS", (user_bin,))
+        monkeypatch.setenv("PATH", os.pathsep.join([str(user_bin)] if user_bin_on_path else [str(other_dir)]))
+
+        coder.ensure_coder_on_path()
+
+        link = user_bin / "coder"
+        if user_bin_on_path:
+            assert link.resolve() == (managed_dir / "coder").resolve()
+            coder.ensure_coder_on_path()
+            assert link.resolve() == (managed_dir / "coder").resolve()
+        else:
+            assert not link.exists()
+            assert 'export PATH="$HOME/.hogli/bin:$PATH"' in capsys.readouterr().out
+
 
 class TestCoderReachable:
     """Test the Coder deployment reachability probe and diagnostic."""
@@ -558,13 +658,17 @@ class TestCoderReachable:
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
+        recorded_properties: dict[str, object],
     ) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
-        monkeypatch.setattr(coder, "coder_reachable", lambda: False)
+        monkeypatch.setattr(coder, "_probe_coder", lambda timeout=5.0: None)
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: True)
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: True)
         monkeypatch.setattr(
             coder,
             "_diagnose_unreachable_coder",
             lambda: coder.CoderReachabilityDiagnosis(
+                code="stubbed_code",
                 cause="stubbed cause.",
                 next_step="stubbed step.",
                 facts=["fact: one"],
@@ -579,6 +683,57 @@ class TestCoderReachable:
         assert "stubbed cause." in out
         assert "stubbed step." in out
         assert "fact: one" in out
+        assert recorded_properties == {"devbox_failure_cause": "stubbed_code"}
+
+    @pytest.mark.parametrize(
+        "probe_statuses, expected_tailscale_commands, exits",
+        [
+            ([200], [], False),
+            ([None, 200], [["/usr/bin/tailscale", "set", "--accept-routes"]], False),
+            ([None, None], [["/usr/bin/tailscale", "set", "--accept-routes"]], True),
+            ([503], [], True),
+        ],
+    )
+    def test_ensure_coder_reachable_changes_tailscale_only_when_coder_does_not_respond(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        probe_statuses: list[int | None],
+        expected_tailscale_commands: list[list[str]],
+        exits: bool,
+    ) -> None:
+        def response(status: int | None) -> coder.requests.Response | None:
+            if status is None:
+                return None
+            resp = coder.requests.Response()
+            resp.status_code = status
+            return resp
+
+        probes = iter(probe_statuses)
+        monkeypatch.setattr(coder, "_probe_coder", lambda timeout=5.0: response(next(probes)))
+        monkeypatch.setattr(
+            coder,
+            "_diagnose_unreachable_coder",
+            lambda: coder.CoderReachabilityDiagnosis(code="stubbed_code", cause="", next_step="", facts=[]),
+        )
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: True)
+        monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: "/usr/bin/tailscale")
+        monkeypatch.setattr(coder.os, "geteuid", lambda: 0)
+        commands: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            commands.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        if exits:
+            with pytest.raises(SystemExit):
+                coder.ensure_coder_reachable()
+        else:
+            coder.ensure_coder_reachable()
+
+        assert commands == expected_tailscale_commands
 
 
 class TestDiagnoseUnreachableCoder:
@@ -587,6 +742,32 @@ class TestDiagnoseUnreachableCoder:
     @pytest.fixture(autouse=True)
     def _stub_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+
+    def test_wrong_tailnet_dominates_every_other_cause(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A per-env tailnet fails DNS/TCP too, so its fixes would be red herrings."""
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "dev"}})
+
+        def must_not_run(*args: object, **kwargs: object) -> object:
+            raise AssertionError("probes should be skipped when the tailnet is wrong")
+
+        monkeypatch.setattr(coder, "_resolve_host_ip", must_not_run)
+        monkeypatch.setattr(coder, "_tcp_reachable", must_not_run)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "wrong_tailnet"
+        assert "'dev'" in diagnosis.cause
+        assert coder.EXPECTED_TAILNET in diagnosis.next_step
+        assert "switch" in diagnosis.next_step
+        assert "Tailscale tailnet: dev" in diagnosis.facts
+
+    def test_unknown_tailnet_name_does_not_claim_wrong_tailnet(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only accuse the tailnet when we actually read a name — else keep probing."""
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"BackendState": "Running"})
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: None)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "dns_lookup_failed"
+        assert "Tailscale tailnet: <unknown>" in diagnosis.facts
 
     def test_dns_failure_dominates_other_causes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "posthog.com"}})
@@ -598,8 +779,12 @@ class TestDiagnoseUnreachableCoder:
         monkeypatch.setattr(coder, "_tcp_reachable", must_not_run)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "dns_lookup_failed"
         assert "DNS lookup" in diagnosis.cause
         assert "MagicDNS" in diagnosis.next_step
+        # Exit nodes route all traffic through infra and mask the real DNS cause.
+        assert "exit node" in diagnosis.next_step.lower()
+        assert "1.1.1.1" in diagnosis.next_step
         assert "Tailscale tailnet: posthog.com" in diagnosis.facts
 
     def test_tcp_open_signals_tls_or_clock(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -608,19 +793,22 @@ class TestDiagnoseUnreachableCoder:
         monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: True)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "https_probe_failed"
         assert "HTTPS probe" in diagnosis.cause
         assert "clock" in diagnosis.next_step.lower()
 
-    def test_no_subnet_routers_points_to_wrong_tailnet(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_subnet_routers_points_at_tailnet_or_grant(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On the right tailnet with no routes, the missing ACL grant is the suspect."""
         monkeypatch.setattr(
             coder,
             "_tailscale_status",
-            lambda: {"CurrentTailnet": {"Name": "personal.tailnet"}, "Peer": {"k": {"PrimaryRoutes": None}}},
+            lambda: {"CurrentTailnet": {"Name": "posthog.com"}, "Peer": {"k": {"PrimaryRoutes": None}}},
         )
         monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
         monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "no_subnet_routes_advertised"
         assert "No peer" in diagnosis.cause
         assert "Team DevEx" in diagnosis.next_step
 
@@ -639,6 +827,7 @@ class TestDiagnoseUnreachableCoder:
         monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "subnet_router_offline"
         assert "subnet-router-us" in diagnosis.cause
         assert "Wait a minute" in diagnosis.next_step
 
@@ -657,6 +846,7 @@ class TestDiagnoseUnreachableCoder:
         monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "tcp_blocked"
         assert "blocked" in diagnosis.cause.lower()
         assert "ACL" in diagnosis.next_step or "VPN" in diagnosis.next_step.upper()
 
@@ -763,6 +953,463 @@ class TestWorkspaceNaming:
         assert coder.resolve_shared_workspace_name(user, label) == expected
 
 
+class TestWorktreeLabel:
+    @pytest.mark.parametrize(
+        "username, region, expected",
+        [
+            ("test-user", "us-east-1", 15),
+            ("test-user", "eu-central-1", 12),
+            ("fifteen-chars-x", "us-east-1", 9),
+        ],
+        ids=["short-user-us", "short-user-eu", "long-user-us"],
+    )
+    def test_budget_fills_coder_name_limit(self, username: str, region: str, expected: int) -> None:
+        assert devbox_worktree.label_budget(username, region) == expected
+
+    @pytest.mark.parametrize(
+        "branch, expected",
+        [
+            ("feat/session-replay", "feat-session-replay"),
+            ("Fix_Cohort__Query", "fix-cohort-query"),
+            ("worktree-agent-abc", "agent-abc"),
+            ("worktree/brave-river-1a2b", "brave-river-1a2b"),
+        ],
+        ids=["slash", "case-and-underscores", "claude-worktree-prefix", "herdr-worktree-prefix"],
+    )
+    def test_short_branch_becomes_readable_label(self, branch: str, expected: str) -> None:
+        assert devbox_worktree.derive_label(branch, 20) == expected
+
+    @pytest.mark.parametrize(
+        "branch, budget",
+        [
+            ("worktree-agent-afae8d7b61efe10c8", 9),
+            ("feat/a-very-long-branch-name-about-replay", 15),
+            ("fix-eu", 12),
+            ("///", 12),
+            ("release/2026-10", 4),
+        ],
+        ids=["truncated", "truncated-wider", "region-suffix", "no-alphanumerics", "hash-only-budget"],
+    )
+    def test_repaired_label_is_a_valid_workspace_name(
+        self, monkeypatch: pytest.MonkeyPatch, branch: str, budget: int
+    ) -> None:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        label = devbox_worktree.derive_label(branch, budget)
+
+        assert len(label) <= budget
+        name = coder.get_workspace_name(label, region="eu-central-1")
+        assert coder.extract_workspace_label(name) == label
+
+    def test_truncated_branches_with_shared_prefix_get_different_labels(self) -> None:
+        first = devbox_worktree.derive_label("feat/session-replay-export", 9)
+        second = devbox_worktree.derive_label("feat/session-replay-import", 9)
+        assert first != second
+        assert devbox_worktree.derive_label("feat/session-replay-export", 9) == first
+
+    def test_budget_too_small_for_hash_fails(self) -> None:
+        with pytest.raises(SystemExit):
+            devbox_worktree.derive_label("feat/x", 3)
+
+
+class TestWorktreeAutoProvision:
+    @pytest.mark.parametrize(
+        "worktree_name, source, enabled, expected",
+        [
+            ("zesty-gliding-bunny", "claude", {"claude"}, True),
+            ("agent-afae8d7b", "claude", {"claude"}, False),
+            ("agent-afae8d7b", "phw", {"phw"}, True),
+            ("feat-x", "codex", {"claude", "phw"}, False),
+            ("feat-x", "other", {"other"}, True),
+        ],
+        ids=["claude-session", "claude-subagent", "phw-named-agent", "source-not-enabled", "plain-git-worktree"],
+    )
+    def test_only_enabled_sources_get_a_box_and_never_subagents(
+        self, worktree_name: str, source: str, enabled: set[str], expected: bool
+    ) -> None:
+        root = Path("/work") / worktree_name
+        assert devbox_worktree.should_auto_provision(root, source, frozenset(enabled)) is expected
+
+    @pytest.mark.parametrize(
+        "herdr_installed, listed_plugins, expected_link",
+        [
+            pytest.param(True, [], True, id="links-from-the-main-checkout"),
+            pytest.param(
+                True,
+                [{"plugin_id": "posthog.devbox", "plugin_root": "/elsewhere", "enabled": False}],
+                False,
+                id="keeps-an-existing-link-and-its-disabled-state",
+            ),
+            pytest.param(False, [], False, id="herdr-not-installed"),
+        ],
+    )
+    def test_auto_with_herdr_links_the_plugin_once(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        herdr_installed: bool,
+        listed_plugins: list[dict[str, object]],
+        expected_link: bool,
+    ) -> None:
+        main = tmp_path / "main"
+        (main / "tools" / "herdr-devbox-plugin").mkdir(parents=True)
+        (main / "tools" / "herdr-devbox-plugin" / "herdr-plugin.toml").write_text("")
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
+        monkeypatch.setattr(
+            devbox_herdr.shutil, "which", lambda name: "/bin/herdr" if herdr_installed and name == "herdr" else None
+        )
+        herdr_calls: list[list[str]] = []
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if command[0] == "git":
+                return subprocess.CompletedProcess(command, 0, stdout=f"{main / '.git'}\n", stderr="")
+            herdr_calls.append(command)
+            listing = {"id": "cli", "result": {"type": "plugin_list", "plugins": listed_plugins}}
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps(listing), stderr="")
+
+        monkeypatch.setattr(devbox_worktree.subprocess, "run", fake_run)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "claude,herdr"])
+
+        assert result.exit_code == 0, result.output
+        links = [call for call in herdr_calls if call[1:3] == ["plugin", "link"]]
+        assert links == (
+            [["/bin/herdr", "plugin", "link", str(main / "tools" / "herdr-devbox-plugin")]] if expected_link else []
+        )
+
+    @pytest.mark.parametrize(
+        "existing_settings, expected_settings",
+        [
+            pytest.param(None, devbox_worktree._CONDUCTOR_SCRIPTS, id="writes-the-local-settings"),
+            pytest.param(
+                '[scripts]\nsetup = "./my-setup.sh"\n',
+                '[scripts]\nsetup = "./my-setup.sh"\n',
+                id="keeps-the-users-own-scripts",
+            ),
+        ],
+    )
+    def test_auto_with_conductor_adds_scripts_only_to_uncommitted_settings(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        existing_settings: str | None,
+        expected_settings: str,
+    ) -> None:
+        main = tmp_path / "main"
+        settings_path = main / ".conductor" / "settings.local.toml"
+        main.mkdir()
+        if existing_settings is not None:
+            settings_path.parent.mkdir()
+            settings_path.write_text(existing_settings)
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
+        monkeypatch.setattr(
+            devbox_worktree.subprocess,
+            "run",
+            lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout=f"{main / '.git'}\n", stderr=""),
+        )
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "conductor"])
+
+        assert result.exit_code == 0, result.output
+        assert settings_path.read_text() == expected_settings
+
+    @pytest.mark.parametrize(
+        "source_arg, enabled, first_spawn_fails, expected_starts",
+        [
+            pytest.param("t3code", "t3code", False, 1, id="tool-hook-declares-an-enabled-source"),
+            pytest.param(None, "t3code", False, 0, id="husky-hook-sees-only-the-folder"),
+            pytest.param("t3code", "claude", False, 0, id="declared-source-not-enabled"),
+            pytest.param("t3code", "t3code", True, 1, id="failed-spawn-releases-the-claim"),
+        ],
+    )
+    def test_auto_starts_at_most_one_box_per_worktree(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        source_arg: str | None,
+        enabled: str,
+        first_spawn_fails: bool,
+        expected_starts: int,
+    ) -> None:
+        root = tmp_path / "wt"
+        (root / "admin").mkdir(parents=True)
+        (root / ".git").write_text("gitdir: elsewhere\n")
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        devbox_config.save_worktree_auto_sources([enabled])
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
+        monkeypatch.setattr(devbox_worktree, "_git_dir", lambda root: root / "admin")
+        monkeypatch.setattr(devbox_worktree, "worktree_source", lambda root: "other")
+        starts: list[list[str]] = []
+        attempts: list[list[str]] = []
+        real_popen = subprocess.Popen
+
+        def fake_popen(command: list[str], *args: object, **kwargs: object) -> object:
+            if "devbox:worktree" not in command:
+                return real_popen(command, *args, **kwargs)
+            attempts.append(command)
+            if first_spawn_fails and len(attempts) == 1:
+                raise OSError("spawn failed")
+            starts.append(command)
+            return MagicMock()
+
+        monkeypatch.setattr(devbox_worktree.subprocess, "Popen", fake_popen)
+        args = ["devbox:worktree:auto", *(["--source", source_arg] if source_arg else [])]
+
+        for attempt in range(2):
+            result = runner.invoke(cli, args)
+            assert result.exit_code == (1 if first_spawn_fails and attempt == 0 else 0), result.output
+
+        assert len(starts) == expected_starts
+
+
+class TestDevboxWorktreeCommand:
+    @pytest.fixture
+    def worktree_root(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        root = tmp_path / "wt"
+        root.mkdir()
+        (root / ".git").write_text("gitdir: elsewhere\n")
+        (root / "admin").mkdir()
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
+        monkeypatch.setattr(devbox_worktree, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_list", lambda label_selector=None: [])
+        monkeypatch.setattr(devbox_worktree, "_git_dir", lambda root: root / "admin")
+        return root
+
+    @pytest.mark.parametrize(
+        "label, existing, expected_exit, expected_box",
+        [
+            pytest.param(
+                None,
+                ["devbox-test-user-feat-eu", "devbox-test-user-feat"],
+                0,
+                "devbox-test-user-feat-eu",
+                id="registered-box-wins-over-same-label-in-preferred-region",
+            ),
+            pytest.param(
+                "feat",
+                ["devbox-test-user-feat-eu", "devbox-test-user-feat"],
+                0,
+                "devbox-test-user-feat-eu",
+                id="registered-label-passed-explicitly",
+            ),
+            pytest.param(
+                "other",
+                ["devbox-test-user-feat-eu"],
+                1,
+                "devbox-test-user-feat-eu",
+                id="new-label-refused-while-registered-box-exists",
+            ),
+            pytest.param("other", [], 0, "devbox-test-user-other", id="new-label-allowed-once-registered-box-is-gone"),
+            pytest.param(
+                "shared",
+                ["devbox-test-user-shared"],
+                1,
+                "devbox-test-user-feat-eu",
+                id="label-of-another-worktrees-box-refused",
+            ),
+            pytest.param(None, None, 1, "devbox-test-user-feat-eu", id="listing-failure-refused"),
+        ],
+    )
+    def test_keeps_the_registered_box_through_start_and_sync(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        worktree_root: Path,
+        label: str | None,
+        existing: list[str] | None,
+        expected_exit: int,
+        expected_box: str,
+    ) -> None:
+        workspaces = (
+            None
+            if existing is None
+            else [{"name": name, "id": f"id-{name}", "latest_build": {"status": "running"}} for name in existing]
+        )
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces or [])
+        devbox_config.record_worktree_box(
+            worktree_root,
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-feat-eu", git_dir="admin", workspace_id="id-devbox-test-user-feat-eu"
+            ),
+        )
+        devbox_config.record_worktree_box(
+            worktree_root.parent / "other-worktree",
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-shared", git_dir="admin", workspace_id="id-devbox-test-user-shared"
+            ),
+        )
+        started: list[str] = []
+        synced: list[str] = []
+
+        def fake_start(workspace: str, region: str, verbose: bool, start_app: bool | None = None) -> None:
+            started.append(devbox_cli.resolve_workspace_name(workspace, region=region)[0])
+
+        monkeypatch.setattr(devbox_worktree, "devbox_start", fake_start)
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda name, *a, **kw: synced.append(name))
+
+        result = runner.invoke(cli, ["devbox:worktree", *(["--label", label] if label else [])])
+
+        assert result.exit_code == expected_exit, result.output
+        expected_calls = [expected_box] if expected_exit == 0 else []
+        assert (started, synced) == (expected_calls, expected_calls)
+        assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_box
+
+    @pytest.mark.parametrize(
+        "live_id, expected_exit",
+        [
+            pytest.param("id-of-the-old-box", 0, id="adopts-the-box-it-replaces-and-resets-its-mirror"),
+            pytest.param("id-of-a-recreated-box", 1, id="refuses-a-same-name-box-it-did-not-set-up"),
+        ],
+    )
+    def test_worktree_recreated_at_the_same_path(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_root: Path, live_id: str, expected_exit: int
+    ) -> None:
+        name = "devbox-test-user-wt"
+        workspaces = [{"name": name, "id": live_id, "latest_build": {"status": "stopped"}}]
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
+        devbox_config.record_worktree_box(
+            worktree_root,
+            devbox_config.WorktreeBoxRecord(
+                workspace=name,
+                git_dir="admin",
+                workspace_id="id-of-the-old-box",
+                worktree_id="id-of-the-removed-worktree",
+            ),
+        )
+        started: list[str] = []
+        terminated: list[str] = []
+        monkeypatch.setattr(
+            devbox_worktree,
+            "devbox_start",
+            lambda workspace, region, verbose, start_app=None: started.append(workspace),
+        )
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_terminate", terminated.append)
+
+        result = runner.invoke(cli, ["devbox:worktree"])
+
+        assert result.exit_code == expected_exit, result.output
+        adopted = expected_exit == 0
+        assert started == (["wt"] if adopted else [])
+        assert terminated == ([devbox_worktree.mutagen.workspace_label_selector(name)] if adopted else [])
+        record = devbox_config.load_worktree_boxes()[str(worktree_root)]
+        assert (record.worktree_id != "id-of-the-removed-worktree") is adopted
+
+    def test_box_of_a_worktree_removed_during_setup_is_stopped_instead_of_synced(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    ) -> None:
+        main = tmp_path / "main"
+        main.mkdir()
+        _git(main, "init", "-q", "-b", "master")
+        _git(main, "commit", "-q", "--allow-empty", "-m", "init")
+        root = tmp_path / "wt"
+        _git(main, "worktree", "add", "-q", "-b", "feat", str(root))
+        name = "devbox-test-user-feat"
+        workspaces: list[dict[str, Any]] = []
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
+        monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda label_selector=None: [])
+        monkeypatch.setattr(devbox_mutagen, "sync_terminate", lambda selector: None)
+        for module in (devbox_worktree, worktrees):
+            monkeypatch.setattr(module, "ensure_runtime_ready", lambda: None)
+            monkeypatch.setattr(module, "fetch_user_workspaces", lambda: workspaces)
+        stopped: list[str] = []
+        synced: list[str] = []
+        monkeypatch.setattr(worktrees, "stop_workspace", stopped.append)
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda name, *a, **kw: synced.append(name))
+
+        def start_while_the_app_removes_the_worktree(
+            workspace: str, region: str, verbose: bool, start_app: bool | None = None
+        ) -> None:
+            workspaces.append({"name": name, "id": "id-new-box", "latest_build": {"status": "running"}})
+            _git(main, "worktree", "remove", "--force", str(root))
+
+        monkeypatch.setattr(devbox_worktree, "devbox_start", start_while_the_app_removes_the_worktree)
+
+        result = runner.invoke(cli, ["devbox:worktree"])
+
+        assert result.exit_code == 0, result.output
+        assert (stopped, synced) == ([name], [])
+
+    @pytest.mark.parametrize("box_exists", [False, True], ids=["before-the-box-exists", "while-the-box-is-set-up"])
+    def test_label_claimed_by_another_worktree_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_root: Path, box_exists: bool
+    ) -> None:
+        other = worktree_root.parent / "other-worktree"
+        other.mkdir()
+        devbox_config.record_worktree_box(
+            other, devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-shared", git_dir="admin")
+        )
+        workspaces = (
+            [{"name": "devbox-test-user-shared", "id": "id-shared", "latest_build": {"status": "running"}}]
+            if box_exists
+            else []
+        )
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_worktree, "devbox_start", lambda **kwargs: pytest.fail("started a claimed box"))
+
+        result = runner.invoke(cli, ["devbox:worktree", "--label", "shared"])
+
+        assert result.exit_code == 1, result.output
+        assert str(other) in result.output
+        assert str(worktree_root) not in devbox_config.load_worktree_boxes()
+
+    @pytest.mark.parametrize(
+        "recorded_id, live_boxes, dry_run, expected_exit",
+        [
+            pytest.param("box-1", [{"name": "wt-feat", "id": "box-1"}], False, 1, id="live-box-blocks-the-switch"),
+            pytest.param(None, [{"name": "wt-feat", "id": "box-1"}], False, 1, id="live-box-with-unrecorded-id-blocks"),
+            pytest.param("box-1", [], False, 0, id="deleted-box-switches-and-drops-its-mirror"),
+            pytest.param("box-1", [], True, 0, id="dry-run-keeps-registration-and-mirror"),
+        ],
+    )
+    def test_switching_provider_away_from_hogland(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        worktree_root: Path,
+        recorded_id: str | None,
+        live_boxes: list[dict[str, str]],
+        dry_run: bool,
+        expected_exit: int,
+    ) -> None:
+        devbox_config.record_worktree_box(
+            worktree_root,
+            devbox_config.WorktreeBoxRecord(
+                workspace="wt-feat", git_dir="admin", workspace_id=recorded_id, provider="hogland"
+            ),
+        )
+        monkeypatch.setattr(devbox_worktree.hogland, "ensure_cli", lambda: None)
+        monkeypatch.setattr(devbox_worktree.hogland, "fetch_devboxes", lambda: live_boxes)
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_worktree, "devbox_start", lambda **kwargs: None)
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda *a, **kw: None)
+        terminated: list[str] = []
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_terminate", terminated.append)
+
+        result = runner.invoke(
+            cli, ["devbox:worktree", "--provider", "coder", "--label", "feat", *(["--dry-run"] if dry_run else [])]
+        )
+
+        assert result.exit_code == expected_exit, result.output
+        switched = expected_exit == 0 and not dry_run
+        expected_record = "devbox-test-user-feat" if switched else "wt-feat"
+        assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_record
+        assert terminated == ([devbox_worktree.mutagen.workspace_label_selector("wt-feat")] if switched else [])
+
+
 class TestWorkspaceRegion:
     """Reading the region back from the workspace `region` metadata item."""
 
@@ -860,7 +1507,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
 
     def stub(
         name: str,
-        disk_size: int,
+        disk_size: int | None,
         *,
         git_name: str | None = None,
         git_email: str | None = None,
@@ -916,7 +1563,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)", "Cold"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # An explicit warm preset that the template defines flows through to
             # the coder argv unchanged, alongside all optional params.
@@ -931,7 +1578,6 @@ class TestWorkspaceCreation:
                 "posthog-linux",
                 "Default (warm)",
                 {
-                    "disk_size": "100",
                     "repo": _REPO,
                     "workspace_region": "us-east-1",
                     "git_name": "PostHog Engineer",
@@ -944,7 +1590,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
@@ -955,7 +1601,7 @@ class TestWorkspaceCreation:
                 ["Cold only"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+                {"repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # A non-default region is forwarded verbatim as workspace_region.
             (
@@ -963,7 +1609,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "eu-central-1"},
+                {"repo": _REPO, "workspace_region": "eu-central-1"},
             ),
         ],
         ids=[
@@ -987,7 +1633,7 @@ class TestWorkspaceCreation:
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
         monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(available_presets))
 
-        coder.create_workspace("devbox-test-user", 100, **kwargs)
+        coder.create_workspace("devbox-test-user", None, **kwargs)
 
         args = captured["args"]
         assert args[:3] == ["coder", "create", "devbox-test-user"]
@@ -996,6 +1642,7 @@ class TestWorkspaceCreation:
         # prompt interactively for a preset, which `--yes` does not bypass.
         assert _flag_value(args, "--preset") == expected_preset
         assert "--use-parameter-defaults" in args
+        assert _flag_value(args, "--automatic-updates") == "always"
         assert "--yes" in args
         # Security invariant: the Claude OAuth token is a Coder user secret
         # (env-injected at workspace start); it must never be forwarded as a
@@ -1003,6 +1650,64 @@ class TestWorkspaceCreation:
         params = _parse_parameter_flags(args)
         assert "claude_oauth_token" not in params
         assert params == expected_params
+
+    @pytest.mark.parametrize("build_status, fails", [("running", False), ("failed", True)], ids=["built", "failed"])
+    def test_update_workspace_fails_when_its_build_fails(
+        self, monkeypatch: pytest.MonkeyPatch, build_status: str, fails: bool
+    ) -> None:
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing({}))
+        monkeypatch.setattr(
+            coder, "get_workspace", lambda name: {"name": name, "latest_build": {"status": build_status}}
+        )
+
+        if fails:
+            with pytest.raises(SystemExit):
+                coder.update_workspace("devbox-test-user")
+        else:
+            coder.update_workspace("devbox-test-user")
+
+    @pytest.mark.parametrize(
+        "returncode, build_status, output, shortage",
+        [
+            (1, "failed", "api error InsufficientInstanceCapacity: Insufficient capacity.", True),
+            (1, "failed", "Error: Missing required provider", False),
+            (0, "failed", "api error InsufficientInstanceCapacity: Insufficient capacity.", True),
+        ],
+        ids=["start-capacity", "start-other-error", "update-exits-0-on-capacity"],
+    )
+    def test_failed_build_reports_a_capacity_shortage_only_for_capacity_errors(
+        self, monkeypatch: pytest.MonkeyPatch, returncode: int, build_status: str, output: str, shortage: bool
+    ) -> None:
+        monkeypatch.setattr(
+            coder, "_run_build", lambda args, verbose=False: subprocess.CompletedProcess(args, returncode, output, "")
+        )
+        monkeypatch.setattr(
+            coder, "get_workspace", lambda name: {"name": name, "latest_build": {"status": build_status}}
+        )
+        build = coder.update_workspace if returncode == 0 else coder.start_workspace
+
+        with pytest.raises(SystemExit) as raised:
+            build("devbox-test-user")
+
+        assert isinstance(raised.value, coder.CapacityShortage) is shortage
+
+    def test_clone_workspace_forwards_source_and_creation_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
+
+        coder.clone_workspace("devbox-test-user-copy", source_instance_id="i-0abc", disk_size=200, region="us-east-1")
+
+        args = captured["args"]
+        assert args[:3] == ["coder", "create", "devbox-test-user-copy"]
+        assert _flag_value(args, "--preset") == "none"
+        assert "--use-parameter-defaults" in args
+        assert _flag_value(args, "--automatic-updates") == "always"
+        assert "--yes" in args
+        assert _parse_parameter_flags(args) == {
+            "clone_source_instance_id": "i-0abc",
+            "disk_size": "200",
+            "workspace_region": "us-east-1",
+        }
 
     @pytest.mark.parametrize(
         "start_app, expected",
@@ -1100,6 +1805,154 @@ class TestWorkspaceCreation:
         assert dropped.isdisjoint(_parse_parameter_flags(calls[-1]))
 
 
+_CAPACITY_LOG = "api error InsufficientInstanceCapacity: Insufficient capacity."
+
+
+class TestCapacityFallback:
+    @pytest.mark.parametrize(
+        "first_build_shortage, fallback_results, expected_starts, exits",
+        [
+            (False, {}, [], False),
+            (True, {"m7g.4xlarge": ("succeeded", "", "")}, ["m7g.4xlarge"], False),
+            (
+                True,
+                {"m7g.4xlarge": ("failed", _CAPACITY_LOG, ""), "m6g.4xlarge": ("succeeded", "", "")},
+                ["m7g.4xlarge", "m6g.4xlarge"],
+                False,
+            ),
+            (
+                True,
+                {"m7g.4xlarge": ("failed", "", _CAPACITY_LOG), "m6g.4xlarge": ("succeeded", "", "")},
+                ["m7g.4xlarge", "m6g.4xlarge"],
+                False,
+            ),
+            (
+                True,
+                {"m7g.4xlarge": ("failed", _CAPACITY_LOG, ""), "m6g.4xlarge": ("failed", _CAPACITY_LOG, "")},
+                ["m7g.4xlarge", "m6g.4xlarge"],
+                True,
+            ),
+            (True, {"m7g.4xlarge": ("failed", "Error: Missing required provider", "")}, ["m7g.4xlarge"], True),
+        ],
+        ids=[
+            "no-shortage",
+            "next-type-starts",
+            "last-type-starts",
+            "shortage-only-in-job-error",
+            "every-type-short",
+            "other-error-stops",
+        ],
+    )
+    def test_shortage_starts_the_box_on_the_template_s_other_instance_types(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        first_build_shortage: bool,
+        fallback_results: dict[str, tuple[str, str, str]],
+        expected_starts: list[str],
+        exits: bool,
+    ) -> None:
+        starts: list[str] = []
+        build_results: dict[str, tuple[str, str, str]] = {}
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            path = url.removeprefix("https://coder.example.com/api/v2")
+            if path == "/workspacebuilds/b-failed/parameters":
+                body: object = [{"name": "instance_type", "value": "m8g.4xlarge"}, {"name": "repo", "value": _REPO}]
+            elif path == "/templateversions/tv-1/rich-parameters":
+                options = [{"value": t} for t in ("m8g.4xlarge", "m7g.4xlarge", "m6g.4xlarge")]
+                body = [{"name": "instance_type", "options": options}]
+            elif method == "POST" and path == "/workspaces/ws-1/builds":
+                instance_type = kwargs["json"]["rich_parameter_values"][0]["value"]
+                starts.append(instance_type)
+                status, _, job_error = build_results[f"b-{instance_type}"] = fallback_results[instance_type]
+                body = {"id": f"b-{instance_type}", "job": {"status": status, "error": job_error}}
+            elif path.endswith("/logs"):
+                status, log_output, _ = build_results[path.split("/")[2]]
+                assert status != "succeeded", "a successful build must not need its logs"
+                body = [{"output": log_output}]
+            else:
+                raise AssertionError(f"unexpected {method} {path}")
+            return MagicMock(ok=True, json=MagicMock(return_value=body))
+
+        def first_build() -> None:
+            if first_build_shortage:
+                raise coder.CapacityShortage(1)
+
+        monkeypatch.setattr(coder.requests, "request", fake_request)
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(
+                args, 0, '[{"url": "https://coder.example.com"}]' if "whoami" in args else "token\n", ""
+            ),
+        )
+        monkeypatch.setattr(
+            coder,
+            "get_workspace",
+            lambda name: {"id": "ws-1", "latest_build": {"id": "b-failed", "template_version_id": "tv-1"}},
+        )
+
+        if exits:
+            with pytest.raises(SystemExit):
+                coder.run_with_capacity_fallback("devbox-test-user", first_build)
+        else:
+            coder.run_with_capacity_fallback("devbox-test-user", first_build)
+
+        assert starts == expected_starts
+
+    @pytest.mark.parametrize(
+        "transient",
+        [coder.requests.ConnectionError("reset"), MagicMock(ok=False, status_code=503)],
+        ids=["connection-error", "http-503"],
+    )
+    def test_build_wait_polls_again_after_a_transient_failure(
+        self, monkeypatch: pytest.MonkeyPatch, transient: object
+    ) -> None:
+        polls = iter(
+            [transient, MagicMock(ok=True, status_code=200, json=lambda: {"id": "b-1", "job": {"status": "succeeded"}})]
+        )
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> object:
+            if method == "POST":
+                return MagicMock(ok=True, json=lambda: {"id": "b-1", "job": {"status": "running"}})
+            reply = next(polls)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        monkeypatch.setattr(coder.requests, "request", fake_request)
+        monkeypatch.setattr(coder, "BUILD_POLL_INTERVAL", 0)
+        monkeypatch.setattr(coder._CoderApi, "__init__", lambda self: None)
+        api = coder._CoderApi()
+        api._base_url, api._headers = "https://coder.example.com/api/v2", {}
+
+        assert api.start_on_instance_type("ws-1", "m7g.4xlarge").job_status == "succeeded"
+
+    @pytest.mark.parametrize(
+        "env_token, expected", [("env-token", "env-token"), (None, "stored-token")], ids=["env", "stored-login"]
+    )
+    def test_api_authenticates_with_the_token_the_cli_uses(
+        self, monkeypatch: pytest.MonkeyPatch, env_token: str | None, expected: str
+    ) -> None:
+        if env_token is None:
+            monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
+        else:
+            monkeypatch.setenv("CODER_SESSION_TOKEN", env_token)
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(
+                args, 0, '[{"url": "https://coder.example.com"}]' if "whoami" in args else "stored-token\n", ""
+            ),
+        )
+        request = MagicMock(return_value=MagicMock(ok=True, json=MagicMock(return_value=[])))
+        monkeypatch.setattr(coder.requests, "request", request)
+
+        coder._CoderApi().instance_type("b-1")
+
+        assert request.call_args.kwargs["headers"] == {"Coder-Session-Token": expected}
+
+
 class TestTemplatePresetResolution:
     """Test the runtime preset resolution that suppresses coder's picker."""
 
@@ -1179,53 +2032,55 @@ class TestTemplatePresetResolution:
             assert "Warning" not in output
 
 
-class TestWorkspaceUpdate:
-    """Test that `coder update` paths share the same retry behavior as create.
+def _running_build(agent: dict[str, str]) -> dict[str, object]:
+    return {"status": "running", "resources": [{"agents": [agent]}]}
 
-    Without this, a stale `dotfiles_uri` (or any param the new template
-    doesn't declare) saved in the user's hogli config would abort the
-    pre-start parameter sync the next time they switch templates.
-    """
 
+class TestWaitForAgentReady:
     @pytest.mark.parametrize(
-        "call",
+        "builds, expected",
         [
-            lambda: coder.update_workspace(
-                "devbox-test-user",
-                parameters={"dotfiles_uri": _DOTFILES, "git_name": "PostHog Engineer"},
+            ([_running_build({"lifecycle_state": "starting"}), _running_build({"lifecycle_state": "ready"})], "ready"),
+            (
+                [_running_build({"lifecycle_state": "starting"}), _running_build({"lifecycle_state": "start_error"})],
+                "start_error",
             ),
-            lambda: coder.update_workspace_parameters(
-                "devbox-test-user",
-                {"dotfiles_uri": _DOTFILES, "git_name": "PostHog Engineer"},
+            (
+                [_running_build({"lifecycle_state": "created"}), _running_build({"lifecycle_state": "start_timeout"})],
+                "start_timeout",
             ),
+            ([_running_build({"lifecycle_state": "starting"}), {"status": "stopped", "resources": []}], "stopped"),
+            ([{"status": "failed", "resources": []}], "build_failed"),
+            ([_running_build({"lifecycle_state": "created", "status": "timeout"})], "agent_timeout"),
+            ([_running_build({"lifecycle_state": "starting"}), None], "unavailable"),
+            ([_running_build({"lifecycle_state": "starting"})] * 10, "wait_timeout"),
         ],
-        ids=["update_workspace", "update_workspace_parameters"],
+        ids=[
+            "ready",
+            "script-failed",
+            "script-timed-out",
+            "stopped",
+            "build-failed",
+            "agent-never-connected",
+            "box-gone",
+            "never-ready",
+        ],
     )
-    def test_update_paths_drop_unknown_params_and_retry(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        call: Callable[[], None],
+    def test_returns_when_startup_scripts_settle(
+        self, monkeypatch: pytest.MonkeyPatch, builds: list[dict[str, object] | None], expected: str
     ) -> None:
-        calls: list[list[str]] = []
+        polls = iter(builds)
+        clock = iter(range(0, 1000, 5))
 
-        def fake_run_build(args: list[str], *, verbose: bool = False) -> subprocess.CompletedProcess[str]:
-            calls.append(args)
-            if len(calls) == 1:
-                return subprocess.CompletedProcess(
-                    args, 1, 'parameter "dotfiles_uri" is not present in the template\n', ""
-                )
-            return subprocess.CompletedProcess(args, 0, "", "")
+        def list_workspaces(*, timeout: float | None = None) -> list[dict[str, object]]:
+            build = next(polls)
+            return [] if build is None else [{"name": "devbox-test-user", "latest_build": build}]
 
-        monkeypatch.setattr(coder, "_run_build", fake_run_build)
+        monkeypatch.setattr(coder, "_list_workspaces", list_workspaces)
+        monkeypatch.setattr(coder.time, "monotonic", lambda: next(clock))
+        monkeypatch.setattr(coder.time, "sleep", lambda seconds: None)
 
-        call()
-
-        assert len(calls) == 2
-        first = _parse_parameter_flags(calls[0])
-        retried = _parse_parameter_flags(calls[1])
-        assert "dotfiles_uri" in first and "git_name" in first
-        assert "dotfiles_uri" not in retried
-        assert retried["git_name"] == "PostHog Engineer"
+        assert coder.wait_for_agent_ready("devbox-test-user", timeout=50) == expected
 
 
 class TestResolveWorkspaceName:
@@ -1360,12 +2215,12 @@ class TestDevboxCommands:
         assert "hogli devbox:update" in result.output
         assert "hogli devbox:destroy" in result.output
 
-    def test_devbox_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_devbox_setup_runs_explicit_setup_steps(
+        self, monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: None
+    ) -> None:
         calls: list[str] = []
 
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": calls.append("tailscale"))
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: calls.append("routes"))
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: calls.append("reachable"))
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": calls.append("reachable"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: calls.append("install"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: calls.append("login"))
         monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
@@ -1416,8 +2271,6 @@ class TestDevboxCommands:
 
         assert result.exit_code == 0
         assert calls == [
-            "tailscale",
-            "routes",
             "reachable",
             "install",
             "login",
@@ -1431,13 +2284,11 @@ class TestDevboxCommands:
         ]
 
     def test_devbox_setup_threads_resolved_identity_agent_into_ssh_config(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: None
     ) -> None:
         captured: dict[str, object] = {}
 
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: "/tmp/resolved.sock")
@@ -1465,10 +2316,9 @@ class TestDevboxCommands:
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
+        stub_mutagen_setup: None,
     ) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
@@ -1499,12 +2349,11 @@ class TestDevboxCommands:
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
+        stub_mutagen_setup: None,
     ) -> None:
         devbox_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
 
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
-        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
@@ -1541,7 +2390,7 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert captured == {
             "name": "devbox-test-user",
-            "disk_size": "100",
+            "disk_size": "None",
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
@@ -1552,8 +2401,6 @@ class TestDevboxCommands:
         }
 
     def test_devbox_start_forwards_larger_disk_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Guards that --disk 200 is an accepted choice and reaches create_workspace;
-        # regresses if the choice list drifts from the Coder template's disk_size options.
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -1854,11 +2701,10 @@ class TestDevboxCommands:
             lambda name, workspaces=None: {"name": name, "outdated": True, "latest_build": {"status": "running"}},
         )
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-        monkeypatch.setattr(devbox_cli, "load_config", lambda: {"dotfiles_uri": "https://github.com/user/dotfiles"})
         monkeypatch.setattr(
             devbox_cli,
             "update_workspace",
-            lambda name, parameters=None, verbose=False: captured.update({"name": name, "parameters": parameters}),
+            lambda name, verbose=False: captured.update({"name": name}),
         )
 
         result = runner.invoke(cli, ["devbox:update"])
@@ -1866,7 +2712,6 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert "Updating" in result.output
         assert captured["name"] == "devbox-test-user"
-        assert captured["parameters"] == {"dotfiles_uri": "https://github.com/user/dotfiles"}
 
     def test_devbox_update_skips_when_up_to_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -2003,17 +2848,216 @@ class TestDevboxCommands:
         assert "hogli devbox:forward --port 8011" in result.output
 
 
+class TestDevboxOpenHerdr:
+    @pytest.fixture
+    def herdr_calls(self, monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[list[str]]]:
+        def install(
+            machines: list[dict], spaces: list[dict], *, connecting_polls: int = 0, add_times_out: bool = False
+        ) -> list[list[str]]:
+            calls: list[list[str]] = []
+            remaining = {"polls": connecting_polls}
+
+            def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                if args[0] not in ("hc", "herdr-app"):
+                    raise AssertionError(f"unexpected command: {args}")
+                calls.append(args)
+                stdout = "{}"
+                if args[:3] == ["hc", "machine", "add"]:
+                    if add_times_out:
+                        raise subprocess.TimeoutExpired(args, 300)
+                    machines.append({"name": args[5], "target": args[3]})
+                elif args[:3] == ["hc", "machine", "ls"]:
+                    state = "connecting" if remaining["polls"] > 0 else "connected"
+                    remaining["polls"] = max(remaining["polls"] - 1, 0)
+                    stdout = json.dumps({"machines": [{**m, "state": state} for m in machines]})
+                elif args[:2] == ["herdr-app", "ls"]:
+                    stdout = json.dumps({"spaces": spaces})
+                elif args[:2] == ["herdr-app", "do"] and remaining["polls"] > 0:
+                    return subprocess.CompletedProcess(args, 1, '{"error": "no machine"}', "")
+                return subprocess.CompletedProcess(args, 0, stdout, "")
+
+            monkeypatch.setattr(devbox_herdr.subprocess, "run", fake_run)
+            monkeypatch.setattr(devbox_herdr.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+            monkeypatch.setattr(devbox_herdr, "_POLL_INTERVAL", 0)
+            monkeypatch.setattr(devbox_herdr, "_WINDOW_SEES_MACHINE_TIMEOUT", 0)
+            return calls
+
+        return install
+
+    @pytest.fixture
+    def running_workspace(self, monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:
+        def install(status: str) -> None:
+            monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+            monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+            monkeypatch.setattr(
+                devbox_cli,
+                "resolve_workspace_name",
+                lambda ws, **kw: (
+                    "devbox-test-user",
+                    [{"name": "devbox-test-user", "latest_build": {"status": status}}],
+                ),
+            )
+            monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+            monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda **kw: [])
+
+        return install
+
+    def test_adds_the_machine_and_opens_a_space_in_the_repo(
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+    ) -> None:
+        running_workspace("running")
+        calls = herdr_calls(machines=[], spaces=[])
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 0, result.output
+        assert [
+            "hc",
+            "machine",
+            "add",
+            "coder.devbox-test-user",
+            "--name",
+            "devbox-test-user",
+            "--install",
+            "--json",
+        ] in calls
+        space_new = next(call for call in calls if call[:3] == ["herdr-app", "do", "space.new"])
+        assert json.loads(space_new[3]) == {
+            "name": "devbox-test-user",
+            "machine": "devbox-test-user",
+            "folder": "/home/coder/posthog",
+        }
+
+    @pytest.mark.parametrize(
+        "target", ["coder.devbox-test-user", "devbox-test-user.coder"], ids=["alias-prefix", "hostname-suffix"]
+    )
+    def test_reuses_the_machine_and_space_already_in_herdr_once_it_reconnects(
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None], target: str
+    ) -> None:
+        running_workspace("running")
+        calls = herdr_calls(
+            machines=[{"name": "box", "target": target}],
+            spaces=[{"id": "box/sp1", "machine": "box"}, {"id": "sp2", "machine": None}],
+            connecting_polls=2,
+        )
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 0, result.output
+        assert not any(call[:3] == ["hc", "machine", "add"] for call in calls)
+        assert not any(call[:3] == ["herdr-app", "do", "space.new"] for call in calls)
+        assert ["herdr-app", "do", "space.select", json.dumps({"id": "box/sp1"})] in calls
+
+    def test_stopped_devbox_points_at_devbox_start(
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+    ) -> None:
+        running_workspace("stopped")
+        calls = herdr_calls(machines=[], spaces=[])
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 1
+        assert "Devbox 'devbox-test-user' is stopped. Start it with `hogli devbox:start`" in result.output
+        assert calls == []
+
+    @pytest.mark.parametrize(
+        ("registered_worktree", "expected_warning"),
+        [
+            (None, "Sync is active for 'devbox-test-user'"),
+            ("/work/posthog-feature", "'devbox-test-user' mirrors the worktree at /work/posthog-feature"),
+        ],
+        ids=["standalone-box", "worktree-box"],
+    )
+    def test_sync_warning_points_a_worktree_box_at_its_worktree(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        herdr_calls: Callable[..., list[list[str]]],
+        running_workspace: Callable[[str], None],
+        registered_worktree: str | None,
+        expected_warning: str,
+    ) -> None:
+        running_workspace("running")
+        herdr_calls(machines=[], spaces=[])
+        monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda **kw: [{"name": "ph-x"}])
+        registry = (
+            {}
+            if registered_worktree is None
+            else {registered_worktree: devbox_config.WorktreeBoxRecord(workspace="devbox-test-user", git_dir="admin")}
+        )
+        monkeypatch.setattr(devbox_cli, "load_worktree_boxes", lambda: registry)
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 0, result.output
+        assert expected_warning in result.output
+
+    def test_forgetting_a_deleted_box_removes_only_its_own_machine(
+        self, herdr_calls: Callable[..., list[list[str]]]
+    ) -> None:
+        calls = herdr_calls(
+            machines=[
+                {"name": "renamed-by-user", "target": "coder.devbox-test-user"},
+                {"name": "added-by-hand", "target": "devbox-test-user.coder"},
+                {"name": "devbox-test-user-other", "target": "coder.devbox-test-user-other"},
+            ],
+            spaces=[],
+        )
+
+        _REAL_FORGET_HERDR_MACHINE("devbox-test-user")
+
+        assert [call for call in calls if call[:3] == ["hc", "machine", "rm"]] == [
+            ["hc", "machine", "rm", "renamed-by-user"],
+            ["hc", "machine", "rm", "added-by-hand"],
+        ]
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            subprocess.CompletedProcess(["hc"], 1, "", "daemon not running"),
+            subprocess.TimeoutExpired(["hc"], 30),
+            OSError("bad interpreter"),
+        ],
+        ids=["exits-nonzero", "times-out", "cannot-start"],
+    )
+    def test_forgetting_warns_when_herdr_machines_cannot_be_listed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        failure: subprocess.CompletedProcess[str] | Exception,
+    ) -> None:
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if isinstance(failure, Exception):
+                raise failure
+            return failure
+
+        monkeypatch.setattr(devbox_herdr.subprocess, "run", fake_run)
+        monkeypatch.setattr(devbox_herdr.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+
+        _REAL_FORGET_HERDR_MACHINE("devbox-test-user")
+
+        assert "could not list Herdr machines to remove 'devbox-test-user'" in capsys.readouterr().out
+
+    def test_a_timed_out_hc_call_fails_with_a_message(
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+    ) -> None:
+        running_workspace("running")
+        herdr_calls(machines=[], spaces=[], add_times_out=True)
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 1
+        assert isinstance(result.exception, SystemExit)
+        assert "Couldn't add 'devbox-test-user' to Herdr." in result.output
+        assert "timed out after 300s" in result.output
+
+
 @pytest.fixture
-def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def stub_setup_environment(monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: None) -> None:
     """No-op every external dependency in ``devbox_setup`` so reset/gate tests can run hermetically."""
-    for name in (
-        "ensure_tailscale_connected",
-        "ensure_tailscale_routes_accepted",
-        "ensure_coder_reachable",
-        "ensure_coder_authenticated",
-    ):
+    for name in ("ensure_coder_reachable", "ensure_coder_authenticated"):
         monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
+    monkeypatch.setattr(devbox_cli, "ensure_coder_on_path", lambda: None)
     monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)
@@ -2074,35 +3118,18 @@ class TestDevboxConfigCommands:
         assert "https://github.com/user/dotfiles" in result.output
         assert "Git signing" in result.output
 
-    def test_rm_dotfiles_clears_config_and_pushes_empty_param_to_existing_workspaces(
+    def test_rm_dotfiles_clears_config(
         self,
-        monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
         stub_config_runtime: None,
     ) -> None:
         devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
-        monkeypatch.setattr(
-            devbox_cli,
-            "list_user_workspaces",
-            lambda: [{"name": "devbox-test-user"}, {"name": "devbox-test-user-mobile"}],
-        )
-        param_pushes: list[tuple[str, dict[str, str]]] = []
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: param_pushes.append((name, params)),
-        )
 
         result = runner.invoke(cli, ["devbox:config:rm", "dotfiles"])
 
         assert result.exit_code == 0, result.output
         assert devbox_config.load_config() == {}
-        assert param_pushes == [
-            ("devbox-test-user", {coder.DOTFILES_URI_PARAMETER: ""}),
-            ("devbox-test-user-mobile", {coder.DOTFILES_URI_PARAMETER: ""}),
-        ]
         assert "Cleared saved dotfiles repo" in result.output
-        assert "Restart any running devbox" in result.output
 
     def test_rm_git_identity_clears_only_identity_keys(
         self,
@@ -2316,174 +3343,120 @@ class TestDevboxSetupGate:
 
 
 class TestStartExistingWorkspace:
-    """Test workspace parameter sync when starting an existing workspace."""
-
-    def test_syncs_workspace_parameters_before_starting_stopped_workspace(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        calls: list[str] = []
-        captured_params: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
-        monkeypatch.setattr(
-            devbox_cli,
-            "load_config",
-            lambda: {
-                "git_name": "PostHog Engineer",
-                "git_email": "test-user@example.com",
-                "dotfiles_uri": "https://github.com/user/dotfiles",
-            },
-        )
-
-        def fake_update(name: str, params: dict[str, str]) -> None:
-            calls.append("update_params")
-            captured_params.update({"name": name, "params": params})
-
-        monkeypatch.setattr(devbox_cli, "update_workspace_parameters", fake_update)
-        monkeypatch.setattr(
-            devbox_cli,
-            "start_workspace",
-            lambda name, verbose=False: calls.append("start"),
-        )
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-
-        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
-
-        assert calls == ["update_params", "start"]
-        assert captured_params == {
-            "name": "devbox-test-user",
-            "params": {
-                "git_name": "PostHog Engineer",
-                "git_email": "test-user@example.com",
-                "dotfiles_uri": "https://github.com/user/dotfiles",
-            },
-        }
-
-    def test_skips_sync_when_no_git_identity_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        calls: list[str] = []
-
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
-        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: calls.append("update_params"),
-        )
-        monkeypatch.setattr(
-            devbox_cli,
-            "start_workspace",
-            lambda name, verbose=False: calls.append("start"),
-        )
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-
-        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
-
-        assert calls == ["start"]
+    @pytest.fixture(autouse=True)
+    def _no_sync(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: [])
 
     @pytest.mark.parametrize(
-        "start_app, expected",
-        [(True, "true"), (False, "false"), (None, None)],
-        ids=["enable", "disable", "omit"],
+        "outdated, expected", [(False, ["start"]), (True, ["update"])], ids=["current", "outdated"]
     )
-    def test_pushes_start_app_param_before_starting(
-        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
+    def test_stopped_workspace_updates_only_when_outdated(
+        self, monkeypatch: pytest.MonkeyPatch, outdated: bool, expected: list[str]
     ) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
-        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: captured.update(params),
-        )
-        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
+        calls: list[str] = []
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: calls.append("start"))
+        monkeypatch.setattr(devbox_cli, "update_workspace", lambda name, verbose=False: calls.append("update"))
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
 
         devbox_cli._start_existing_workspace(
-            "devbox-test-user",
-            {"latest_build": {"status": "stopped"}},
-            start_app=start_app,
-            verbose=False,
+            "devbox-test-user", {"latest_build": {"status": "stopped"}, "outdated": outdated}, verbose=False
         )
 
-        if expected is None:
-            assert coder.AUTO_START_APP_PARAMETER not in captured
-        else:
-            assert captured == {coder.AUTO_START_APP_PARAMETER: expected}
+        assert calls == expected
 
-    @pytest.mark.parametrize("status", ["running", "starting", "stopping"])
-    def test_start_app_flag_never_pushed_unless_stopped(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], status: str
+    def test_start_app_flag_is_rejected_before_any_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for build in ("start_workspace", "update_workspace"):
+            monkeypatch.setattr(devbox_cli, build, lambda name, verbose=False: pytest.fail("no build expected"))
+
+        with pytest.raises(SystemExit):
+            devbox_cli._start_existing_workspace(
+                "devbox-test-user", {"latest_build": {"status": "stopped"}}, start_app=True, verbose=False
+            )
+
+    @pytest.mark.parametrize(
+        "status, paused, expected",
+        [
+            ("stopped", True, ["start", "resume"]),
+            ("stopped", False, ["start"]),
+            ("running", True, []),
+        ],
+        ids=["stopped-paused", "stopped-unpaused", "running-paused"],
+    )
+    def test_resumes_the_sync_devbox_stop_paused_once_the_box_started(
+        self, monkeypatch: pytest.MonkeyPatch, status: str, paused: bool, expected: list[str]
     ) -> None:
-        """`coder update` stops a running workspace, so the flag must only note, never push."""
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: status)
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: pytest.fail("update_workspace_parameters must not run unless stopped"),
-        )
+        calls: list[str] = []
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: calls.append("start"))
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: [{"name": "ph-x", "paused": paused}])
+        monkeypatch.setattr(devbox_mutagen, "sync_resume", lambda selector: calls.append("resume"))
 
-        devbox_cli._start_existing_workspace(
-            "devbox-test-user", {"latest_build": {"status": status}}, start_app=True, verbose=False
-        )
+        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": status}}, verbose=False)
 
-        assert "was not applied" in capsys.readouterr().out
+        assert calls == expected
 
-    def test_sync_never_forwards_immutable_workspace_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The pre-start sync must omit `workspace_region`.
 
-        It is immutable; Coder carries it forward on its own and rejects any
-        explicit value on `coder update` with "parameter is immutable and
-        cannot be updated", which would break every resume of a region-aware
-        box. Even for an eu-central-1 workspace, the region must not appear.
-        """
-        captured: dict[str, object] = {}
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
-        monkeypatch.setattr(
-            devbox_cli,
-            "load_config",
-            lambda: {"dotfiles_uri": "https://github.com/user/dotfiles"},
-        )
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: captured.update({"name": name, "params": params}),
-        )
-        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+class TestDevboxStop:
+    @pytest.fixture(autouse=True)
+    def _stubs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
 
-        workspace = {
-            "latest_build": {
-                "status": "stopped",
-                "resources": [{"metadata": [{"key": coder.REGION_METADATA_KEY, "value": "eu-central-1"}]}],
-            },
-        }
-        devbox_cli._start_existing_workspace("devbox-test-user", workspace, verbose=False)
-
-        assert captured["params"] == {"dotfiles_uri": "https://github.com/user/dotfiles"}
-        assert coder.WORKSPACE_REGION_PARAMETER not in captured["params"]
-
-    def test_skips_sync_for_running_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "status, sessions, pause_fails, stop_fails, expected, exit_code",
+        [
+            ("running", [{"paused": False}], False, False, ["pause", "stop"], 0),
+            ("stopped", [{"paused": False}], False, False, ["pause"], 0),
+            ("running", [], False, False, ["stop"], 0),
+            ("running", [{"paused": True}], False, False, ["stop"], 0),
+            ("running", [{"paused": False}], True, False, ["pause", "stop"], 0),
+            ("running", [{"paused": False}], False, True, ["pause", "stop", "resume"], 1),
+            ("running", [{"paused": True}], False, True, ["stop"], 1),
+        ],
+        ids=[
+            "running",
+            "already-stopped",
+            "no-sync",
+            "sync-already-paused",
+            "pause-fails-box-still-stops",
+            "stop-fails-sync-resumes",
+            "stop-fails-user-pause-kept",
+        ],
+    )
+    def test_pauses_the_sync_around_the_stop(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        status: str,
+        sessions: list[dict[str, bool]],
+        pause_fails: bool,
+        stop_fails: bool,
+        expected: list[str],
+        exit_code: int,
+    ) -> None:
         calls: list[str] = []
 
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "running")
+        def record(call: str, fails: bool = False) -> Callable[..., None]:
+            def run(*args: object, **kwargs: object) -> None:
+                calls.append(call)
+                if fails:
+                    raise SystemExit(1)
+
+            return run
+
         monkeypatch.setattr(
             devbox_cli,
-            "load_config",
-            lambda: {"git_name": "PostHog Engineer", "git_email": "test-user@example.com"},
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": status}},
         )
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: calls.append("update_params"),
-        )
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: sessions)
+        monkeypatch.setattr(devbox_mutagen, "sync_pause", record("pause", pause_fails))
+        monkeypatch.setattr(devbox_mutagen, "sync_resume", record("resume"))
+        monkeypatch.setattr(devbox_cli, "stop_workspace", record("stop", stop_fails))
 
-        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "running"}}, verbose=False)
+        result = runner.invoke(cli, ["devbox:stop"])
 
-        assert calls == []
+        assert result.exit_code == exit_code, result.output
+        assert calls == expected
 
 
 class TestDevboxList:
@@ -2927,44 +3900,6 @@ class TestSetupClaudeSecret:
         assert called == []
 
 
-class TestDevboxTaskClaudeWarning:
-    """Test the Claude-secret warning printed by devbox:task."""
-
-    def test_warns_when_secret_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert "no 'CLAUDE_CODE_OAUTH_TOKEN' Coder user secret set" in result.output
-
-    def test_no_warning_when_secret_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: True)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert "no 'CLAUDE_CODE_OAUTH_TOKEN' Coder user secret set" not in result.output
-
-    def test_no_warning_when_server_unsupported(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: False)
-        called: list[bool] = []
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: called.append(True) or False)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert called == []
-
-
 class TestDevboxSecretCommands:
     """Test the devbox:secret:list / set / rm wrappers."""
 
@@ -3044,123 +3979,6 @@ class TestDevboxSecretCommands:
         assert captured == ["GH_TOKEN"]
 
 
-class TestCreateTask:
-    """Test the coder task create argv assembly."""
-
-    @pytest.mark.parametrize(
-        "prompt, task_name, quiet, expected_tail",
-        [
-            ("fix CI on PR #1234", None, False, ["fix CI on PR #1234"]),
-            (None, None, False, ["--stdin"]),
-            ("do the thing", "my-task", True, ["--name", "my-task", "--quiet", "do the thing"]),
-        ],
-    )
-    def test_create_task_argv(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        prompt: str | None,
-        task_name: str | None,
-        quiet: bool,
-        expected_tail: list[str],
-    ) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task(prompt, task_name=task_name, quiet=quiet)
-
-        assert captured == [["coder", "task", "create", "--template", "posthog-linux", *expected_tail]]
-
-    def test_create_task_argv_uses_selected_template(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task("do it", template="posthog-microvm")
-
-        assert captured == [["coder", "task", "create", "--template", "posthog-microvm", "do it"]]
-
-
-class TestDevboxTaskCommand:
-    """Test the devbox:task Click command."""
-
-    @pytest.mark.parametrize(
-        "cli_args, expected",
-        [
-            (
-                ["devbox:task", "fix CI on PR #1234"],
-                {"prompt": "fix CI on PR #1234", "task_name": None, "quiet": False, "template": "posthog-linux"},
-            ),
-            (
-                ["devbox:task", "--name", "my-task", "-q", "do it"],
-                {"prompt": "do it", "task_name": "my-task", "quiet": True, "template": "posthog-linux"},
-            ),
-            (
-                ["devbox:task", "-t", "posthog-microvm", "do it"],
-                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
-            ),
-            (
-                ["devbox:task", "--template", "posthog-microvm", "do it"],
-                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
-            ),
-        ],
-    )
-    def test_options_forwarded_to_create_task(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        cli_args: list[str],
-        expected: dict[str, object],
-    ) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_task",
-            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
-            ),
-        )
-
-        result = runner.invoke(cli, cli_args)
-
-        assert result.exit_code == 0
-        assert captured == expected
-
-    def test_no_prompt_on_tty_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-
-        class FakeTTY:
-            def isatty(self) -> bool:
-                return True
-
-        monkeypatch.setattr(devbox_cli.click, "get_text_stream", lambda stream: FakeTTY())
-
-        called: list[bool] = []
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: called.append(True))
-
-        result = runner.invoke(cli, ["devbox:task"])
-
-        assert result.exit_code != 0
-        assert "Provide a prompt" in result.output
-        assert called == []
-
-    def test_piped_stdin_passes_none_as_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_task",
-            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
-            ),
-        )
-
-        result = runner.invoke(cli, ["devbox:task"], input="piped prompt\n")
-
-        assert result.exit_code == 0
-        assert captured == {"prompt": None, "task_name": None, "quiet": False, "template": "posthog-linux"}
-
-
 class TestResolveLocalSigningKey:
     """Test reading user.signingkey from the engineer's local git config."""
 
@@ -3182,13 +4000,17 @@ class TestResolveLocalSigningKey:
         )
         assert devbox_cli._resolve_local_signing_key() == "ecdsa-sha2-nistp256 AAAA GitHub-Commit-Signing@host"
 
-    def test_reads_file_when_value_is_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        key_file = tmp_path / "id_ed25519.pub"
-        key_file.write_text("ssh-ed25519 AAAAFROMFILE user@host\n")
+    @pytest.mark.parametrize("configured_name", ["id_ed25519.pub", "id_ed25519", "signing-key"])
+    def test_reads_public_file_when_value_is_path(
+        self, configured_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "id_ed25519").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\n")
+        (tmp_path / "id_ed25519.pub").write_text("ssh-ed25519 AAAAFROMFILE user@host\n")
+        (tmp_path / "signing-key").write_text("ssh-ed25519 AAAAFROMFILE user@host\n")
         monkeypatch.setattr(
             devbox_cli.subprocess,
             "run",
-            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, str(key_file), ""),
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, str(tmp_path / configured_name), ""),
         )
         assert devbox_cli._resolve_local_signing_key() == "ssh-ed25519 AAAAFROMFILE user@host"
 
@@ -3242,6 +4064,124 @@ class TestResolveLocalIdentityAgent:
             lambda *a, **kw: subprocess.CompletedProcess(a[0], 255, "", "Bad host"),
         )
         assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
+
+
+class TestResolveIdentityAgentForCoder:
+    """Test that the Coder-host IdentityAgent lookup ignores coder's own managed block."""
+
+    CODER_BLOCK = (
+        "# ------------START-CODER-----------\n"
+        "Host coder.*\n"
+        '\tIdentityAgent "/tmp/written-by-coder.sock"\n'
+        "# ------------END-CODER------------\n"
+    )
+
+    def _patch_ssh_g(self, monkeypatch: pytest.MonkeyPatch, home: Path) -> list[list[str]]:
+        """Resolve identityagent from whichever config `ssh -G` was pointed at."""
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+            calls.append(args)
+            config = Path(args[2]).read_text() if args[1] == "-F" else (home / ".ssh" / "config").read_text()
+            for line in config.splitlines():
+                if "IdentityAgent" in line:
+                    return subprocess.CompletedProcess(args, 0, f"identityagent {line.split()[1].strip(chr(34))}\n", "")
+            return subprocess.CompletedProcess(args, 0, "identityagent SSH_AUTH_SOCK\n", "")
+
+        monkeypatch.setattr(devbox_cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(devbox_cli.Path, "home", lambda: home)
+        return calls
+
+    def test_prefers_the_engineers_own_socket_over_the_one_coder_wrote(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".ssh").mkdir()
+        (tmp_path / ".ssh" / "config").write_text(self.CODER_BLOCK + 'Host *\n\tIdentityAgent "/tmp/mine.sock"\n')
+        self._patch_ssh_g(monkeypatch, tmp_path)
+
+        assert devbox_cli._resolve_local_identity_agent_for_coder() == "/tmp/mine.sock"
+
+    def test_keeps_the_socket_coder_wrote_when_the_engineer_has_none(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".ssh").mkdir()
+        (tmp_path / ".ssh" / "config").write_text(self.CODER_BLOCK)
+        self._patch_ssh_g(monkeypatch, tmp_path)
+
+        assert devbox_cli._resolve_local_identity_agent_for_coder() == "/tmp/written-by-coder.sock"
+
+
+class TestDiagnoseSigningAgent:
+    """Test the pre-flight check that devbox commits will actually sign."""
+
+    PUBLIC_KEY = "ssh-ed25519 AAAAC3 user@host"
+    FINGERPRINT = "SHA256:abc123"
+
+    def _patch(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        identity_agent: str | None,
+        env_sock: str | None,
+        agent_keys: str | None,
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "_resolve_local_signing_key", lambda: self.PUBLIC_KEY)
+        if env_sock is None:
+            monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
+        else:
+            monkeypatch.setenv("SSH_AUTH_SOCK", env_sock)
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+            if args[0] == "ssh-keygen":
+                return subprocess.CompletedProcess(args, 0, f"256 {self.FINGERPRINT} host (ED25519)\n", "")
+            if args[0] == "ssh":
+                value = identity_agent or "SSH_AUTH_SOCK"
+                return subprocess.CompletedProcess(args, 0, f"identityagent {value}\n", "")
+            if agent_keys is None:
+                return subprocess.CompletedProcess(args, 1, "", "Could not open a connection")
+            return subprocess.CompletedProcess(args, 0, agent_keys, "")
+
+        monkeypatch.setattr(devbox_cli.subprocess, "run", fake_run)
+
+    def test_ok_when_the_forwarded_agent_holds_the_signing_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._patch(
+            monkeypatch,
+            identity_agent=None,
+            env_sock="/tmp/agent.sock",
+            agent_keys=f"256 {self.FINGERPRINT} host (ED25519)\n",
+        )
+
+        assert devbox_cli._diagnose_signing_agent().ok
+
+    @pytest.mark.parametrize(
+        "identity_agent,env_sock,agent_keys,expected_detail",
+        [
+            pytest.param("none", "/tmp/agent.sock", "", "forwards no agent", id="identity-agent-none-wins"),
+            pytest.param(None, None, "", "forwards no agent", id="no-agent-anywhere"),
+            pytest.param(None, "/tmp/agent.sock", None, "no agent responding", id="dead-socket"),
+            pytest.param(
+                None,
+                "/tmp/agent.sock",
+                "256 SHA256:other host (ED25519)\n",
+                "does not hold",
+                id="agent-holds-a-different-key",
+            ),
+        ],
+    )
+    def test_reports_why_signing_will_fail(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        identity_agent: str | None,
+        env_sock: str | None,
+        agent_keys: str | None,
+        expected_detail: str,
+    ) -> None:
+        self._patch(monkeypatch, identity_agent=identity_agent, env_sock=env_sock, agent_keys=agent_keys)
+
+        status = devbox_cli._diagnose_signing_agent()
+
+        assert not status.ok
+        assert expected_detail in status.detail
 
 
 class TestConfigSshArgs:
@@ -3345,9 +4285,17 @@ class TestSetupGitSigning:
     PUBLIC_KEY = "ssh-ed25519 AAAAC3 user@host"
     AGENT_SOCKET = "/tmp/test-agent.sock"
 
-    def _patch_local_config(self, monkeypatch: pytest.MonkeyPatch, *, key: str | None, agent: str | None) -> None:
+    def _patch_local_config(
+        self, monkeypatch: pytest.MonkeyPatch, *, key: str | None, agent: str | None, secure_enclave: bool = False
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "signs_with_secure_enclave_key", lambda: secure_enclave)
         monkeypatch.setattr(devbox_cli, "_resolve_local_signing_key", lambda: key)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: agent)
+        monkeypatch.setattr(
+            devbox_cli,
+            "_diagnose_signing_agent",
+            lambda: devbox_cli.SigningAgentStatus(bool(agent), agent or "no agent"),
+        )
 
     def test_skips_when_secret_already_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: True)
@@ -3390,9 +4338,16 @@ class TestSetupGitSigning:
 
         assert upserts == [(coder.GIT_SIGNING_KEY_SECRET, self.PUBLIC_KEY, coder.GIT_SIGNING_KEY_SECRET)]
 
-    def test_skips_when_signing_key_unset_locally(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "key, secure_enclave",
+        [(None, False), ("sk-ecdsa-sha2-nistp256@openssh.com AAAANEW ssh:", True)],
+        ids=["unset", "secure_enclave"],
+    )
+    def test_skips_when_the_local_key_cannot_sign_on_a_devbox(
+        self, monkeypatch: pytest.MonkeyPatch, key: str | None, secure_enclave: bool
+    ) -> None:
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
-        self._patch_local_config(monkeypatch, key=None, agent=None)
+        self._patch_local_config(monkeypatch, key=key, agent=self.AGENT_SOCKET, secure_enclave=secure_enclave)
         upserts: list[tuple[str, str, str | None]] = []
         monkeypatch.setattr(
             devbox_cli,
@@ -3713,10 +4668,10 @@ class TestKeepaliveShim:
 
     @pytest.mark.parametrize(
         "target, bumped",
-        [("coder.devbox-test-user", True), ("nobody@127.0.0.1", False)],
-        ids=["devbox-host-bumped", "non-devbox-host-untouched"],
+        [("coder.devbox-test-user", True), ("hogland.wt-test", True), ("nobody@127.0.0.1", False)],
+        ids=["devbox-host-bumped", "hogland-host-bumped-with-config", "non-devbox-host-untouched"],
     )
-    def test_shim_rewrites_keepalive_only_for_devbox_hosts(
+    def test_shim_rewrites_ssh_options_only_for_devbox_hosts(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, bumped: bool
     ) -> None:
         # End-to-end of the generated shim script: run it like mutagen would and
@@ -3746,12 +4701,47 @@ class TestKeepaliveShim:
 
         forwarded = log.read_text().splitlines()
         if bumped:
-            bump = f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}"
-            assert forwarded == [bump if a.startswith("-oServerAliveCountMax=") else a for a in incoming]
+            rewrites = {
+                "-oServerAliveCountMax=": f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}",
+                "-oConnectTimeout=": f"-oConnectTimeout={devbox_mutagen._CONNECT_TIMEOUT_SECONDS}",
+            }
+            expected = [next((v for k, v in rewrites.items() if a.startswith(k)), a) for a in incoming]
+            if target.startswith("hogland."):
+                expected = ["-F", str(devbox_mutagen.hogland_ssh_config_path()), *expected]
+            assert forwarded == expected
             assert "-oServerAliveCountMax=1" not in forwarded
+            assert "-oConnectTimeout=5" not in forwarded
         else:
             # Non-devbox ssh must pass through byte-for-byte, keepalive included.
             assert forwarded == incoming
+
+    @pytest.mark.parametrize(
+        "target, disabled",
+        [("coder.devbox-test-user", True), ("nobody@127.0.0.1", False)],
+        ids=["devbox-host-disabled", "non-devbox-host-untouched"],
+    )
+    def test_shim_disables_coder_autostart_only_for_devbox_hosts(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, disabled: bool
+    ) -> None:
+        shim_dir = tmp_path / "shim"
+        log = tmp_path / "env.log"
+        fake = tmp_path / "fakessh"
+        fake.write_text(
+            "#!/usr/bin/env bash\nprintf '%s' \"${CODER_SSH_DISABLE_AUTOSTART-unset}\" > '" + str(log) + "'\n"
+        )
+        fake.chmod(0o755)
+
+        monkeypatch.setattr(devbox_mutagen, "_SSH_SHIM_DIR", shim_dir)
+        monkeypatch.setattr(devbox_mutagen, "_resolve_real_ssh", lambda name: str(fake))
+        devbox_mutagen.ensure_ssh_shim()
+
+        env = {k: v for k, v in os.environ.items() if k != "CODER_SSH_DISABLE_AUTOSTART"}
+        result = subprocess.run(
+            [str(shim_dir / "ssh"), "-oServerAliveCountMax=1", target, "true"], capture_output=True, text=True, env=env
+        )
+
+        assert result.returncode == 0
+        assert log.read_text() == ("true" if disabled else "unset")
 
     def test_ensure_ssh_shim_writes_both_executables_and_is_idempotent(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -4105,6 +5095,7 @@ class TestDevboxSyncCommand:
         checkout = tmp_path / "posthog"
         checkout.mkdir()
         monkeypatch.setattr(devbox_sync, "_detect_local_posthog_checkout", lambda: checkout)
+        monkeypatch.setattr(devbox_sync, "_align_box_checkout", lambda name, path, requested: None)
 
         captured: dict[str, object] = {}
         monkeypatch.setattr(
@@ -4120,6 +5111,60 @@ class TestDevboxSyncCommand:
         assert captured["src"] == str(checkout)
         assert captured["dst"] == "coder.devbox-test-user:/home/coder/posthog"
         assert captured["labels"] == {"hogli-workspace": "devbox-test-user"}
+
+    @pytest.mark.parametrize(
+        "box_head, box_dirty, flag, expect_checkout, expect_created",
+        [
+            pytest.param("master abc", False, [], True, True, id="clean_box_on_master_is_switched"),
+            pytest.param("feat/x local", False, [], False, True, id="matching_box_is_left_alone"),
+            pytest.param("master abc", True, [], False, True, id="dirty_box_is_left_alone_and_synced"),
+            pytest.param("master abc", True, ["--checkout-branch"], False, False, id="dirty_box_fails_when_forced"),
+            pytest.param("master abc", False, ["--no-checkout-branch"], False, True, id="opt_out_skips_box"),
+        ],
+    )
+    def test_default_run_aligns_box_branch_before_first_mirror(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        box_head: str,
+        box_dirty: bool,
+        flag: list[str],
+        expect_checkout: bool,
+        expect_created: bool,
+    ) -> None:
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_sync, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_mutagen_installed", lambda **kw: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_daemon_with_shim", lambda: None)
+        monkeypatch.setattr(devbox_sync, "_ensure_ssh_config_for_workspace", lambda ws: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_user_mutagen_config", lambda: tmp_path / "mutagen.yml")
+        monkeypatch.setattr(devbox_sync.mutagen, "sync_list", lambda label_selector=None: [])
+        monkeypatch.setattr(devbox_sync, "_detect_local_posthog_checkout", lambda: tmp_path)
+        monkeypatch.setattr(
+            devbox_sync, "_read_local_head", lambda path: devbox_sync.GitHead(branch="feat/x", sha="local")
+        )
+        created: list[str] = []
+        monkeypatch.setattr(devbox_sync.mutagen, "sync_create", lambda **kw: created.append(kw["name"]))
+
+        remote_calls: list[list[str]] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            remote_calls.append(command)
+            is_probe = command[2] == devbox_sync._PROBE_BOX_HEAD_SCRIPT
+            stdout = f"{box_head} {int(box_dirty)}\n" if is_probe else ""
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(devbox_sync, "run_in_workspace", fake_run_in_workspace)
+
+        result = runner.invoke(cli, ["devbox:sync", *flag])
+
+        checkouts = [c for c in remote_calls if c[2] == devbox_sync._CHECKOUT_SCRIPT]
+        assert checkouts == (
+            [["bash", "-c", devbox_sync._CHECKOUT_SCRIPT, "hogli-sync", "feat/x", "local"]] if expect_checkout else []
+        )
+        assert (result.exit_code == 0) is expect_created, result.output
+        assert created == (["ph-devbox-test-user"] if expect_created else [])
 
     def test_default_run_fails_when_workspace_stopped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # A stopped box passes the SSH-config check but mutagen can't dial it;
@@ -4159,6 +5204,80 @@ class TestDevboxSyncCommand:
         monkeypatch.chdir(checkout / "subdir")
         assert devbox_sync._detect_local_posthog_checkout() == checkout.resolve()
 
+    @pytest.mark.parametrize("detach, expected_branch", [(False, "feat/x"), (True, "HEAD")], ids=["branch", "detached"])
+    def test_read_local_head_returns_branch_and_full_sha(
+        self, tmp_path: Path, detach: bool, expected_branch: str
+    ) -> None:
+        _git(tmp_path, "init", "--quiet", "--initial-branch=feat/x")
+        _git(tmp_path, "commit", "--quiet", "--allow-empty", "-m", "init")
+        sha = _git(tmp_path, "rev-parse", "HEAD")
+        if detach:
+            _git(tmp_path, "checkout", "--quiet", "--detach")
+
+        assert devbox_sync._read_local_head(tmp_path) == devbox_sync.GitHead(branch=expected_branch, sha=sha)
+
+    @pytest.mark.parametrize(
+        "box_state, expected_exit, box_keeps_head",
+        [
+            ("detached-on-master", 0, False),
+            ("detached-with-unsaved-commit", devbox_sync._CHECKOUT_DETACHED_UNSAVED, True),
+            ("ignored-file-tracked-on-target", None, True),
+        ],
+        ids=["reachable-detached-head-is-switched", "unsaved-detached-commit-kept", "ignored-file-kept"],
+    )
+    def test_checkout_script_never_drops_box_work(
+        self, tmp_path: Path, box_state: str, expected_exit: int | None, box_keeps_head: bool
+    ) -> None:
+        _git(tmp_path, "init", "--quiet", "--initial-branch=master")
+        (tmp_path / ".gitignore").write_text(".env.local\n")
+        _git(tmp_path, "add", ".gitignore")
+        _git(tmp_path, "commit", "--quiet", "-m", "init")
+        _git(tmp_path, "checkout", "--quiet", "-b", "feat/x")
+        if box_state == "ignored-file-tracked-on-target":
+            (tmp_path / ".env.local").write_text("from branch\n")
+            _git(tmp_path, "add", "--force", ".env.local")
+        _git(tmp_path, "commit", "--quiet", "--allow-empty", "-m", "target")
+        target = _git(tmp_path, "rev-parse", "HEAD")
+        (tmp_path / ".env.local").unlink(missing_ok=True)
+        _git(tmp_path, "checkout", "--quiet", "--detach", "master")
+        if box_state == "detached-with-unsaved-commit":
+            _git(tmp_path, "commit", "--quiet", "--allow-empty", "-m", "box only")
+        (tmp_path / ".env.local").write_text("box secret\n")
+        box_head = _git(tmp_path, "rev-parse", "HEAD")
+
+        script = devbox_sync._CHECKOUT_SCRIPT.replace(devbox_sync._REMOTE_REPO_PATH, str(tmp_path))
+        result = subprocess.run(["bash", "-c", script, "hogli-sync", "feat/x", target], capture_output=True, text=True)
+
+        if expected_exit is None:
+            assert result.returncode != 0
+        else:
+            assert result.returncode == expected_exit, result.stderr
+        assert _git(tmp_path, "rev-parse", "HEAD") == (box_head if box_keeps_head else target)
+        assert (tmp_path / ".env.local").read_text() == "box secret\n"
+
+    def test_checkout_script_runs_no_box_hook_while_fetching(self, tmp_path: Path) -> None:
+        origin, box = tmp_path / "origin", tmp_path / "box"
+        _git(tmp_path, "init", "--quiet", "--initial-branch=master", str(origin))
+        _git(origin, "commit", "--quiet", "--allow-empty", "-m", "init")
+        _git(tmp_path, "clone", "--quiet", str(origin), str(box))
+        _git(origin, "checkout", "--quiet", "-b", "feat/x")
+        _git(origin, "commit", "--quiet", "--allow-empty", "-m", "target")
+        target = _git(origin, "rev-parse", "HEAD")
+        marker = tmp_path / "hook-ran"
+        for hook in ("reference-transaction", "post-checkout"):
+            hook_path = box / ".hooks" / hook
+            hook_path.parent.mkdir(exist_ok=True)
+            hook_path.write_text(f"#!/bin/sh\ntouch {marker}\n")
+            hook_path.chmod(0o755)
+        _git(box, "config", "core.hooksPath", ".hooks")
+
+        script = devbox_sync._CHECKOUT_SCRIPT.replace(devbox_sync._REMOTE_REPO_PATH, str(box))
+        result = subprocess.run(["bash", "-c", script, "hogli-sync", "feat/x", target], capture_output=True, text=True)
+
+        assert result.returncode == 0, result.stderr
+        assert _git(box, "rev-parse", "HEAD") == target
+        assert not marker.exists()
+
     def test_detect_local_checkout_fails_outside_repo(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.chdir(tmp_path)
         with pytest.raises(SystemExit):
@@ -4187,13 +5306,14 @@ class TestDevboxLifecycleSyncIntegration:
         monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [{"name": "ph-x"}])
         monkeypatch.setattr(devbox_cli.mutagen, "sync_terminate", lambda sel: calls.append("terminate"))
         monkeypatch.setattr(devbox_cli, "delete_workspace", lambda name, verbose=False: calls.append("delete"))
+        monkeypatch.setattr(devbox_cli.herdr_app, "forget_machine", lambda name: calls.append(f"forget-herdr:{name}"))
 
         result = runner.invoke(cli, ["devbox:destroy"])
 
         assert result.exit_code == 0, result.output
         # terminate MUST run before delete: the remote endpoint disappearing
         # mid-sync produces noisy daemon errors otherwise.
-        assert calls == ["terminate", "delete"]
+        assert calls == ["terminate", "delete", "forget-herdr:devbox-test-user"]
 
     def test_destroy_proceeds_when_no_sync_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
@@ -4282,3 +5402,52 @@ class TestRenderSyncStatus:
         rendered = devbox_cli._render_sync_status("devbox-test-user")
         assert "watching" in rendered
         assert "●" in rendered
+
+
+class TestHoglandEndpoint:
+    @pytest.mark.parametrize(
+        "known_box_id, box_id, key_reset",
+        [
+            pytest.param("box-1", "box-1", False, id="same-box-keeps-host-key"),
+            pytest.param("box-1", "box-2", True, id="replacement-box-resets-host-key"),
+            pytest.param(None, "box-1", True, id="unknown-box-resets-host-key"),
+        ],
+    )
+    def test_host_key_resets_when_the_box_changes(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        known_box_id: str | None,
+        box_id: str,
+        key_reset: bool,
+    ) -> None:
+        monkeypatch.setattr(devbox_hogland, "_SSH_DIR", tmp_path)
+        (tmp_path / "known_hosts").write_text("hogland.wt-feat ssh-ed25519 AAAA\n")
+        if known_box_id is not None:
+            (tmp_path / "hosts").mkdir()
+            (tmp_path / "hosts" / "wt-feat.box-id").write_text(known_box_id)
+        endpoint = devbox_hogland.parse_endpoint(
+            {
+                "action": "noop-already-running",
+                "box": {"id": box_id, "status": "running", "public_ip": "192.0.2.10", "guest_ssh_port": 2222},
+            }
+        )
+
+        with patch.object(devbox_hogland.subprocess, "run") as run:
+            devbox_hogland.write_ssh_entry("wt-feat", endpoint)
+
+        assert run.called is key_reset
+        assert (tmp_path / "hosts" / "wt-feat.box-id").read_text() == box_id
+
+    @pytest.mark.parametrize(
+        "label",
+        ["feat\n    HostName 192.0.2.99", "../escape", "Feat", "-feat"],
+        ids=["newline-injects-ssh-directive", "path-traversal", "uppercase", "leading-hyphen"],
+    )
+    def test_unsafe_label_is_refused(self, label: str) -> None:
+        with pytest.raises(SystemExit):
+            devbox_hogland.name_for_label(label)
+
+    def test_box_without_ssh_fails(self) -> None:
+        with pytest.raises(SystemExit):
+            devbox_hogland.parse_endpoint({"action": "running", "box": {"id": "box-1", "status": "placing"}})

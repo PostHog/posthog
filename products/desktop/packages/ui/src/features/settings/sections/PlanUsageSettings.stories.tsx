@@ -27,7 +27,6 @@ const usage = {
     },
   },
   is_rate_limited: false,
-  is_pro: true,
   code_usage_subscribed: true,
   billing_period_end: "2026-09-01T00:00:00.000Z",
 } satisfies UsageOutput;
@@ -45,10 +44,11 @@ const meta: Meta<typeof PlanUsageContent> = {
   args: {
     billingEnabled: true,
     cloudComputeEnabled: true,
-    spendAnalysisEnabled: true,
     billingUrl: "https://app.posthog.com/organization/billing",
     usage,
     usageLoading: false,
+    spendTotals: { todayUsd: 3.42, monthUsd: 41.18, avgDailyUsd: 1.37 },
+    spendTotalsLoading: false,
   },
 };
 
@@ -60,20 +60,17 @@ export const WithComponentBreakdown: Story = {};
 export const CloudComputeDisabled: Story = {
   args: {
     cloudComputeEnabled: false,
-    spendAnalysisEnabled: false,
   },
 };
 
 export const BreakdownAwaitingData: Story = {
   args: {
-    spendAnalysisEnabled: false,
     usage: { ...usage, ai_credits: { ...usage.ai_credits, breakdown: null } },
   },
 };
 
 export const ExplicitZeroUsage: Story = {
   args: {
-    spendAnalysisEnabled: false,
     usage: {
       ...usage,
       ai_credits: {
@@ -93,7 +90,6 @@ export const ExplicitZeroUsage: Story = {
 
 export const OrganizationLimitReached: Story = {
   args: {
-    spendAnalysisEnabled: false,
     usage: {
       ...usage,
       ai_credits: { ...usage.ai_credits, exhausted: true, used_usd: 70 },
@@ -103,5 +99,26 @@ export const OrganizationLimitReached: Story = {
 };
 
 export const Loading: Story = {
-  args: { usage: null, usageLoading: true, spendAnalysisEnabled: false },
+  args: {
+    usage: null,
+    usageLoading: true,
+    spendTotals: null,
+    spendTotalsLoading: true,
+  },
+};
+
+export const BillingPeriodEndUnknown: Story = {
+  args: {
+    usage: { ...usage, billing_period_end: null },
+  },
+};
+
+export const FreeTierValveBucket: Story = {
+  args: {
+    usage: {
+      ...usage,
+      code_usage_subscribed: false,
+      ai_credits: { exhausted: false, used_usd: null, limit_usd: null },
+    },
+  },
 };

@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.facade.models import (
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -168,7 +169,7 @@ def reconcile_postgres_schemas(
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
-    default_schema = (source.job_inputs or {}).get("schema")
+    default_schema = SourceInputsStore.load_settings(source).get("schema")
     schema_models = {
         s.name: s for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
     }
@@ -185,6 +186,7 @@ def reconcile_postgres_schemas(
         )
         schema_models_by_location.setdefault(location, schema_model)
 
+    resolved_pairs: list[tuple[SourceSchema, ExternalDataSchema]] = []
     for source_schema in source_schemas:
         matched: ExternalDataSchema | None = schema_models.get(source_schema.name)
         if matched is None:
@@ -198,9 +200,16 @@ def reconcile_postgres_schemas(
                 default_schema=default_schema,
             )
             matched = schema_models_by_location.get(location)
-        if matched is None:
-            continue
+        if matched is not None:
+            resolved_pairs.append((source_schema, matched))
 
+    # Process in a stable row-id order rather than `source_schemas`' order, which follows the
+    # source database's own (unordered) catalog query. Two concurrent refreshes updating an
+    # overlapping set of these rows could otherwise take their row locks in different sequences
+    # and deadlock; a consistent order makes one call simply wait behind the other.
+    resolved_pairs.sort(key=lambda pair: pair[1].id)
+
+    for source_schema, matched in resolved_pairs:
         resolved_catalog, resolved_schema, resolved_table = get_postgres_source_location(
             schema_name=source_schema.name,
             schema_metadata={
@@ -229,16 +238,16 @@ def reconcile_postgres_schemas(
 
         # Drop dead columns so next sync doesn't emit `SELECT … missing_col`.
         available_names = extract_available_column_names(schema_metadata)
-        pruned_enabled_columns, removed_columns = prune_enabled_columns(matched.enabled_columns, available_names)
-        if removed_columns:
+        pruned = prune_enabled_columns(matched.enabled_columns, available_names)
+        if pruned.removed:
             log.info(
                 "postgres.reconcile_schemas.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(matched.id),
                 schema_name=matched.name,
-                removed_columns=removed_columns,
+                removed_columns=pruned.removed,
             )
-            matched.enabled_columns = pruned_enabled_columns
+            matched.enabled_columns = pruned.kept
             update_fields.append("enabled_columns")
         matched.save(update_fields=update_fields)
 
@@ -298,7 +307,7 @@ def reproject_direct_postgres_table(
     source_catalog, source_schema, source_table_name = get_postgres_source_location(
         schema_name=schema_row.name,
         schema_metadata=schema_row.schema_metadata,
-        default_schema=(source.job_inputs or {}).get("schema"),
+        default_schema=SourceInputsStore.load_settings(source).get("schema"),
     )
     return upsert_direct_postgres_table(
         schema_row.table,
@@ -331,7 +340,7 @@ def rename_postgres_schemas_to_match_source_schemas(
     """
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
-    default_schema = (source.job_inputs or {}).get("schema")
+    default_schema = SourceInputsStore.load_settings(source).get("schema")
     schema_models = list(
         ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related("table")
     )

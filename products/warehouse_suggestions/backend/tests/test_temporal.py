@@ -1,0 +1,137 @@
+import uuid
+import dataclasses
+
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.clickhouse.client.execute import KillSwitchLevel
+from posthog.models.team import Team
+
+from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload
+from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
+from products.warehouse_suggestions.backend.logic.candidates.base import MeasurementRequest
+from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
+from products.warehouse_suggestions.backend.logic.job import TeamRunResult, TeamRunStatus
+from products.warehouse_suggestions.backend.logic.reads import RollupDays
+from products.warehouse_suggestions.backend.logic.rules import RULES
+from products.warehouse_suggestions.backend.logic.suggestions import upsert_suggestions
+from products.warehouse_suggestions.backend.logic.view_costs import MeasurementOutcome
+from products.warehouse_suggestions.backend.models import WarehouseSuggestion
+from products.warehouse_suggestions.backend.temporal import (
+    ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
+    WORKFLOWS,
+)
+from products.warehouse_suggestions.backend.temporal.activities import team_batches
+from products.warehouse_suggestions.backend.temporal.contracts import (
+    WAREHOUSE_SUGGESTIONS_WORKFLOW_NAME,
+    BatchOutcome,
+    WarehouseSuggestionsInputs,
+)
+from products.warehouse_suggestions.backend.tests.factories import context, team_reads, view_subject
+
+ACTIVITIES = "products.warehouse_suggestions.backend.temporal.activities"
+WORKFLOWS_MODULE = "products.warehouse_suggestions.backend.temporal.workflows"
+
+
+class TestTeamBatches(BaseTest):
+    @parameterized.expand(
+        [
+            ("kill_switch_off", KillSwitchLevel.OFF, True),
+            ("kill_switch_on", KillSwitchLevel.LIGHT, False),
+        ]
+    )
+    def test_picks_main_environments_without_the_flag_skips_demo_teams_and_stops_under_the_kill_switch(
+        self, _name: str, kill_switch: KillSwitchLevel, expect_team: bool
+    ) -> None:
+        demo_team = Team.objects.create(organization=self.organization, is_demo=True)
+        unflagged_team = Team.objects.create(organization=self.organization)
+        child_environment = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team
+        )
+
+        with (
+            patch(f"{ACTIVITIES}.get_kill_switch_level", return_value=kill_switch),
+            patch("posthoganalytics.feature_enabled", return_value=False),
+        ):
+            batches = team_batches(
+                WarehouseSuggestionsInputs(
+                    team_ids=[self.team.pk, demo_team.pk, unflagged_team.pk, child_environment.pk]
+                )
+            )
+
+        assert batches == ([[self.team.pk, unflagged_team.pk]] if expect_team else [])
+
+    def test_picks_an_idle_team_that_still_has_an_accepted_suggestion(self) -> None:
+        dismissed_team = Team.objects.create(organization=self.organization)
+        for team, status in (
+            (self.team, WarehouseSuggestionStatus.ACCEPTED),
+            (dismissed_team, WarehouseSuggestionStatus.DISMISSED),
+        ):
+            draft = CANDIDATES[WarehouseSuggestionKind.CERTIFY].draft(
+                context(team_reads({}), team_id=team.pk),
+                view_subject(uuid.uuid4()),
+                CertifyPayload(subject_name="orders"),
+                score=1,
+                score_inputs={},
+            )
+            upsert_suggestions(team.pk, [draft])
+            WarehouseSuggestion.objects.for_team(team.pk).update(status=status)
+
+        with (
+            patch(f"{ACTIVITIES}.get_kill_switch_level", return_value=KillSwitchLevel.OFF),
+            patch(f"{ACTIVITIES}._teams_with_reads", return_value=[]),
+        ):
+            batches = team_batches(WarehouseSuggestionsInputs())
+
+        assert batches == [[self.team.pk]]
+
+
+async def test_a_worker_measures_the_most_recomputed_views_across_teams_first() -> None:
+    task_queue = str(uuid.uuid4())
+    rarely_recomputed_view = uuid.uuid4()
+    often_recomputed_view = uuid.uuid4()
+    measurement_requests = {
+        1: (MeasurementRequest(subject=view_subject(rarely_recomputed_view), consumer_runs_per_month=10),),
+        2: (MeasurementRequest(subject=view_subject(often_recomputed_view), consumer_runs_per_month=100),),
+        3: (),
+    }
+    one_measurement_per_run = dataclasses.replace(
+        RULES, measurement=dataclasses.replace(RULES.measurement, max_per_run=1)
+    )
+    with (
+        patch(f"{ACTIVITIES}.team_batches", return_value=[[1, 2, 3]]),
+        patch(f"{ACTIVITIES}.RULES", one_measurement_per_run),
+        patch(f"{WORKFLOWS_MODULE}.RULES", one_measurement_per_run),
+        patch(f"{ACTIVITIES}.read_rollup_days", return_value=RollupDays(days_with_data=30, recent_days_with_data=7)),
+        patch(
+            f"{ACTIVITIES}.run_team",
+            side_effect=lambda team_id, **_: TeamRunResult(
+                team_id=team_id,
+                status=TeamRunStatus.PROCESSED,
+                measurement_requests=measurement_requests[team_id],
+            ),
+        ),
+        patch(f"{ACTIVITIES}.measure_view_cost", return_value=MeasurementOutcome.MEASURED) as measure_view_cost,
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as environment:
+            async with Worker(
+                environment.client,
+                task_queue=task_queue,
+                workflows=WORKFLOWS,
+                activities=WAREHOUSE_SUGGESTIONS_ACTIVITIES,
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                outcome = await environment.client.execute_workflow(
+                    WAREHOUSE_SUGGESTIONS_WORKFLOW_NAME,
+                    WarehouseSuggestionsInputs(),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    result_type=BatchOutcome,
+                )
+
+    assert outcome.processed == 3
+    measure_view_cost.assert_called_once_with(2, often_recomputed_view, one_measurement_per_run.measurement)

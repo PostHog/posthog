@@ -7,9 +7,10 @@ query transforms live in ``products.endpoints.backend.materialization_transforms
 """
 
 import dataclasses
+from datetime import timedelta
 from typing import cast
 
-from django.db import transaction
+from django.db import DatabaseError, transaction
 
 import structlog
 from rest_framework.exceptions import APIException, ValidationError
@@ -29,15 +30,19 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
 from products.data_modeling.backend.facade.api import (
+    HasDependentsError,
+    SchedulingUnavailableError,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
-    delete_node_from_dag,
+    is_materialization_fresh,
+    latest_saved_query_materialization_job,
+    link_endpoint_nodes,
     saved_query_materialized_at,
     sync_saved_query_to_dag,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
 from products.endpoints.backend.logic.activity import EndpointContext
+from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
 from products.endpoints.backend.logic.strategies import apply_where_filter, strategy_for
 from products.endpoints.backend.materialization_transforms import (
     MaterializationNotSupportedError,
@@ -51,7 +56,6 @@ from products.endpoints.backend.materialization_transforms import (
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
-from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
 
@@ -60,25 +64,85 @@ class OrphanedEndpointSavedQueryError(Exception):
     pass
 
 
+class EndpointMaterializationTurnedOffError(MaterializationNotSupportedError):
+    pass
+
+
+def log_materialization_activity(
+    team: Team,
+    endpoint: Endpoint,
+    version: EndpointVersion,
+    activity: str,
+    *,
+    saved_query_id: str,
+    saved_query_name: str,
+    user: User | None = None,
+    was_impersonated: bool = False,
+    reason: str | None = None,
+) -> None:
+    # Two rows: the model's history reads the saved query, the endpoint's history reads the
+    # endpoint. A read-time join can't replace this, since disabling unlinks the saved query.
+    for item_id, scope, name in (
+        (saved_query_id, "DataWarehouseSavedQuery", saved_query_name),
+        (str(endpoint.id), "EndpointVersion", endpoint.name),
+    ):
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=item_id,
+            scope=scope,
+            activity=activity,
+            detail=Detail(name=name, context=EndpointContext(version=version.version, reason=reason)),
+        )
+
+
 def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
     """Rebuild the saved query's executable HogQL from its endpoint version.
 
     Called by the data-modeling Temporal workflow before each materialization run,
     so query-printer changes and bucket overrides are always reflected.
     """
-    version = saved_query.endpoint_versions.first()
+    version = EndpointVersion.objects.filter(saved_query=saved_query).first()
     if version is None:
         raise OrphanedEndpointSavedQueryError(
             f"Saved query {saved_query.id} ({saved_query.name}) has no linked EndpointVersion"
         )
 
-    saved_query.query = build_endpoint_hogql(
-        version.query,
-        saved_query.team,
-        bucket_overrides=version.bucket_overrides,
-        # Temporal rebuilds are userless and operate on an already-owned endpoint saved query.
-        bypass_warehouse_access_control=True,
-    )
+    try:
+        saved_query.query = build_endpoint_hogql(
+            version.query,
+            saved_query.team,
+            bucket_overrides=version.bucket_overrides,
+            # Temporal rebuilds are userless and operate on an already-owned endpoint saved query.
+            bypass_warehouse_access_control=True,
+        )
+    except MaterializationNotSupportedError as e:
+        # Readers of the backing table would break, so keep failing until they are updated.
+        try:
+            EndpointMaterializationDependencyService(saved_query.team_id).check_deletable(version)
+        except HasDependentsError:
+            raise e
+        # The version can never materialize again, so turn it off once instead of failing every run.
+        saved_query_id, saved_query_name = str(saved_query.id), saved_query.name
+        with transaction.atomic():
+            version.disable_materialization()
+        clear_endpoint_materialization_cache(saved_query.team_id, version.endpoint.name, versions=[version.version])
+        reason = str(e).rstrip(".")
+        log_materialization_activity(
+            saved_query.team,
+            version.endpoint,
+            version,
+            "materialization_disabled",
+            saved_query_id=saved_query_id,
+            saved_query_name=saved_query_name,
+            reason=reason,
+        )
+        raise EndpointMaterializationTurnedOffError(
+            f"Materialization was turned off for this endpoint version: {reason}. "
+            "The endpoint now runs its query directly."
+        ) from e
     saved_query.save(update_fields=["query", "updated_at"])
 
 
@@ -90,14 +154,29 @@ ELIGIBILITY_CHECK_FAILED_REASON = (
 def build_materialization_info(version: EndpointVersion, endpoint_name: str | None = None) -> dict:
     """Build the materialization status dict for a version."""
     if version.saved_query:
-        # v2 never writes saved_query.last_run_at; derive freshness from DataModelingJob.
-        materialized_at = saved_query_materialized_at(version.saved_query)
+        latest_job = latest_saved_query_materialization_job(version.saved_query)
+        materialization_status = latest_job.status if latest_job else version.saved_query.status
+        materialization_error = latest_job.error if latest_job else version.saved_query.latest_error
+        if latest_job and latest_job.status == DataWarehouseSavedQuery.Status.COMPLETED:
+            materialized_at = max(
+                timestamp
+                for timestamp in (latest_job.last_run_at, version.saved_query.last_run_at)
+                if timestamp is not None
+            )
+        else:
+            # A failed or running attempt may follow a successful build that remains serveable.
+            materialized_at = saved_query_materialized_at(version.saved_query)
         result = {
-            "status": version.saved_query.status or "Unknown",
+            "enabled": bool(version.saved_query.is_materialized),
+            "ready": bool(
+                version.saved_query.table_id
+                and is_materialization_fresh(materialized_at, version.data_freshness_seconds)
+            ),
+            "status": materialization_status or "Unknown",
             "can_materialize": True,
             "last_materialized_at": materialized_at.isoformat() if materialized_at else None,
-            "error": (version.saved_query.latest_error or "")
-            if version.saved_query.status != DataWarehouseSavedQuery.Status.COMPLETED
+            "error": (materialization_error or "")
+            if materialization_status != DataWarehouseSavedQuery.Status.COMPLETED
             else "",
             "saved_query_id": str(version.saved_query.id),
         }
@@ -108,6 +187,8 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             capture_exception(e, {"endpoint_version_id": str(version.id), "team_id": version.endpoint.team_id})
             can_mat, reason = False, ELIGIBILITY_CHECK_FAILED_REASON
         result = {
+            "enabled": False,
+            "ready": False,
             "can_materialize": can_mat,
             "reason": reason if not can_mat else None,
         }
@@ -155,20 +236,20 @@ class EndpointMaterializationService:
         """
         try:
             self._enable_materialization_inner(endpoint, version, data_freshness_seconds, bucket_overrides)
+            # The throttle may hold a not-ready snapshot cached before the enable. Drop it so the
+            # first completed run is picked up on the next request, not when the entry expires.
+            transaction.on_commit(
+                lambda: clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version]),
+                robust=True,
+            )
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="success").inc()
             if version.saved_query:
-                log_activity(
-                    organization_id=self.team.organization_id,
-                    team_id=self.team.pk,
-                    user=self.user,
-                    was_impersonated=is_impersonated(self.request),
-                    item_id=str(version.saved_query.id),
-                    scope="DataWarehouseSavedQuery",
-                    activity="materialization_enabled",
-                    detail=Detail(
-                        name=version.saved_query.name,
-                        context=EndpointContext(version=version.version),
-                    ),
+                self._log_materialization_activity(
+                    endpoint,
+                    version,
+                    "materialization_enabled",
+                    saved_query_id=str(version.saved_query.id),
+                    saved_query_name=version.saved_query.name,
                 )
         except ValidationError:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
@@ -225,11 +306,19 @@ class EndpointMaterializationService:
 
             # The DAG node must exist before scheduling: the v2 detection and the freshness-target
             # write-through both resolve this saved query through its Node row.
-            sync_error: Exception | None = None
             try:
                 sync_saved_query_to_dag(saved_query)
+                link_endpoint_nodes(
+                    team_id=saved_query.team_id,
+                    saved_query_id=saved_query.id,
+                    endpoint_name=endpoint.name,
+                    version=version.version,
+                )
+            except DatabaseError:
+                # An infrastructure fault, not a lineage problem the author can fix: let it surface
+                # as a server error so the status="error" metric sees it.
+                raise
             except Exception as e:
-                sync_error = e
                 logger.exception(
                     "Failed to sync endpoint node to DAG",
                     endpoint_name=endpoint.name,
@@ -244,28 +333,32 @@ class EndpointMaterializationService:
                         "saved_query_id": saved_query.id,
                     },
                 )
+                # The node is missing because the query's dependencies did not resolve, which
+                # the author fixes by editing the query. Reporting that as a server error would
+                # tell them to retry, and would page on-call through the status="error" metric.
+                raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
 
             # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
             # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
             # trigger_immediate_run mirrors that on v2: first run only for a newly created saved
             # query (deferred to on_commit, so it sees the version link above).
             try:
-                saved_query.schedule_materialization(trigger_immediate_run=newly_materialized)
+                saved_query.schedule_materialization(
+                    trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
+                )
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 # The chosen data freshness can't be honored (e.g. finer than an upstream import
                 # delivers) — a request problem, not a server one.
                 raise ValidationError(str(e))
+            except SchedulingUnavailableError as e:
+                # Raising unwinds the atomic block, so the endpoint keeps the state it had before.
+                raise APIException(f"Failed to schedule materialization for endpoint {endpoint.name}.") from e
 
             # schedule_materialization applies a disable-on-failure contract rather than raising,
             # so a failure to schedule shows up only as is_materialized flipping back. Checking it
             # is what stops the enable reporting success on an endpoint nothing will ever refresh.
             saved_query.refresh_from_db(fields=["is_materialized"])
             if not saved_query.is_materialized:
-                if sync_error is not None:
-                    # The node is missing because the query's dependencies did not resolve, which
-                    # the author fixes by editing the query. Reporting that as a server error would
-                    # tell them to retry, and would page on-call through the status="error" metric.
-                    raise ValidationError(f"Cannot materialize endpoint. Reason: {sync_error}")
                 raise APIException(f"Failed to schedule materialization for endpoint {endpoint.name}.")
 
     def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
@@ -286,7 +379,7 @@ class EndpointMaterializationService:
             )
 
         is_foreign = existing.origin != DataWarehouseSavedQuery.Origin.ENDPOINT or (
-            existing.endpoint_versions.exclude(pk=version.pk).exists()
+            EndpointVersion.objects.filter(saved_query=existing).exclude(pk=version.pk).exists()
         )
         if is_foreign:
             raise ValidationError(
@@ -311,55 +404,52 @@ class EndpointMaterializationService:
         )
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
-        saved_query.sync_frequency_interval = sync_frequency_to_sync_frequency_interval(
-            DATA_FRESHNESS_BUCKETS[data_freshness_seconds]
-        )
+        saved_query.sync_frequency_interval = timedelta(seconds=data_freshness_seconds)
         saved_query.save()
 
-    def disable_materialization(self, endpoint: Endpoint, version: EndpointVersion) -> None:
+    def disable_materialization(
+        self, endpoint: Endpoint, version: EndpointVersion, *, cache_ttl_seconds: int | None = None
+    ) -> None:
         """Disable materialization for an endpoint version."""
         if version.saved_query:
             saved_query_id = str(version.saved_query.id)
             saved_query_name = version.saved_query.name
             try:
-                delete_node_from_dag(version.saved_query)
-            except Exception as e:
-                logger.exception(
-                    "Failed to remove endpoint node from DAG",
-                    endpoint_name=endpoint.name,
-                    saved_query_id=saved_query_id,
-                )
-                capture_exception(
-                    e,
-                    {
-                        "product": Product.ENDPOINTS,
-                        "team_id": self.team.pk,
-                        "endpoint_name": endpoint.name,
-                        "saved_query_id": saved_query_id,
-                    },
-                )
-            try:
-                version.disable_materialization()
+                version.disable_materialization(cache_ttl_seconds=cache_ttl_seconds)
             except Exception:
                 ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="error").inc()
                 raise
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="success").inc()
-            log_activity(
-                organization_id=self.team.organization_id,
-                team_id=self.team.pk,
-                user=self.user,
-                was_impersonated=is_impersonated(self.request),
-                item_id=saved_query_id,
-                scope="DataWarehouseSavedQuery",
-                activity="materialization_disabled",
-                detail=Detail(
-                    name=saved_query_name,
-                    context=EndpointContext(version=version.version),
-                ),
+            self._log_materialization_activity(
+                endpoint,
+                version,
+                "materialization_disabled",
+                saved_query_id=saved_query_id,
+                saved_query_name=saved_query_name,
             )
         # Clears this version's throttle-readiness key plus the "current" key (the disabled
         # version may be the current one) — the next request lazily re-checks the DB.
         clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version])
+
+    def _log_materialization_activity(
+        self,
+        endpoint: Endpoint,
+        version: EndpointVersion,
+        activity: str,
+        *,
+        saved_query_id: str,
+        saved_query_name: str,
+    ) -> None:
+        log_materialization_activity(
+            self.team,
+            endpoint,
+            version,
+            activity,
+            saved_query_id=saved_query_id,
+            saved_query_name=saved_query_name,
+            user=self.user,
+            was_impersonated=is_impersonated(self.request),
+        )
 
     def preview(
         self,
@@ -368,6 +458,18 @@ class EndpointMaterializationService:
         bucket_overrides: dict[str, str] | None = None,
     ) -> MaterializationPreview:
         """Preview the materialization transform without enabling it."""
+        try:
+            return self._build_preview(endpoint, version, bucket_overrides)
+        except (ExposedHogQLError, MaterializationNotSupportedError) as e:
+            # A bad user query, not a system fault, so report it as unmaterializable.
+            return MaterializationPreview.cant_materialize(str(e))
+
+    def _build_preview(
+        self,
+        endpoint: Endpoint,
+        version: EndpointVersion,
+        bucket_overrides: dict[str, str] | None,
+    ) -> MaterializationPreview:
         can_mat, reason = version.can_materialize()
         if not can_mat:
             return MaterializationPreview.cant_materialize(reason)
@@ -483,7 +585,11 @@ class EndpointMaterializationService:
             # frontend uses execution_query only as a presence flag and renders the display variant.
             if version.is_materialized:
                 execution_query_str = to_printed_hogql(
-                    _build_exec_preview(version.materialized_view_name), team=self.team
+                    _build_exec_preview(version.materialized_view_name),
+                    team=self.team,
+                    # Display-only text for the endpoint's own materialized view, and no rows are read.
+                    # Without the bypass, the userless database denies the view and the print fails.
+                    bypass_warehouse_access_control=True,
                 )
             else:
                 execution_query_str = print_prepared_ast(

@@ -10,6 +10,7 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -37,11 +38,14 @@ import {
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
+import { SettingSectionUnavailable } from './components/SettingSectionUnavailable'
 import { SearchResult, settingsLogic } from './settingsLogic'
-import { SettingLevelId, SettingsLogicProps } from './types'
+import { settingsNavTree } from './settingsNavTree'
+import { SettingLevelNames, SettingSection, SettingsLogicProps } from './types'
 
 export interface SettingOption {
     key: string
@@ -165,13 +169,11 @@ export function Settings({
         return () => clearTimeout(timer)
     }, [selectedSectionId, isSearching])
 
-    // Environment and project settings don't require periodic re-authentication by default,
-    // so we avoid a needless re-authentication modal (see https://github.com/posthog/posthog/pull/22421).
-    // The exception is sections that opt in via `requiresReauthentication` — e.g. credential
-    // management — which prompt on navigation like user- and organization-level settings do.
-    const requiresReauthentication =
-        (selectedLevel !== 'environment' && selectedLevel !== 'project') || !!selectedSection?.requiresReauthentication
-    const AuthenticationAreaComponent = requiresReauthentication ? TimeSensitiveAuthenticationArea : React.Fragment
+    // Only organization settings prompt for re-authentication on navigation. Everywhere else the backend gates
+    // sensitive writes, and a write that fails for a stale session opens the re-auth modal and retries.
+    // See the `gating-sensitive-actions` skill.
+    const AuthenticationAreaComponent =
+        selectedLevel === 'organization' ? TimeSensitiveAuthenticationArea : React.Fragment
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
@@ -187,16 +189,8 @@ export function Settings({
                   </OptionButton>
               ),
           }))
-        : filteredLevels.map((level) => {
-              const levelSections = filteredSections.filter((x) => x.level === level)
-              const isCollapsed = collapsedLevels[level]
-
-              // Separate danger zone sections (always rendered last)
-              const dangerZoneSections = levelSections.filter((s) => s.id.endsWith('-danger-zone'))
-              const nonDangerSections = levelSections.filter((s) => !s.id.endsWith('-danger-zone'))
-
-              // Build section option helper
-              const buildSectionOption = (section: (typeof levelSections)[0]): SettingOption => {
+        : settingsNavTree(filteredLevels, filteredSections).map(({ level, items }) => {
+              const buildSectionOption = (section: SettingSection): SettingOption => {
                   const { id, to, accessControl } = section
 
                   return {
@@ -231,49 +225,26 @@ export function Settings({
                   }
               }
 
-              // Build items in SETTINGS_MAP order, rendering groups when we first encounter them
-              const renderedGroups = new Set<string>()
-              const levelItems: SettingOption[] = [
-                  ...nonDangerSections.flatMap((section) => {
-                      // Ungrouped section - render directly
-                      if (!section.group) {
-                          return [buildSectionOption(section)]
-                      }
-
-                      // Grouped section - render entire group when we first see it
-                      if (renderedGroups.has(section.group)) {
-                          return [] // Already rendered this group
-                      }
-
-                      renderedGroups.add(section.group)
-                      const groupKey = `${level}-${section.group}`
-                      const isGroupCollapsed = collapsedGroups[groupKey]
-                      const sectionsInGroup = nonDangerSections.filter((s) => s.group === section.group)
-
-                      return [
-                          {
-                              key: groupKey,
-                              collapsible: {
-                                  label: section.group,
-                                  open: !isGroupCollapsed,
-                                  onOpenChange: () => toggleGroupCollapse(groupKey),
-                              },
-                              items: sectionsInGroup.map(buildSectionOption),
-                          },
-                      ]
-                  }),
-                  // Danger zone always at the bottom
-                  ...dangerZoneSections.map(buildSectionOption),
-              ]
-
               return {
                   key: level,
                   collapsible: {
                       label: SettingLevelNames[level],
-                      open: !isCollapsed,
+                      open: !collapsedLevels[level],
                       onOpenChange: () => toggleLevelCollapse(level),
                   },
-                  items: levelItems,
+                  items: items.map((item) =>
+                      item.kind === 'section'
+                          ? buildSectionOption(item.section)
+                          : {
+                                key: item.key,
+                                collapsible: {
+                                    label: item.label,
+                                    open: !collapsedGroups[item.key],
+                                    onOpenChange: () => toggleGroupCollapse(item.key),
+                                },
+                                items: item.sections.map(buildSectionOption),
+                            }
+                  ),
               }
           })
 
@@ -413,21 +384,32 @@ export function Settings({
     )
 }
 
-function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
-    const { settings: allSettings, selectedLevel, selectedSectionId, selectedSetting } = useValues(settingsLogic(props))
+function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element | null {
+    const {
+        settings: allSettings,
+        selectedLevel,
+        selectedSection,
+        selectedSectionId,
+        selectedSetting,
+        unavailableSection,
+    } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
+    const { user } = useValues(userLogic)
 
     const settingsInSidebar = !!selectedSetting && !!props.sectionId
 
     const settings = settingsInSidebar ? [selectedSetting] : allSettings
 
-    return (
+    const content = (
         <div className="flex flex-col gap-y-8">
             {settings.length ? (
                 settings.map((x, index) => (
                     <div key={`${x.id}-${index}`} className="relative last:mb-4">
                         {!settingsInSidebar && x.title && (
-                            <h2 id={x.id} className="flex gap-2 items-center text-base font-semibold mb-0">
+                            <h2
+                                id={x.id}
+                                className="flex gap-2 items-center text-base font-semibold mb-0 scroll-mt-[calc(var(--scene-layout-header-height)+var(--spacing)*4)]"
+                            >
                                 {x.title}
                                 {props.logicKey === 'settingsScene' && (
                                     <LemonButton
@@ -460,10 +442,29 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                         <ErrorBoundary>{x.component}</ErrorBoundary>
                     </div>
                 ))
+            ) : unavailableSection ? (
+                <SettingSectionUnavailable section={unavailableSection} />
             ) : (
                 <NotFound object="setting" />
             )}
         </div>
+    )
+
+    const payGate = selectedSection?.payGate
+    if (!payGate) {
+        return content
+    }
+
+    // One gate for the whole section, so the upsell appears once however many settings the
+    // section holds.
+    return (
+        <PayGateMini
+            feature={payGate.feature}
+            featureDetail={payGate.featureDetail}
+            overrideShouldShowGate={payGate.bypassForImpersonation && user?.is_impersonated}
+        >
+            {content}
+        </PayGateMini>
     )
 }
 
@@ -570,10 +571,3 @@ const OptionButton = ({
 
     return button
 }
-
-export const SettingLevelNames: Record<SettingLevelId, string> = {
-    environment: 'Environment',
-    project: 'Project',
-    organization: 'Organization',
-    user: 'Account',
-} as const

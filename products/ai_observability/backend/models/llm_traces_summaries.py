@@ -20,7 +20,7 @@ class LLMTraceSummary(UUIDTModel):
 
         ISSUES_SEARCH = "issues_search"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
     trace_summary_type = models.CharField(

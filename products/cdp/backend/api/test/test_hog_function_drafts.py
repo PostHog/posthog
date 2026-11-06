@@ -1,21 +1,26 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.cdp.backend.api.hog_function import HogFunctionViewSet
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
+from products.cdp.backend.templates.helpers import mock_transpile
 
-FLAG_PATH = "products.cdp.backend.api.hog_function.use_destinations_revisions"
 RELOAD_PATH = "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"
 
 LIVE_HOG = "fetch(inputs.url);"
 EDITED_HOG = "fetch(inputs.url, {'method': 'PUT'});"
 
-BASE_FUNCTION = {
+BASE_FUNCTION: dict[str, Any] = {
     "name": "Webhook",
     "type": "destination",
     "hog": LIVE_HOG,
@@ -29,12 +34,6 @@ BASE_FUNCTION = {
 
 
 class DraftTestCase(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        flag = patch(FLAG_PATH, return_value=True)
-        flag.start()
-        self.addCleanup(flag.stop)
-
     def _url(self, function_id: str = "", suffix: str = "") -> str:
         base = f"/api/projects/{self.team.id}/hog_functions/"
         return f"{base}{function_id}{suffix}" if function_id else base
@@ -88,25 +87,44 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
-            # An agent can't stage a draft on a function that isn't running, and the web builder
-            # saves what the person just reviewed, so neither routes to a draft.
-            ("disabled_function", True, {"enabled": False}, True),
-            ("web_caller", False, {}, True),
-            # Only destinations are in the cycle for now. A transformation edit still applies live.
-            ("transformation", True, {"type": "transformation", "hog": "return event"}, True),
-            # The flag is the kill switch: off means the pre-draft behavior, edits apply live.
-            ("flag_off", True, {}, False),
+            ("desktop_app", "posthog/desktop.hog.dev; version: 1.0"),
+            ("mobile_app", "posthog/mobile.hog.dev; version: 1.0"),
         ]
     )
-    def test_config_edit_applies_live(self, _name: str, from_agent: bool, overrides: dict, flag_on: bool):
+    def test_first_party_app_edit_also_stages_a_draft(self, _name: str, user_agent: str):
+        # These reach REST under their own user-agent rather than through the MCP header, so the
+        # review gate depends on their membership in AGENT_EVENT_SOURCES. Dropping either would
+        # apply an agent's edit straight to a running function with nothing else to signal it.
+        function_id = self._create()
+
+        with patch(RELOAD_PATH) as mock_reload:
+            response = self.client.patch(
+                self._url(function_id), {"hog": EDITED_HOG}, headers={"user-agent": user_agent}
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["draft"]["hog"] == EDITED_HOG
+        mock_reload.assert_not_called()
+        assert HogFunction.objects.get(id=function_id).hog == LIVE_HOG
+
+    @parameterized.expand(
+        [
+            # An agent can't stage a draft on a function that isn't running, and the web builder
+            # saves what the person just reviewed, so neither routes to a draft.
+            ("disabled_function", True, {"enabled": False}),
+            ("web_caller", False, {}),
+            # Only destinations are in the cycle for now. A transformation edit still applies live.
+            ("transformation", True, {"type": "transformation", "hog": "return event"}),
+        ]
+    )
+    def test_config_edit_applies_live(self, _name: str, from_agent: bool, overrides: dict):
         function_id = self._create(**overrides)
 
-        with patch(FLAG_PATH, return_value=flag_on):
-            response = (
-                self._agent_patch(function_id, {"hog": EDITED_HOG})
-                if from_agent
-                else self.client.patch(self._url(function_id), {"hog": EDITED_HOG})
-            )
+        response = (
+            self._agent_patch(function_id, {"hog": EDITED_HOG})
+            if from_agent
+            else self.client.patch(self._url(function_id), {"hog": EDITED_HOG})
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["draft"] is None
@@ -115,25 +133,36 @@ class TestHogFunctionDrafts(DraftTestCase):
     def test_agent_metadata_in_a_config_edit_still_applies_live(self):
         function_id = self._create()
 
-        self._stage(function_id, {"name": "Renamed", "enabled": False, "filters": {"source": "events"}})
+        self._stage(
+            function_id,
+            {
+                "name": "Renamed",
+                "enabled": False,
+                "filters": {"source": "events"},
+                "inputs": {"url": {"value": "https://example.com/live"}, "token": {"value": "rotated-token"}},
+            },
+        )
 
         function = HogFunction.objects.get(id=function_id)
         assert function.name == "Renamed"
         assert function.enabled is False
         assert function.draft is not None
         assert function.draft["filters"]["source"] == "events"
+        assert function.encrypted_inputs["token"]["value"] == "live-token"
+        assert function.draft_encrypted_inputs["token"]["value"] == "rotated-token"
 
     def test_metadata_in_a_draft_edit_does_not_revert_a_concurrent_live_edit(self):
         function_id = self._create()
         concurrent_hog = "fetch(inputs.url, {'method': 'DELETE'});"
+        real_should_route_to_draft = HogFunctionViewSet._should_route_to_draft
 
-        def live_edit_lands_after_initial_fetch(_team):
+        def live_edit_lands_after_initial_fetch(viewset, serializer):
             # Stand in for a builder edit committing between the request's initial unlocked fetch
-            # and its write: the flag check runs after get_object() and before the transaction.
+            # and its write: draft routing resolves after get_object() and before the transaction.
             HogFunction.objects.filter(id=function_id).update(hog=concurrent_hog)
-            return True
+            return real_should_route_to_draft(viewset, serializer)
 
-        with patch(FLAG_PATH, side_effect=live_edit_lands_after_initial_fetch):
+        with patch.object(HogFunctionViewSet, "_should_route_to_draft", live_edit_lands_after_initial_fetch):
             response = self._agent_patch(function_id, {"name": "Renamed", "hog": EDITED_HOG})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -308,6 +337,157 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert stored_draft is not None
         assert "token" not in stored_draft["inputs"]
 
+    @parameterized.expand([("inputs",), ("mappings",)])
+    def test_input_values_are_masked_in_activity_logs(self, field: str) -> None:
+        function_id = self._create(enabled=False)
+        payload = (
+            {"inputs": {"url": {"value": "https://example.com/private-input"}, "token": {"secret": True}}}
+            if field == "inputs"
+            else {
+                "mappings": [
+                    {
+                        "inputs_schema": [{"key": "message", "type": "string"}],
+                        "inputs": {"message": {"value": "example-private-input"}},
+                    }
+                ]
+            }
+        )
+
+        self._live_edit(function_id, payload)
+
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="HogFunction", item_id=function_id, activity="updated"
+        )
+        changes = [
+            change
+            for log in logs
+            for change in (log.detail["changes"] if log.detail else [])
+            if change["field"] == field
+        ]
+        assert changes
+        if field == "inputs":
+            assert all(change["after"]["url"] == "changed" for change in changes)
+            assert all(set(change["after"].values()) <= {"masked", "changed"} for change in changes)
+        else:
+            assert all(change["after"] == "masked" for change in changes)
+        assert all("private-input" not in str(log.detail) for log in logs)
+
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
+    def test_site_function_transpiled_output_is_not_written_to_activity_logs(self, _mock_transpile) -> None:
+        function_id = self._create(
+            type="site_destination",
+            hog="export function onEvent() {}",
+            inputs_schema=[{"key": "url", "type": "string", "label": "Webhook URL", "required": True}],
+            inputs={"url": {"value": "https://example.com/private-input"}},
+        )
+
+        self._live_edit(function_id, {"hog": "export function onEvent() { return 1; }"})
+
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="HogFunction", item_id=function_id, activity="updated"
+        )
+        changed_fields = {change["field"] for log in logs for change in (log.detail["changes"] if log.detail else [])}
+        assert "hog" in changed_fields
+        assert "transpiled" not in changed_fields
+        assert all("private-input" not in str(log.detail) for log in logs)
+
+    @parameterized.expand(
+        [
+            ("live_secret_last", False, [False, True]),
+            ("live_secret_first", False, [True, False]),
+            ("draft_secret_last", True, [False, True]),
+            ("draft_secret_first", True, [True, False]),
+            ("enabled_raw_api_secret_last", True, [False, True], False),
+            ("enabled_raw_api_secret_first", True, [True, False], False),
+        ]
+    )
+    def test_duplicate_input_keys_are_rejected(
+        self, _name: str, enabled: bool, secret_flags: list[bool], from_agent: bool = True
+    ) -> None:
+        function_id = self._create(enabled=enabled)
+        function = HogFunction.objects.get(id=function_id)
+        saved_inputs = function.inputs
+        saved_secrets = function.encrypted_inputs
+        revision_count = self._revisions(function_id).count()
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="HogFunction", item_id=function_id)
+        log_count = logs.count()
+
+        payload = {
+            "inputs_schema": [
+                BASE_FUNCTION["inputs_schema"][0],
+                *[{"key": "token", "type": "string", "secret": secret} for secret in secret_flags],
+            ]
+        }
+        response = (
+            self._agent_patch(function_id, payload)
+            if from_agent
+            else self.client.patch(self._url(function_id), payload)
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "inputs_schema"
+        function.refresh_from_db()
+        assert function.inputs == saved_inputs
+        assert function.encrypted_inputs == saved_secrets
+        assert function.draft is None
+        assert self._revisions(function_id).count() == revision_count
+        assert logs.count() == log_count
+        assert all("live-token" not in str(log.detail) for log in logs)
+        response = self.client.get(self._url(function_id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["inputs"]["token"] == {"secret": True}
+        assert "live-token" not in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("live_mask", False, {"secret": True}),
+            ("draft_mask", True, {"secret": True}),
+            ("draft_display_mask", True, {"secret": True, "value": "********"}),
+            ("draft_empty", True, {}),
+            ("draft_new_value", True, {"value": "example-mapping-token"}),
+            ("draft_schema_only", True, None),
+        ]
+    )
+    def test_mapping_secret_inputs_are_rejected(self, _name: str, enabled: bool, input_value: dict | None) -> None:
+        function_id = self._create(enabled=enabled)
+        if enabled:
+            self._stage(
+                function_id,
+                {
+                    "inputs": {
+                        "url": {"value": "https://example.com/live"},
+                        "token": {"value": "example-staged-token"},
+                    }
+                },
+            )
+        function = HogFunction.objects.get(id=function_id)
+        saved_draft = function.draft
+        saved_secrets = function.encrypted_inputs
+        saved_draft_secrets = function.draft_encrypted_inputs
+        revision_count = self._revisions(function_id).count()
+        mapping: dict[str, Any] = {
+            "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+        }
+        if input_value is not None:
+            mapping["inputs"] = {"token": input_value}
+
+        response = self._agent_patch(function_id, {"mappings": [mapping]})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "mappings__0__inputs_schema"
+        function.refresh_from_db()
+        assert function.mappings is None
+        assert function.draft == saved_draft
+        assert function.encrypted_inputs == saved_secrets
+        assert function.draft_encrypted_inputs == saved_draft_secrets
+        assert self._revisions(function_id).count() == revision_count
+        response = self.client.get(self._url(function_id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["inputs"]["token"] == {"secret": True}
+        for secret in ("live-token", "example-staged-token", "example-mapping-token"):
+            assert secret not in response.content.decode()
+            assert not self._revisions(function_id).filter(content__icontains=secret).exists()
+
     def test_enabling_with_a_draft_open_is_refused_for_coercible_booleans(self):
         function_id = self._create()
         self._stage(function_id, {"hog": EDITED_HOG})
@@ -402,7 +582,10 @@ class TestHogFunctionDrafts(DraftTestCase):
         ]
     )
     def test_create_as_enabled(self, _name: str, from_agent: bool, function_type: str, expected: int):
-        payload = {**BASE_FUNCTION, "type": function_type}
+        payload: dict[str, Any] = {**BASE_FUNCTION, "type": function_type}
+        if function_type == "internal_destination":
+            # Internal destinations have to name the event they subscribe to.
+            payload["filters"] = {"events": [{"id": "$activity_log_entry_created", "type": "events"}]}
         headers = {"x-posthog-client": "mcp"} if from_agent else {}
 
         response = self.client.post(self._url(), data=payload, headers=headers)
@@ -411,16 +594,58 @@ class TestHogFunctionDrafts(DraftTestCase):
 
 
 class TestHogFunctionRevisions(DraftTestCase):
-    def test_first_live_config_change_also_snapshots_the_outgoing_config(self):
+    @parameterized.expand([("secret_first", True), ("secret_last", False)])
+    def test_legacy_mapping_secrets_are_masked_on_reads(self, _name: str, secret_first: bool) -> None:
         function_id = self._create()
+        schemas = [
+            {"key": "credential", "type": "string", "secret": True, "default": "example-private-default"},
+            {"key": "credential", "type": "string", "default": "example-private-default"},
+        ]
+        if not secret_first:
+            schemas.reverse()
+        mappings = [
+            {
+                "name": "Page view",
+                "inputs_schema": schemas,
+                "inputs": {
+                    "credential": {"value": "example-private-value", "bytecode": ["example-private-value"]},
+                    "event_name": {"value": "page_view"},
+                },
+            }
+        ]
+        content = {"inputs_schema": [], "inputs": {}, "mappings": mappings}
+        HogFunction.objects.filter(id=function_id).update(mappings=mappings, draft=content)
+        function = HogFunction.objects.get(id=function_id)
+        self._revisions(function_id).filter(version=1).update(content=content)
+
+        for suffix in ("", "/revisions/1"):
+            response = self.client.get(self._url(function_id, suffix))
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert "example-private" not in response.content.decode()
+            data = response.json().get("content", response.json())
+            assert data["mappings"][0]["inputs"]["credential"] == {"secret": True}
+            assert data["mappings"][0]["inputs"]["event_name"] == {"value": "page_view"}
+        response = self.client.get(self._url(), {"full": "true"})
+        assert response.status_code == status.HTTP_200_OK
+        assert "example-private" not in response.content.decode()
+        function.refresh_from_db()
+        assert function.mappings == mappings
+        assert function.draft == content
+        assert self._revisions(function_id).get(version=1).content == content
+
+    @parameterized.expand([("created_with_a_revision", False), ("created_before_creation_revisions", True)])
+    def test_first_live_config_change_keeps_the_outgoing_config(self, _name: str, legacy: bool):
+        function_id = self._create()
+        if legacy:
+            self._revisions(function_id).delete()
 
         self._live_edit(function_id, {"hog": EDITED_HOG})
 
-        revisions = list(self._revisions(function_id).order_by("version"))
+        revisions = list(self._revisions(function_id).select_related("created_by").order_by("version"))
         assert [revision.version for revision in revisions] == [1, 2]
         # Rollback to the state before the revision system saw this function must be possible.
         assert revisions[0].content["hog"] == LIVE_HOG
-        assert revisions[0].created_by is None
+        assert revisions[0].created_by == (None if legacy else self.user)
         assert revisions[1].content["hog"] == EDITED_HOG
         assert revisions[1].created_by == self.user
 
@@ -428,18 +653,16 @@ class TestHogFunctionRevisions(DraftTestCase):
         [
             # `to_internal_value` re-injects inputs/filters and the serializer recompiles bytecode on
             # every save, so an unchanged config must still compare equal and stay unversioned.
-            ("metadata_only", {"name": "Renamed"}, True),
-            ("config_resent_unchanged", {"hog": LIVE_HOG, "name": "Renamed"}, True),
-            ("flag_off", {"hog": EDITED_HOG}, False),
+            ("metadata_only", {"name": "Renamed"}),
+            ("config_resent_unchanged", {"hog": LIVE_HOG, "name": "Renamed"}),
         ]
     )
-    def test_no_revision_is_written(self, _name: str, payload: dict, flag_on: bool):
+    def test_no_revision_is_written(self, _name: str, payload: dict):
         function_id = self._create()
 
-        with patch(FLAG_PATH, return_value=flag_on):
-            self._live_edit(function_id, payload)
+        self._live_edit(function_id, payload)
 
-        assert not self._revisions(function_id).exists()
+        assert list(self._revisions(function_id).values_list("version", flat=True)) == [1]
         assert HogFunction.objects.get(id=function_id).version == 1
 
     def test_recompiled_filter_bytecode_does_not_create_a_revision(self):
@@ -451,7 +674,7 @@ class TestHogFunctionRevisions(DraftTestCase):
 
         self._live_edit(function_id, {"name": "Renamed"})
 
-        assert not self._revisions(function_id).exists()
+        assert list(self._revisions(function_id).values_list("version", flat=True)) == [1]
         assert HogFunction.objects.get(id=function_id).version == 1
 
     def test_revisions_list_is_newest_first_and_omits_config(self):
@@ -474,6 +697,39 @@ class TestHogFunctionRevisions(DraftTestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["content"]["hog"] == LIVE_HOG
         assert "token" not in response.json()["content"]["inputs"]
+
+    @parameterized.expand(
+        [
+            ("deleted_with_a_session", True, None, status.HTTP_200_OK),
+            ("deleted_with_a_read_only_key", True, ["hog_function:read"], status.HTTP_403_FORBIDDEN),
+            ("live_with_a_read_only_key", False, ["hog_function:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_deleted_function_history_needs_write_access(
+        self, _name: str, deleted: bool, key_scopes: list[str] | None, expected_status: int
+    ):
+        function_id = self._create()
+        if deleted:
+            self._live_edit(function_id, {"deleted": True})
+        headers = {}
+        if key_scopes is not None:
+            key_value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Read only", user=self.user, secure_value=hash_key_value(key_value), scopes=key_scopes
+            )
+            self.client.logout()
+            headers = {"authorization": f"Bearer {key_value}"}
+
+        listed = self.client.get(self._url(function_id, "/revisions"), headers=headers)
+        detail = self.client.get(self._url(function_id, "/revisions/1"), headers=headers)
+
+        assert (listed.status_code, detail.status_code) == (expected_status, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            assert [result["version"] for result in listed.json()["results"]] == [1]
+            assert detail.json()["content"]["hog"] == LIVE_HOG
+        if deleted and key_scopes is None:
+            listed_ids = [function["id"] for function in self.client.get(self._url()).json()["results"]]
+            assert function_id not in listed_ids
 
     def test_unknown_revision_is_a_404(self):
         function_id = self._create()
@@ -507,20 +763,3 @@ class TestHogFunctionRevisions(DraftTestCase):
         restored_draft = HogFunction.objects.get(id=function_id).draft
         assert restored_draft is not None
         assert restored_draft["hog"] == LIVE_HOG
-
-    @parameterized.expand(
-        [
-            ("publish", "post", "/publish"),
-            ("discard_draft", "post", "/discard_draft"),
-            ("revisions", "get", "/revisions"),
-            ("revision_detail", "get", "/revisions/1"),
-            ("restore_revision", "post", "/revisions/1/restore"),
-        ]
-    )
-    def test_endpoints_are_rejected_when_the_flag_is_off(self, _name: str, method: str, suffix: str):
-        function_id = self._create()
-
-        with patch(FLAG_PATH, return_value=False):
-            response = getattr(self.client, method)(self._url(function_id, suffix))
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

@@ -1,6 +1,10 @@
+from collections.abc import Collection
+from typing import Any, Self
+
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 import structlog
 
@@ -39,7 +43,13 @@ class EvaluationStatusReason(models.TextChoices):
     PROVIDER_KEY_QUOTA_EXCEEDED = "provider_key_quota_exceeded", "Provider API key quota exceeded"
     PROVIDER_KEY_RATE_LIMITED = "provider_key_rate_limited", "Provider API key is rate limited"
     MODEL_NOT_FOUND = "model_not_found", "Model not found"
+    MODEL_NOT_SUPPORTED = "model_not_supported", "Model does not support chat completions"
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
+
+
+def evaluation_status_reason_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(EvaluationStatusReason.choices)
 
 
 class EvaluationQuerySet(models.QuerySet):
@@ -65,6 +75,13 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
                 fields=["team", "directory", "-created_at", "id"],
                 name="llma_eval_team_dir_created_idx",
             ),
+            # Deleting a directory makes Django run the SET_NULL update with a filter on directory_id only,
+            # and the index above cannot serve that filter because it leads with team_id.
+            models.Index(
+                fields=["directory"],
+                name="llma_eval_directory_idx",
+                condition=models.Q(directory__isnull=False),
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -77,7 +94,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     objects = EvaluationQuerySet.as_manager()
 
     # Core fields
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     directory = models.ForeignKey(
@@ -94,7 +111,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     # backwards compatibility with existing API / DB callers. When status is ERROR, status_reason must be set.
     enabled = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
-    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
+    status_reason = models.CharField(max_length=50, choices=evaluation_status_reason_choices, null=True, blank=True)
     status_reason_detail = models.TextField(null=True, blank=True)
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType)
@@ -129,7 +146,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     def __init__(self, *args, **kwargs) -> None:
@@ -140,8 +157,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         self._initial_status = self.status
 
     @classmethod
-    def from_db(cls, db, field_names, values):
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._initial_enabled = instance.enabled
         instance._initial_status = instance.status
         return instance
@@ -213,8 +230,31 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         self.status_reason_detail = reason_detail
         self.save(update_fields=["status", "status_reason", "status_reason_detail", "enabled", "updated_at"])
 
+    def _condition_filters_changed(self) -> bool:
+        # Compare against the stored row, not an in-memory snapshot, so in-place edits count as changes.
+        if self._state.adding:
+            return True
+        stored = (
+            Evaluation.objects.filter(pk=self.pk, team_id=self.team_id).values_list("conditions", flat=True).first()
+        )
+        if stored is None:
+            return True
+        return [c.get("properties", []) for c in self.conditions] != [c.get("properties", []) for c in stored]
+
+    def _stored_hog_bytecode_if_source_unchanged(self) -> list[Any] | None:
+        if self._state.adding:
+            return None
+        stored = (
+            Evaluation.objects.filter(pk=self.pk, team_id=self.team_id)
+            .values_list("evaluation_config", flat=True)
+            .first()
+        )
+        if not stored or stored.get("source") != self.evaluation_config["source"]:
+            return None
+        return stored.get("bytecode") or None
+
     def save(self, *args, **kwargs):
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 
@@ -247,23 +287,46 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         except ValueError as e:
             raise ValidationError({"target_config": str(e)})
 
+        update_fields = kwargs.get("update_fields")
+
         # Compile Hog source to bytecode
-        if self.evaluation_type == EvaluationType.HOG and self.evaluation_config.get("source"):
+        writes_evaluation_config = update_fields is None or "evaluation_config" in update_fields
+        if (
+            writes_evaluation_config
+            and self.evaluation_type == EvaluationType.HOG
+            and self.evaluation_config.get("source")
+        ):
             try:
                 bytecode = compile_ai_observability_hog(self.evaluation_config["source"], "destination")
-                self.evaluation_config["bytecode"] = bytecode
             except Exception as e:
-                raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
+                # A newer compiler can reject source that an older one accepted. Keep the stored bytecode so the
+                # owner can still pause or delete the evaluation, but never let broken code start to run again.
+                activating = self.status == EvaluationStatus.ACTIVE and self._initial_status != self.status
+                stored_bytecode = None if activating else self._stored_hog_bytecode_if_source_unchanged()
+                if stored_bytecode is None:
+                    raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
+                bytecode = stored_bytecode
+            self.evaluation_config["bytecode"] = bytecode
 
         # Compile bytecode for each condition
         compiled_conditions = []
-        for condition in self.conditions:
+        compile_error: str | None = None
+        for index, condition in enumerate(self.conditions):
             compiled_condition = {**condition}
             filters = {"properties": condition.get("properties", [])}
             compiled = compile_filters_bytecode(filters, self.team)
+            bytecode_error = compiled.get("bytecode_error")
+            if bytecode_error and compile_error is None:
+                compile_error = f"Condition set {index + 1} has a filter that evaluations cannot run. {bytecode_error}"
             compiled_condition["bytecode"] = compiled.get("bytecode")
-            compiled_condition["bytecode_error"] = compiled.get("bytecode_error")
+            compiled_condition["bytecode_error"] = bytecode_error
             compiled_conditions.append(compiled_condition)
+
+        # The scheduler never matches a condition that has no bytecode. Reject the save when the caller
+        # changes the filters. Other saves skip this check, so pause, delete and status changes work.
+        writes_conditions = update_fields is None or "conditions" in update_fields
+        if compile_error and writes_conditions and self._condition_filters_changed():
+            raise ValidationError({"conditions": compile_error})
 
         self.conditions = compiled_conditions
         result = super().save(*args, **kwargs)

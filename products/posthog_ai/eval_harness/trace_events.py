@@ -1,5 +1,4 @@
-"""Emit sandboxed eval trace events ($ai_generation, $ai_span, $ai_trace,
-$ai_evaluation) to a PostHog client.
+"""Emit sandboxed eval trace events ($ai_generation, $ai_span, $ai_trace) to PostHog.
 
 Consumes a ``ParsedLog`` produced by ``acp_log.parse_log`` plus scoring
 results from Braintrust. Owns the constants shared with scorer tracing
@@ -16,9 +15,10 @@ from typing import Any
 from posthoganalytics import Posthog
 
 from .acp_log import GenerationDescriptor, ParsedLog, SpanDescriptor
-from .engines.types import CaseResult
 
 logger = logging.getLogger(__name__)
+
+type RunMetadata = dict[str, str | int | bool | None]
 
 DISTINCT_ID = "llma_eval"
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
@@ -48,16 +48,21 @@ class TraceEventEmitter:
         experiment_id: str,
         experiment_name: str,
         case_name: str,
+        namespace: str,
+        *,
+        run_metadata: RunMetadata,
     ):
         self._client = client
         self._trace_id = trace_id
         self._experiment_id = experiment_id
-        self._formatted_experiment_name = f"sandboxed-agent/{experiment_name}"
+        self._formatted_experiment_name = f"{namespace}/{experiment_name}"
         self._case_name = case_name
+        self._run_metadata = run_metadata
 
     @property
     def _eval_metadata(self) -> dict[str, Any]:
         return {
+            **self._run_metadata,
             "ai_product": "evals",
             "$ai_experiment_id": self._experiment_id,
             "$ai_experiment_name": self._formatted_experiment_name,
@@ -90,13 +95,13 @@ class TraceEventEmitter:
         gen_end = _parse_iso_timestamp(gen.end_ts) or _parse_iso_timestamp(gen.timestamp)
 
         properties: dict[str, Any] = {
+            **self._eval_metadata,
             "$ai_trace_id": self._trace_id,
             "$ai_span_id": str(uuid.uuid4()),
             "$ai_parent_id": self._trace_id,
             "$ai_model": model,
             "$ai_provider": DEFAULT_PROVIDER,
             "$ai_input": gen.input_messages,
-            **self._eval_metadata,
         }
         if gen.output_content:
             properties["$ai_output_choices"] = [
@@ -168,12 +173,12 @@ class TraceEventEmitter:
             distinct_id=DISTINCT_ID,
             event="$ai_span",
             properties={
+                **self._eval_metadata,
                 "$ai_trace_id": self._trace_id,
                 "$ai_span_id": span.span_id,
                 "$ai_parent_id": self._trace_id,
                 "$ai_span_name": span.span_name,
                 "$ai_output_state": span.content,
-                **self._eval_metadata,
             },
             **capture_kwargs,
         )
@@ -205,10 +210,10 @@ class TraceEventEmitter:
             output_state["artifacts"] = artifacts_summary
 
         properties: dict[str, Any] = {
+            **self._eval_metadata,
             "$ai_trace_id": self._trace_id,
             "$ai_trace_name": trace_name,
             "$ai_latency": duration,
-            **self._eval_metadata,
         }
         if prompt:
             properties["$ai_input_state"] = {"prompt": prompt}
@@ -239,12 +244,17 @@ def emit_trace_events(
     experiment_name: str,
     case_name: str,
     parsed: ParsedLog,
+    *,
+    namespace: str,
+    run_metadata: RunMetadata,
 ) -> None:
     """Emit one ``$ai_generation`` per turn, plus ``$ai_span`` events.
 
     Thin wrapper over ``TraceEventEmitter.emit_parsed_events``.
     """
-    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name).emit_parsed_events(parsed)
+    TraceEventEmitter(
+        client, trace_id, experiment_id, experiment_name, case_name, namespace, run_metadata=run_metadata
+    ).emit_parsed_events(parsed)
 
 
 def emit_trace_root(
@@ -253,6 +263,9 @@ def emit_trace_root(
     experiment_id: str,
     experiment_name: str,
     case_name: str,
+    *,
+    namespace: str,
+    run_metadata: RunMetadata,
     prompt: str,
     duration: float,
     first_timestamp: str,
@@ -262,7 +275,9 @@ def emit_trace_root(
     token_usage: dict[str, int] | None = None,
 ) -> None:
     """Thin wrapper over ``TraceEventEmitter.emit_root``."""
-    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name).emit_root(
+    TraceEventEmitter(
+        client, trace_id, experiment_id, experiment_name, case_name, namespace, run_metadata=run_metadata
+    ).emit_root(
         prompt=prompt,
         duration=duration,
         first_timestamp=first_timestamp,
@@ -270,74 +285,4 @@ def emit_trace_root(
         artifacts_summary=artifacts_summary,
         scores=scores,
         token_usage=token_usage,
-    )
-
-
-def emit_evaluation_events(
-    client: Posthog,
-    experiment_id: str,
-    experiment_name: str,
-    eval_results: list[CaseResult],
-    scorer_traces: dict[tuple[str, str], str] | None = None,
-) -> None:
-    """Emit ``$ai_evaluation`` events for each scorer result in each eval case.
-
-    ``scorer_traces`` maps ``(case_name, scorer_name)`` to the trace_id of
-    the scorer's LLM call. If available, ``$ai_trace_id`` on the event
-    points to the scorer trace (for inspecting the scorer's reasoning).
-    """
-    formatted_name = f"sandboxed-agent/{experiment_name}"
-
-    for result in eval_results:
-        case_name = result.input.get("name", "unknown") if isinstance(result.input, dict) else "unknown"
-        metadata = result.metadata or {}
-        agent_trace_id = metadata.get("trace_id")
-        item_id = str(uuid.uuid4())
-
-        # $ai_output = last assistant message
-        last_message = ""
-        if isinstance(result.output, dict):
-            last_message = result.output.get("last_message", "")
-
-        for scorer_name, score_value in (result.scores or {}).items():
-            # Prefer scorer trace_id (links to scorer's LLM reasoning);
-            # fall back to agent trace_id
-            scorer_trace_id = scorer_traces.get((case_name, scorer_name)) if scorer_traces else None
-            trace_id = scorer_trace_id or agent_trace_id
-
-            properties: dict[str, Any] = {
-                "$ai_eval_source": "sandboxed-agent",
-                "$ai_evaluation_type": "offline",
-                "$ai_experiment_id": experiment_id,
-                "$ai_experiment_name": formatted_name,
-                "$ai_experiment_item_id": item_id,
-                "$ai_experiment_item_name": case_name,
-                "$ai_metric_name": scorer_name,
-                "$ai_metric_version": "1",
-                "$ai_result_type": "numeric",
-                "$ai_score_min": 0,
-                "$ai_score_max": 1,
-                "$ai_status": "ok" if score_value is not None else "error",
-            }
-            if score_value is not None:
-                properties["$ai_score"] = score_value
-            properties["$ai_trace_id"] = trace_id or str(uuid.uuid4())
-            if trace_id:
-                properties["$ai_target_id"] = trace_id
-                properties["$ai_target_type"] = "trace_id"
-            if isinstance(result.input, dict):
-                prompt = result.input.get("prompt", "")
-                if prompt:
-                    properties["$ai_input"] = prompt
-            if last_message:
-                properties["$ai_output"] = last_message
-            if result.expected is not None:
-                properties["$ai_expected"] = result.expected
-
-            client.capture(distinct_id=DISTINCT_ID, event="$ai_evaluation", properties=properties)
-
-    logger.info(
-        "Emitted evaluation events for experiment '%s' (%d results)",
-        experiment_name,
-        len(eval_results),
     )

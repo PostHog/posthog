@@ -1,20 +1,30 @@
+import uuid
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from django.apps import apps
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.schema.information_schema import (
+    DeniedTableMatcher,
     _bound_table_names,
+    _certification_key,
+    _classify_table,
     _pushdown_table_filter,
     _warehouse_metadata,
+    references_denied_table,
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.facade.models import (
@@ -27,7 +37,6 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     WarehouseColumnAnnotation,
-    WarehouseColumnStatistics,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -48,7 +57,32 @@ def _in(field: str, values: list[str]) -> ast.CompareOperation:
     )
 
 
-class TestInformationSchemaPushdown(APIBaseTest):
+class TestDeniedTableMatcher(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("mixed_case", ["Orders"], ["oRDERS"], True),
+            ("qualified_reference", ["Orders"], ["warehouse.ORDERS"], True),
+            ("qualified_denial", ["Warehouse.Orders"], ["ORDERS"], True),
+            ("shared_leaf", ["warehouse.orders"], ["other.orders"], True),
+            ("later_reference", ["orders"], ["customers", "orders"], True),
+            ("distinct_leaf", ["warehouse.orders"], ["warehouse.customers"], False),
+            ("partial_name", ["orders"], ["archived_orders"], False),
+            ("empty_denial", [], ["orders"], False),
+            ("empty_references", ["orders"], [], False),
+            ("missing_references", ["orders"], None, False),
+        ]
+    )
+    def test_repeated_matches_preserve_existing_denial_rules(
+        self, _name: str, denied: list[str], references: list[str] | None, expected: bool
+    ) -> None:
+        matcher = DeniedTableMatcher(iter(denied))
+
+        assert matcher.matches(references) is expected
+        assert matcher.matches(references) is expected
+        assert references_denied_table(references, set(denied)) is expected
+
+
+class TestInformationSchemaPushdown(SimpleTestCase):
     @parameterized.expand(
         [
             ("eq", _eq("table_name", "events"), {"events"}),
@@ -160,6 +194,34 @@ class TestWarehouseMetadata(APIBaseTest):
         metadata = _warehouse_metadata(self.team.id)
         assert metadata.row_counts["shared"] == 7
 
+    def test_saved_query_id_map_covers_non_materialized_views(self):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="plain_view", query={"query": "SELECT 1"}, columns={}
+        )
+        metadata = _warehouse_metadata(self.team.id)
+        assert metadata.saved_query_ids_by_name["plain_view"] == str(view.id)
+        assert "plain_view" not in metadata.view_row_counts
+
+
+class TestCertificationKey(SimpleTestCase):
+    def test_view_key_prefers_db_saved_query_id_over_object_id(self) -> None:
+        saved_query_id = str(uuid.uuid4())
+        view = SavedQuery(id=str(uuid.uuid4()), name="stripe.mrr_revenue_view", query="select 1", fields={})
+        key = _certification_key("stripe.mrr_revenue_view", view, "view", {"stripe.mrr_revenue_view": saved_query_id})
+        assert key == ("view", saved_query_id)
+
+    def test_view_with_name_shaped_id_and_no_saved_query_has_no_key(self) -> None:
+        name = "revenue_analytics.events.mrr_revenue_view"
+        view = SavedQuery(id=name, name=name, query="select 1", fields={})
+        assert _certification_key(name, view, "view", {}) is None
+
+    def test_resolved_view_classifies_as_view_even_when_a_warehouse_table_shares_its_name(self) -> None:
+        view = SavedQuery(id=str(uuid.uuid4()), name="stripe.mrr_revenue_view", query="select 1", fields={})
+        assert _classify_table("stripe.mrr_revenue_view", view, {"stripe.mrr_revenue_view"}, set()) == (
+            "view",
+            "views",
+        )
+
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
     def _context(self, db: Database) -> HogQLContext:
@@ -230,6 +292,47 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         }
         assert {"trace_id", "span_id"}.issubset(columns)
 
+    def test_billing_usage_records_is_listed_only_for_allowlisted_organizations(self):
+        # The table has no per-product access scope, so the allowlist is the only thing keeping it
+        # out of every other organization's catalog.
+        def listed_tables(team: Team) -> set[str]:
+            return {
+                row[0]
+                for row in execute_hogql_query(
+                    "SELECT table_name FROM system.information_schema.tables", team=team
+                ).results
+                or []
+            }
+
+        same_organization_team = Team.objects.create(organization=self.organization, name="same organization")
+        other_organization = Organization.objects.create(name="other organization")
+        other_organization_team = Team.objects.create(organization=other_organization, name="other organization")
+
+        with override_settings(BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS=set()):
+            assert "posthog.billing_usage_records" not in listed_tables(self.team)
+
+        with override_settings(BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS={self.organization.id}):
+            assert "posthog.billing_usage_records" in listed_tables(self.team)
+            assert "posthog.billing_usage_records" in listed_tables(same_organization_team)
+            assert "posthog.billing_usage_records" not in listed_tables(other_organization_team)
+
+        with override_settings(BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS={"*"}):
+            assert "posthog.billing_usage_records" in listed_tables(other_organization_team)
+
+            usage_columns = {
+                row[0]
+                for row in execute_hogql_query(
+                    "SELECT column_name FROM system.information_schema.columns "
+                    "WHERE table_name = 'posthog.billing_usage_records'",
+                    team=self.team,
+                ).results
+                or []
+            }
+            assert {"team_id", "producer_id", "usage_key", "quantity", "timestamp"}.issubset(usage_columns)
+            # inserted_at is the engine's version column and is withheld on purpose: it is absent from
+            # the sorting key, so a query that filtered on it would read the whole partition.
+            assert "inserted_at" not in usage_columns
+
     def test_access_scoped_system_tables_are_filtered(self):
         # Access-scoped system tables the caller can't reach must not leak into the catalog,
         # while unscoped ones remain visible — mirroring the SQL editor's access decision.
@@ -243,42 +346,103 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("person_id", "UUID"),
-            ("event_issue_id", "UUID"),
-            ("issue_id", "UUID"),
-            ("issue_id_v2", "UUID"),
-            ("issue_first_seen", "DateTime"),
-            ("$virt_is_bot", "Boolean"),
+            (
+                "columns",
+                "SELECT table_schema, table_name, column_name FROM system.information_schema.columns "
+                "WHERE table_schema = 'system' AND table_name = 'insights'",
+                ("system", "insights"),
+            ),
+            (
+                "tables",
+                "SELECT table_schema, table_name, table_catalog FROM system.information_schema.tables "
+                "WHERE table_schema = 'system' AND table_name IN ('insights', 'events')",
+                ("system", "insights"),
+            ),
+            (
+                "classified_schema_differs_from_prefix",
+                "SELECT table_schema, table_name, column_name FROM system.information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = 'ai_events'",
+                ("public", "ai_events"),
+            ),
+            (
+                "information_schema_bucket",
+                "SELECT table_schema, table_name, column_name FROM system.information_schema.columns "
+                "WHERE table_schema = 'information_schema' AND table_name = 'columns'",
+                ("information_schema", "columns"),
+            ),
         ]
     )
-    def test_expression_columns_resolve_to_their_value_type(self, column_name: str, expected_type: str):
+    def test_schema_split_filter_finds_qualified_tables(self, _name: str, query: str, expected: tuple[str, str]):
+        response = execute_hogql_query(query, team=self.team, user=self.user)
+        rows = response.results or []
+        assert rows
+        assert {(row[0], row[1]) for row in rows} == {expected}
+
+    def test_bare_system_table_name_without_schema_matches_nothing(self):
+        response = execute_hogql_query(
+            "SELECT column_name FROM system.information_schema.columns WHERE table_name = 'insights'",
+            team=self.team,
+            user=self.user,
+        )
+        assert response.results == []
+
+    @parameterized.expand(
+        [
+            ("events", "person_id", "expression", "UUID"),
+            ("events", "event_issue_id", "expression", "UUID"),
+            ("events", "issue_id", "expression", "UUID"),
+            ("events", "issue_id_v2", "expression", "UUID"),
+            ("events", "issue_first_seen", "expression", "DateTime"),
+            ("events", "$virt_is_bot", "expression", "Boolean"),
+            ("system.data_modeling_endpoints", "description", "field_traverser", "String"),
+            ("system.data_modeling_endpoints", "query", "field_traverser", "JSON"),
+            ("system.data_modeling_endpoints", "columns", "field_traverser", "JSON"),
+            ("system.data_modeling_endpoints", "data_freshness_seconds", "field_traverser", "Integer"),
+            ("events", "person", None, None),
+        ]
+    )
+    def test_computed_columns_resolve_to_their_value_type(
+        self, table_name: str, column_name: str, expected_kind: str | None, expected_type: str | None
+    ):
         # Expression columns must report the type they evaluate to (like hogql autocomplete), not the
         # generic "Expression" — otherwise the catalog is useless for picking a cast/comparison.
         response = execute_hogql_query(
             f"SELECT data_type, field_kind FROM system.information_schema.columns "
-            f"WHERE table_name = 'events' AND column_name = '{column_name}'",
+            f"WHERE table_name = '{table_name}' AND column_name = '{column_name}'",
             team=self.team,
+            user=self.user,
         )
         results = response.results or []
-        assert len(results) == 1
-        assert results[0][1] == "expression"
-        assert results[0][0] == expected_type
+        if expected_kind is None:
+            assert results == []
+            return
+        assert results == [(expected_type, expected_kind)]
 
-    def test_columns_lists_event_columns_with_types(self):
+    @parameterized.expand(
+        [
+            (
+                "events",
+                {"uuid": "UUID", "timestamp": "DateTime", "properties": "JSON", "event": "String"},
+                "event",
+                False,
+            ),
+            ("system.inbox_reports", {"already_addressed": "Integer"}, "already_addressed", True),
+        ]
+    )
+    def test_columns_list_types_and_nullability(self, table_name, expected_types, column_name, nullable):
         response = execute_hogql_query(
-            """
+            f"""
             SELECT column_name, data_type, is_nullable, is_array, field_kind
             FROM system.information_schema.columns
-            WHERE table_name = 'events'
+            WHERE table_name = '{table_name}'
             """,
             team=self.team,
+            user=self.user,
         )
         columns = {row[0]: (row[1], row[2], row[3], row[4]) for row in response.results or []}
-        assert columns["uuid"][0] == "UUID"
-        assert columns["timestamp"][0] == "DateTime"
-        assert columns["properties"][0] == "JSON"
-        # `event` is a non-nullable string column
-        assert columns["event"][0] == "String"
+        for name, expected_type in expected_types.items():
+            assert columns[name][0] == expected_type
+        assert bool(columns[column_name][1]) is nullable
 
     def test_columns_surface_seeded_descriptions(self):
         response = execute_hogql_query(
@@ -424,8 +588,11 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
                 "amount": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
             },
         )
+        # Fetched at runtime: the model no longer crosses the facade, and this test only needs a row
+        # in place so the merge path has something to read.
+        column_statistics_model = apps.get_model("warehouse_sources", "WarehouseColumnStatistics")
         with team_scope(self.team.id, canonical=True):
-            WarehouseColumnStatistics.objects.create(
+            column_statistics_model.objects.create(
                 team=self.team,
                 table=table,
                 column_name="id",

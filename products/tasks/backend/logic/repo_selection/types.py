@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class ReportResearchContext(BaseModel):
+    mode: Literal["code", "data_only"]
+    repository_status: Literal[
+        "available", "no_integration", "no_repositories", "selection_unresolved", "github_unavailable"
+    ]
 
 
 class RepoSelectionResult(BaseModel):
@@ -13,6 +22,9 @@ class RepoSelectionResult(BaseModel):
 
     repository: str | None = Field(
         description="Selected repository in 'owner/repo' format, or null if none of the candidates are relevant."
+    )
+    research_context: ReportResearchContext | None = Field(
+        default=None, description="Server-recorded code availability during report research; null for older reports."
     )
     reason: str = Field(
         description=(
@@ -28,4 +40,11 @@ class RepoSelectionResult(BaseModel):
     task_id: str | None = Field(
         default=None,
         description="UUID of the sandbox task that performed the selection, when an agent ran.",
+    )
+    # Inferring a repo from content is weaker evidence than a caller naming one: it says "this is the
+    # repo a person would target", not "open a PR here". Autostart needs the second, so an inferred
+    # selection is a target for a human-triggered run only.
+    autostart_eligible: bool = Field(
+        default=True,
+        description="Whether this selection may start an implementation task without a person asking for one.",
     )

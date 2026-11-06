@@ -1,4 +1,3 @@
-use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 use std::collections::{HashMap, HashSet};
@@ -6,7 +5,7 @@ use std::sync::Arc;
 
 use crate::{
     error::VmError,
-    program::{ExportedFunction, Module, Program},
+    program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
     vm::HogVM,
     HogLiteral, HogValue,
@@ -45,12 +44,13 @@ pub struct ExecutionContext {
     pub max_stack_depth: usize,
     pub max_heap_size: usize,
     pub max_steps: usize,
-    /// Opt-in comparison semantics. `false` (the default) is the legacy/reference behavior shared by
-    /// every existing consumer (e.g. `cymbal`): ordering ops require numeric operands and `Eq`
+    /// Opt-in comparison semantics. `false` (the default) is the strict behavior shared by
+    /// consumers such as `cymbal`: ordering ops accept numbers and numeric arrays, while `Eq`
     /// compares temporals structurally. `true` makes ordering coerce across types and order temporals
     /// by epoch, and `Eq` compare two temporals by epoch — the ClickHouse/Python-TS-aligned semantics
     /// the realtime-cohort evaluator needs. Set via [`ExecutionContext::with_coercing_comparisons`].
     pub(crate) coerce_comparisons: bool,
+    pub(crate) boolean_text_equality: bool,
     // `Arc`-shared so cloning a default context is a refcount bump, not a deep copy; mutators
     // copy-on-write via `Arc::make_mut`.
     native_fns: Arc<HashMap<String, NativeFunction>>,
@@ -91,6 +91,7 @@ impl ExecutionContext {
             max_heap_size,
             max_steps,
             coerce_comparisons: false,
+            boolean_text_equality: false,
             native_fns: Arc::new(native_fns),
             symbol_table: Arc::new(flatten_modules(&modules)),
             async_fns: HashSet::new(),
@@ -112,6 +113,7 @@ impl ExecutionContext {
             max_heap_size: 1024 * 1024,
             max_steps: 10_000,
             coerce_comparisons: false,
+            boolean_text_equality: false,
             native_fns: DEFAULT_NATIVE_FNS.clone(),
             symbol_table: DEFAULT_SYMBOL_TABLE.clone(),
             async_fns: HashSet::new(),
@@ -151,10 +153,18 @@ impl ExecutionContext {
     }
 
     /// Opt into coercing comparison semantics (cross-type ordering coercion + epoch ordering/equality
-    /// of temporals). Off by default; only the realtime-cohort evaluator opts in, so existing
-    /// consumers like `cymbal` keep the legacy strict behavior. See [`Self::coerce_comparisons`].
+    /// of temporals). Off by default; the realtime-cohort evaluator and the Node shadow binding opt
+    /// in, so consumers like `cymbal` keep strict behavior. See [`Self::coerce_comparisons`].
     pub fn with_coercing_comparisons(mut self) -> Self {
         self.coerce_comparisons = true;
+        self
+    }
+
+    /// Compare a boolean with a string as the boolean's text, case-sensitively, the way ClickHouse
+    /// compares a property it reads as text. Off by default because the Node shadow binding must
+    /// match the TS VM, where `false == "variant"` is true.
+    pub fn with_boolean_text_equality(mut self) -> Self {
+        self.boolean_text_equality = true;
         self
     }
 
@@ -223,7 +233,7 @@ impl ExecutionContext {
     pub fn get_symbol(&self, symbol: &Symbol) -> Result<&ExportedFunction, VmError> {
         self.symbol_table
             .get(symbol)
-            .ok_or(VmError::UnknownSymbol(symbol.to_string()))
+            .ok_or_else(|| VmError::UnknownSymbol(symbol.to_string()))
     }
 
     // Whether `name` is a registered native (STL/ext) function — used to resolve first-class
@@ -255,7 +265,20 @@ impl ExecutionContext {
             None => self.program.get(ip),
         };
 
-        res.ok_or(VmError::EndOfProgram(ip))
+        res.ok_or_else(|| VmError::EndOfProgram(ip))
+    }
+
+    /// The full decoded token slice for a chunk (root program or module function) — cached by
+    /// the VM per chunk so per-step fetches skip the symbol match and table lookup entirely.
+    pub fn chunk_tokens(&self, symbol: &Option<Symbol>) -> Result<&[Token], VmError> {
+        match symbol {
+            Some(symbol) => Ok(self
+                .symbol_table
+                .get(symbol)
+                .ok_or_else(|| VmError::UnknownSymbol(symbol.to_string()))?
+                .body_tokens()),
+            None => Ok(self.program.body_tokens()),
+        }
     }
 
     pub fn version(&self) -> u64 {
@@ -340,12 +363,16 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
                 vm.heap.emplace(emplaced_arr).map(|ptr| ptr.into())
             }
         }
-        HogLiteral::Object(obj) => {
-            let emplaced_obj: Result<IndexMap<String, HogValue>, _> = obj
-                .into_iter()
-                .map(|(k, v)| Ok((k, walk_emplacing(vm, v)?)))
-                .collect();
-            let emplaced_obj = HogLiteral::Object(emplaced_obj?);
+        HogLiteral::Object(mut obj) => {
+            // Emplace children in place — no fresh map, so keys are neither re-hashed nor
+            // re-inserted (the collect-based rebuild here was a measured allocation hot spot for
+            // native fns returning nested objects, e.g. the geoip record).
+            // Flat children take the `_` arm of the recursive call and come straight back.
+            for v in obj.values_mut() {
+                let taken = std::mem::replace(v, HogValue::Lit(HogLiteral::Null));
+                *v = walk_emplacing(vm, taken)?;
+            }
+            let emplaced_obj = HogLiteral::Object(obj);
 
             if let Some(ptr) = existing_location {
                 // As above, if this was already heap allocated, replace it with the new one

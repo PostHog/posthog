@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 
 import {
     buildInParallel,
+    commonConfig,
     copyIndexHtml,
     copyPublicFolder,
     copyRRWebWorkerFiles,
@@ -12,9 +13,18 @@ import {
     createHashlessEntrypoints,
     isDev,
     reportTopChunks,
+    runExclusiveHeavy,
     startDevServer,
 } from '@posthog/esbuilder'
+import { minifySeparately } from '@posthog/esbuilder/minify.mjs'
 
+import { AUTHENTICATED_SHELL, ENTRY } from './bin/bootEntries.mjs'
+import { LOGGED_OUT_SCENES, moduleKey, sceneModules } from './bin/loggedOutScenes.mjs'
+import { writeStableChunks } from './bin/stableChunkNames.mjs'
+import { buildCssGroups } from './bin/stableCss.mjs'
+import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
+import { removeUnlinkedStylesheets } from './bin/unlinkedStylesheets.mjs'
+import { zodJitlessEsbuildPlugin } from './plugins/zodJitless.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -30,12 +40,15 @@ copyPublicFolder(
     path.resolve(__dirname, 'node_modules', '@posthog', 'hedgehog-mode', 'assets'),
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
+copyEmojibaseData()
+copyWarehouseSourceIcons()
 copySnappyWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
 
 writeIndexHtml()
 writeExporterHtml()
 writeRenderQueryHtml()
+writeInfrastructureAdminHtml()
 await import('./build-products.mjs')
 
 const common = {
@@ -43,6 +56,10 @@ const common = {
     bundle: true,
     writeMetaFile: !isDev,
 }
+
+// Not part of `common`: the toolbar spreads `common` over its own config, so an `extraPlugins` key
+// there would replace the toolbar's module plugin. The toolbar bundles no zod.
+const appBundle = { ...common, extraPlugins: [zodJitlessEsbuildPlugin()] }
 
 await buildInParallel(
     [
@@ -54,14 +71,17 @@ await buildInParallel(
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
             heavy: true,
-            ...common,
+            ...appBundle,
+            // minifyAppChunks minifies the identifiers of each chunk on its own, after the build.
+            ...(isDev ? {} : { minify: false, minifyWhitespace: true, minifySyntax: true }),
         },
-        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName }) => ({
+        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
             name,
             entryPoints: [entryPoint],
             format: 'esm',
             outfile: path.resolve(__dirname, 'dist', outfileName),
-            ...common,
+            ...appBundle,
+            ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
         })),
         {
             name: 'Exporter',
@@ -73,7 +93,7 @@ await buildInParallel(
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
             heavy: true,
-            ...common,
+            ...appBundle,
         },
         {
             name: 'Render Query',
@@ -81,7 +101,14 @@ await buildInParallel(
             entryPoints: ['src/render-query/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'render-query.js'),
-            ...common,
+            ...appBundle,
+        },
+        {
+            name: 'Infrastructure Admin',
+            entryPoints: ['../products/tasks/frontend/infrastructure/mountInfrastructureAdmin.tsx'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'infrastructure-admin.js'),
+            ...appBundle,
         },
         {
             ...getToolbarAppBuildConfig(__dirname),
@@ -105,22 +132,25 @@ await buildInParallel(
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
-                if (!isDev) {
-                    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
-                    writePreloadManifest(buildResponse.outputs)
-                }
-                writeIndexHtml(chunks, entrypoints)
+                // onBuildComplete runs outside the heavy-build lock, and this work runs esbuild over every chunk.
+                const stable = isDev ? null : await runExclusiveHeavy(() => finishAppBuild(buildResponse))
+                writeIndexHtml(chunks, entrypoints, stable)
             }
 
             if (config.name === 'Exporter') {
                 if (!isDev) {
                     reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
+                    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/exporter/index.tsx')
                 }
                 writeExporterHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Render Query') {
                 writeRenderQueryHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Infrastructure Admin') {
+                writeInfrastructureAdminHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Toolbar') {
@@ -131,6 +161,114 @@ await buildInParallel(
         },
     }
 )
+
+async function finishAppBuild(buildResponse) {
+    const { chunks, entrypoints } = buildResponse
+    const unminifiedDir = await minifyAppChunks(buildResponse)
+    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
+    const preloadManifest = writePreloadManifest(buildResponse.outputs)
+    // A throw here must fail the build: it reaches buildInParallel's catch, which
+    // exits non-zero for non-dev builds. Keep it in this awaited call chain.
+    // The stable build also splits the app's CSS: see bin/stableCss.mjs.
+    const cssPlan = planCssGroups(buildResponse)
+    const cssFiles = await buildCssGroups(__dirname, cssPlan.groups)
+    const stable = await writeStableChunks({
+        absWorkingDir: __dirname,
+        sourceDir: unminifiedDir,
+        target: commonConfig.target,
+        outputs: buildResponse.outputs,
+        chunks,
+        entrypoints,
+        preloadManifest,
+        preludes: new Map(
+            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                file,
+                (specifier) => cssPrelude(specifier, groups, cssPlan.rankOfGroup),
+            ])
+        ),
+        extraImports: Object.fromEntries(
+            [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
+        ),
+        eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
+        loggedOut: {
+            ...loggedOutImportMapScope(),
+            cssSpecifiersByOutput: new Map(
+                [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                    file,
+                    groups.map((group) => `${CSS_SPECIFIER_PREFIX}${group}`),
+                ])
+            ),
+        },
+    })
+    fs.rmSync(unminifiedDir, { recursive: true, force: true })
+    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
+    return stable
+}
+
+/**
+ * Minifies every app chunk on its own, in place (see minifySeparately). Keeps the unminified chunks and
+ * their maps in the returned directory for the stable copies, and corrects the output sizes that the
+ * preload manifest and the eager graph check read.
+ *
+ * This rewrites each chunk's bytes after esbuild names it, so the default (non-stable) chunk file
+ * name is no longer a hash of the bytes it serves.
+ */
+async function minifyAppChunks(buildResponse) {
+    const distDir = path.resolve(__dirname, 'dist')
+    const unminifiedDir = path.resolve(__dirname, '.unminified-chunks')
+    fs.rmSync(unminifiedDir, { recursive: true, force: true })
+    fs.mkdirSync(unminifiedDir)
+    const files = Object.keys(buildResponse.outputs)
+        .filter((outputPath) => outputPath.endsWith('.js'))
+        .map((outputPath) => path.relative(distDir, path.resolve(__dirname, outputPath)))
+    const hasMap = (file) => fs.existsSync(path.resolve(distDir, `${file}.map`))
+    for (const file of files) {
+        fs.mkdirSync(path.dirname(path.resolve(unminifiedDir, file)), { recursive: true })
+        fs.renameSync(path.resolve(distDir, file), path.resolve(unminifiedDir, file))
+        if (hasMap(file)) {
+            fs.copyFileSync(path.resolve(distDir, `${file}.map`), path.resolve(unminifiedDir, `${file}.map`))
+        }
+    }
+
+    const minified = await minifySeparately(
+        files.map((file) => path.resolve(unminifiedDir, file)),
+        { inputDir: unminifiedDir, outdir: distDir, target: commonConfig.target }
+    )
+    for (const file of files) {
+        const { code, map } = minified.get(path.resolve(unminifiedDir, file))
+        const withMap = hasMap(file)
+        const contents = withMap ? `${code}//# sourceMappingURL=${path.basename(file)}.map\n` : code
+        fs.writeFileSync(path.resolve(distDir, file), contents)
+        if (withMap) {
+            fs.writeFileSync(path.resolve(distDir, `${file}.map`), map)
+        }
+        // esbuild only knows the unminified sizes. Scale each module's share to the minified chunk.
+        const output = buildResponse.outputs[`dist/${file}`]
+        const bytes = Buffer.byteLength(contents)
+        for (const input of Object.values(output.inputs || {})) {
+            input.bytesInOutput = Math.round((input.bytesInOutput * bytes) / output.bytes)
+        }
+        output.bytes = bytes
+    }
+    fs.writeFileSync(
+        path.resolve(__dirname, 'posthog-app-esbuild-meta.json'),
+        JSON.stringify({ inputs: buildResponse.inputs, outputs: buildResponse.outputs })
+    )
+    return unminifiedDir
+}
+
+/** Which modules a logged-out page loads, for the logged-out import map. See loggedOutSpecifiers. */
+function loggedOutImportMapScope() {
+    const scenes = sceneModules(__dirname)
+    const missing = LOGGED_OUT_SCENES.filter((scene) => !scenes.has(scene))
+    if (missing.length > 0) {
+        throw new Error(`stable chunks: no scene loader for the logged-out scenes ${missing.join(', ')}`)
+    }
+    const loggedOutModules = new Set(LOGGED_OUT_SCENES.map((scene) => scenes.get(scene)))
+    const signedInModules = new Set([...scenes.values()].filter((module) => !loggedOutModules.has(module)))
+    signedInModules.add(moduleKey(AUTHENTICATED_SHELL))
+    return { entry: ENTRY, loggedOutModules, signedInModules }
+}
 
 /**
  * Write dist/preload-manifest.json, read by the Django backend (posthog/utils.py) to emit
@@ -183,15 +321,56 @@ export function writePreloadManifest(outputs = {}) {
         }
     }
     fs.writeFileSync(path.resolve(distDir, 'preload-manifest.json'), JSON.stringify(manifest, null, 2))
+    return manifest
 }
 
-export function writeIndexHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
+// EmojiPickerPanel loads frimousse's emoji data from /static/emoji rather than from a CDN. frimousse
+// requests only these two files for the `en` locale. The Vite public-assets plugin copies the same files
+// in development.
+function copyEmojibaseData() {
+    const from = path.resolve(__dirname, 'node_modules', 'emojibase-data', 'en')
+    const to = path.resolve(__dirname, 'dist', 'emoji', 'en')
+    fs.mkdirSync(to, { recursive: true })
+    for (const file of ['data.json', 'messages.json']) {
+        fs.copyFileSync(path.resolve(from, file), path.resolve(to, file))
+    }
+}
+
+// A warehouse source plugin keeps its icon in its own directory, and its catalog entry points at
+// /static/warehouse-sources/<vendor>/icon.png. Copying the icons to that path in dist puts them on the
+// static host with the rest of dist, so no vendor needs a file in frontend/public.
+function copyWarehouseSourceIcons() {
+    const sourcesDir = path.resolve(__dirname, '..', 'products', 'warehouse_sources', 'sources')
+    for (const entry of fs.readdirSync(sourcesDir, { withFileTypes: true })) {
+        const icon = path.resolve(sourcesDir, entry.name, 'icon.png')
+        if (entry.isDirectory() && fs.existsSync(icon)) {
+            const to = path.resolve(__dirname, 'dist', 'warehouse-sources', entry.name)
+            fs.mkdirSync(to, { recursive: true })
+            fs.copyFileSync(icon, path.resolve(to, 'icon.png'))
+        }
+    }
+}
+
+export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
+    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
+    // layout.html also gets the {% if stable_chunks %} boot branch, but posthog/utils.py only sets
+    // stable_chunks for "index.html", so this branch never renders here; the {% else %} default runs.
+    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+}
+
+export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(
+        __dirname,
+        '../products/tasks/frontend/infrastructure/infrastructureAdmin.html',
+        'dist/infrastructure_admin.html',
+        'infrastructure-admin',
+        chunks,
+        entrypoints
+    )
 }
 
 export function writeRenderQueryHtml(chunks = {}, entrypoints = []) {

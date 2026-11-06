@@ -11,10 +11,10 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner,
 } from "@posthog/quill";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMemo } from "react";
 import { openExternalUrl } from "../../shell/openExternal";
 import { PrChecksSection } from "./PrChecksSection";

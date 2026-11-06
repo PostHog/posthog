@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { projectDataFreshnessLogic } from 'lib/components/Account/projectDataFreshnessLogic'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -14,68 +15,36 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
+import { capitalizeFirstLetter, fullName, fullNameOrEmail } from 'lib/utils/strings'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { membersExportLogic } from 'scenes/organization/membersExportLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { AvailableFeature, OrganizationMemberType } from '~/types'
 
-function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { scopedApiKeys } = useValues(membersLogic)
-
-    return (
-        <div className="max-w-xl">
-            <p>
-                {member.user.uuid === user?.uuid
-                    ? 'Are you sure you want to leave this organization? This cannot be undone. If you leave, you will no longer have access to this organization.'
-                    : 'Are you sure you want to remove this member? This cannot be undone. They will no longer have access to this organization.'}
-            </p>
-            {scopedApiKeys?.keys && scopedApiKeys.keys.length > 0 && (
-                <div className="mt-4">
-                    <LemonBanner type="warning" className="mb-2">
-                        The following personal API keys which belong to{' '}
-                        {member.user.uuid == user?.uuid ? 'you' : 'this member'} will lose access to this organization
-                        and will stop working immediately. Please confirm they will not affect any services that depend
-                        on them before removing {member.user.uuid == user?.uuid ? 'yourself' : 'this member'}.
-                    </LemonBanner>
-                    <LemonTable
-                        dataSource={scopedApiKeys.keys}
-                        columns={[
-                            {
-                                title: 'Name',
-                                dataIndex: 'name',
-                                key: 'name',
-                            },
-                            {
-                                title: 'Last used',
-                                dataIndex: 'last_used_at',
-                                key: 'last_used_at',
-                                render: (last_used_at) => (last_used_at ? <TZLabel time={last_used_at} /> : 'Never'),
-                            },
-                        ]}
-                    />
-                </div>
-            )}
-        </div>
-    )
-}
+import { memberOffboardingLogic } from './memberOffboardingLogic'
+import { MemberOffboardingModal } from './MemberOffboardingModal'
+import { accessibleProjects, orderByActivity } from './memberProjectAccess'
+import { memberProjectAccessLogic } from './memberProjectAccessLogic'
+import { MemberProjectAccessModal } from './MemberProjectAccessModal'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { removeMember, changeMemberAccessLevel, loadMemberScopedApiKeys } = useActions(membersLogic)
+    const { changeMemberAccessLevel } = useActions(membersLogic)
+    const { open: openOffboarding } = useActions(memberOffboardingLogic)
+    const { openProjectAccessModal } = useActions(memberProjectAccessLogic)
 
     if (!user) {
         return null
@@ -97,14 +66,17 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     )
     const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
-    if (disallowedReason && !allowDeletion) {
-        return null
-    }
-
     return (
         <More
             overlay={
                 <>
+                    <LemonButton
+                        fullWidth
+                        onClick={() => openProjectAccessModal(member)}
+                        data-attr="org-member-manage-project-access"
+                    >
+                        Manage project access
+                    </LemonButton>
                     {!disallowedReason &&
                         allowedLevels.map((listLevel) => (
                             <LemonButton
@@ -150,28 +122,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                             <LemonButton
                                 status="danger"
                                 data-attr="delete-org-membership"
-                                onClick={() => {
-                                    if (!user) {
-                                        throw Error
-                                    }
-                                    loadMemberScopedApiKeys(member)
-                                    LemonDialog.open({
-                                        title: `${
-                                            member.user.uuid == user.uuid
-                                                ? 'Leave'
-                                                : `Remove ${fullName(member.user)} from`
-                                        } organization ${user.organization?.name}?`,
-                                        primaryButton: {
-                                            children: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
-                                            status: 'danger',
-                                            onClick: () => removeMember(member),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                        content: <RemoveMemberModal member={member} />,
-                                    })
-                                }}
+                                onClick={() => openOffboarding(member)}
                                 fullWidth
                             >
                                 {member.user.uuid !== user.uuid ? 'Remove from organization' : 'Leave organization'}
@@ -184,8 +135,57 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     )
 }
 
+const PROJECT_TAGS_SHOWN = 3
+
+function ProjectAccessCell({ member }: { member: OrganizationMemberType }): JSX.Element {
+    const { projectAccess, projectAccessLoading } = useValues(memberProjectAccessLogic)
+    const { openProjectAccessModal } = useActions(memberProjectAccessLogic)
+    const { freshnessByTeamId } = useValues(projectDataFreshnessLogic)
+
+    if (projectAccessLoading) {
+        return <LemonSkeleton className="h-5 w-32" />
+    }
+    // A failed load must not read as "this member has no projects"
+    if (!projectAccess) {
+        return <span className="text-muted">–</span>
+    }
+
+    const projects = orderByActivity(accessibleProjects(projectAccess[member.id] ?? []), freshnessByTeamId)
+    if (projects.length === 0) {
+        return <span className="text-muted">No projects</span>
+    }
+
+    const visibleProjects = projects.slice(0, PROJECT_TAGS_SHOWN)
+    const hiddenCount = projects.length - visibleProjects.length
+
+    return (
+        <div className="flex flex-wrap gap-1 items-center">
+            {visibleProjects.map((project) => (
+                <LemonTag
+                    key={project.team_id}
+                    type="default"
+                    className="max-w-40 truncate"
+                    onClick={() => openProjectAccessModal(member)}
+                >
+                    {project.team_name}
+                </LemonTag>
+            ))}
+            {hiddenCount > 0 && (
+                <Link
+                    className="text-warning text-xs ml-1"
+                    onClick={() => openProjectAccessModal(member)}
+                    data-attr="org-member-project-access-more"
+                >
+                    {`+${hiddenCount} more`}
+                </Link>
+            )}
+        </div>
+    )
+}
+
 export function Members(): JSX.Element | null {
     const { filteredMembers, members, membersLoading, search } = useValues(membersLogic)
+    const { projectAccess } = useValues(memberProjectAccessLogic)
     const { downloadMembersListDisabledReason } = useValues(membersExportLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
@@ -214,36 +214,32 @@ export function Members(): JSX.Element | null {
             width: 32,
         },
         {
-            title: 'Name',
+            title: 'Member',
             key: 'user_name',
             render: (_, member) => (
-                <span className="ph-no-capture">
-                    {member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user)}
-                </span>
+                <div className="flex flex-col py-1">
+                    <span className="ph-no-capture font-medium">
+                        {member.user.uuid == user.uuid
+                            ? `${fullNameOrEmail(member.user)} (you)`
+                            : fullNameOrEmail(member.user)}
+                    </span>
+                    {fullName(member.user) && (
+                        <span className="ph-no-capture text-secondary text-xs">{member.user.email}</span>
+                    )}
+                    {!member.user.is_email_verified &&
+                        !member.has_social_auth &&
+                        preflight?.email_service_available && (
+                            <LemonTag
+                                type="highlight"
+                                className="self-start mt-1"
+                                data-attr="pending-email-verification"
+                            >
+                                pending email verification
+                            </LemonTag>
+                        )}
+                </div>
             ),
-            sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
-        },
-        {
-            title: 'Email',
-            key: 'user_email',
-            render: (_, member) => {
-                return (
-                    <>
-                        <span className="ph-no-capture">{member.user.email}</span>
-                        {!member.user.is_email_verified &&
-                            !member.has_social_auth &&
-                            preflight?.email_service_available && (
-                                <>
-                                    {' '}
-                                    <LemonTag type="highlight" data-attr="pending-email-verification">
-                                        pending email verification
-                                    </LemonTag>
-                                </>
-                            )}
-                    </>
-                )
-            },
-            sorter: (a, b) => a.user.email.localeCompare(b.user.email),
+            sorter: (a, b) => fullNameOrEmail(a.user).localeCompare(fullNameOrEmail(b.user)),
         },
         {
             title: 'Level',
@@ -257,6 +253,14 @@ export function Members(): JSX.Element | null {
                 )
             },
             sorter: (a, b) => a.level - b.level,
+        },
+        {
+            title: 'Project access',
+            key: 'project_access',
+            render: (_, member) => <ProjectAccessCell member={member} />,
+            sorter: (a, b) =>
+                accessibleProjects(projectAccess?.[a.id] ?? []).length -
+                accessibleProjects(projectAccess?.[b.id] ?? []).length,
         },
         {
             title: '2FA',
@@ -344,6 +348,8 @@ export function Members(): JSX.Element | null {
                 )}
             </div>
 
+            <MemberProjectAccessModal />
+            <MemberOffboardingModal />
             <LemonTable
                 dataSource={filteredMembers ?? []}
                 columns={columns}
@@ -378,7 +384,10 @@ export function Members(): JSX.Element | null {
                 }
             />
             <h3 className="mt-4">Two-factor authentication</h3>
-            <PayGateMini feature={AvailableFeature.TWOFA_ENFORCEMENT}>
+            <PayGateMini
+                feature={AvailableFeature.TWOFA_ENFORCEMENT}
+                featureDetail="organization-members-two-factor-authentication"
+            >
                 <p>Require all organization members to use two-factor authentication.</p>
                 <LemonSwitch
                     label="Enforce 2FA"
@@ -390,7 +399,10 @@ export function Members(): JSX.Element | null {
             </PayGateMini>
 
             <h3 className="mt-4">Invite settings</h3>
-            <PayGateMini feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}>
+            <PayGateMini
+                feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}
+                featureDetail="organization-member-and-project-invites"
+            >
                 <p>Control who can send organization invites.</p>
                 <LemonSwitch
                     label={
@@ -424,7 +436,10 @@ export function Members(): JSX.Element | null {
             {posthog.isFeatureEnabled(FEATURE_FLAGS.MEMBERS_CAN_USE_PERSONAL_API_KEYS) && (
                 <>
                     <h3 className="mt-4">Security settings</h3>
-                    <PayGateMini feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}>
+                    <PayGateMini
+                        feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
+                        featureDetail="organization-members-personal-api-key-access"
+                    >
                         <p>Configure security permissions for organization members.</p>
                         <LemonSwitch
                             label={

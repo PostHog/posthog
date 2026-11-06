@@ -8,15 +8,12 @@ import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
-import {
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from '~/scenes/experiments/experimentsLogic'
-import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
-import { isLegacyExperiment } from '~/scenes/experiments/utils'
 import type { Experiment } from '~/types'
 import { ExperimentStatus } from '~/types'
+
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+import { getShippedVariantKey, isSingleVariantShipped } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 type RelatedExperimentsTableProps = {
     relatedExperiments: Experiment[]
@@ -70,9 +67,9 @@ export const RelatedExperimentsTable = ({
                                                     No-code
                                                 </LemonTag>
                                             )}
-                                            {isLegacyExperiment(experiment) && (
+                                            {experiment.is_legacy && (
                                                 <Tooltip
-                                                    title="This experiment uses the legacy engine, so some features and improvements may be missing."
+                                                    title="This experiment uses the legacy engine, so its results are no longer available."
                                                     docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
                                                 >
                                                     <LemonTag type="warning" className="ml-1">
@@ -128,7 +125,9 @@ export const RelatedExperimentsTable = ({
                                 ? dayjs().diff(dayjs(experiment.start_date), 'day')
                                 : undefined
 
-                            if (remainingDays === undefined || remainingDays === null) {
+                            // A negative stored estimate isn't a real duration, so read it as "no estimate"
+                            // rather than "~-N days remaining" (records saved before the persist guard can still hold one).
+                            if (remainingDays === undefined || remainingDays === null || remainingDays < 0) {
                                 return (
                                     <Tooltip title="Remaining time will be calculated once the experiment has enough data">
                                         <div className="w-full">

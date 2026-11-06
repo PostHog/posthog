@@ -85,7 +85,7 @@ function getSavedWindowState(): WindowStateSchema {
   return state;
 }
 
-export function saveWindowState(window: BrowserWindow): void {
+function saveWindowState(window: BrowserWindow): void {
   // electron-store writes synchronously and throws on failure (e.g. ENOSPC on a
   // full disk). This runs inside window-event and setTimeout callbacks, where an
   // uncaught throw would crash the main process. Window-state persistence is
@@ -343,6 +343,13 @@ export function createWindow(): void {
       trpcLog.error(`${type} '${path ?? "<unknown>"}' failed (${error.code})`, {
         message: error.message,
         cause: error.cause instanceof Error ? error.cause.stack : error.cause,
+      });
+    },
+    onNavigationCleanup: ({ webContentsId, url, aborted }) => {
+      trpcLog.info("Main-frame navigation committed", {
+        webContentsId,
+        url,
+        abortedOperations: aborted,
       });
     },
   });

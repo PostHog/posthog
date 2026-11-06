@@ -33,9 +33,11 @@ export function SourceConnectScene(): JSX.Element {
     if (!sourceConfig) {
         return (
             <SceneContent>
-                <LemonBanner type="error">
-                    {kind ? `Unknown source type '${kind}'.` : 'No source type specified.'} Check the link you were
-                    given and try again.
+                <LemonBanner type="error" action={{ children: 'Browse sources', to: urls.dataWarehouseSourceNew() }}>
+                    {kind
+                        ? "This link names a source we don't support."
+                        : "This link doesn't say which source to connect."}{' '}
+                    Choose your source from the full list to set it up.
                 </LemonBanner>
             </SceneContent>
         )
@@ -57,10 +59,11 @@ export function SourceConnectScene(): JSX.Element {
             <div className="max-w-200">
                 {storedCredential ? (
                     <LemonBanner type="success">
-                        <p className="font-semibold mb-1">{sourceLabel} credentials saved — you can close this tab.</p>
+                        <p className="font-semibold mb-1">{sourceLabel} credentials saved. You can close this tab.</p>
                         <p className="m-0 text-sm">
-                            Return to your chat and let the assistant know you're done; it will finish setting up the
-                            source. Credential id: <code>{storedCredential.credential_id}</code>.
+                            The source doesn't exist yet, so it won't show in your sources list. Return to your chat and
+                            let the assistant know you're done, and it will finish the setup. Credential id:{' '}
+                            <code>{storedCredential.credential_id}</code>.
                         </p>
                     </LemonBanner>
                 ) : (

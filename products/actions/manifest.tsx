@@ -2,10 +2,14 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { ActionType, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActionType, ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Actions',
+    activityDescribers: {
+        [ActivityScope.ACTION]: () =>
+            import('./frontend/actionActivityDescriber').then((module) => module.actionActivityDescriber),
+    },
     urls: {
         createAction: (): string => `/data-management/actions/new`,
         duplicateAction: (action: ActionType | null): string => {
@@ -50,9 +54,13 @@ export const manifest: ProductManifest = {
         action: {
             name: 'Action',
             href: (ref: string) => urls.action(ref),
+            listHref: () => urls.actions(),
             filterKey: 'action',
             iconType: 'action' as FileSystemIconType,
-            iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-actions-light)',
+                'var(--color-product-actions-dark)',
+            ] as FileSystemIconColor,
         },
     },
     treeItemsNew: [
@@ -61,7 +69,10 @@ export const manifest: ProductManifest = {
             path: 'Action',
             href: urls.createAction(),
             iconType: 'action' as FileSystemIconType,
-            iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-actions-light)',
+                'var(--color-product-actions-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsMetadata: [
@@ -69,6 +80,7 @@ export const manifest: ProductManifest = {
             path: 'Actions',
             category: 'Schema',
             href: urls.actions(),
+            searchKeywords: ['event group', 'grouped events'],
             iconType: 'action' as FileSystemIconType,
             sceneKey: 'Actions',
         },

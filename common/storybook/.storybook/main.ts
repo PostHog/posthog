@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import * as path from 'path'
 import { mergeConfig, type Rollup } from 'vite'
 
+import { zodJitlessPlugin } from '../../../frontend/plugins/vite-zod-jitless-plugin.ts'
 import { frontendResolvePlugin } from './plugins/vite-frontend-resolve-plugin.ts'
 import { moduleGraphPlugin } from './plugins/vite-module-graph-plugin.ts'
 import { sqlRawPlugin } from './plugins/vite-sql-raw-plugin.ts'
@@ -30,25 +31,48 @@ const SINGLETON_PACKAGES = [
     'kea-subscriptions',
     'kea-waitfor',
     'kea-window-values',
+    '@testing-library/dom',
 ]
 
-const createStoriesPathFor = (storyPath: string): string => `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
+const STORY_FILE = /\.stories\.(js|jsx|ts|tsx)$/
+
+const createStoriesPathFor = (storyPath: string): string =>
+    STORY_FILE.test(storyPath) ? `../../../${storyPath}` : `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
+
+const DEFAULT_STORY_ROOTS = [
+    'frontend/src',
+    'products/**/frontend',
+    'products/**/mcp/apps',
+    'services/mcp/src/ui-apps',
+    'packages/quill/packages/charts/src',
+]
+
+// Comma-separated directories or story files, relative to the repo root.
+const storyRootsOverride = (process.env.STORYBOOK_STORIES ?? '')
+    .split(',')
+    .map((storyRoot) => storyRoot.trim().replace(/\/+$/, ''))
+    .filter(Boolean)
 
 const config: StorybookConfig = {
-    stories: [
-        createStoriesPathFor('frontend/src'),
-        createStoriesPathFor('products/**/frontend'),
-        createStoriesPathFor('products/**/mcp/apps'),
-        createStoriesPathFor('services/mcp/src/ui-apps'),
-        createStoriesPathFor('packages/quill/packages/charts/src'),
-    ],
+    stories: (storyRootsOverride.length > 0 ? storyRootsOverride : DEFAULT_STORY_ROOTS).map(createStoriesPathFor),
 
     addons: ['@storybook/addon-docs', '@storybook/addon-links', '@storybook/addon-a11y'],
 
     staticDirs: [
         'public',
         { from: '../../../frontend/public', to: '/static' },
+        // Web workers the app loads by fixed URL from /static (Monaco, HogQL parser). Django
+        // serves them from frontend/dist; here `pnpm build:workers` builds them into .workers.
+        // Without them, every `new Worker(...)` 404s, and the resulting error event fails any
+        // story whose play function is still running when it fires.
+        { from: '../.workers', to: '/static' },
         { from: '../../../frontend/node_modules/@posthog/hedgehog-mode/assets', to: '/static/hedgehog-mode' },
+        // EmojiPickerPanel loads frimousse's emoji data from here. The app build copies the same files into dist.
+        { from: '../../../frontend/node_modules/emojibase-data/en', to: '/static/emoji/en' },
+        // The replay player mounts rrweb into this document rather than the app's, so a recorded
+        // page is judged against its policy instead of ours. Django renders the same file; serving
+        // it here keeps stories on the real path rather than a Storybook-only stand-in.
+        { from: '../../../posthog/templates/replay_player_frame', to: '/replay_player_frame' },
     ],
 
     framework: {
@@ -56,9 +80,19 @@ const config: StorybookConfig = {
         options: {},
     },
 
+    // Automated runs skip the highlight feature, which scans every element after each DOM change.
+    previewHead: (head) =>
+        `${head}<script>if (navigator.webdriver) { window.__STORYBOOK_HIGHLIGHT_INITIALIZED = true }</script>`,
+
     viteFinal: (viteConfig) =>
         mergeConfig(viteConfig, {
-            plugins: [frontendResolvePlugin(REPO_ROOT), tailwindcss(), sqlRawPlugin(), moduleGraphPlugin(REPO_ROOT)],
+            plugins: [
+                frontendResolvePlugin(REPO_ROOT),
+                tailwindcss(),
+                sqlRawPlugin(),
+                moduleGraphPlugin(REPO_ROOT),
+                zodJitlessPlugin(),
+            ],
             resolve: {
                 dedupe: SINGLETON_PACKAGES,
                 alias: {
@@ -92,6 +126,14 @@ const config: StorybookConfig = {
                     '@posthog/shared-onboarding': path.resolve(REPO_ROOT, 'docs', 'onboarding'),
                     '@posthog/quill': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'quill', 'src'),
                     '@posthog/quill-charts': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'charts', 'src'),
+                    '@posthog/agent-contracts': path.resolve(
+                        REPO_ROOT,
+                        'packages',
+                        'agent',
+                        'packages',
+                        'agent-contracts',
+                        'src'
+                    ),
                 },
             },
             define: {
@@ -104,8 +146,13 @@ const config: StorybookConfig = {
                 // pure ESM, so serving it unbundled is safe, and Vite's build handles the URL
                 // pattern natively.
                 exclude: ['@posthog/brand'],
+                rolldownOptions: {
+                    plugins: [zodJitlessPlugin()],
+                },
             },
             build: {
+                // The preload helper's cost grows with the square of the chunk count.
+                modulePreload: false,
                 rollupOptions: {
                     onwarn(warning: Rollup.RollupLog, defaultHandler: (warning: Rollup.RollupLog) => void) {
                         // "use client" directives from RSC-oriented deps (framer-motion, radix)

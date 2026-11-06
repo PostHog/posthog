@@ -9,7 +9,6 @@ import {
     LemonInputSelect,
     LemonModal,
     LemonSelect,
-    LemonSelectOption,
     LemonSelectProps,
     LemonTable,
     Tooltip,
@@ -38,7 +37,7 @@ import {
 } from '~/types'
 
 import { AccessControlLogicProps, InheritedAccess, accessControlLogic } from './accessControlLogic'
-import { humanizeAccessControlLevel } from './ResourceAccessControlsV2/helpers'
+import { AccessLevelSelect } from './AccessLevelSelect'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource, resource } = useValues(accessControlLogic(props))
@@ -58,7 +57,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                     )}
                 </h2>
                 <p>{props.description}</p>
-                <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>
+                <PayGateMini feature={AvailableFeature.ACCESS_CONTROL} featureDetail="access-control-object-settings">
                     <div className="deprecated-space-y-6">
                         {canEditAccessControls === false ? (
                             <LemonBanner type="warning">
@@ -78,7 +77,10 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                         <AccessControlObjectUsers />
 
                         {/* Put this inside of Advanced Permissions (access control) so two aren't shown at once */}
-                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                        <PayGateMini
+                            feature={AvailableFeature.ROLE_BASED_ACCESS}
+                            featureDetail="access-control-object-roles"
+                        >
                             <AccessControlObjectRoles />
                         </PayGateMini>
                     </div>
@@ -102,7 +104,10 @@ function AccessControlObjectDefaults(): JSX.Element | null {
 
     return (
         <SimplLevelComponent
-            level={accessControlDefault?.access_level ?? null}
+            // A null level renders as the "No override" option, which only exists when there is
+            // an inherited tier. With nothing to inherit (project/organization), a missing row
+            // means the built-in default applies — show that, not an empty selection.
+            level={accessControlDefault?.access_level ?? (inheritedAccess ? null : accessControls.default_access_level)}
             levels={availableLevelsWithNone}
             inherited={inheritedAccess}
             disabledReason={accessControlsLoading ? 'Loading…' : undefined}
@@ -123,7 +128,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
         addableMembers,
         accessControlMembers,
         accessControlsLoading,
-        availableLevels,
+        availableLevelsWithNone,
         canEditAccessControls,
     } = useValues(accessControlLogic)
     const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
@@ -192,7 +197,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                             size="small"
                             level={resource === 'project' ? AccessControlLevel.Admin : AccessControlLevel.Editor}
                             disabled={true}
-                            levels={availableLevels}
+                            levels={availableLevelsWithNone}
                             onChange={() => {}}
                         />
                     </div>
@@ -201,7 +206,8 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         <SimplLevelComponent
                             size="small"
                             level={ac.access_level}
-                            levels={availableLevels}
+                            disabledReason={accessControlsLoading ? 'Saving…' : undefined}
+                            levels={availableLevelsWithNone}
                             onChange={(level) =>
                                 void updateAccessControlMembers([{ member: ac.organization_member as string, level }])
                             }
@@ -269,7 +275,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
         accessControlsLoading,
         addableRoles,
         rolesById,
-        availableLevels,
+        availableLevelsWithNone,
         canEditAccessControls,
     } = useValues(accessControlLogic)
     const { updateAccessControlRoles } = useAsyncActions(accessControlLogic)
@@ -318,7 +324,8 @@ function AccessControlObjectRoles(): JSX.Element | null {
                         <SimplLevelComponent
                             size="small"
                             level={access_level}
-                            levels={availableLevels}
+                            disabledReason={accessControlsLoading ? 'Saving…' : undefined}
+                            levels={availableLevelsWithNone}
                             onChange={(level) => void updateAccessControlRoles([{ role, level }])}
                         />
                     </div>
@@ -389,70 +396,18 @@ function SimplLevelComponent(props: {
     inherited?: InheritedAccess | null
 }): JSX.Element | null {
     const { canEditAccessControls, minimumAccessLevel } = useValues(accessControlLogic)
-    const { inherited } = props
-
-    // The trigger and the menu entry read identically, so what you pick is what you end up looking at.
-    // The inherited half drops to the button's normal weight so it reads as a consequence, not a second value.
-    const noOverrideLabel = inherited ? (
-        <span className="whitespace-nowrap">
-            No override <span className="font-normal text-tertiary">· {inherited.label}</span>
-        </span>
-    ) : null
-
-    const levelOptions: LemonSelectOption<AccessControlLevel | null>[] = props.levels.map((level) => {
-        const isDisabled = minimumAccessLevel
-            ? props.levels.indexOf(level) < props.levels.indexOf(minimumAccessLevel)
-            : false
-        return {
-            value: level,
-            label: humanizeAccessControlLevel(level),
-            disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
-        }
-    })
 
     return (
-        <LemonSelect<AccessControlLevel | null>
+        <AccessLevelSelect
             size={props.size}
-            placeholder="Select level..."
-            value={props.level}
+            level={props.level}
+            levels={props.levels}
             onChange={props.onChange}
             // The permission gate wins over any caller-supplied reason, so a reason passed for
             // some other purpose can never re-enable the control for someone who cannot edit
             disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : props.disabledReason}
-            dropdownMatchSelectWidth={false}
-            tooltip={
-                inherited
-                    ? props.level === null
-                        ? inherited.reason
-                        : `Overrides ${inherited.label}. ${inherited.reason}.`
-                    : undefined
-            }
-            renderButtonContent={
-                noOverrideLabel ? (leaf) => (props.level === null ? noOverrideLabel : (leaf?.label ?? '')) : undefined
-            }
-            options={
-                inherited
-                    ? [
-                          {
-                              options: [
-                                  {
-                                      value: null,
-                                      label: 'No override',
-                                      labelInMenu: (
-                                          <div className="flex flex-col items-start gap-1 py-1">
-                                              {noOverrideLabel}
-                                              <span className="text-xs font-normal text-tertiary whitespace-nowrap">
-                                                  {inherited.reason}
-                                              </span>
-                                          </div>
-                                      ),
-                                  },
-                              ],
-                          },
-                          { options: levelOptions },
-                      ]
-                    : levelOptions
-            }
+            minimumLevel={minimumAccessLevel}
+            inherited={props.inherited}
         />
     )
 }
@@ -496,9 +451,10 @@ function AddItemsControlsModal(props: {
         label: string
     }[]
 }): JSX.Element | null {
-    const { availableLevels, canEditAccessControls } = useValues(accessControlLogic)
+    const { availableLevels, availableLevelsWithNone, canEditAccessControls } = useValues(accessControlLogic)
     // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
+    const [submitting, setSubmitting] = useState(false)
     const [level, setLevel] = useState<AccessControlLevel | null>(availableLevels[0] ?? null)
 
     useEffect(() => {
@@ -507,11 +463,16 @@ function AddItemsControlsModal(props: {
 
     const onSubmit =
         items.length && level
-            ? (): void =>
-                  void props.onAdd(items, level).then(() => {
-                      setItems([])
-                      setLevel(availableLevels[0] ?? null)
-                  })
+            ? (): void => {
+                  setSubmitting(true)
+                  void props
+                      .onAdd(items, level)
+                      .then(() => {
+                          setItems([])
+                          setLevel(availableLevels[0] ?? null)
+                      })
+                      .finally(() => setSubmitting(false))
+              }
             : undefined
 
     return (
@@ -520,7 +481,7 @@ function AddItemsControlsModal(props: {
             onClose={() => props.setModelOpen(false)}
             title="Add access"
             maxWidth="30rem"
-            description="Allow other users or roles to access this resource"
+            description="Set access for specific users or roles on this resource"
             footer={
                 <div className="flex items-center justify-end gap-2">
                     <LemonButton type="secondary" onClick={() => props.setModelOpen(false)}>
@@ -529,6 +490,7 @@ function AddItemsControlsModal(props: {
                     <LemonButton
                         type="primary"
                         onClick={onSubmit}
+                        loading={submitting}
                         disabledReason={
                             !canEditAccessControls
                                 ? 'You cannot edit this'
@@ -543,7 +505,7 @@ function AddItemsControlsModal(props: {
             }
         >
             <div className="flex gap-2 items-center w-full">
-                <div className="min-w-[16rem] w-full">
+                <div className="min-w-0 flex-1">
                     <LemonInputSelect
                         placeholder={props.placeholder}
                         value={items}
@@ -553,7 +515,7 @@ function AddItemsControlsModal(props: {
                         disabled={!canEditAccessControls}
                     />
                 </div>
-                <SimplLevelComponent levels={availableLevels} level={level} onChange={setLevel} />
+                <SimplLevelComponent levels={availableLevelsWithNone} level={level} onChange={setLevel} />
             </div>
         </LemonModal>
     )

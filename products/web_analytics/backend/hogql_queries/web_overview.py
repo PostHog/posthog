@@ -1,11 +1,16 @@
 import math
+from functools import cached_property
 from typing import Optional, Union
 
 import structlog
 
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
+    EventPropertyFilter,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
+    PersonPropertyFilter,
+    SessionTableVersion,
     WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
     WebOverviewQueryResponse,
@@ -16,12 +21,23 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models.filters.mixins.utils import cached_property
-
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
     WEB_ANALYTICS_NO_JOIN_SERVED,
     WebAnalyticsQueryRunner,
 )
+from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+    WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+    DimensionalJobIds,
+)
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DimensionalReadFailure,
+    DimensionalWebOverviewQueryBuilder,
+    classify_dimensional_read_failure,
+    dimensional_precompute_stale,
+    dimensional_precomputed_at,
+    ready_dimensional_job_ids,
+)
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -251,6 +267,20 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         assert isinstance(combined, ast.SelectQuery)
         return combined
 
+    def get_dimensional_response(self) -> tuple[Optional[HogQLQueryResponse], Optional[DimensionalJobIds]]:
+        if self.query.conversionGoal or not self.preaggregated_query_builder.can_use_preaggregated_tables():
+            return None, None
+        # The overview builder reads only the bounces table.
+        job_ids = ready_dimensional_job_ids(self, tables=(WEB_BOUNCES_DIMENSIONAL_READ_TABLE,))
+        if job_ids is None:
+            return None, None
+        response = self._execute_pre_aggregated(
+            DimensionalWebOverviewQueryBuilder(self, job_ids),
+            query_type="web_overview_dimensional_query",
+            raise_errors=True,
+        )
+        return response, job_ids if response else None
+
     def get_pre_aggregated_response(self):
         should_use_preaggregated = (
             self.modifiers
@@ -262,6 +292,13 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         if not should_use_preaggregated:
             return None
 
+        return self._execute_pre_aggregated(
+            self.preaggregated_query_builder, query_type="web_overview_preaggregated_query"
+        )
+
+    def _execute_pre_aggregated(
+        self, builder: WebOverviewPreAggregatedQueryBuilder, query_type: str, raise_errors: bool = False
+    ):
         try:
             # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
             # to prevent HogQL from automatically converting DateTime fields to team timezone.
@@ -271,10 +308,11 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             pre_agg_modifiers.convertToProjectTimezone = False
 
             response = execute_hogql_query(
-                query_type="web_overview_preaggregated_query",
-                query=self.preaggregated_query_builder.get_query(),
+                query_type=query_type,
+                query=builder.get_query(),
                 team=self.team,
                 user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 timings=self.timings,
                 modifiers=pre_agg_modifiers,
                 limit_context=self.limit_context,
@@ -288,7 +326,9 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
             return response
         except Exception as e:
-            logger.exception("Error getting pre-aggregated web_overview", error=e)
+            if raise_errors:
+                raise
+            logger.exception("Error getting pre-aggregated web_overview", query_type=query_type, error=e)
             return None
 
     def get_lazy_precomputed_row(self) -> Optional[list]:
@@ -321,14 +361,145 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
+        )
+
+    @cached_property
+    def should_split_conversion_goal(self) -> bool:
+        """Whether a conversion-goal overview can run as visitors + a goal-only scan.
+
+        The joined shape groups every pageview session in range to count a handful
+        of conversions, so its memory scales with total traffic rather than with the
+        goal. Splitting keeps visitors on the goal-less path (precompute,
+        pre-aggregated or two-scan) and reads only goal events for conversions.
+        Filters must be events-evaluable for the goal scan; session and cohort
+        filters keep the joined shape.
+        """
+        if not self.query.conversionGoal:
+            return False
+        if self.modifiers.sessionTableVersion == SessionTableVersion.V1:
+            return False
+        if not all(isinstance(p, EventPropertyFilter | PersonPropertyFilter) for p in self.effective_query_properties):
+            return False
+        return all(f.get("type") in ("event", "person") for f in self._test_account_filters)
+
+    def _conversion_goal_select(self) -> ast.SelectQuery:
+        has_comparison = bool(self.query_compare_to_date_range)
+        current = self._current_period_expression("timestamp")
+        previous = self._previous_period_expression("timestamp")
+        query = parse_select(
+            """
+SELECT
+    countIf({current}) AS total_conversion_count,
+    {previous_total} AS previous_total_conversion_count,
+    uniqIf(events.person_id, {current}) AS unique_conversions,
+    {previous_unique} AS previous_unique_conversions
+FROM events
+WHERE and(
+    {events_session_id_present},
+    {conversion_goal},
+    {inside_timestamp_period},
+    {all_properties},
+)
+            """,
+            placeholders={
+                "current": current,
+                "previous_total": (
+                    parse_expr("countIf({previous})", placeholders={"previous": previous})
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "previous_unique": (
+                    parse_expr("uniqIf(events.person_id, {previous})", placeholders={"previous": previous})
+                    if has_comparison
+                    else ast.Constant(value=None)
+                ),
+                "events_session_id_present": self.events_session_id_present,
+                "conversion_goal": self.conversion_goal_expr or ast.Constant(value=False),
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "all_properties": self.all_properties(),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _calculate_split_conversion_goal(self) -> WebOverviewQueryResponse:
+        visitors_runner = WebOverviewQueryRunner(
+            query=self.query.model_copy(update={"conversionGoal": None}),
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+        )
+        visitors_response = visitors_runner._calculate()
+        visitors = next(item for item in visitors_response.results if item.key == "visitors")
+
+        conversions_response = execute_hogql_query(
+            query_type="web_overview_conversion_goal_query",
+            query=self._conversion_goal_select(),
+            team=self.team,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+        row = conversions_response.results[0] if conversions_response.results else [None] * 4
+        include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
+
+        def rate(unique_conversions: Optional[float], unique_visitors: Optional[float]) -> Optional[float]:
+            if unique_conversions is None or not unique_visitors:
+                return None
+            return unique_conversions / unique_visitors
+
+        results = [
+            to_data("visitors", "unit", visitors.value, visitors.previous if include_previous else None),
+            to_data("total conversions", "unit", row[0], row[1] if include_previous else None),
+            to_data("unique conversions", "unit", row[2], row[3] if include_previous else None),
+            to_data(
+                "conversion rate",
+                "percentage",
+                rate(row[2], visitors.value),
+                rate(row[3], visitors.previous) if include_previous else None,
+            ),
+        ]
+        return WebOverviewQueryResponse(
+            results=results,
+            modifiers=self.modifiers,
+            dateFrom=self.query_date_range.date_from_str,
+            dateTo=self.query_date_range.date_to_str,
+            preComputeStrategy=visitors_response.preComputeStrategy,
+            preComputeIneligibleReason=visitors_response.preComputeIneligibleReason,
+            preComputeStale=visitors_response.preComputeStale,
+            preComputedAt=visitors_response.preComputedAt,
         )
 
     def _calculate(self) -> WebOverviewQueryResponse:
-        lazy_row = self.get_lazy_precomputed_row()
-        if lazy_row is not None:
-            return self._build_response_from_row(lazy_row)
+        if self.should_split_conversion_goal:
+            return self._calculate_split_conversion_goal()
 
-        pre_aggregated_response = self.get_pre_aggregated_response()
+        live_blocking_error: Exception | None = None
+        try:
+            pre_aggregated_response, dimensional_job_ids = self.get_dimensional_response()
+        except Exception as error:
+            failure = classify_dimensional_read_failure(error)
+            if failure is DimensionalReadFailure.RERAISE:
+                raise
+            logger.exception("web_overview_dimensional_read_failed", team_id=self.team.pk)
+            pre_aggregated_response, dimensional_job_ids = None, None
+            if failure is DimensionalReadFailure.SKIP_LIVE:
+                live_blocking_error = error
+        if not pre_aggregated_response:
+            lazy_row = self.get_lazy_precomputed_row()
+            if lazy_row is not None:
+                return self._build_response_from_row(lazy_row)
+
+            pre_aggregated_response = self.get_pre_aggregated_response()
+            if live_blocking_error is not None and not pre_aggregated_response:
+                raise live_blocking_error
 
         # Preflight only when the main query will actually run — if the
         # pre-aggregated builder already served the response, spending a
@@ -364,6 +535,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 query=self.to_query(),
                 team=self.team,
                 user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 timings=self.timings,
                 modifiers=execution_modifiers,
                 limit_context=self.limit_context,
@@ -397,16 +569,21 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 to_data("bounce rate", "percentage", row[8], get_prev_val(9), is_increase_bad=True),
             ]
 
+        strategy = (
+            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+            if response == pre_aggregated_response
+            else WebAnalyticsPreComputeStrategy.LIVE
+        )
+
         return WebOverviewQueryResponse(
             results=results,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-            preComputeStrategy=(
-                WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-                if response == pre_aggregated_response
-                else WebAnalyticsPreComputeStrategy.LIVE
-            ),
+            preComputeStrategy=strategy,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
+            preComputeStale=dimensional_precompute_stale(dimensional_job_ids),
+            preComputedAt=dimensional_precomputed_at(dimensional_job_ids),
         )
 
     @cached_property

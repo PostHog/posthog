@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -55,12 +56,13 @@ def upsert_direct_postgres_table(
     if existing_table is None:
         return DataWarehouseTable.objects.create(
             name=schema_name,
-            format=DataWarehouseTable.TableFormat.Parquet,
+            format=DataWarehouseTableFormat.Parquet,
             team_id=source.team_id,
             url_pattern=DIRECT_POSTGRES_URL_PATTERN,
             external_data_source=source,
             columns=columns,
             options=options,
+            created_via=DataWarehouseTableCreatedVia.SOURCE,
         )
 
     existing_table.name = schema_name
@@ -70,6 +72,8 @@ def upsert_direct_postgres_table(
     existing_table.options = options
     existing_table.deleted = False
     existing_table.deleted_at = None
+    # DIRECT_POSTGRES_URL_PATTERN is a fixed sentinel, not request input, so this upsert is a
+    # trusted writer of a credential-less table's URL.
     existing_table.save(
         update_fields=[
             "name",
@@ -80,7 +84,8 @@ def upsert_direct_postgres_table(
             "deleted",
             "deleted_at",
             "updated_at",
-        ]
+        ],
+        internally_computed_url_pattern=True,
     )
     return existing_table
 
@@ -95,5 +100,8 @@ def rename_direct_postgres_join_references(*, team_id: int, old_name: str, new_n
         return
     from products.data_tools.backend.models.join import DataWarehouseJoin
 
-    DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name=old_name).update(source_table_name=new_name)
-    DataWarehouseJoin.objects.filter(team_id=team_id, joining_table_name=old_name).update(joining_table_name=new_name)
+    # Saved one by one because a queryset update writes no activity log row.
+    for field in ("source_table_name", "joining_table_name"):
+        for join in DataWarehouseJoin.objects.filter(team_id=team_id, **{field: old_name}):
+            setattr(join, field, new_name)
+            join.save(update_fields=[field])

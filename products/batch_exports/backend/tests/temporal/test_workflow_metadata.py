@@ -56,19 +56,19 @@ def test_build_logs_link_disabled_when_no_project_configured(settings):
 @pytest.mark.parametrize(
     "interval,is_backfill,expected",
     [
-        ("hour", False, "Batch export events every hour to S3"),
-        ("day", False, "Batch export events every day to S3"),
-        ("every 5 minutes", False, "Batch export events every 5 minutes to S3"),
-        ("hour", True, "Backfill batch export events every hour to S3"),
+        ("hour", False, "Batch export events every hour to AwsS3"),
+        ("day", False, "Batch export events every day to AwsS3"),
+        ("every 5 minutes", False, "Batch export events every 5 minutes to AwsS3"),
+        ("hour", True, "Backfill batch export events every hour to AwsS3"),
     ],
 )
 def test_build_static_summary(interval, is_backfill, expected):
-    assert build_static_summary("S3", "events", interval, is_backfill=is_backfill) == expected
+    assert build_static_summary("AwsS3", "events", interval, is_backfill=is_backfill) == expected
 
 
 def test_build_static_summary_truncated_to_temporal_byte_limit():
     # A long model name would otherwise push the summary past Temporal's 200-byte cap and be rejected.
-    summary = build_static_summary("S3", "events_" * 50, "hour")
+    summary = build_static_summary("AwsS3", "events_" * 50, "hour")
     assert len(summary.encode("utf-8")) <= STATIC_SUMMARY_MAX_BYTES
     assert summary.endswith("…")
 

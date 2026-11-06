@@ -12,18 +12,107 @@ import {
 } from '~/types'
 
 // Deep link used in error tracking alert messages. Routes through the fingerprint redirect page
-// (/error_tracking/fingerprint/<fingerprint>) so links stay valid even after issues are merged.
+// (/error-tracking/fingerprint/<fingerprint>) so links stay valid even after issues are merged.
 // Also used by the onboarding alert setup (onboardingErrorTrackingAlertsLogic) — keep the format
 // in one place so URL changes can't drift between the two surfaces.
 // encodeURLComponent mirrors JS encodeURIComponent, which leaves `(` and `)` unescaped — a `)` in a
 // fingerprint would close the surrounding markdown link `[text](url)` early, so encode them too.
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
-    `{project.url}/error_tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+    `{project.url}/error-tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+
+const errorTrackingTicketCode = (value: string): string =>
+    `concat('\`', replaceAll(replaceAll(replaceAll(${value}, '\`', '\\''), '\\n', ' '), '\\r', ' '), '\`')`
+
+const errorTrackingTicketLine = (
+    label: string,
+    value: string,
+    condition = `notEmpty(${value})`,
+    formatted = errorTrackingTicketCode(value)
+): string => `{${condition} ? concat('\\n- ${label}: ', ${formatted}) : ''}`
+
+const errorTrackingTicketMessage = (message: string): string =>
+    `{notEmpty(${message}) ? concat('\`\`\`\\n', replaceAll(${message}, '\`', '\\''), '\\n\`\`\`') : ''}\n`
+const ERROR_TRACKING_SESSION_REPLAY_URL =
+    "concat(project.url, '/replay/', encodeURLComponent(event.properties.$session_id))"
+
+// Same shape as the Linear, GitHub and GitLab template defaults in nodejs/src/cdp/templates/error-tracking-ticket.ts,
+// but built from the issue name and description. When the event is too large for Kafka, the producer drops
+// exception_props (products/error_tracking/backend/temporal/lifecycle/side_effects.py), so $exception_types
+// and $exception_values are missing. The name and description still arrive, so the title still renders.
+const ERROR_TRACKING_TICKET_TITLE =
+    "{substring(replaceAll(notEmpty(event.properties.description) ? concat(event.properties.name, ': ', event.properties.description) : event.properties.name, '\\n', ' '), 1, 120)}"
+
+const ERROR_TRACKING_TICKET_DESCRIPTION = [
+    errorTrackingTicketMessage('event.properties.description'),
+    errorTrackingTicketLine(
+        'Browser',
+        "trim(concat(event.properties.$browser, ' ', event.properties.$browser_version))"
+    ),
+    errorTrackingTicketLine('OS', "trim(concat(event.properties.$os, ' ', event.properties.$os_version))"),
+    errorTrackingTicketLine('Release', 'event.properties.$exception_release.version'),
+    errorTrackingTicketLine(
+        'Session replay',
+        ERROR_TRACKING_SESSION_REPLAY_URL,
+        "notEmpty(event.properties.$session_id) and (empty(event.properties.$recording_status) or has(['active', 'sampled', 'buffering'], event.properties.$recording_status))",
+        ERROR_TRACKING_SESSION_REPLAY_URL
+    ),
+].join('')
+
+// PagerDuty has no high, medium or low severity, so the issue severity maps onto its scale.
+// The template sends error for an issue without a severity.
+const ERROR_TRACKING_PAGERDUTY_SEVERITY =
+    "{event.properties.severity == 'critical' ? 'critical' : event.properties.severity == 'high' ? 'error' : event.properties.severity == 'medium' ? 'warning' : event.properties.severity == 'low' ? 'info' : ''}"
+
+// Every PagerDuty alert also runs on the resolved event, so resolving the issue resolves the incident
+// that the alert opened. One dedup key per issue joins the two events.
+const ERROR_TRACKING_ISSUE_RESOLVED_EVENT = '$error_tracking_issue_resolved'
+
+const errorTrackingPagerDutyFilters = (triggerEvent: string): HogFunctionSubTemplateType['filters'] => ({
+    source: 'internal-events',
+    events: [
+        { id: triggerEvent, type: 'events' },
+        { id: ERROR_TRACKING_ISSUE_RESOLVED_EVENT, type: 'events' },
+    ],
+})
+
+const errorTrackingPagerDutyInputs = (
+    summary: string,
+    extraDetails: Record<string, string> = {}
+): HogFunctionSubTemplateType['inputs'] => ({
+    event_action: { value: `{event.event == '${ERROR_TRACKING_ISSUE_RESOLVED_EVENT}' ? 'resolve' : 'trigger'}` },
+    dedup_key: { value: 'posthog-error-tracking-issue-{event.distinct_id}' },
+    summary: { value: summary },
+    source: { value: '{project.name}' },
+    severity: { value: ERROR_TRACKING_PAGERDUTY_SEVERITY },
+    component: { value: 'error tracking' },
+    custom_details: {
+        value: {
+            description: '{substring(event.properties.description, 1, 500)}',
+            status: '{event.properties.status}',
+            first_seen: '{event.properties.first_seen}',
+            severity: '{event.properties.severity}',
+            ...extraDetails,
+        },
+    },
+    links: {
+        value: [{ href: errorTrackingIssueLinkHogTemplate('pagerduty'), text: 'View issue in PostHog' }],
+    },
+})
 
 // In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
-// actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
-const MCP_EFFECTIVE_TOOL_EXPR =
-    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
+// actually invoked rides on $mcp_exec_tool_call_name. Rejected calls only carry the target.
+const MCP_EFFECTIVE_TOOL_EXPR = `(() -> {
+    if (event.properties.$mcp_exec_tool_call_name) {
+        return event.properties.$mcp_exec_tool_call_name;
+    }
+    if (event.properties.$mcp_tool_name = 'exec'
+        and event.properties.$mcp_exec_verb = 'call'
+        and event.properties.$mcp_exec_target_tool
+        and event.properties.$mcp_exec_target_tool != 'unrecognized') {
+        return event.properties.$mcp_exec_target_tool;
+    }
+    return event.properties.$mcp_tool_name;
+})()`
 
 // How long one failing tool stays deduped. Long enough to collapse a retry loop, short enough that
 // a breakage that is still happening reappears in the channel.
@@ -60,6 +149,15 @@ function mcpFailedToolCallEvent(errorType?: string): CyclotronJobFilterEvents {
     }
     return { id: '$mcp_tool_call', type: 'events', properties }
 }
+
+// A permanently broken batch export fails every run (as often as every 5 minutes), so dedupe
+// per export: one message per broken export per hour. The auto-pause threshold bounds the tail.
+const BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS = 60 * 60
+
+// Keyed per batch export so two exports breaking at once both alert. The producer always sets
+// batch_export_id, but HogMaskerService skips masking on falsy hashes, so fall back defensively.
+const BATCH_EXPORT_ALERT_MASKING_HASH =
+    "{event.properties.batch_export_id ? event.properties.batch_export_id : 'unknown-batch-export'}"
 
 // The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
 const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
@@ -127,13 +225,14 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'activity-log',
         type: 'internal_destination',
         context_id: 'activity-log',
-        filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$activity_log_entry_created', type: 'events' }] },
     },
     'feature-flag-change': {
         sub_template_id: 'feature-flag-change',
         type: 'internal_destination',
         context_id: 'activity-log',
         filters: {
+            source: 'internal-events',
             events: [
                 {
                     id: '$activity_log_entry_created',
@@ -154,77 +253,91 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'discussion-mention',
         type: 'internal_destination',
         context_id: 'discussion-mention',
-        filters: { events: [{ id: '$discussion_mention_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$discussion_mention_created', type: 'events' }] },
     },
     'error-tracking-issue-created': {
         sub_template_id: 'error-tracking-issue-created',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
     },
     'error-tracking-issue-reopened': {
         sub_template_id: 'error-tracking-issue-reopened',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
     },
     'error-tracking-issue-spiking': {
         sub_template_id: 'error-tracking-issue-spiking',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
     },
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
         sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
         type: 'internal_destination',
         context_id: 'insight-alerts',
-        filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$insight_alert_firing', type: 'events' }] },
     },
     'experiment-significant': {
         sub_template_id: 'experiment-significant',
         type: 'internal_destination',
         context_id: 'experiment-alerts',
-        filters: { events: [{ id: '$experiment_metric_significant', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$experiment_metric_significant', type: 'events' }] },
     },
     'logs-alert-firing': {
         sub_template_id: 'logs-alert-firing',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_firing', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_firing', type: 'events' }] },
     },
     'logs-alert-resolved': {
         sub_template_id: 'logs-alert-resolved',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_resolved', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_resolved', type: 'events' }] },
     },
     'logs-alert-auto-disabled': {
         sub_template_id: 'logs-alert-auto-disabled',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
     },
     'logs-alert-errored': {
         sub_template_id: 'logs-alert-errored',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_errored', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_errored', type: 'events' }] },
     },
     'health-check-firing': {
         sub_template_id: 'health-check-firing',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_firing', type: 'events' }] },
     },
     'health-check-resolved': {
         sub_template_id: 'health-check-resolved',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+    },
+    'batch-export-run-failed': {
+        sub_template_id: 'batch-export-run-failed',
+        type: 'internal_destination',
+        context_id: 'batch-export-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$batch_export_run_failed', type: 'events' }] },
+        masking: {
+            hash: BATCH_EXPORT_ALERT_MASKING_HASH,
+            ttl: BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS,
+            threshold: null,
+        },
+        flag: FEATURE_FLAGS.BATCH_EXPORT_ALERTS,
+    },
+    'replay-vision-request-completed': {
+        sub_template_id: 'replay-vision-request-completed',
+        type: 'internal_destination',
+        context_id: 'replay-vision-requests',
+        filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
     },
 }
 
@@ -594,6 +707,13 @@ function notificationVariants({
     ]
 }
 
+// batch_export_name is user-controlled and error can embed whatever the destination returned, so
+// both get the same Slack escaping + bounds as the other producer-controlled notification fields
+// (a raw value could smuggle <!channel> mentions or <url|text> masked links into the message).
+// The error bound matches the backend's 1000-char truncation of the property.
+const BATCH_EXPORT_NAME_SLACK = `{${slackEscapeExpr('event.properties.batch_export_name')}}`
+const BATCH_EXPORT_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'mcp-tool-error': notificationVariants({
         subTemplateId: 'mcp-tool-error',
@@ -855,7 +975,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/feature_flags/{event.properties.item_id}',
+                                    url: '{project.url}/feature-flags/{event.properties.item_id}',
                                     text: { text: 'View feature flag', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -1010,10 +1130,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Create an issue in Linear when an issue is created.',
             inputs: {
                 title: {
-                    value: '{event.properties.name}',
+                    value: ERROR_TRACKING_TICKET_TITLE,
                 },
                 description: {
-                    value: '{event.properties.description}',
+                    value: ERROR_TRACKING_TICKET_DESCRIPTION,
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
@@ -1030,10 +1150,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Create an issue in GitHub when an issue is created.',
             inputs: {
                 title: {
-                    value: '{event.properties.name}',
+                    value: ERROR_TRACKING_TICKET_TITLE,
                 },
                 description: {
-                    value: '{event.properties.description}',
+                    value: ERROR_TRACKING_TICKET_DESCRIPTION,
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
@@ -1050,10 +1170,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Create an issue in GitLab when an issue is created.',
             inputs: {
                 title: {
-                    value: '{event.properties.name}',
+                    value: ERROR_TRACKING_TICKET_TITLE,
                 },
                 description: {
-                    value: '{event.properties.description}',
+                    value: ERROR_TRACKING_TICKET_DESCRIPTION,
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
@@ -1062,6 +1182,15 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: errorTrackingIssueLinkHogTemplate('gitlab'),
                 },
             },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on issue created',
+            description:
+                'Triggers a PagerDuty incident when an issue is created and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_created'),
+            inputs: errorTrackingPagerDutyInputs('🔴 New issue: {event.properties.name}'),
         },
     ],
     'error-tracking-issue-reopened': [
@@ -1132,6 +1261,15 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: 'Issue reopened: {event.properties.name}',
                 },
             },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on issue reopened',
+            description:
+                'Triggers a PagerDuty incident when an issue is reopened and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_reopened'),
+            inputs: errorTrackingPagerDutyInputs('🔄 Issue reopened: {event.properties.name}'),
         },
     ],
     'error-tracking-issue-spiking': [
@@ -1217,6 +1355,17 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
             },
         },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-pagerduty',
+            name: 'PagerDuty incident on issue spiking',
+            description:
+                'Triggers a PagerDuty incident when an issue is spiking and resolves it when the issue is resolved',
+            filters: errorTrackingPagerDutyFilters('$error_tracking_issue_spiking'),
+            inputs: errorTrackingPagerDutyInputs('📈 Issue spiking: {event.properties.name}', {
+                exceptions_in_last_5_minutes: '{event.properties.current_bucket_value}',
+            }),
+        },
     ],
     'experiment-significant': [
         {
@@ -1282,85 +1431,137 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             name: 'Post to Slack on insight alert firing',
             description: 'Post to a Slack channel when this insight alert fires',
             inputs: {
-                blocks: {
+                blocks: { value: [] },
+                attachments: {
                     value: [
                         {
-                            type: 'header',
-                            text: {
-                                type: 'plain_text',
-                                text: "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
-                            },
-                        },
-                        {
-                            // plain_text (not mrkdwn) so user-controlled names in the breach text can't
-                            // inject Slack markup/links/mentions. Newlines still render as line breaks.
-                            type: 'section',
-                            text: {
-                                type: 'plain_text',
-                                text: '{event.properties.breaches}',
-                            },
-                        },
-                        {
-                            type: 'context',
-                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
-                        },
-                        { type: 'divider' },
-                        {
-                            type: 'actions',
-                            // The alert id in the block_id is what lets the datetimepicker action identify
-                            // its alert — unlike select options, datetimepicker elements carry no value.
-                            block_id: 'insight_alert_snooze:{event.properties.alert_id}',
-                            elements: [
+                            color: '#D97706',
+                            fallback:
+                                "{concat(event.properties.slack_alert_type == 'Anomaly detected' ? 'Anomaly alert' : 'Insight alert', ' ‘', event.properties.alert_name, '’ triggered')}",
+                            blocks: [
                                 {
-                                    // Points to the anomaly investigation notebook when present, otherwise falls
-                                    // back to the alert page (Slack can't conditionally hide a button, so the
-                                    // one button does double duty).
-                                    url: "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}",
-                                    text: {
-                                        text: "{event.properties.investigation_notebook_url ? 'View Investigation' : 'View Alert'}",
-                                        type: 'plain_text',
-                                    },
-                                    type: 'button',
-                                },
-                                {
-                                    url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
-                                    text: { text: 'View Insight', type: 'plain_text' },
-                                    type: 'button',
-                                },
-                                {
-                                    action_id: 'insight_alert_snooze',
-                                    placeholder: { text: 'Snooze…', type: 'plain_text' },
-                                    options: [
+                                    type: 'rich_text',
+                                    elements: [
                                         {
-                                            text: { text: 'For 1 hour', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|1h',
-                                        },
-                                        {
-                                            text: { text: 'For 6 hours', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|6h',
-                                        },
-                                        {
-                                            text: { text: 'For 1 day', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|1d',
-                                        },
-                                        {
-                                            text: { text: 'For 1 week', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|1w',
-                                        },
-                                        {
-                                            text: { text: 'Pick a date & time…', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|custom',
+                                            type: 'rich_text_section',
+                                            elements: [
+                                                {
+                                                    type: 'text',
+                                                    text: "{concat('⚠️ ', event.properties.slack_alert_type == 'Anomaly detected' ? 'Anomaly alert' : 'Insight alert', ' ‘')}",
+                                                    style: {
+                                                        bold: true,
+                                                    },
+                                                },
+                                                {
+                                                    type: 'link',
+                                                    url: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}',
+                                                    text: '{event.properties.alert_name}',
+                                                    style: { bold: true },
+                                                },
+                                                { type: 'text', text: '’ triggered', style: { bold: true } },
+                                            ],
                                         },
                                     ],
-                                    type: 'static_select',
+                                },
+                                {
+                                    type: 'rich_text',
+                                    elements: [
+                                        {
+                                            type: 'rich_text_section',
+                                            elements: [
+                                                {
+                                                    type: 'text',
+                                                    text: '📁 Project: ',
+                                                },
+                                                {
+                                                    type: 'link',
+                                                    url: '{project.url}',
+                                                    text: '{project.name}',
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                "{event.properties.slack_alert_details ?? {'type': 'section', 'text': {'type': 'plain_text', 'text': substring(event.properties.breaches, 1, 3000)}}}",
+                                "{event.properties.slack_alert_timing ?? {'type': 'context', 'elements': [{'type': 'plain_text', 'text': event.timestamp}]}}",
+                                "{event.properties.slack_alert_tags ?? {'type': 'divider'}}",
+                            ],
+                        },
+                        {
+                            blocks: [
+                                "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
+                                {
+                                    type: 'actions',
+                                    block_id: 'insight_alert_snooze:{event.properties.alert_id}',
+                                    elements: [
+                                        {
+                                            url: "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}",
+                                            text: {
+                                                text: "{event.properties.investigation_notebook_url ? '🔎 View investigation' : '🔎 View alert'}",
+                                                type: 'plain_text',
+                                            },
+                                            type: 'button',
+                                        },
+                                        {
+                                            url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
+                                            text: {
+                                                text: '📊 View insight',
+                                                type: 'plain_text',
+                                            },
+                                            type: 'button',
+                                        },
+                                        {
+                                            action_id: 'insight_alert_snooze',
+                                            placeholder: {
+                                                text: 'Snooze…',
+                                                type: 'plain_text',
+                                            },
+                                            options: [
+                                                {
+                                                    text: {
+                                                        text: 'For 1 hour',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|1h',
+                                                },
+                                                {
+                                                    text: {
+                                                        text: 'For 6 hours',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|6h',
+                                                },
+                                                {
+                                                    text: {
+                                                        text: 'For 1 day',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|1d',
+                                                },
+                                                {
+                                                    text: {
+                                                        text: 'For 1 week',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|1w',
+                                                },
+                                                {
+                                                    text: {
+                                                        text: 'Pick a date & time…',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|custom',
+                                                },
+                                            ],
+                                            type: 'static_select',
+                                        },
+                                    ],
                                 },
                             ],
                         },
                     ],
                 },
-                text: {
-                    value: 'Alert triggered: {event.properties.insight_name}',
-                },
+                text: { value: '' },
             },
         },
         {
@@ -1619,6 +1820,88 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'batch-export-run-failed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['batch-export-run-failed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on batch export failure',
+            description: 'Post to a Slack channel when a batch export run fails',
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'header', text: { type: 'plain_text', text: 'Batch export failed' } },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                // data_interval_start is null for backfill runs covering everything
+                                // up to the end date ("beginning of time" in the backfills UI)
+                                text: `*${BATCH_EXPORT_NAME_SLACK}* ({event.properties.destination_type}) failed to export data for {event.properties.data_interval_start ? event.properties.data_interval_start : 'the beginning of time'} – {event.properties.data_interval_end}.`,
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: `*Error:* ${BATCH_EXPORT_ERROR_SLACK}` },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/pipeline/batch-exports/{event.properties.batch_export_id}',
+                                    text: { text: 'View batch export', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: `Batch export '${BATCH_EXPORT_NAME_SLACK}' failed: ${BATCH_EXPORT_ERROR_SLACK}`,
+                },
+            },
+        },
+    ],
+    'replay-vision-request-completed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook when a Replay vision request completes',
+            description: 'Send a webhook when every session in a scan request has finished',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack when a Replay vision request completes',
+            description: 'Post to a Slack channel when every session in a scan request has finished',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                // verbatim stops Slack turning a caller's `@channel` in the reference into a ping.
+                                verbatim: true,
+                                text: 'Replay vision request {event.properties.label_mrkdwn} finished: *{event.properties.succeeded_count}* of {event.properties.session_count} sessions succeeded.',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Replay vision request {event.properties.request_id} finished: {event.properties.succeeded_count} of {event.properties.session_count} sessions succeeded',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1633,6 +1916,12 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$error_tracking_issue_created':
         case '$error_tracking_issue_reopened':
         case '$error_tracking_issue_spiking':
+        case '$error_tracking_issue_resolved':
+        case '$error_tracking_issue_suppressed':
+        case '$error_tracking_issue_assigned':
+        case '$error_tracking_issue_unassigned':
+        case '$error_tracking_issue_merged':
+        case '$error_tracking_issue_split':
             return 'error-tracking'
         case '$insight_alert_firing':
             return 'insight-alerts'
@@ -1650,6 +1939,21 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$health_check_issue_firing':
         case '$health_check_issue_resolved':
             return 'health-alerts'
+        case '$batch_export_run_failed':
+            return 'batch-export-alerts'
+        case '$billing_alert_firing':
+        case '$billing_alert_resolved':
+        case '$billing_alert_errored':
+        case '$billing_alert_auto_disabled':
+            return 'billing-alerts'
+        case '$replay_vision_alert_firing':
+        case '$replay_vision_alert_resolved':
+        case '$replay_vision_alert_errored':
+        case '$replay_vision_alert_auto_disabled':
+        case '$replay_vision_alert_match':
+            return 'replay-vision-alerts'
+        case '$replay_vision_request_completed':
+            return 'replay-vision-requests'
         default:
             return 'standard'
     }

@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
 
@@ -10,7 +10,7 @@ from posthog.hogql.test.utils import pretty_print_response_in_tests
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
-class TestTrafficTypeSnapshot(BaseTest):
+class TestTrafficTypeSnapshot(ClickhouseTestMixin, BaseTest):
     snapshot: Any
 
     def _create_test_events(self):
@@ -43,7 +43,8 @@ class TestTrafficTypeSnapshot(BaseTest):
             """,
             self.team,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        printed = pretty_print_response_in_tests(response, self.team.pk)
+        assert printed == self.sql_snapshot(printed)
 
     def test_get_traffic_type(self):
         self._run_function_query("getTrafficType", "traffic_type")
@@ -71,7 +72,8 @@ class TestTrafficTypeSnapshot(BaseTest):
             """,
             self.team,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        printed = pretty_print_response_in_tests(response, self.team.pk)
+        assert printed == self.sql_snapshot(printed)
 
     @parameterized.expand(
         [

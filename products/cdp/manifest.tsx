@@ -1,10 +1,16 @@
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { ActivityScope, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'CDP',
+    activityDescribers: {
+        [ActivityScope.HOG_FUNCTION]: () =>
+            import('scenes/hog-functions/misc/activityDescriptions').then(
+                (module) => module.hogFunctionActivityDescriber
+            ),
+    },
     scenes: {
         Transformations: {
             import: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
@@ -36,28 +42,28 @@ export const manifest: ProductManifest = {
             path: `Data/Source`,
             type: 'hog_function/source',
             href: urls.dataPipelinesNew('source'),
-            iconColor: ['var(--color-product-data-pipeline-light)'],
+            iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
             sceneKeys: ['HogFunction'],
         },
         {
             path: `Data/Destination`,
             type: 'hog_function/destination',
             href: urls.dataPipelinesNew('destination'),
-            iconColor: ['var(--color-product-data-pipeline-light)'],
+            iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
             sceneKeys: ['HogFunction'],
         },
         {
             path: `Data/Transformation`,
             type: 'hog_function/transformation',
             href: urls.dataPipelinesNew('transformation'),
-            iconColor: ['var(--color-product-data-pipeline-light)'],
+            iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
             sceneKeys: ['HogFunction'],
         },
         {
             path: `Data/Web script`,
             type: 'hog_function/site_app',
             href: urls.webScriptsNew(),
-            iconColor: ['var(--color-product-data-pipeline-light)'],
+            iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
             sceneKeys: ['HogFunction'],
         },
     ],
@@ -67,9 +73,10 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.SITE_APPS],
             category: ProductItemCategory.TOOLS,
             type: 'hog_function',
-            iconType: 'data_pipeline',
-            iconColor: ['var(--color-product-data-pipeline-light)'],
+            iconType: 'web_script',
+            iconColor: ['var(--color-product-web-scripts-light)', 'var(--color-product-web-scripts-dark)'],
             href: urls.webScripts(),
+            searchKeywords: ['site apps', 'custom javascript', 'tag manager'],
             sceneKey: 'WebScripts',
             sceneKeys: ['WebScripts'],
         },
@@ -77,38 +84,39 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: `Transformations`,
-            category: 'Pipeline',
+            category: 'CDP',
             type: 'hog_function/transformation',
-            iconType: 'data_pipeline_metadata',
+            iconType: 'data_transformation',
+            iconColor: ['var(--color-product-transformations-light)', 'var(--color-product-transformations-dark)'],
             href: urls.transformations(),
+            searchKeywords: ['enrichment', 'geoip', 'redact pii', 'plugins'],
             sceneKey: 'Transformations',
             sceneKeys: ['Transformations'],
         },
         {
             path: 'Event ingestion filtering',
-            category: 'Pipeline',
+            category: 'CDP',
             type: 'event_filter',
-            iconType: 'data_pipeline_metadata',
+            iconType: 'event_filter',
+            iconColor: ['var(--color-product-event-filtering-light)', 'var(--color-product-event-filtering-dark)'],
             href: urls.eventFiltering(),
+            searchKeywords: ['drop events', 'block events'],
             sceneKey: 'EventFiltering',
             sceneKeys: ['EventFiltering'],
         },
         {
             path: `Destinations`,
-            category: 'Pipeline',
+            category: 'CDP',
             type: 'hog_function/destination',
-            iconType: 'data_pipeline_metadata',
+            iconType: 'data_destination',
+            iconColor: ['var(--color-product-destinations-light)', 'var(--color-product-destinations-dark)'],
             href: urls.destinations(),
+            searchKeywords: ['export data', 'webhooks'],
+            searchTabs: [
+                { name: 'Batch exports', href: urls.destinations('batch'), searchKeywords: ['scheduled export'] },
+            ],
             sceneKey: 'Destinations',
             sceneKeys: ['Destinations'],
-        },
-        {
-            path: 'Event ingestion warnings',
-            category: 'Pipeline',
-            iconType: 'ingestion_warning',
-            href: urls.ingestionWarnings(),
-            sceneKey: 'IngestionWarnings',
-            sceneKeys: ['IngestionWarnings'],
         },
     ],
 }

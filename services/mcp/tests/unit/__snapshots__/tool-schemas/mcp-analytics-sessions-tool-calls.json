@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "description": "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "filter_test_accounts": {
+            "default": false,
+            "description": "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A UUID string identifying this mcp analytics submission.",
+            "type": "string"
+        },
+        "limit": {
+            "default": 500,
+            "description": "Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "properties": {
+            "default": "",
+            "description": "Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

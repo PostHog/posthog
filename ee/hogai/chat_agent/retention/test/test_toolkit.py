@@ -1,9 +1,9 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from ee.hogai.chat_agent.retention.toolkit import generate_retention_schema
 
 
-class TestRetentionToolkit(BaseTest):
+class TestRetentionToolkit(SimpleTestCase):
     def test_generate_retention_schema_sorts_top_level_properties(self):
         schema = generate_retention_schema()
         properties = schema["parameters"]["properties"]["query"]["properties"]

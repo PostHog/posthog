@@ -7,6 +7,20 @@
             "formFields": ["limit", "dateRange", "filterTestAccounts"],
             "live": false
         },
+        "canvas_app": {
+            "configSchemaExport": "canvasAppWidgetConfigSchema",
+            "configTypeExport": "CanvasAppWidgetConfig",
+            "formSchemaExport": "canvasAppWidgetFormSchema",
+            "formFields": ["canvasId"],
+            "live": false
+        },
+        "conversations_recent_tickets": {
+            "configSchemaExport": "conversationsRecentTicketsWidgetConfigSchema",
+            "configTypeExport": "ConversationsRecentTicketsWidgetConfig",
+            "formSchemaExport": "conversationsRecentTicketsWidgetFormSchema",
+            "formFields": ["limit"],
+            "live": false
+        },
         "error_tracking_list": {
             "configSchemaExport": "errorTrackingWidgetConfigSchema",
             "configTypeExport": "ErrorTrackingWidgetConfig",
@@ -33,6 +47,20 @@
             "configTypeExport": "LogsWidgetConfig",
             "formSchemaExport": "logsWidgetFormSchema",
             "formFields": ["limit", "dateRange", "wrapLines", "timezone"],
+            "live": false
+        },
+        "metrics_table": {
+            "configSchemaExport": "metricsTableWidgetConfigSchema",
+            "configTypeExport": "MetricsTableWidgetConfig",
+            "formSchemaExport": "metricsTableWidgetFormSchema",
+            "formFields": ["limit", "dateRange"],
+            "live": false
+        },
+        "notebook_widget": {
+            "configSchemaExport": "notebookWidgetConfigSchema",
+            "configTypeExport": "NotebookWidgetConfig",
+            "formSchemaExport": "notebookWidgetFormSchema",
+            "formFields": [],
             "live": false
         },
         "session_replay_list": {

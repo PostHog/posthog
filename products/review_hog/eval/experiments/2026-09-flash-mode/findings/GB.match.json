@@ -1,0 +1,177 @@
+{
+    "GB1": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims the AGENTS.md sentence overstates `_is_bot_authored`'s pre-filter coverage because machine users like posthog-bot (type User, no [bot]) only get refused at the engine's is_bot_author; no cluster makes this doc-precision claim. Rejected 75, which asserts the opposite defect (carve-out accepts any bot, too broad) rather than the pre-filter being narrower than the engine."
+    },
+    "GB2": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Same claim and anchor (receivers.py:144-160): the gate checks only the single canonical acting reviewer's toggle, contradicting the PR's 'at least one assigned user opted in' contract."
+    },
+    "GB3": {
+        "cluster": 8,
+        "confidence": "high",
+        "reason": "Identical claim: stamphog_connected is a team-wide any-repo exists() while the actual gate is per-PR-repository, so the toggle looks connected for PRs against an unconfigured repo."
+    },
+    "GB4": {
+        "cluster": 22,
+        "confidence": "medium",
+        "reason": "Same root observation that the self-driving identification anchors on the deprecated Task.signal_report field; GB4 frames the consequence as future-removal breakage rather than missing origin_product corroboration, hence medium."
+    },
+    "GB5": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims acting_user_id stored in the inbox_review provenance blob is an undocumented exposure risk; no cluster covers this. Rejected 14 (untyped ad-hoc dict contract), which is about typing, not PII exposure."
+    },
+    "GB6": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims the to_dict comment overstates what the boolean classification field audits (flag but not the linkage 'why'); no cluster. Rejected 24, whose premise is that there is no trace at all, and 47, which is about the analytics event."
+    },
+    "GB7": {
+        "cluster": 13,
+        "confidence": "high",
+        "reason": "Same claim and anchor (tasks.py:113): _PR_URL_RE is unanchored so a github.com substring embedded in another host's URL parses as a valid PR URL."
+    },
+    "GB8": {
+        "cluster": 10,
+        "confidence": "high",
+        "reason": "Same claim and anchor (tasks.py:179 and ~918): the carve-out resolves StamphogRepoConfig and process_pull_request_event resolves it again per delivery."
+    },
+    "GB9": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims settings.py:16 imports the stamphog facade at module level, loading stamphog models on the API import path contrary to receivers.py's deferral; no cluster. Rejected 16, which is about exception-safety of receivers.py's deferred import, a different file and claim."
+    },
+    "GB10": {
+        "cluster": 29,
+        "confidence": "high",
+        "reason": "Same claim: the raise-and-retry carve-out sits before the head-changing skip retraction, so a persistent resolver failure exhausts retries and the stale-approval dismissal never runs."
+    },
+    "GB11": {
+        "cluster": 51,
+        "confidence": "high",
+        "reason": "Same claim on the same lines (settings.py:71-82): the broad except Exception in get_stamphog_connected collapses transient breaker failures and real bugs into one fail-soft False plus error log."
+    },
+    "GB12": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims signal_report_id is user-suppliable/unvalidated at task creation so find_signal_implementation_run's identification is forgeable within a team; no cluster. Rejected 68 (resolver hook trusting caller-supplied ids, a different code path) and 22 (deprecated-field reliance)."
+    },
+    "GB13": {
+        "cluster": 18,
+        "confidence": "medium",
+        "reason": "Names the missing provider='github' filter in has_reviewable_repo_config versus the review path's lookup (same anchor facade/api.py:112-124) as the divergence; it adds a reader-vs-writer angle not in cluster 18, hence medium. Rejected 8 because GB13 does not claim the team-wide vs per-repo mismatch."
+    },
+    "GB14": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Same claim and anchor (review_local.py:321): bool(context.get('self_driving_review')) accepts any truthy value instead of an `is True` check."
+    },
+    "GB15": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims AGENTS.md's carve-out section omits the repo-native head (fork-safety) invariant; no cluster asserts a doc omission of that rule. Rejected 63, which claims the facade should enforce fork-safety itself rather than that the contract doc is missing it."
+    },
+    "GB16": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "Primary claim is that the on-but-disconnected toggle state renders identically to a healthy setup with no hint that reviews no-op; no cluster covers that UI gap. Rejected 8, which only matches GB16's secondary per-repo point, and 27, which is about fail-soft False copy."
+    },
+    "GB17": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Same claim and anchor (receivers.py:126): the receiver leg checks the toggle once at queue time and process_inbox_pr_review never re-validates it at execution."
+    },
+    "GB18": {
+        "cluster": 27,
+        "confidence": "high",
+        "reason": "Same claim: fail-soft stamphog_connected=False is indistinguishable from genuinely-disconnected, so the UI shows 'not set up yet' during a read failure."
+    },
+    "GB19": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Same claim and anchor (process_inbox_pr_review): the receiver leg stamps inbox_review with no bot-author check, no fork check and no PR-to-run linkage, unlike the webhook carve-out."
+    },
+    "GB20": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims the resolver's None conflates 'nobody resolvable' with 'toggle off' so the opt-out dismissal copy misleads; no cluster. Rejected 50 and 53, which are about different dismissal-copy mismatches (base retarget, reopen)."
+    },
+    "GB21": {
+        "cluster": 58,
+        "confidence": "medium",
+        "reason": "Asserts the 3x5s retry budget exhausts during any blip and the initial review is then silently lost, which is the 'exhaustion of the task's three retries silently drops the review' leg of cluster 58; the proposed remedy (longer backoff) differs from the durable-record framing, hence medium."
+    },
+    "GB22": {
+        "cluster": 4,
+        "confidence": "high",
+        "reason": "Identical claim: the engine's _attach_familiarity/_maybe_compute_familiarity never gate on pipeline.self_driving and rely on the server omitting author_pr_numbers; anchor is the engine side rather than activities.py but it is the same code path."
+    },
+    "GB23": {
+        "cluster": 5,
+        "confidence": "medium",
+        "reason": "Claims _format_self_driving renders trusted machine-user and draft facts purely off the flag with no engine-side verification, which is cluster 5's claim; medium because the draft-staleness half also belongs to cluster 35 (rejected as the runner-up since GB23's root claim is the unverified rendering, not only the stale draft sentence)."
+    },
+    "GB24": {
+        "cluster": 72,
+        "confidence": "high",
+        "reason": "Same claim and anchor (AGENTS.md:84-87): the carve-out section never states that a synced, enabled StamphogRepoConfig still gates the exception."
+    },
+    "GB25": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims AGENTS.md omits the receiver leg's retry/QUEUED-restart failure behavior; no cluster makes this doc-completeness claim."
+    },
+    "GB26": {
+        "cluster": 9,
+        "confidence": "high",
+        "reason": "Same claim: every TaskRun output save re-dispatches process_inbox_pr_review, which pays a config lookup and a live GitHub get_pr before its head-keyed dedupe can no-op. Rejected 69, which is about dispatching for teams with no Stamphog install."
+    },
+    "GB27": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same claim: _start_stamphog_review's fire-and-forget .delay publish is caught-and-logged with no retry or durable record, so a broker failure silently loses the initial review. Rejected 54 (publish raising into the save path) and 28 (unbounded publish timeout)."
+    },
+    "GB28": {
+        "cluster": 7,
+        "confidence": "high",
+        "reason": "Same claim: get_stamphog_connected runs an uncached cross-product-DB exists() on every settings GET and PATCH serialization."
+    },
+    "GB29": {
+        "cluster": 65,
+        "confidence": "high",
+        "reason": "Same claim and anchor (CodeReviewScene.tsx ~1066): stamphog_connected is fetched once on mount and never revalidated, leaving the switch disabled after connecting elsewhere."
+    },
+    "GB30": {
+        "cluster": 23,
+        "confidence": "high",
+        "reason": "Same claim and anchor (facade/api.py:504 / find_task_run branch fallback): the unindexed TaskRun.branch + Task.repository iexact fallback scans on every non-matching bot PR webhook. Rejected 33, which is the generic per-event lookup cost rather than the index gap."
+    },
+    "GB31": {
+        "cluster": 41,
+        "confidence": "high",
+        "reason": "Same claim and anchor (tasks.py:1202-1230): the head-keyed dedupe excludes FAILED runs so a deterministically failing head is re-reviewed on every refire with no cooldown."
+    },
+    "GB32": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims the resolver-missing branch should emit a distinct log so a positively identified self-driving PR is distinguishable from an ordinary bot skip; no cluster. Rejected 52 (lookup ordering cost) and 24 (no trace when the carve-out fires), which assert different things."
+    },
+    "GB33": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims the `author_is_bot and not self_driving` predicate is duplicated between Pipeline.run and review_local.run; no cluster covers this refactor claim. Rejected 19, which is about an AGENTS.md cross-reference, not code duplication."
+    },
+    "GB34": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims README.md:14 understates the re-review trigger set (only 'pushes', omitting reopen and base retarget); no cluster. Rejected 60, the only other README cluster, which is about an em dash."
+    },
+    "GB35": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Claims AGENTS.md presents the receiver leg as initial-only when it re-fires on every output save and re-reviews a new head; no cluster makes this doc claim. Rejected 36, which is a code claim about missing dedupe between the two legs."
+    }
+}

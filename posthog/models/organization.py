@@ -1,18 +1,19 @@
 import sys
-from dataclasses import dataclass
+from collections.abc import Collection
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Self, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
 import structlog
@@ -21,9 +22,10 @@ from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
+from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -38,6 +40,7 @@ class OrganizationUsageResource(TypedDict):
     usage: int | None
     limit: int | None
     todays_usage: int | None
+    daily_usage: NotRequired[dict[str, int]]
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
@@ -54,8 +57,10 @@ class OrganizationUsageInfo(TypedDict):
     feature_flag_requests: OrganizationUsageResource | None
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
+    mcp_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
+    signals_spend_credits: NotRequired[OrganizationUsageResource | None]
     posthog_code_credits: OrganizationUsageResource | None
     posthog_code_token_credits: OrganizationUsageResource | None
     sandbox_compute_credits: OrganizationUsageResource | None
@@ -67,9 +72,11 @@ class OrganizationUsageInfo(TypedDict):
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
+    billing_status_computed_at: NotRequired[str]
+    billing_latest_usage_report_date: NotRequired[str | None]
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class BillingPeriod:
     start: datetime
     end: datetime
@@ -110,6 +117,9 @@ class OrganizationManager(models.Manager):
             kwargs["default_anonymize_ips"] = default_anonymize_ips()
         if "is_ai_training_opted_in" not in kwargs:
             kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
+        # New organizations start on the most-specific resolution. Existing ones opt in.
+        if "uses_most_specific_access_resolution" not in kwargs:
+            kwargs["uses_most_specific_access_resolution"] = True
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
@@ -160,6 +170,13 @@ def default_is_ai_training_opted_in():
 
 class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["id"],
+                condition=Q(is_active=False),
+                name="org_inactive_id_idx",
+            )
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["for_internal_metrics"],
@@ -185,6 +202,18 @@ class Organization(ModelActivityMixin, UUIDTModel):
         BAYESIAN = "bayesian", "Bayesian"
         FREQUENTIST = "frequentist", "Frequentist"
 
+    class DeactivationReason(models.TextChoices):
+        UNPAID_BALANCE = "Access revoked due to unpaid balance.", "Unpaid balance"
+        COMPLIANCE_REVIEW = "Access disabled for compliance review.", "Compliance review"
+        TERMS_OF_SERVICE_VIOLATION = (
+            "Access revoked due to terms of service violation.",
+            "Terms of service violation",
+        )
+        DESKTOP_ABUSE = (
+            "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
+            "Desktop abuse",
+        )
+
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -195,6 +224,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     # General settings
     name = models.CharField(max_length=64)
+    # Name this instance last saw in the DB; save() compares it to self.name to detect a rename.
+    _loaded_name: Optional[str] = None
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -215,6 +246,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         ),
         max_length=200,
     )
+    # Transient flag set by the pre_save signal to communicate active-state changes to post_save.
+    _is_active_changed: bool = False
+    _has_active_subscription_changed: bool = False
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
@@ -264,7 +298,24 @@ class Organization(ModelActivityMixin, UUIDTModel):
         db_default=True,
         help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
     )
+    uses_most_specific_access_resolution = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.",
+    )
     allow_publicly_shared_resources = models.BooleanField(default=True)
+    member_notice = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Notice shown in a banner to every member of the organization, with an optional link button.",
+    )
+    read_only_mcp_access = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, requests through the PostHog MCP server can read but not change this organization's data.",
+    )
     default_role = models.ForeignKey(
         "ee.Role",
         on_delete=models.SET_NULL,
@@ -280,19 +331,10 @@ class Organization(ModelActivityMixin, UUIDTModel):
         choices=PluginsAccessLevel,
     )
     for_internal_metrics = models.BooleanField(default=False)
-    default_experiment_stats_method = models.CharField(
-        max_length=20,
-        choices=DefaultExperimentStatsMethod,
-        default=DefaultExperimentStatsMethod.BAYESIAN,
-        help_text="Default statistical method for new experiments in this organization.",
-        null=True,
-        blank=True,
-    )
     default_anonymize_ips = models.BooleanField(
         default=False,
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
-    is_hipaa = models.BooleanField(default=False, null=True, blank=True)
     is_pending_deletion = models.BooleanField(
         default=False,
         null=True,
@@ -321,6 +363,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
+    # Managed by Billing: whether the org had an active subscription (or active trial)
+    # at last customer sync. NULL = never synced = unknown; consumers must fail open on NULL.
+    has_active_subscription = models.BooleanField(null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed = models.BooleanField(default=True)
@@ -337,6 +382,47 @@ class Organization(ModelActivityMixin, UUIDTModel):
         return self.name
 
     __repr__ = sane_repr("name")
+
+    @classmethod
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
+        instance._loaded_name = instance.__dict__.get("name")
+        return instance
+
+    def refresh_from_db(self, using: Any = None, fields: Any = None, from_queryset: Any = None) -> None:
+        super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
+        if fields is None or "name" in fields:
+            self._loaded_name = self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        update_fields = kwargs.get("update_fields")
+        name_is_written = update_fields is None or "name" in update_fields
+        renamed = (
+            not self._state.adding
+            and name_is_written
+            and self._loaded_name is not None
+            and self._loaded_name != self.name
+        )
+        # Read self.name only after a rename is known, so a deferred name costs no query.
+        base_slug = slugify(self.name)[:MAX_SLUG_LENGTH] if renamed else ""
+        if renamed and base_slug != self.slug:
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "slug"}
+            self._save_with_regenerated_slug(base_slug, *args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+        if name_is_written and "name" in self.__dict__:
+            self._loaded_name = self.name
+
+    def _save_with_regenerated_slug(self, base_slug: str, *args: Any, **kwargs: Any) -> None:
+        for candidate in generate_slug_candidates(base_slug):
+            self.slug = candidate
+            try:
+                with transaction.atomic():
+                    return super().save(*args, **kwargs)
+            except IntegrityError:
+                continue
+        raise Exception("Could not save organization with a unique slug in 10 tries!")
 
     @property
     def _billing_plan_details(self) -> tuple[str | None, str | None]:
@@ -450,6 +536,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
             if resource == QuotaResource.RECORDINGS:
                 dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
+            self._project_llm_gateway_quota_if_ai(resource)
         else:
             raise RuntimeError("Cannot limit without having a billing period")
 
@@ -480,6 +567,13 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
         if resource == QuotaResource.RECORDINGS:
             dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
+        self._project_llm_gateway_quota_if_ai(resource)
+
+    def _project_llm_gateway_quota_if_ai(self, resource: "QuotaResource") -> None:
+        from ee.billing.quota_limiting import QuotaResource, _project_llm_gateway_quota_for_org
+
+        if resource in (QuotaResource.AI_CREDITS, QuotaResource.POSTHOG_CODE_CREDITS):
+            _project_llm_gateway_quota_for_org(self)
 
     def get_limited_products(self) -> dict[str, dict[str, Any]]:
         """
@@ -595,6 +689,115 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
+
+
+@receiver(models.signals.pre_save, sender=Organization)
+def remember_organization_field_changes(sender, instance: Organization, **kwargs):
+    instance._is_active_changed = False
+    instance._has_active_subscription_changed = False
+    if instance._state.adding:
+        return
+
+    tracked_fields = {"is_active", "has_active_subscription"}
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None:
+        tracked_fields &= set(update_fields)
+        if not tracked_fields:
+            return
+
+    previous = sender.objects.filter(pk=instance.pk).values("is_active", "has_active_subscription").first()
+    if previous is None:
+        return
+    if "is_active" in tracked_fields:
+        instance._is_active_changed = previous["is_active"] != instance.is_active
+    if "has_active_subscription" in tracked_fields:
+        instance._has_active_subscription_changed = (
+            previous["has_active_subscription"] != instance.has_active_subscription
+        )
+
+
+@receiver(post_save, sender=Organization)
+def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
+    if created or not instance._is_active_changed:
+        return
+
+    organization_id = instance.pk
+
+    def _invalidate_cache():
+        from posthog.models.team import Team
+
+        from ee.billing.quota_limiting import invalidate_llm_gateway_quota_cache
+
+        team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+        invalidate_llm_gateway_quota_cache(team_ids)
+
+    def _project_gateway_quota():
+        from posthog.tasks.team_llm_gateway_quota import project_org_llm_gateway_quota_task
+
+        try:
+            project_org_llm_gateway_quota_task.delay(str(organization_id))
+        except Exception:
+            # The reconcile re-derives a deactivated org's blobs; never fail the org save.
+            logger.warning("llm_gateway_quota_projection_enqueue_failed", organization_id=str(organization_id))
+
+    transaction.on_commit(_invalidate_cache)
+    if settings.AI_GATEWAY_REDIS_URL:
+        transaction.on_commit(_project_gateway_quota)
+
+
+@receiver(post_save, sender=Organization)
+def sync_active_state_to_billing_on_change(sender, instance: Organization, created: bool, **kwargs):
+    if created or not instance._is_active_changed or not is_cloud():
+        return
+
+    organization_id = str(instance.pk)
+    transaction.on_commit(lambda: _start_billing_active_sync_workflow(organization_id))
+
+
+BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS = 5
+
+
+def _start_billing_active_sync_workflow(organization_id: str) -> None:
+    # Imports deferred to keep the Temporal stack off the model import path.
+    import asyncio
+
+    from temporalio.common import WorkflowIDConflictPolicy
+
+    from posthog.temporal.billing_active_sync.sync_organization_active_state import (
+        RESYNC_SIGNAL,
+        SyncOrganizationActiveStateInputs,
+        SyncOrganizationActiveStateWorkflow,
+    )
+    from posthog.temporal.common.client import async_connect
+
+    async def _connect_and_start() -> None:
+        client = await asyncio.wait_for(async_connect(), timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS)
+        await asyncio.wait_for(
+            client.start_workflow(
+                SyncOrganizationActiveStateWorkflow.run,
+                SyncOrganizationActiveStateInputs(organization_id=organization_id),
+                id=f"billing-org-active-sync-{organization_id}",
+                task_queue=settings.BILLING_TASK_QUEUE,
+                # A running sync gets the signal and syncs again, so two POSTs for one org never race.
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                start_signal=RESYNC_SIGNAL,
+            ),
+            timeout=BILLING_ACTIVE_SYNC_DISPATCH_TIMEOUT_SECONDS,
+        )
+
+    try:
+        asyncio.run(_connect_and_start())
+    except Exception:
+        # The nightly reconciliation realigns billing; never fail the org save.
+        logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id, exc_info=True)
+
+
+class OrganizationAITerms(Organization):
+    # Gives staff one admin page for the AI terms an organization accepts, across products.
+    class Meta:
+        proxy = True
+        verbose_name = "AI terms and conditions"
+        verbose_name_plural = "AI terms and conditions"
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
@@ -799,18 +1002,6 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
             sync_members_to_billing.delay(organization_id)
 
     transaction.on_commit(_sync_if_org_exists)
-
-
-@receiver(models.signals.post_delete, sender=OrganizationMembership)
-def pause_loops_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    # A loop run executes with its owner's credentials, so offboarding a member must pause their loops
-    # in that org and cancel in-flight runs. Deferred import keeps loops/Temporal deps off the model
-    # import path (mirrors the User-deactivation hook).
-    from products.tasks.backend.facade.loops import pause_loops_for_removed_member  # noqa: PLC0415
-
-    user_id = instance.user_id
-    organization_id = str(instance.organization_id)
-    transaction.on_commit(lambda: pause_loops_for_removed_member(user_id, organization_id))
 
 
 @receiver(models.signals.pre_save, sender=OrganizationMembership)

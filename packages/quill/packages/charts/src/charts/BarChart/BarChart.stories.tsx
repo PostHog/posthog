@@ -78,7 +78,7 @@ export const WithBarTrackCeiling: Story = {
             barLayout: 'grouped',
             showGrid: true,
             barCornerRadius: 6,
-            bars: { track: true, valueDomain: [0, 100] },
+            bars: { track: true, valueDomain: { min: 0, max: 100 } },
         }
         return (
             <Stage>
@@ -104,7 +104,7 @@ export const StackedWithTrackCeiling: Story = {
             axisOrientation: 'horizontal',
             showGrid: true,
             barCornerRadius: 6,
-            bars: { valueDomain: [0, 100] },
+            bars: { valueDomain: { min: 0, max: 100 } },
         }
         return (
             <Stage height={120}>
@@ -210,6 +210,20 @@ export const WithValueLabels: Story = {
             <Stage>
                 <BarChart series={TWO_SERIES} labels={DAYS} config={config} theme={theme}>
                     <ValueLabels />
+                </BarChart>
+            </Stage>
+        )
+    },
+}
+
+export const CenteredPercentLabels: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'percent', axisOrientation: 'horizontal' }
+        return (
+            <Stage>
+                <BarChart series={TWO_SERIES} labels={DAYS} config={config} theme={theme}>
+                    <ValueLabels position="center" valueFormatter={(value) => `${(value * 100).toFixed(0)}%`} />
                 </BarChart>
             </Stage>
         )

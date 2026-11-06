@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use chrono::Utc;
-use common_redis::{CustomRedisError, RedisClient};
+use common_redis::{CustomRedisError, ScriptRunner};
 use uuid::Uuid;
 
 use crate::modes::processing::rules::rate_limit::BucketParams;
+use crate::modes::{processing::redis_heal::HealGate, shadow_redis};
 
 /// Outcome of one fused rate-limit call for a single issue group of `n` events.
 /// `issue_admitted <= n` passed the per-issue limit; `team_admitted <= issue_admitted`
@@ -70,45 +70,28 @@ local team_admitted  = take(KEYS[2], issue_admitted, tonumber(ARGV[6]), tonumber
 return { issue_admitted, team_admitted }
 "#;
 
-/// The single Redis operation the limiter needs: run the Lua script and decode
-/// its integer-array reply. Behind a trait so the rate-limiting stage can be
-/// unit-tested with an in-memory fake — including a failing one, to prove the
-/// stage fails open. Production uses the real `RedisClient`.
-#[async_trait]
-pub trait ScriptRunner: Send + Sync {
-    async fn eval_int_vec(
-        &self,
-        script: &str,
-        keys: Vec<String>,
-        args: Vec<String>,
-    ) -> Result<Vec<i64>, CustomRedisError>;
-}
-
-#[async_trait]
-impl ScriptRunner for RedisClient {
-    async fn eval_int_vec(
-        &self,
-        script: &str,
-        keys: Vec<String>,
-        args: Vec<String>,
-    ) -> Result<Vec<i64>, CustomRedisError> {
-        RedisClient::eval_int_vec(self, script, keys, args).await
-    }
-}
-
 pub struct RedisRateLimiter {
     redis: Arc<dyn ScriptRunner>,
+    shadow: Option<Arc<dyn ScriptRunner>>,
     key_prefix: String,
     bucket_ttl_seconds: u64,
+    heal_gate: HealGate,
 }
 
 impl RedisRateLimiter {
     pub fn new(redis: Arc<dyn ScriptRunner>, key_prefix: String, bucket_ttl_seconds: u64) -> Self {
         Self {
             redis,
+            shadow: None,
             key_prefix,
             bucket_ttl_seconds,
+            heal_gate: HealGate::new(),
         }
+    }
+
+    pub fn with_shadow(mut self, shadow: Option<Arc<dyn ScriptRunner>>) -> Self {
+        self.shadow = shadow;
+        self
     }
 
     fn issue_key(&self, team_id: i32, issue_id: Option<Uuid>) -> String {
@@ -120,6 +103,15 @@ impl RedisRateLimiter {
 
     fn team_key(&self, team_id: i32) -> String {
         format!("{}/{{{team_id}}}/project", self.key_prefix)
+    }
+
+    /// Kick a background heal of the limiter's Redis connection; called when
+    /// an admit fails with a connection-class error. Never blocks the
+    /// fail-open path; heal attempts are serialized and cooldown-bounded by
+    /// the client.
+    pub fn spawn_heal(&self) {
+        let redis = self.redis.clone();
+        self.heal_gate.spawn_heal(async move { redis.heal().await });
     }
 }
 
@@ -151,7 +143,17 @@ impl RedisRateLimiter {
             self.bucket_ttl_seconds.to_string(),
         ];
 
+        let shadow_request = self.shadow.as_ref().map(|_| (keys.clone(), args.clone()));
         let res = self.redis.eval_int_vec(RATE_LIMIT_LUA, keys, args).await?;
+        if let (Some(shadow), Some((keys, args))) = (&self.shadow, shadow_request) {
+            let shadow = shadow.clone();
+            let healing = shadow.clone();
+            shadow_redis::submit(
+                "processing_rate_limit",
+                async move { shadow.eval_int_vec(RATE_LIMIT_LUA, keys, args).await },
+                async move { healing.reconnect().await },
+            );
+        }
 
         // Defensive clamps: team_admitted <= issue_admitted <= n.
         let issue_admitted = (res.first().copied().unwrap_or(0).max(0) as u32).min(n);
@@ -179,49 +181,48 @@ impl RedisRateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common_redis::{CompressionConfig, RedisValueFormat};
-    use std::time::Duration;
-    use testcontainers::core::{IntoContainerPort, WaitFor};
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers::{ContainerAsync, GenericImage};
+    use crate::test_support::{start_redis, FakeRunner, RedisContainer};
 
-    /// Boot a throwaway Redis and return a connected client. The readiness banner
-    /// can land a hair before the socket accepts, so we probe with a trivial
-    /// script until it answers — otherwise the first command occasionally races
-    /// the container and flakes with "connection refused".
-    async fn start_redis() -> (Arc<RedisClient>, ContainerAsync<GenericImage>) {
-        let container = GenericImage::new("redis", "7-alpine")
-            .with_exposed_port(6379.tcp())
-            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
-            .start()
+    #[tokio::test]
+    async fn primary_failure_does_not_charge_the_shadow() {
+        let shadow = FakeRunner::returning(vec![1, 1]);
+        let limiter = RedisRateLimiter::new(FakeRunner::failing(), "test".into(), 3600)
+            .with_shadow(Some(shadow.clone()));
+        assert!(limiter.admit(42, None, None, None, 1).await.is_err());
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(shadow.call_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn shadow_failure_does_not_change_the_primary_admission() {
+        shadow_redis::with_test_circuit(async {
+            let shadow = FakeRunner::failing();
+            let primary = FakeRunner::returning(vec![3, 2]);
+            let limiter = RedisRateLimiter::new(primary.clone(), "test".into(), 3600)
+                .with_shadow(Some(shadow.clone()));
+            let decision = limiter.admit(42, None, None, None, 5).await.unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while shadow.call_count() == 0 {
+                    tokio::task::yield_now().await;
+                }
+            })
             .await
             .unwrap();
-        let host = container.get_host().await.unwrap();
-        let port = container.get_host_port_ipv4(6379).await.unwrap();
-        let url = format!("redis://{host}:{port}");
-
-        for _ in 0..20 {
-            if let Ok(client) = RedisClient::with_config(
-                url.clone(),
-                CompressionConfig::disabled(),
-                RedisValueFormat::Utf8,
-                None,
-                None,
-            )
-            .await
-            {
-                if client
-                    .eval_int_vec("return {1, 1}", vec![], vec![])
-                    .await
-                    .is_ok()
-                {
-                    return (Arc::new(client), container);
+            assert_eq!(primary.requests(), shadow.requests());
+            assert_eq!(
+                decision,
+                RateLimitDecision {
+                    issue_admitted: 3,
+                    team_admitted: 2
                 }
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        panic!("redis container never became ready");
+            );
+        })
+        .await;
     }
+
+    use common_redis::RedisClient;
 
     // ===================================================================
     // Layer 1 — semi-unit tests: the token-bucket script, called directly.
@@ -490,7 +491,7 @@ mod tests {
         struct TestHarness {
             limiter: Arc<RedisRateLimiter>,
             next_team_id: AtomicI32,
-            _container: ContainerAsync<GenericImage>,
+            _container: RedisContainer,
         }
 
         impl TestHarness {

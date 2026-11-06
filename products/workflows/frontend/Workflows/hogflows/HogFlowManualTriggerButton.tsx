@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconPlayFilled } from '@posthog/icons'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -11,7 +13,11 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
-import { batchTriggerLogic, getAudienceDedupeKey } from './steps/batchTriggerLogic'
+import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './steps/batchTriggerLogic'
+import { MissingRecipientEmailBanner } from './steps/components/MissingRecipientEmailBanner'
+import { RealtimeCohortCalculatingBanner } from './steps/components/RealtimeCohortCalculatingBanner'
+import { isRealtimeCohortCalculating, realtimeCohortSendBlockedReason } from './steps/realtimeCohortStatus'
+import { recipientEmailProperties } from './steps/recipientEmail'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -27,12 +33,14 @@ const TriggerPopover = ({
     const isAccountAudience =
         workflow?.trigger?.type === 'batch' && workflow.trigger.filters?.audience_type === 'accounts'
 
-    const { blastRadius, blastRadiusLoading } = useValues(
+    const { blastRadius, blastRadiusLoading, recipientsWithoutEmail } = useValues(
         batchTriggerLogic({
             id: props.id,
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
             // Account audiences carry no person, so email dedup never applies to them.
             dedupeKey: isAccountAudience ? undefined : getAudienceDedupeKey(workflow),
+            sendsEmail: hogFlowSendsEmail(workflow),
+            recipientEmailProperties: isAccountAudience ? [] : recipientEmailProperties(workflow),
         })
     )
 
@@ -50,7 +58,10 @@ const TriggerPopover = ({
         return ''
     }
 
-    const getButtonText = (): string => `Run workflow${blastRadiusSuffix()}`
+    const realtimeCohort = workflow?.trigger?.type === 'batch' ? blastRadius?.realtime_cohort : undefined
+    // The cohort has no size to show until it finishes calculating.
+    const getButtonText = (): string =>
+        isRealtimeCohortCalculating(realtimeCohort) ? 'Run when calculated' : `Run workflow${blastRadiusSuffix()}`
 
     const variablesSection =
         !workflow?.variables || workflow.variables.length === 0 ? (
@@ -107,6 +118,15 @@ const TriggerPopover = ({
     return (
         <div className="flex flex-col gap-4 p-3 min-w-80 max-w-96">
             {variablesSection}
+            {Object.entries(recipientsWithoutEmail).map(([property, missing]) => (
+                <MissingRecipientEmailBanner
+                    key={property}
+                    property={property}
+                    missing={missing}
+                    audienceSize={blastRadius?.affected}
+                />
+            ))}
+            <RealtimeCohortCalculatingBanner status={realtimeCohort} />
             <div className="flex justify-end border-t pt-3">
                 <LemonButton
                     type="primary"
@@ -114,8 +134,8 @@ const TriggerPopover = ({
                     loading={blastRadiusLoading}
                     disabledReason={
                         blastRadiusExceeded && blastRadius?.limit != null
-                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(blastRadius.limit)} ${isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow your audience. This limit will be loosened in the future.`
-                            : undefined
+                            ? `Your audience is above this project's batch limit of ${humanFriendlyNumber(blastRadius.limit)} ${isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow it.${hogFlowSendsEmail(workflow) ? ' The limit rises as the project builds a clean sending history.' : ''}`
+                            : realtimeCohortSendBlockedReason(realtimeCohort)
                     }
                     onClick={() => {
                         if (workflow?.trigger?.type === 'batch') {
@@ -139,21 +159,26 @@ const TriggerPopover = ({
 
 export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
-    const { workflow, hasUnsavedChanges } = useValues(workflowLogic(props))
+    const { manualTriggerDisabledReason } = useValues(workflowLogic(props))
     const { popoverVisible } = useValues(logic)
     const { setPopoverVisible } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const triggerButton = (
+    const triggerButton = todayRailNav ? (
+        <Button
+            variant="primary"
+            disabledReason={manualTriggerDisabledReason}
+            tooltip="Triggers workflow immediately"
+            onClick={() => setPopoverVisible(!popoverVisible)}
+        >
+            Trigger
+            <IconChevronDown className={`transition-transform ${popoverVisible ? 'rotate-180' : ''}`} />
+        </Button>
+    ) : (
         <LemonButton
             type="primary"
             size="small"
-            disabledReason={
-                workflow?.status !== 'active'
-                    ? 'Must enable workflow to use trigger'
-                    : hasUnsavedChanges
-                      ? 'Save changes first'
-                      : undefined
-            }
+            disabledReason={manualTriggerDisabledReason}
             sideIcon={<IconChevronDown className={`transition-transform ${popoverVisible ? 'rotate-180' : ''}`} />}
             tooltip="Triggers workflow immediately"
             onClick={() => setPopoverVisible(!popoverVisible)}

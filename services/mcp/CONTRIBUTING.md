@@ -207,6 +207,18 @@ The visualization system is designed to be extractable to a standalone `@posthog
 **Other**:
 
 - **PostHogLink** - "View in PostHog" button
+- **PostHogLogo** - Logo mark shared by the app resolution states
+- **AppErrorState** / **AppLoadingState** - The states an app shows before, or instead of, content
+
+### Stories
+
+Storybook compiles these stories from the `common/storybook` workspace, which cannot resolve this package's own dependencies.
+A story may therefore only import components that never reach `@modelcontextprotocol/ext-apps`.
+The visualizers and the resolution states above are safe; `AppWrapper` and `useToolResult` are not.
+Keep presentational components in their own module rather than importing them from an SDK-coupled one.
+
+The Storybook dev server resolves the SDK anyway, so it renders such a story happily and only the production build fails.
+Verify with `pnpm --filter=@posthog/storybook build` rather than `start`.
 
 ### Theming
 
@@ -284,9 +296,18 @@ Convention defaults (derived from the app key and product directory):
 
 Override any field explicitly when the convention doesn't match
 (e.g. `click_prop: onEntityClick`, `detail_args: "{ entityId: item.id }"`).
-`detail_args` must match the target tool's actual parameter names —
-mismatching them (e.g. passing `flagId` to a tool that expects `id`) silently
-drops the argument instead of failing.
+`generate:ui-apps` checks `detail_tool` and the top-level keys of `detail_args`
+against the tool's input schema snapshot in `tests/unit/__snapshots__/tool-schemas/`.
+Generation fails for a tool without a snapshot, unknown argument names, and missing
+required arguments. For example, passing `flagId` to a tool that requires `id` reports
+both the unknown key and the missing argument, with the app and tool names.
+
+`detail_args` must be an object literal with explicit keys; spreads and computed keys
+are rejected because their names cannot be checked statically. The expression is
+parsed, not executed, so dynamic values and nested fields are still validated by the
+tool at call time. After adding a tool or changing its input schema, run
+`pnpm test tests/unit/tool-schema-snapshots.test.ts -u` to refresh the snapshot, then
+regenerate the UI apps.
 
 **Link tools to apps** with `ui_app`:
 
@@ -321,6 +342,9 @@ For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
          view_prop: data
    ```
 
+   A view that opens links also names `link_prop`, the prop that receives the host's link opener.
+   A view that calls server tools names `app_prop`, the prop that receives the host app.
+
 2. **Create the entry point** manually at `src/ui-apps/apps/my-custom-app.tsx`.
    This file will NOT be overwritten by the generator.
 
@@ -335,6 +359,8 @@ For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
    ```typescript
    export default () => withUiApp('my-custom-app', { name: 'my-tool', schema, handler })
    ```
+
+   When the app is the whole answer, set `renderedNote` on the tool. `render-ui` appends it to its result, so the model knows what the app already shows and keeps its reply short.
 
 ## Deployment
 
@@ -361,6 +387,7 @@ The HTML import only works with wrangler's Text rule. If you see this error duri
 ### UI not rendering in Claude Desktop
 
 1. Verify the tunnel is running (`cloudflared tunnel --url ...`)
+   - If OAuth metadata or the `WWW-Authenticate` challenge names `localhost` instead of the tunnel host, set `MCP_TRUST_FORWARDED_HOST=true` in `.env` (see `.env.example`)
 2. Check Claude Desktop config has correct URL
 3. Restart Claude Desktop after config changes
 4. Verify tool has `_meta.ui.resourceUri` set

@@ -6,17 +6,18 @@ import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { EntityTypes, PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LocalFilter } from '../entityFilterLogic'
+import { SeriesNode } from '../seriesNode'
 import { SaveAsActionBanner } from './SaveAsActionBanner'
-import { makeFilter } from './testHelpers'
+import { makeSeriesNode } from './testHelpers'
 
-function renderBanner(filter: LocalFilter): ReturnType<typeof render> {
+function renderBanner(node: SeriesNode): ReturnType<typeof render> {
     return render(
         <Provider>
-            <SaveAsActionBanner filter={filter} />
+            <SaveAsActionBanner node={node} />
         </Provider>
     )
 }
@@ -45,7 +46,7 @@ describe('SaveAsActionBanner', () => {
         it.each([
             [
                 'autocapture with $el_text',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -58,7 +59,7 @@ describe('SaveAsActionBanner', () => {
             ],
             [
                 'autocapture with selector',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: 'selector',
@@ -71,7 +72,7 @@ describe('SaveAsActionBanner', () => {
             ],
             [
                 'autocapture with text and selector',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -94,10 +95,10 @@ describe('SaveAsActionBanner', () => {
         })
 
         it.each([
-            ['non-autocapture event', makeFilter({ id: '$pageview', name: '$pageview' })],
+            ['non-autocapture event', makeSeriesNode({ event: '$pageview', name: '$pageview' })],
             [
                 'autocapture with no element properties',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$browser',
@@ -108,11 +109,11 @@ describe('SaveAsActionBanner', () => {
                     ],
                 }),
             ],
-            ['autocapture with empty properties', makeFilter({ properties: [] })],
-            ['action type', makeFilter({ id: '123', name: 'My Action', type: EntityTypes.ACTIONS })],
+            ['autocapture with empty properties', makeSeriesNode({ properties: [] })],
+            ['action type', makeSeriesNode({ kind: NodeKind.ActionsNode, id: 123, name: 'My Action' })],
             [
                 'autocapture with only negated operators',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -132,7 +133,7 @@ describe('SaveAsActionBanner', () => {
     describe('Save as action button', () => {
         it('opens the shared save-as-action dialog when clicked', async () => {
             renderBanner(
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -155,7 +156,7 @@ describe('SaveAsActionBanner', () => {
     describe('dismissal', () => {
         it('hides the banner when close button is clicked', async () => {
             const { container } = renderBanner(
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',

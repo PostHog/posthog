@@ -3,9 +3,10 @@ import { useValues } from 'kea'
 import { pluralize } from 'lib/utils/strings'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { isActorsQuery, isEventsQuery, isGroupsQuery, isSessionsQuery } from '~/queries/utils'
+import { isActorsQuery } from '~/queries/schema/node-guards'
+import { isEventsQuery, isGroupsQuery, isSessionsQuery } from '~/queries/utils'
 
-export function DataTableCount(): JSX.Element | null {
+export function DataTableCount({ nouns }: { nouns?: [string, string] }): JSX.Element | null {
     const { totalCount, totalCountLoading, filteredCount, filteredCountLoading, hasActiveFilters, query } =
         useValues(dataNodeLogic)
 
@@ -19,7 +20,7 @@ export function DataTableCount(): JSX.Element | null {
         return null
     }
 
-    const entityType = getEntityType(query)
+    const entityType = nouns ? { singular: nouns[0], plural: nouns[1] } : getEntityType(query)
     const displayFilteredCount = filteredCount !== null ? filteredCount : 0
 
     const text = hasActiveFilters

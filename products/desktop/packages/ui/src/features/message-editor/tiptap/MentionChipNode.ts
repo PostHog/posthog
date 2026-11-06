@@ -1,3 +1,4 @@
+import type { PostHogObjectKind } from "@posthog/core/message-editor/content";
 import type { UploadableSkillSource } from "@posthog/shared";
 import { mergeAttributes, Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
@@ -12,19 +13,23 @@ export type ChipType =
   | "experiment"
   | "insight"
   | "feature_flag"
+  | "posthog_object"
   | "github_issue"
-  | "github_pr";
+  | "github_pr"
+  | "comment_context";
 
 export interface MentionChipAttrs {
   type: ChipType;
   id: string;
   label: string;
+  objectKind?: PostHogObjectKind;
   pastedText: boolean;
   /** Optional unique handle so callers can later replace or remove this chip. */
   chipId?: string | null;
   skillPath?: string;
   skillSource?: UploadableSkillSource;
   skillName?: string;
+  imagePath?: string;
 }
 
 declare module "@tiptap/core" {
@@ -52,11 +57,13 @@ export const MentionChipNode = Node.create({
       type: { default: "file" as ChipType },
       id: { default: "" },
       label: { default: "" },
+      objectKind: { default: undefined },
       pastedText: { default: false },
       chipId: { default: null as string | null },
       skillPath: { default: undefined },
       skillSource: { default: undefined },
       skillName: { default: undefined },
+      imagePath: { default: undefined },
     };
   },
 
@@ -67,7 +74,11 @@ export const MentionChipNode = Node.create({
   renderHTML({ node, HTMLAttributes }) {
     const { type, label } = node.attrs as MentionChipAttrs;
     const isCommand = type === "command";
-    const prefix = isCommand ? "/" : "@";
+    const prefix = isCommand
+      ? "/"
+      : type === "posthog_object" || type === "comment_context"
+        ? ""
+        : "@";
 
     return [
       "span",

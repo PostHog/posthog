@@ -6,9 +6,9 @@ description: >
   (sources.yml + staging/marts + schema tests) run against your own or PostHog's managed warehouse. Read
   before authoring any specific business model — covers the PostHog-vs-dbt decision, the view-create →
   view-materialize → sync_frequency workflow and the HogQL column-aliasing rule, the dbt project skeleton and
-  the honest "no native dbt integration" picture, warehouse joins and star-schema dimensions, currency
+  the "no native dbt integration" picture, warehouse joins and star-schema dimensions, currency
   conversion with convertCurrency(), and checking/registering models in the data catalog for reuse. Companion
-  to the domain skills modeling-revenue-metrics, modeling-conversion-metrics, modeling-activation-metrics,
+  to modeling-revenue-metrics, modeling-conversion-metrics, modeling-activation-metrics,
   modeling-product-usage-metrics, and modeling-dimension-tables. Use when the user asks how to build a view,
   materialized view, or dbt model in PostHog, or which of the two stacks to use.
 ---

@@ -7,11 +7,21 @@ from posthog.temporal.oauth import (
     ARRAY_APP_ID_DEV,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     POSTHOG_AI_APP_ID_DEV,
+    SIGNALS_APP_CLIENT_ID_DEV,
+    SIGNALS_APP_ID_DEV,
 )
 from posthog.utils import get_instance_region
 
-ARRAY_REDIRECT_URIS = "http://localhost:8237/callback http://localhost:8239/callback"
+# The desktop app's loopback callbacks, plus the custom schemes the mobile app's local, development and
+# preview builds sign in with, since all of them use this client against a local stack.
+ARRAY_REDIRECT_URIS = (
+    "http://localhost:8237/callback http://localhost:8239/callback "
+    "posthog://callback posthog-dev://callback posthog-preview://callback"
+)
 POSTHOG_AI_REDIRECT_URIS = "http://localhost:8000/authorize"
+# Server-minted only: no interactive grant is ever issued against the Signals app, so it has
+# no real callback. Django requires a redirect URI for the authorization-code grant type.
+SIGNALS_REDIRECT_URIS = "http://localhost:8000/authorize"
 
 # Skipped rather than failed, so the unconditional call in bin/migrate is safe.
 PRODUCTION_REGIONS = frozenset({"US", "EU"})
@@ -51,6 +61,20 @@ class Command(BaseCommand):
                 "is_first_party": True,
             },
         )
+        self._setup_app(
+            SIGNALS_APP_CLIENT_ID_DEV,
+            {
+                "id": SIGNALS_APP_ID_DEV,
+                "name": "Signals Dev App",
+                "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": SIGNALS_REDIRECT_URIS,
+                "algorithm": "RS256",
+                "auth_brand": OAuthApplicationAuthBrand.POSTHOG.value,
+                "is_verified": True,
+                "is_first_party": True,
+            },
+        )
 
     def _setup_app(self, client_id: str, defaults: dict[str, object]) -> None:
         if not client_id:
@@ -66,6 +90,13 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(self.style.SUCCESS(f"OAuthApplication '{app.name}' already exists"))
+        # Appended rather than replaced, so a redirect URI a developer added by hand survives.
+        registered = app.redirect_uris.split()
+        missing = [uri for uri in str(defaults["redirect_uris"]).split() if uri not in registered]
+        if missing:
+            app.redirect_uris = " ".join([*registered, *missing])
+            app.save(update_fields=["redirect_uris"])
+            self.stdout.write(self.style.SUCCESS(f"  Added redirect URIs to '{app.name}': {' '.join(missing)}"))
         # Not repaired here: changing the pk means deleting the row, cascading to its tokens.
         if str(app.id) != defaults["id"]:
             self.stdout.write(

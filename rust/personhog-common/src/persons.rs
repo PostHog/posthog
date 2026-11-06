@@ -20,6 +20,21 @@ pub fn person_uuid(team_id: i64, distinct_id: &str) -> Uuid {
     )
 }
 
+/// Every cookieless visitor shares this distinct id. A hash key override that
+/// stores it counts as no override. Mirrors the constant in
+/// `common-cookieless`. The personhog services do not depend on that crate
+/// because it pulls in redis and moka.
+pub const COOKIELESS_SENTINEL_VALUE: &str = "$posthog_cookieless";
+
+/// Validate a configured table identifier before it is interpolated into
+/// SQL (identifiers cannot be bound as parameters).
+pub fn validate_table_name(table: &str) -> Result<(), String> {
+    if table.is_empty() || !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("invalid table name: {table:?}"));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct Person {
     pub id: i64,

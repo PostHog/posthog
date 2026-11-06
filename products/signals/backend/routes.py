@@ -1,6 +1,18 @@
 from posthog.api.routing import RouterRegistry
 
 import products.signals.backend.views as signals
+from products.signals.backend.presentation.activity_summary import ActivitySummaryMembersViewSet, ActivitySummaryViewSet
+from products.signals.backend.presentation.anomalies import AnomalyViewSet
+from products.signals.backend.presentation.inbox_summary import InboxSummaryViewSet
+from products.signals.backend.presentation.onboarding import InboxOnboardingViewSet
+from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
+from products.signals.backend.presentation.scout_rubrics import SignalScoutRubricViewSet
+from products.signals.backend.presentation.spend import (
+    SignalMonthlyUsageViewSet,
+    SignalSourceSpendViewSet,
+    SignalSpendViewSet,
+)
+from products.signals.backend.scout_chat import SignalScoutChatTaskViewSet
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
     SignalScoutConfigViewSet,
@@ -11,13 +23,48 @@ from products.signals.backend.scout_harness.views import (
     SignalScoutViewSet,
     SignalScratchpadViewSet,
 )
+from products.signals.backend.scout_suggestions_api import SignalScoutSuggestionViewSet
 from products.signals.backend.views import SignalViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(r"signals/usage", SignalMonthlyUsageViewSet, "project_signals_usage", ["team_id"])
+    routers.projects.register(r"signals/spend", SignalSpendViewSet, "project_signals_spend", ["team_id"])
+    routers.projects.register(
+        r"signals/source_spend", SignalSourceSpendViewSet, "project_signals_source_spend", ["team_id"]
+    )
+    routers.projects.register(r"signals/onboarding", InboxOnboardingViewSet, "project_signals_onboarding", ["team_id"])
+    routers.projects.register(
+        r"signals/inbox_summary", InboxSummaryViewSet, "project_signals_inbox_summary", ["team_id"]
+    )
+    routers.projects.register(
+        r"signals/activity_summary", ActivitySummaryViewSet, "project_signals_activity_summary", ["team_id"]
+    )
+    routers.projects.register(
+        r"signals/activity_summary_members",
+        ActivitySummaryMembersViewSet,
+        "project_signals_activity_summary_members",
+        ["team_id"],
+    )
+    routers.projects.register(r"signals/anomalies", AnomalyViewSet, "project_signals_anomalies", ["team_id"])
+    routers.projects.register(
+        r"signals/scout/rubrics", SignalScoutRubricViewSet, "project_signals_scout_rubrics", ["team_id"]
+    )
+    routers.projects.register(
+        r"signals/reviewer_exclusions",
+        SignalReviewerExclusionViewSet,
+        "project_signals_reviewer_exclusions",
+        ["team_id"],
+    )
     routers.projects.register(r"signals", SignalViewSet, "project_signals", ["team_id"])
     signal_reports_router = routers.projects.register(
         r"signals/reports", signals.SignalReportViewSet, "project_signal_reports", ["team_id"]
+    )
+    signal_reports_router.register(
+        r"checks",
+        signals.SignalReportCheckViewSet,
+        "project_signal_report_checks",
+        ["team_id", "report_id"],
     )
     signal_reports_router.register(
         r"artefacts",
@@ -65,6 +112,23 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/scout/members",
         SignalScoutMembersViewSet,
         "project_signals_scout_members",
+        ["team_id"],
+    )
+    # Scout chat kickoff: server-minted tasks with the reserved SIGNALS_CHAT origin, so the
+    # generally-available Inbox chat CTAs work without the Desktop waitlist that gates the
+    # generic task run endpoints.
+    routers.projects.register(
+        r"signals/scout/chat_tasks",
+        SignalScoutChatTaskViewSet,
+        "project_signals_scout_chat_tasks",
+        ["team_id"],
+    )
+    # Pre-computed "Suggested for this project" scout batch (read / dismiss / refresh); the scouts
+    # tab reads it with zero wait, the chat_tasks path above stays the interactive alternative.
+    routers.projects.register(
+        r"signals/scout/suggestions",
+        SignalScoutSuggestionViewSet,
+        "project_signals_scout_suggestions",
         ["team_id"],
     )
     routers.projects.register(r"signals/scout", SignalScoutViewSet, "project_signals_scout", ["team_id"])

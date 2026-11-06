@@ -7,13 +7,14 @@ packages:
 catalog:
     '@hono/node-server': ^1.13.7
     '@hono/trpc-server': ^0.3.4
-    '@earendil-works/pi-agent-core': 0.83.0
-    '@earendil-works/pi-ai': 0.83.0
-    '@earendil-works/pi-coding-agent': 0.83.0
-    '@earendil-works/pi-tui': 0.83.0
+    '@earendil-works/pi-agent-core': 1.2.0
+    '@earendil-works/pi-ai': 1.2.0
+    '@earendil-works/pi-coding-agent': 1.2.0
+    '@earendil-works/pi-tui': 1.2.0
     '@parcel/watcher': ^2.5.6
     '@phosphor-icons/react': ^2.1.10
-    '@posthog/quill': 0.3.0-beta.24
+    '@posthog/brand': 0.11.0
+    '@posthog/quill': 0.3.0-beta.29
     '@radix-ui/themes': ^3.2.1
     '@tanstack/react-query': ^5.100.14
     '@tanstack/react-router': ^1.170.10
@@ -41,6 +42,10 @@ ignoredBuiltDependencies:
     - msw
     - protobufjs
 
+# A flat node_modules, which Electron and the native rebuilds require.
+nodeLinker: hoisted
+shamefullyHoist: true
+
 minimumReleaseAge: 10080
 
 minimumReleaseAgeExclude:
@@ -64,6 +69,12 @@ minimumReleaseAgeExclude:
     - '@posthog/quill'
     - '@posthog/quill-charts'
     - '@posthog/quill-tokens'
+    # PostHog packages are released by our own workflows, so dependency automation
+    # should not delay these package updates.
+    - '@posthog/*'
+    - posthog-js
+    - posthog-node
+    - posthog-react-native
     - '@tanstack/devtools-core'
     - '@tanstack/history'
     - '@tanstack/react-router'
@@ -78,6 +89,8 @@ minimumReleaseAgeExclude:
     - '@tanstack/store'
     - '@tanstack/virtual-core'
     - '@tanstack/virtual-file-routes'
+    # Drop once it is over the 7-day minimumReleaseAge.
+    - electron@42.11.16
 
 overrides:
     # node-abi predates Electron 42; ^3.92.0 is the first release that knows its ABI
@@ -108,8 +121,8 @@ overrides:
     # Swap vite for the rolldown-based fork for faster dev boot times (#3027).
     vite: npm:rolldown-vite@7.3.1
     # Security: force patched versions for advisory-flagged packages (each pin is over the
-    # 7-day minimumReleaseAge and clears the package's advisories). Local mirror of the
-    # PostHog/code hardening PR; drop once a resync pins to a commit that already has it.
+    # 7-day minimumReleaseAge and clears the package's advisories). Drop a pin once the
+    # dependents require a patched version on their own.
     protobufjs: 7.6.5
     axios: 1.18.1
     hono: 4.12.28
@@ -132,17 +145,30 @@ overrides:
     qs: 6.15.3
     smol-toml: 1.6.1
 
-onlyBuiltDependencies:
-    - '@parcel/watcher'
-    - '@posthog/cli'
-    - better-sqlite3
-    - core-js
-    - electron
-    - electron-winstaller
-    - esbuild
-    - node-pty
-    - tree-sitter-cli
+allowBuilds:
+    '@parcel/watcher': true
+    '@posthog/cli': true
+    better-sqlite3: true
+    core-js: true
+    electron: true
+    electron-winstaller: true
+    esbuild: true
+    node-pty: true
+    tree-sitter-cli: true
+    '@google/genai': false
+    '@swc/core': false
+    koffi: false
+    msw: false
+    protobufjs: false
+    unrs-resolver: false
+
+# Keep `pnpm run` from starting an install, as the root workspace does.
+verifyDepsBeforeRun: false
+# Installs without a terminal (flox activation, agent hooks, CI) abort when pnpm asks before
+# it rebuilds node_modules after a store or layout change, so rebuild without asking.
+confirmModulesPurge: false
 
 patchedDependencies:
+    app-builder-lib@26.15.3: patches/app-builder-lib@26.15.3.patch
     node-pty: patches/node-pty.patch
     react-hotkeys-hook: patches/react-hotkeys-hook.patch

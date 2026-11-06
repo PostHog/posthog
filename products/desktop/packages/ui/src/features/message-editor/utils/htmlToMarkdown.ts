@@ -4,6 +4,20 @@ import TurndownService from "turndown";
 
 let turndown: TurndownService | null = null;
 
+export interface ClipboardHtmlConversion {
+  text: string;
+  kind: "markdown" | "plain";
+}
+
+const NON_CONTENT_TAGS = new Set([
+  "HEAD",
+  "LINK",
+  "META",
+  "SCRIPT",
+  "STYLE",
+  "TITLE",
+]);
+
 function getTurndown(): TurndownService {
   if (turndown) return turndown;
   turndown = new TurndownService({
@@ -45,4 +59,52 @@ export function htmlToMarkdown(
   }
 
   return markdown;
+}
+
+function containsOnlyOneCodeBlock(html: string): boolean {
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const codeBlocks = document.body.querySelectorAll("pre");
+  if (codeBlocks.length !== 1) return false;
+
+  const codeBlock = codeBlocks[0];
+  const containsOnlyCodeBlockElements = Array.from(
+    document.body.querySelectorAll("*"),
+  ).every(
+    (element) =>
+      NON_CONTENT_TAGS.has(element.tagName) ||
+      element === codeBlock ||
+      element.contains(codeBlock) ||
+      codeBlock.contains(element),
+  );
+  if (!containsOnlyCodeBlockElements) return false;
+
+  return !containsTextOutsideCodeBlock(document.body, codeBlock);
+}
+
+function containsTextOutsideCodeBlock(
+  node: Node,
+  codeBlock: HTMLPreElement,
+): boolean {
+  if (node === codeBlock) return false;
+  if (node.nodeType === Node.TEXT_NODE)
+    return Boolean(node.textContent?.trim());
+  if (node.nodeType !== Node.ELEMENT_NODE) return false;
+
+  const element = node as Element;
+  if (NON_CONTENT_TAGS.has(element.tagName)) return false;
+  return Array.from(element.childNodes).some((child) =>
+    containsTextOutsideCodeBlock(child, codeBlock),
+  );
+}
+
+export function convertClipboardHtml(
+  html: string,
+  plainTextFallback?: string,
+): ClipboardHtmlConversion | null {
+  if (plainTextFallback && containsOnlyOneCodeBlock(html)) {
+    return { text: plainTextFallback, kind: "plain" };
+  }
+
+  const markdown = htmlToMarkdown(html, plainTextFallback);
+  return markdown ? { text: markdown, kind: "markdown" } : null;
 }

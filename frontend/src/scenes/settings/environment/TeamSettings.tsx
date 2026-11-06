@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
@@ -12,10 +11,9 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { debounce } from 'lib/utils/async'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -23,40 +21,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { BusinessModelConfig } from './BusinessModelConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
-
-export function TeamDisplayName({ updateInline = false }: { updateInline?: boolean }): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const [name, setName] = useState(currentTeam?.name || '')
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
-
-    const debouncedUpdateCurrentTeam = useMemo(() => debounce(updateCurrentTeam, 500), [updateCurrentTeam])
-    const handleChange = (value: string): void => {
-        setName(value)
-        if (updateInline && !restrictedReason) {
-            debouncedUpdateCurrentTeam({ name: value })
-        }
-    }
-
-    return (
-        <div className="deprecated-space-y-4 max-w-160">
-            <LemonInput value={name} onChange={handleChange} disabledReason={restrictedReason} />
-            {!updateInline && (
-                <LemonButton
-                    type="primary"
-                    onClick={() => updateCurrentTeam({ name })}
-                    disabled={!name || !currentTeam || name === currentTeam.name || !!restrictedReason}
-                    loading={currentTeamLoading}
-                >
-                    Rename project
-                </LemonButton>
-            )}
-        </div>
-    )
-}
 
 export function WebSnippet(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)

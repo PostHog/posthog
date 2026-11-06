@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.mixins import validated_request
 from posthog.models.team import Team
 from posthog.permissions import IsStaffUser
+from posthog.uuidt import UUIDT
 
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 100
@@ -17,9 +18,9 @@ class StaffTeamSearchQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         help_text=(
             "Search string matched against team id (exact), api_token (exact), team name (partial), "
-            f"or organization name (partial). Non-numeric queries must be at least {MIN_SEARCH_LENGTH} "
-            "characters so an empty or single-letter query never returns half the table; a numeric team-id "
-            "lookup is allowed at a single digit."
+            "organization name (partial), or organization id (exact). Non-numeric queries must be at least "
+            f"{MIN_SEARCH_LENGTH} characters so an empty or single-letter query never returns half the table; "
+            "a numeric team-id lookup is allowed at a single digit."
         ),
     )
     limit = serializers.IntegerField(
@@ -51,6 +52,13 @@ class StaffTeamResultSerializer(serializers.Serializer):
     organization_id = serializers.CharField(help_text="Organization uuid that owns the team.")
     organization_name = serializers.CharField(help_text="Organization name that owns the team.")
     project_id = serializers.IntegerField(help_text="Project id the team belongs to.")
+    parent_team_id = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Project root team id when this team is an environment, or null when it is the root. "
+            "The flag limit is set on the root, so a team with this set cannot take an override."
+        ),
+    )
 
 
 @extend_schema_serializer(many=False)
@@ -91,6 +99,8 @@ class FeatureFlagsStaffTeamSearchViewSet(viewsets.ViewSet):
             query = Q(name__icontains=search) | Q(api_token=search) | Q(organization__name__icontains=search)
             if search.isdecimal():
                 query |= Q(id=int(search))
+            if UUIDT.is_valid_uuid(search):
+                query |= Q(organization_id=search)
 
         # icontains on name/organization__name forces a sequential scan (no btree-usable index);
         # acceptable today given staff-only, low-frequency usage. Revisit with a pg_trgm index if
@@ -101,7 +111,9 @@ class FeatureFlagsStaffTeamSearchViewSet(viewsets.ViewSet):
             Team.objects.filter(query)
             .annotate(organization_name=F("organization__name"))
             .order_by("id")
-            .values("id", "name", "api_token", "organization_id", "organization_name", "project_id")[:limit]
+            .values("id", "name", "api_token", "organization_id", "organization_name", "project_id", "parent_team_id")[
+                :limit
+            ]
         )
 
         return response.Response(StaffTeamSearchResponseSerializer({"results": list(teams)}).data)

@@ -24,8 +24,9 @@ function userMessage(
   id: string,
   content: string,
   pinToTop?: boolean,
+  timestamp = 0,
 ): Extract<ConversationItem, { type: "user_message" }> {
-  return { type: "user_message", id, content, timestamp: 0, pinToTop };
+  return { type: "user_message", id, content, timestamp, pinToTop };
 }
 
 describe("mergeConversationItems", () => {
@@ -56,16 +57,21 @@ describe("mergeConversationItems", () => {
     expect(result.map((i) => i.id)).toEqual(["opt", "setup"]);
   });
 
-  it("cloud: filters echoed user_message that matches optimistic content", () => {
+  it("cloud: stitches an echoed user_message into its optimistic row", () => {
     const result = mergeConversationItems({
       conversationItems: [
-        userMessage("echo", "hello"),
-        userMessage("other", "different"),
+        userMessage("echo", "hello", undefined, 100),
+        userMessage("other", "different", undefined, 200),
       ],
-      optimisticItems: [userMessage("opt", "hello")],
+      optimisticItems: [userMessage("opt", "hello", true, 300)],
       isCloud: true,
     });
     expect(result.map((i) => i.id)).toEqual(["opt", "other"]);
+    expect(result[0]).toMatchObject({
+      id: "opt",
+      timestamp: 100,
+      pinToTop: undefined,
+    });
   });
 
   it("cloud: dedupes the echoed prompt even when it carries an appended channel CONTEXT.md", () => {
@@ -88,6 +94,72 @@ describe("mergeConversationItems", () => {
     if (pinned?.type !== "user_message")
       throw new Error("expected user_message");
     expect(pinned.content).toBe(echoedWithContext);
+  });
+
+  it.each(
+    [
+      { name: "plain bare echo", bare: "hello" },
+      {
+        name: "bare echo carrying an attachment summary",
+        bare: "hello\n\nAttached files: clipboard.png",
+      },
+    ].flatMap((entry) => [
+      { ...entry, withOptimistic: true },
+      { ...entry, withOptimistic: false },
+    ]),
+  )(
+    "cloud: folds a raced $name and the shadow-context echo (optimistic: $withOptimistic)",
+    ({ bare, withOptimistic }) => {
+      const echoedWithContext =
+        'hello\n\n<channel_context channel="bluebird">background</channel_context>';
+      const result = mergeConversationItems({
+        conversationItems: [
+          userMessage("bare", bare),
+          progressGroup("setup"),
+          userMessage("shadow", echoedWithContext),
+          userMessage("other", "different"),
+        ],
+        optimisticItems: withOptimistic
+          ? [userMessage("opt", echoedWithContext)]
+          : [],
+        isCloud: true,
+      });
+
+      expect(result.map((item) => item.id)).toEqual([
+        withOptimistic ? "opt" : "bare",
+        "setup",
+        "other",
+      ]);
+      const pinned = result[0];
+      if (pinned.type !== "user_message")
+        throw new Error("expected user_message");
+      expect(pinned.content).toBe(echoedWithContext);
+    },
+  );
+
+  it("cloud: preserves a repeated prompt after the agent has replied", () => {
+    const reply: ConversationItem = {
+      ...progressGroup("reply"),
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Build checked." },
+      },
+    } as ConversationItem;
+    const conversationItems = [
+      userMessage("first", "Check the build"),
+      reply,
+      userMessage(
+        "second",
+        'Check the build\n\n<channel_context channel="example">Project notes.</channel_context>',
+      ),
+    ];
+    expect(
+      mergeConversationItems({
+        conversationItems,
+        optimisticItems: [],
+        isCloud: true,
+      }),
+    ).toEqual(conversationItems);
   });
 
   it("cloud: dedupes the echo when the placeholder carries an 'Attached files:' summary the echo lacks", () => {

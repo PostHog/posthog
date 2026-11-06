@@ -13,15 +13,29 @@ export interface ReplayIframeData {
 
 export const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 
+// Recordings with no captured href get the synthesized 'unknown', which a heatmap query cannot use.
+export function isUsableHeatmapUrl(url: string | undefined | null): url is string {
+    const trimmed = url?.trim()
+    return !!trimmed && trimmed !== 'unknown'
+}
+
 // Serializing the replayed DOM allocates several full copies of this on the main thread, in a tab
 // that is already holding a decoded recording. Past roughly this size that spike is what kills the
 // renderer.
 export const MAX_REPLAY_IFRAME_HTML_CHARS = 2_000_000
 
+export const MAX_REPLAY_IFRAME_DIMENSION_PX = 8_000
+
+const replayDimensionSchema = z.number().int().positive().max(MAX_REPLAY_IFRAME_DIMENSION_PX)
+
+export function isReplayDimension(value: number): boolean {
+    return replayDimensionSchema.safeParse(value).success
+}
+
 const replayIframeDataSchema = z.object({
     html: z.string().refine((html) => !!html.trim()),
-    width: z.number(),
-    height: z.number(),
+    width: replayDimensionSchema,
+    height: replayDimensionSchema,
     startDateTime: z.union([z.string(), z.undefined()]),
     url: z.union([z.string(), z.undefined()]),
 })

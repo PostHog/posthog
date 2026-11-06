@@ -9,7 +9,15 @@ from psycopg import sql
 from posthog.models import Integration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import postgres_default_fields
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
@@ -18,6 +26,22 @@ from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
 )
+
+EXPECTED_EVENTS_BATCH_EXPORT_FIELDS = [
+    "uuid",
+    "event",
+    "properties",
+    "elements",
+    "set",
+    "set_once",
+    "distinct_id",
+    "team_id",
+    "ip",
+    "site_url",
+    "timestamp",
+    "person_properties",
+    "person_id",
+]
 
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "team_id",
@@ -32,39 +56,16 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
 ]
 
 
-TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
-    BatchExportModel(
-        name="a-custom-model",
-        schema={
-            "fields": [
-                {"expression": "event", "alias": "event"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-                {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-            ],
-            "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-        },
-    ),
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(
-        name="events",
-        schema=None,
+TEST_MODELS: list[AnyBatchExportModel | None] = [
+    BatchExportEventsModel(),
+    BatchExportEventsModel(
         filters=[
             {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
             {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
         ],
     ),
-    BatchExportModel(name="persons", schema=None),
-    BatchExportModel(name="sessions", schema=None),
-    {
-        "fields": [
-            {"expression": "event", "alias": "event"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-            {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-        ],
-        "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-    },
+    BatchExportPersonsModel(),
+    BatchExportSessionsModel(),
     None,
 ]
 
@@ -75,7 +76,7 @@ async def assert_clickhouse_records_in_postgres(
     schema_name: str,
     table_name: str,
     team_id: int,
-    batch_export_model: BatchExportModel | BatchExportSchema | None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None,
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
@@ -102,7 +103,7 @@ async def assert_clickhouse_records_in_postgres(
         schema_name: PostgreSQL schema name.
         table_name: PostgreSQL table name.
         team_id: The ID of the team that we are testing events for.
-        batch_export_schema: Custom schema used in the batch export.
+        batch_export_model: Model used in the batch export.
         expected_fields: The expected fields to be exported.
     """
     inserted_records = []
@@ -116,15 +117,18 @@ async def assert_clickhouse_records_in_postgres(
             inserted_records.append(event)
 
     if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
+        if isinstance(batch_export_model, AnyBatchExportModel):
             model_name = batch_export_model.name
-            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
-            filters = batch_export_model.filters
-            extra_query_parameters = (
-                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
+            fields = schema["fields"] if schema is not None else None
+            filters = (
+                batch_export_model.filters
+                if isinstance(batch_export_model, BatchExportEventsModel | BatchExportEventsCustomModel)
+                else None
             )
+            extra_query_parameters = schema["values"] if schema is not None else None
         else:
-            model_name = "custom"
+            model_name = "events"
             fields = batch_export_model["fields"]
             filters = None
             extra_query_parameters = batch_export_model["values"]
@@ -133,6 +137,9 @@ async def assert_clickhouse_records_in_postgres(
         extra_query_parameters = None
         fields = None
         filters = None
+
+    if model_name == "events" and fields is None and expected_fields is None:
+        expected_fields = EXPECTED_EVENTS_BATCH_EXPORT_FIELDS
 
     expected_records = []
     queue = RecordBatchQueue()
@@ -146,7 +153,6 @@ async def assert_clickhouse_records_in_postgres(
         model_name=model_name,
         team_id=team_id,
         full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
         fields=fields,
         filters=filters,
         destination_default_fields=postgres_default_fields(),

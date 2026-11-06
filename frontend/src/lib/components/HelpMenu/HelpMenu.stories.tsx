@@ -5,17 +5,30 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { healthSummaryLogic } from './healthSummaryLogic'
 import { HelpMenu } from './HelpMenu'
 import { helpMenuLogic } from './helpMenuLogic'
 
 // The health-issues summary is the only request the menu makes that the default Storybook
 // mocks (billing, preflight, users/@me, status page) don't already cover. Mocking it drives
 // the trigger/Health badge state deterministically.
-const HEALTHY_SUMMARY = { total: 0, by_severity: {}, by_kind: {} }
+const NO_ISSUES = { total: 0, by_severity: {}, by_kind: {} }
+const HEALTHY_SUMMARY = { unsnoozed: NO_ISSUES, snoozed: NO_ISSUES }
 const UNHEALTHY_SUMMARY = {
-    total: 3,
-    by_severity: { critical: 1, warning: 2 },
-    by_kind: { ingestion_warning: 2, query_error: 1 },
+    unsnoozed: {
+        total: 3,
+        by_severity: { critical: 1, warning: 2 },
+        by_kind: { ingestion_warning: 2, query_error: 1 },
+    },
+    snoozed: NO_ISSUES,
+}
+const ALL_SNOOZED_SUMMARY = {
+    unsnoozed: NO_ISSUES,
+    snoozed: {
+        total: 3,
+        by_severity: { critical: 1, warning: 2 },
+        by_kind: { ingestion_warning: 2, query_error: 1 },
+    },
 }
 
 const meta: Meta<typeof HelpMenu> = {
@@ -23,7 +36,13 @@ const meta: Meta<typeof HelpMenu> = {
     component: HelpMenu,
     render: () => {
         const { setHelpMenuOpen } = useActions(helpMenuLogic)
-        useOnMountEffect(() => setHelpMenuOpen(true))
+        const { loadHealthSummary } = useActions(healthSummaryLogic)
+        useOnMountEffect(() => {
+            setHelpMenuOpen(true)
+            // The app waits for the browser to go idle before it loads the summary. Load it now so
+            // the snapshot does not depend on when that happens.
+            loadHealthSummary()
+        })
 
         return (
             <div className="flex h-[1400px] w-[600px]">
@@ -49,4 +68,8 @@ export const Open: Story = {
 
 export const OpenWithHealthIssues: Story = {
     decorators: [mswDecorator({ get: { '/api/environments/:team_id/health_issues/summary/': UNHEALTHY_SUMMARY } })],
+}
+
+export const OpenWithSnoozedHealthIssues: Story = {
+    decorators: [mswDecorator({ get: { '/api/environments/:team_id/health_issues/summary/': ALL_SNOOZED_SUMMARY } })],
 }

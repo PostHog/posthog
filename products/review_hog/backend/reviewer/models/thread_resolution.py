@@ -1,0 +1,88 @@
+from enum import Enum, StrEnum
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class ThreadOutcome(str, Enum):
+    """Terminal outcome of one work-list thread (see CONTEXT.md — "Thread outcome")."""
+
+    FIXED = "fixed"
+    WONT_FIX = "wont_fix"
+    ALREADY_FIXED = "already_fixed"
+    OBSOLETE = "obsolete"
+    ESCALATE = "escalate"
+
+
+class CommitHold(StrEnum):
+    """Why the stage must not commit to the PR branch. The threads stay open for a person."""
+
+    # Trunk removes a queued PR on any push and resets every PR testing behind it. A person
+    # submitted the PR, so it ships as it is.
+    MERGE_QUEUE = "pr_in_merge_queue"
+    # The stage commits to the head branch only, so a fix here leaves every PR stacked on top
+    # behind its base until someone restacks.
+    STACKED = "pr_has_stacked_pull_requests"
+    # Branch protection on the head branch would refuse the push, or let only some people push. A
+    # person decides what lands on a protected branch.
+    BRANCH_PROTECTED = "pr_branch_protected"
+
+
+class ThreadResolution(BaseModel):
+    """One resolution turn's validated output: the verdict on a single review thread.
+
+    The agent judges the thread (worth? safe?), implements + signed-commits when warranted, and
+    returns this. GitHub side effects (reply, resolve) are performed by the driver from this
+    verdict — the agent never posts comments or resolves threads itself.
+    """
+
+    thread_id: str = Field(description="The review thread's node id, echoed back verbatim from the turn's input.")
+    outcome: ThreadOutcome = Field(
+        description=(
+            "fixed: implemented and committed via the signed-commit tooling. "
+            "wont_fix: deliberately declined (not worth doing). "
+            "already_fixed: the current code already addresses it. "
+            "obsolete: superseded by other changes (name them in the reply). "
+            "escalate: worth doing but not safe to do unattended — a human must decide."
+        )
+    )
+    reasoning: str = Field(
+        description=(
+            "Internal assessment for the work log: the worth/safe judgment and what was checked "
+            "against the current code, with file:line evidence."
+        )
+    )
+    reply: str = Field(
+        description=(
+            "The reply to post on the thread, exactly as written. Shape: one verdict sentence, a blank "
+            "line, `---`, then at most 3 short lines (5 for escalate) in plain language a reader can act "
+            "on without opening the code. No test or lint results here; they go in verification."
+        )
+    )
+    commit_sha: str | None = Field(
+        default=None,
+        description=(
+            "The pushed commit's SHA exactly as reported by the signed-commit tooling. "
+            "Required when outcome is fixed; null otherwise."
+        ),
+    )
+    verification: str | None = Field(
+        default=None,
+        description=(
+            "A short summary of what was run to verify a fix (lint, tests) and the honest result, failures "
+            "included. Posted under the reply as a collapsed block on a public thread: never raw command "
+            "output, environment values, or URLs that carry a token."
+        ),
+    )
+
+    @field_validator("thread_id", "reasoning", "reply")
+    @classmethod
+    def fields_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+    @model_validator(mode="after")
+    def fixed_requires_commit(self) -> "ThreadResolution":
+        if self.outcome == ThreadOutcome.FIXED and not (self.commit_sha or "").strip():
+            raise ValueError("outcome=fixed requires the pushed commit's sha in commit_sha")
+        return self

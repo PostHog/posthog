@@ -9,11 +9,9 @@ set -euo pipefail
 REPOSITORY="${REPOSITORY:?}"
 PR_NUMBER="${PR_NUMBER:?}"
 
-# Deploy-relevant subset of ci-backend.yml's `backend` filter (paths that ship
-# in the Django image) plus rust/** (rust services deploy separately and also
-# serve clients). Tooling/test entries (pyproject.toml, uv.lock, conftest.py,
-# docker-compose*, ...) are deliberately excluded so they cannot block an
-# unrelated desktop PR.
+# Match deployable Django paths in .depot/workflows/ci-backend.yml's `backend` filter.
+# Include rust/** because Rust services deploy separately and serve desktop clients.
+# Exclude tooling and tests so they cannot block an unrelated desktop PR.
 is_backend_path() {
     case "$1" in
         *.md | *.mdx) return 1 ;;
@@ -31,7 +29,11 @@ is_backend_path() {
 
 is_desktop_path() {
     case "$1" in
+        # Backend CI regenerates this file from the schema and replaces any hand edit. New endpoints in it stay unused until a desktop call site uses them, and call sites stay gated.
+        products/desktop/packages/api-client/src/generated.ts) return 1 ;;
         products/desktop/*) return 0 ;;
+        # The desktop app bundles these packages, so they ship on its release schedule.
+        packages/agent/packages/*) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -58,11 +60,11 @@ if [ "$touched_desktop" = false ]; then
     exit 0
 fi
 
-# Labels come from the API, not the event payload, so applying the skip label
-# and re-running is enough; label changes do not retrigger pull_request runs.
+# Labels come from the API, not the event payload, so a rerun of this job sees
+# a label change; desktop-backend-coupling-rerun.yml triggers that rerun.
 pr_json=$(fetch_api "repos/$REPOSITORY/pulls/$PR_NUMBER") || exit 1
-if jq -e '[.labels[]?.name] | index("skip-desktop-backend-check") != null' <<<"$pr_json" >/dev/null; then
-    echo "::notice::PR #$PR_NUMBER carries skip-desktop-backend-check; skipping the coupling check."
+if jq -e '[.labels[]?.name] | index("desktop-skip-backend-check") != null' <<<"$pr_json" >/dev/null; then
+    echo "::notice::PR #$PR_NUMBER carries desktop-skip-backend-check; skipping the coupling check."
     exit 0
 fi
 
@@ -78,7 +80,7 @@ if [ "$touched_backend" = true ]; then
     echo "  2. Second PR: desktop changes (merge once the backend is live)."
     echo ""
     echo "If the two halves are independent (safe to ship in either order), apply the"
-    echo "'skip-desktop-backend-check' label and re-run this check."
+    echo "'desktop-skip-backend-check' label. The check reruns automatically."
     exit 1
 fi
 

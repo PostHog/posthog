@@ -1,12 +1,13 @@
 from typing import Any
 
-from django.test.testcases import TestCase
+from django.test.testcases import SimpleTestCase
 
 from parameterized import parameterized
 from pydantic import BaseModel
 
 from posthog.schema import (
     BaseMathType,
+    BIVisualizationNode,
     BreakdownAttributionType,
     EventPropertyFilter,
     EventsNode,
@@ -27,7 +28,30 @@ base_trends: dict[str, Any] = {"series": []}
 base_funnel: dict[str, Any] = {"series": []}
 
 
-class TestSchemaHelpers(TestCase):
+class TestBIQuerySchema(SimpleTestCase):
+    def test_worksheet_survives_query_serialization(self) -> None:
+        source = {"table": "events", "connectionId": "example-connection"}
+        field = {"id": "event", "name": "event", "expression": "event", "type": "string", "source": source}
+        config = {
+            "source": source,
+            "chartType": "ActionsBar",
+            "rows": [field],
+            "columns": [],
+            "values": [{"field": field, "aggregation": "count_distinct", "label": "Event types"}],
+            "filters": [{"field": field, "operator": "in", "value": "", "values": ["signup"], "enabled": False}],
+            "limit": 1000,
+            "sort": {"key": "event", "direction": "asc"},
+        }
+        source_query = {"kind": "HogQLQuery", "query": "SELECT event FROM events"}
+        insight_query = BIVisualizationNode.model_validate(
+            {"kind": "BIVisualizationNode", "source": source_query, "config": config}
+        )
+        serialized = to_dict(insight_query)
+        self.assertEqual(serialized["config"], config)
+        self.assertEqual(serialized["source"], {"query": source_query["query"]})
+
+
+class TestSchemaHelpers(SimpleTestCase):
     maxDiff = None
 
     def test_serializes_to_differing_json_for_default_value(self):
@@ -91,8 +115,18 @@ class TestSchemaHelpers(TestCase):
 
         self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": [{"name": "$pageview"}]})
 
-    def test_serializes_insight_filter_without_frontend_only_props(self):
-        query = TrendsQuery(**{**base_trends, "trendsFilter": {"showLegend": True}})
+    @parameterized.expand(
+        [
+            ({"showLegend": True},),
+            # The y-axis range only changes how the results are drawn. Leaving it in the cache key
+            # would refire the ClickHouse query on every axis tweak.
+            ({"yAxisStartAtZero": False},),
+            ({"yAxisMin": 50},),
+            ({"yAxisMax": 70},),
+        ]
+    )
+    def test_serializes_insight_filter_without_frontend_only_props(self, trends_filter):
+        query = TrendsQuery(**{**base_trends, "trendsFilter": trends_filter})
 
         result_dict = to_dict(query)
 

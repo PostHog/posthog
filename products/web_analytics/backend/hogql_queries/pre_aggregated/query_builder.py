@@ -1,9 +1,11 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.property import property_to_expr
+
+from posthog.dataclasses import frozen
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transformer import (
     ChannelTypeReplacer,
@@ -13,6 +15,12 @@ from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transf
 # V1 tables have been removed - always use v2 tables
 get_stats_table = lambda use_v2: "web_pre_aggregated_stats"
 get_bounces_table = lambda use_v2: "web_pre_aggregated_bounces"
+
+
+@frozen
+class PeriodFilters:
+    previous_period: ast.Expr
+    current_period: ast.Expr
 
 
 class WebAnalyticsPreAggregatedQueryBuilder:
@@ -107,7 +115,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                     value=(
                         self.runner.query_compare_to_date_range.date_from()
                         if self.runner.query_compare_to_date_range
-                        else self.runner.query_date_range.date_from()
+                        else self.current_date_from()
                     )
                 ),
             ),
@@ -145,8 +153,17 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         return ast.And(exprs=filter_exprs)
 
-    def get_date_ranges(self, table_name: Optional[str] = None) -> tuple[ast.Expr, ast.Expr]:
-        current_date_from = self.runner.query_date_range.date_from()
+    def current_date_from(self) -> datetime:
+        date_from = self.runner.query_date_range.date_from()
+        if self.runner.query.dateRange and self.runner.query.dateRange.date_from == "all":
+            # "all" resolves to the first event's timestamp, which usually falls
+            # mid-hour; the hourly tables bucket on the hour, so an untruncated
+            # lower bound excludes the bucket holding that first event.
+            return date_from.replace(minute=0, second=0, microsecond=0)
+        return date_from
+
+    def get_date_ranges(self, table_name: Optional[str] = None) -> PeriodFilters:
+        current_date_from = self.current_date_from()
         current_date_to = self.runner.query_date_range.date_to()
 
         if self.runner.query_compare_to_date_range:
@@ -191,4 +208,4 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             ]
         )
 
-        return (previous_period_filter, current_period_filter)
+        return PeriodFilters(previous_period=previous_period_filter, current_period=current_period_filter)

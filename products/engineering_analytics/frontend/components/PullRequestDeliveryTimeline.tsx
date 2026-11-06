@@ -1,0 +1,176 @@
+import { Tooltip } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+
+import type { PRTimelineApi } from '../generated/api.schemas'
+import { compactAgeLabel, percent } from '../lib/format'
+import {
+    MilestoneKind,
+    SEGMENT_KIND_STYLES,
+    TIMELINE_TIME_FORMAT,
+    paddedAxis,
+    secondsBetween,
+    segmentBackground,
+    timeInStates,
+    timelineMilestones,
+    timelineSpan,
+    timelineStartLabel,
+} from '../lib/pullRequestTimeline'
+import { PullRequestTimelineLegend } from './PullRequestTimelineLegend'
+import { PullRequestTimelineTrack } from './PullRequestTimelineTrack'
+
+const MAX_DAY_LABELS = 8
+
+const MILESTONE_STYLES: Record<MilestoneKind, { glyph: string; className: string }> = {
+    start: { glyph: '○', className: 'text-secondary' },
+    push: { glyph: '▲', className: 'text-[var(--data-color-12)]' },
+    out_of_queue: { glyph: '✕', className: 'text-danger' },
+    merged: { glyph: '●', className: 'text-success' },
+    closed: { glyph: '●', className: 'text-danger' },
+}
+
+function endLabel(pr: PRTimelineApi): string {
+    return pr.merged_at ? 'Merged' : pr.state === 'closed' ? 'Closed' : 'Now'
+}
+
+export function PullRequestDeliveryTimeline({ pr }: { pr: PRTimelineApi }): JSX.Element {
+    const span = timelineSpan(pr)
+    const axis = paddedAxis(span)
+    const { wholeSeconds, groups, longest } = timeInStates(pr)
+    const milestones = timelineMilestones(pr)
+    const labelStep = Math.ceil(axis.dayStarts.length / MAX_DAY_LABELS)
+
+    return (
+        <LemonCard
+            hoverEffect={false}
+            className="@container p-4"
+            data-attr="engineering-analytics-pr-delivery-timeline"
+        >
+            <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-lg font-semibold tabular-nums">
+                    {humanFriendlyDuration(wholeSeconds, { maxUnits: 2 })}
+                </span>
+                <span className="text-xs text-secondary">
+                    {timelineStartLabel(pr).toLowerCase()} to {endLabel(pr).toLowerCase()}
+                </span>
+                {longest && (
+                    <span className="flex items-center gap-1.5 text-xs text-secondary">
+                        <span className="text-tertiary">·</span>
+                        longest state
+                        <span className="h-2.5 w-3 rounded-sm" style={segmentBackground(longest.kind)} />
+                        <span className="font-semibold text-primary">{SEGMENT_KIND_STYLES[longest.kind].short}</span>
+                        <span className="tabular-nums">{compactAgeLabel(longest.seconds)}</span>
+                    </span>
+                )}
+            </div>
+
+            <div className="relative h-4">
+                {milestones.map((milestone, index) => {
+                    const style = MILESTONE_STYLES[milestone.kind]
+                    const title = `${milestone.label} · ${dayjs(milestone.at).format(TIMELINE_TIME_FORMAT)}`
+                    return (
+                        <Tooltip key={`${milestone.kind}-${index}`} title={title}>
+                            <span
+                                role="img"
+                                aria-label={title}
+                                tabIndex={0}
+                                className={cn('absolute top-0 -translate-x-1/2 text-[11px] leading-4', style.className)}
+                                style={{ left: axis.position(dayjs(milestone.at).valueOf()) }}
+                            >
+                                {style.glyph}
+                            </span>
+                        </Tooltip>
+                    )
+                })}
+            </div>
+
+            <PullRequestTimelineTrack pr={pr} axis={axis} className="h-6" />
+
+            <div className="relative mt-1 h-4 overflow-hidden text-[10px] text-tertiary">
+                {axis.dayStarts.map((day, index) =>
+                    day.valueOf() > axis.fromMs && index % labelStep === 0 ? (
+                        <span
+                            key={day.valueOf()}
+                            className="absolute pl-1 whitespace-nowrap"
+                            style={{ left: axis.position(day.valueOf()) }}
+                        >
+                            {day.format('ddd D MMM')}
+                        </span>
+                    ) : null
+                )}
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 @min-[48rem]:grid-cols-[minmax(0,1fr)_16rem]">
+                <div className="flex flex-col gap-3">
+                    <h3 className="m-0 text-xs font-semibold text-secondary">Where the time went</h3>
+                    {groups.map((group) => (
+                        <div key={group.label} className="flex flex-col gap-1">
+                            <div className="flex justify-between text-[11px] text-tertiary">
+                                <span>{group.label}</span>
+                                <span className="tabular-nums">{percent(group.share)}</span>
+                            </div>
+                            {group.states.map((state) => (
+                                <div
+                                    key={state.kind}
+                                    className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)_3rem] items-center gap-2 text-xs"
+                                >
+                                    <span className="flex min-w-0 items-center gap-1.5">
+                                        <span
+                                            className="h-2.5 w-3 shrink-0 rounded-sm"
+                                            style={segmentBackground(state.kind)}
+                                        />
+                                        <span className="truncate">{SEGMENT_KIND_STYLES[state.kind].short}</span>
+                                    </span>
+                                    <span className="h-1.5 overflow-hidden rounded-sm bg-fill-secondary">
+                                        <span
+                                            className="block h-full rounded-sm"
+                                            style={{
+                                                width: `${100 * state.share}%`,
+                                                ...segmentBackground(state.kind),
+                                            }}
+                                        />
+                                    </span>
+                                    <span className="text-right tabular-nums">{compactAgeLabel(state.seconds)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+                <div className="flex flex-col gap-1 text-xs @min-[48rem]:border-l @min-[48rem]:border-primary @min-[48rem]:pl-4">
+                    <h3 className="m-0 mb-1 text-xs font-semibold text-secondary">Milestones</h3>
+                    <div className="flex justify-between gap-2">
+                        <span className="text-secondary">{timelineStartLabel(pr)}</span>
+                        <span className="font-semibold tabular-nums">
+                            {dayjs(span.startedAt).format(TIMELINE_TIME_FORMAT)}
+                        </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                        <span className="text-secondary">{endLabel(pr)}</span>
+                        <span className="font-semibold tabular-nums">
+                            {dayjs(span.endedAt).format(TIMELINE_TIME_FORMAT)}
+                        </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                        <span className="text-secondary">Pushes</span>
+                        <span className="font-semibold tabular-nums">{pr.pushes.length}</span>
+                    </div>
+                </div>
+            </div>
+
+            <ol className="sr-only">
+                {pr.segments.map((segment) => (
+                    <li key={segment.started_at}>
+                        {`${SEGMENT_KIND_STYLES[segment.kind].label}, ${compactAgeLabel(secondsBetween(segment.started_at, segment.ended_at))}, from ${dayjs(segment.started_at).format(TIMELINE_TIME_FORMAT)}`}
+                    </li>
+                ))}
+            </ol>
+
+            <div className="mt-4">
+                <PullRequestTimelineLegend />
+            </div>
+        </LemonCard>
+    )
+}

@@ -17,13 +17,14 @@ on:
 jobs:
     mirror:
         name: Mirror mcr.microsoft.com/playwright to GHCR
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
             packages: write
         steps:
             - name: Login to ghcr.io
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}

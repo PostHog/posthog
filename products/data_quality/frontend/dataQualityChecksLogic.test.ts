@@ -1,0 +1,451 @@
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { initKeaTests } from '~/test/init'
+import { expectLogic } from '~/test/keaTestUtils'
+
+import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
+import {
+    dataQualityChecksDestroy,
+    dataQualityChecksHealthList,
+    dataQualityChecksList,
+    dataQualityChecksPartialUpdate,
+    dataQualityChecksRunCreate,
+    dataQualityRunsCheckRunsList,
+    dataQualityRunsCreate,
+    dataQualityRunsList,
+    dataQualityRunsRetrieve,
+} from './generated/api'
+import type { DataQualityCheckApi, DataQualitySuiteRunApi } from './generated/api.schemas'
+import { CheckTypeEnumApi } from './generated/api.schemas'
+
+jest.mock('lib/api', () => {
+    class ApiError extends Error {
+        status?: number
+        detail: string | null
+        constructor(message?: string, status?: number, _headers?: unknown, data?: { detail?: string }) {
+            super(message)
+            this.status = status
+            this.detail = data?.detail ?? null
+        }
+    }
+    return {
+        __esModule: true,
+        default: {},
+        ApiConfig: { getCurrentTeamId: jest.fn(() => 1) },
+        ApiError,
+    }
+})
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() },
+}))
+
+jest.mock('scenes/data-management/database/databaseTableListLogic', () => ({
+    databaseTableListLogic: { loadDatabase: jest.fn(() => ({ type: 'load database (mock)' })) },
+}))
+
+jest.mock('./generated/api', () => ({
+    dataQualityChecksList: jest.fn(),
+    dataQualityChecksCreate: jest.fn(),
+    dataQualityChecksPartialUpdate: jest.fn(),
+    dataQualityChecksDestroy: jest.fn(),
+    dataQualityChecksRunCreate: jest.fn(),
+    dataQualityChecksRunsList: jest.fn(),
+    dataQualityChecksCheckTypesList: jest.fn(),
+    dataQualityChecksHealthList: jest.fn(),
+    dataQualityRunsList: jest.fn(),
+    dataQualityRunsCreate: jest.fn(),
+    dataQualityRunsRetrieve: jest.fn(),
+    dataQualityRunsCheckRunsList: jest.fn(),
+}))
+
+const VIEW_PROPS: DataQualityChecksLogicProps = { subjectType: 'view', subjectId: 'view-1' }
+
+function buildCheck(overrides: Partial<DataQualityCheckApi> = {}): DataQualityCheckApi {
+    return {
+        id: 'check-1',
+        check_type: CheckTypeEnumApi.NotNull,
+        column_name: 'customer_id',
+        enabled: true,
+        severity: 'error',
+        last_status: '',
+        config: {},
+        tags: [],
+        ...overrides,
+    } as DataQualityCheckApi
+}
+
+function buildSuiteRun(overrides: Partial<DataQualitySuiteRunApi> = {}): DataQualitySuiteRunApi {
+    return {
+        id: 'suite-1',
+        status: 'running',
+        trigger: 'manual',
+        checks_passed: 0,
+        checks_failed: 0,
+        checks_errored: 0,
+        checks_skipped: 0,
+        error: '',
+        ...overrides,
+    } as DataQualitySuiteRunApi
+}
+
+function forbidden(): Error {
+    const { ApiError } = jest.requireMock('lib/api')
+    return new ApiError('Forbidden', 403, undefined, { detail: 'nope' })
+}
+
+describe('dataQualityChecksLogic', () => {
+    let logic: ReturnType<typeof dataQualityChecksLogic.build>
+
+    async function mountLogic(props: DataQualityChecksLogicProps = VIEW_PROPS): Promise<void> {
+        initKeaTests()
+        logic = dataQualityChecksLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    }
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        silenceKeaLoadersErrors()
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [buildCheck()] })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([
+            { health: 'healthy', checks_total: 1, checks_failing: 0 },
+        ])
+        ;(dataQualityRunsList as jest.Mock).mockResolvedValue({ results: [] })
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+        resumeKeaLoadersErrors()
+        logic?.unmount()
+    })
+
+    it.each<DataQualityChecksLogicProps>([
+        { subjectType: 'metric', subjectId: 'metric-1' },
+        VIEW_PROPS,
+        { subjectType: 'table', subjectId: 'table-1' },
+    ])('narrows the project-wide routes to its own %o subject', async (props) => {
+        await mountLogic(props)
+
+        const subject = { subject_type: props.subjectType, subject_uuid: props.subjectId }
+        expect(dataQualityChecksList).toHaveBeenCalledWith('1', { ...subject, limit: 100 })
+        expect(dataQualityChecksHealthList).toHaveBeenCalledWith('1', subject)
+        expect(dataQualityRunsList).toHaveBeenCalledWith('1', { ...subject, limit: 20 })
+    })
+
+    it('keeps a failed metric check load distinct from an empty result and can retry', async () => {
+        ;(dataQualityChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
+        await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
+        expect(logic.values.checksLoadError).toBe('Service unavailable')
+        expect(logic.values.checksLoaded).toBe(false)
+        logic.actions.loadChecks()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.checksLoadError).toBeNull()
+        expect(logic.values.checksLoaded).toBe(true)
+    })
+
+    it('keeps the loaded checks when a later refresh fails', async () => {
+        await mountLogic()
+        ;(dataQualityChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
+        logic.actions.loadChecks()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checksLoadError).toBe('Service unavailable')
+        expect(logic.values.checksLoaded).toBe(true)
+        expect(logic.values.checks).toHaveLength(1)
+    })
+
+    it('fails closed without a toast when the subject is forbidden', async () => {
+        ;(dataQualityChecksList as jest.Mock).mockRejectedValue(forbidden())
+
+        await mountLogic()
+
+        expect(logic.values.accessDenied).toBe(true)
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    // A failed history request leaves the loader's empty default behind, which the table would
+    // otherwise present as "no check runs yet" - a claim the request never established.
+    it('marks the run history as failed, and clears that once a retry succeeds', async () => {
+        ;(dataQualityRunsList as jest.Mock).mockRejectedValue(new Error('boom'))
+
+        await mountLogic()
+
+        expect(logic.values.suiteRuns).toEqual([])
+        expect(logic.values.suiteRunsError).toBe(true)
+        ;(dataQualityRunsList as jest.Mock).mockResolvedValue({ results: [] })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSuiteRuns()
+        }).toFinishAllListeners()
+
+        expect(logic.values.suiteRunsError).toBe(false)
+    })
+
+    it('drops the deleted row and refreshes health', async () => {
+        ;(dataQualityChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        await mountLogic()
+
+        logic.actions.deleteCheck('check-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checks).toEqual([])
+        expect(dataQualityChecksHealthList).toHaveBeenCalledTimes(2)
+    })
+
+    it('patches only the enabled flag when a check is toggled', async () => {
+        ;(dataQualityChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck({ enabled: false }))
+        await mountLogic()
+
+        logic.actions.toggleCheckEnabled('check-1', false)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityChecksPartialUpdate).toHaveBeenCalledWith('1', 'check-1', { enabled: false })
+        expect(logic.values.enabledChecksCount).toEqual(0)
+    })
+
+    it('skips polling and refreshes when a run comes back already finished', async () => {
+        ;(dataQualityChecksRunCreate as jest.Mock).mockResolvedValue(
+            buildSuiteRun({ status: 'completed', checks_passed: 2 })
+        )
+        await mountLogic()
+
+        logic.actions.runCheck('check-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isSuiteRunning).toBe(false)
+        expect(dataQualityRunsRetrieve).not.toHaveBeenCalled()
+        expect(dataQualityChecksList).toHaveBeenCalledTimes(2)
+        // pluralize() joins the count to the noun with a non-breaking space.
+        expect(lemonToast.success).toHaveBeenCalledWith('All 2\u00a0checks passed')
+    })
+
+    it('reloads the run history after completion when it was empty', async () => {
+        // An empty history must still refresh after a run finishes, rather than stay on
+        // "No runs yet", so the reload cannot be conditional on the list having rows.
+        ;(dataQualityChecksRunCreate as jest.Mock).mockResolvedValue(
+            buildSuiteRun({ status: 'completed', checks_passed: 1 })
+        )
+        await mountLogic()
+        ;(dataQualityRunsList as jest.Mock).mockClear()
+
+        logic.actions.runCheck('check-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityRunsList).toHaveBeenCalledTimes(1)
+    })
+
+    it('says nothing ran when run all matches no enabled check', async () => {
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun({ status: 'empty' }))
+        await mountLogic()
+
+        logic.actions.runAll()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.info).toHaveBeenCalledWith('No enabled checks to run')
+        expect(logic.values.runAllInFlight).toBe(false)
+    })
+
+    it('reloads the checks once the polled run finishes', async () => {
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock)
+            .mockResolvedValueOnce(buildSuiteRun())
+            .mockResolvedValue(buildSuiteRun({ status: 'completed', checks_passed: 1, checks_failed: 1 }))
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+        expect(logic.values.isSuiteRunning).toBe(true)
+
+        await advancePoll(3000)
+        await advancePoll(3000)
+
+        expect(logic.values.isSuiteRunning).toBe(false)
+        expect(lemonToast.warning).toHaveBeenCalledWith('1 passed, 1 failed')
+    })
+
+    it('ignores a stale poll after a newer run has replaced the active one', async () => {
+        // A retrieve can still be in flight when a second run starts. The stale terminal response
+        // must not finish the old run and dispose the newer run's poll.
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun({ id: 'suite-1' }))
+        let resolveRetrieve: (run: DataQualitySuiteRunApi) => void = () => {}
+        ;(dataQualityRunsRetrieve as jest.Mock).mockReturnValue(
+            new Promise<DataQualitySuiteRunApi>((resolve) => {
+                resolveRetrieve = resolve
+            })
+        )
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+        // The first poll fires and its retrieve is now pending against suite-1.
+        await advancePoll(3000)
+
+        // A newer run replaces the active one while suite-1's retrieve is still in flight.
+        logic.actions.setActiveSuiteRun(buildSuiteRun({ id: 'suite-2' }))
+        await drainListeners()
+
+        resolveRetrieve(buildSuiteRun({ id: 'suite-1', status: 'completed', checks_passed: 1 }))
+        await drainListeners()
+
+        expect(logic.values.activeSuiteRun?.id).toEqual('suite-2')
+        expect(logic.values.isSuiteRunning).toBe(true)
+        expect(lemonToast.success).not.toHaveBeenCalled()
+    })
+
+    it('ignores a suite start that resolves after a newer one', async () => {
+        // Two starts can be in flight at once: the pending guard is per check, and "Run all" is not
+        // blocked by it. A slower earlier request must not replace the run the panel is tracking.
+        let resolveFirst: (run: DataQualitySuiteRunApi) => void = () => {}
+        ;(dataQualityChecksRunCreate as jest.Mock)
+            .mockReturnValueOnce(
+                new Promise<DataQualitySuiteRunApi>((resolve) => {
+                    resolveFirst = resolve
+                })
+            )
+            .mockResolvedValueOnce(buildSuiteRun({ id: 'suite-second' }))
+        await mountLogic()
+
+        logic.actions.runCheck('check-1')
+        logic.actions.runCheck('check-2')
+        await drainListeners()
+        expect(logic.values.activeSuiteRun?.id).toEqual('suite-second')
+
+        resolveFirst(buildSuiteRun({ id: 'suite-first' }))
+        await drainListeners()
+
+        expect(logic.values.activeSuiteRun?.id).toEqual('suite-second')
+    })
+
+    it('reloads an expanded suite run detail once the run finishes', async () => {
+        // A suite adopted mid-flight can be expanded while it is still running, caching partial rows.
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock)
+            .mockResolvedValueOnce(buildSuiteRun())
+            .mockResolvedValue(buildSuiteRun({ status: 'completed', checks_passed: 1 }))
+        ;(dataQualityRunsCheckRunsList as jest.Mock).mockResolvedValue([])
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+        logic.actions.loadSuiteRunCheckRuns('suite-1')
+        await drainListeners()
+        const whileRunning = (dataQualityRunsCheckRunsList as jest.Mock).mock.calls.length
+
+        await advancePoll(3000)
+        await advancePoll(3000)
+
+        expect((dataQualityRunsCheckRunsList as jest.Mock).mock.calls.length).toBeGreaterThan(whileRunning)
+    })
+
+    it('stops polling a run that never finishes', async () => {
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock).mockResolvedValue(buildSuiteRun())
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+
+        // 3s cadence for the first minute, then 15s: 20 + 56 polls covers the 15 minute cap.
+        for (let poll = 0; poll < 80 && !logic.values.pollTimedOut; poll++) {
+            await advancePoll(poll < 20 ? 3000 : 15000)
+        }
+
+        expect(logic.values.pollTimedOut).toBe(true)
+        expect(logic.values.isSuiteRunning).toBe(false)
+        const pollsBeforeGivingUp = (dataQualityRunsRetrieve as jest.Mock).mock.calls.length
+        await advancePoll(15000)
+        expect((dataQualityRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeGivingUp)
+    })
+
+    it('stops polling a run whose retrieve keeps failing', async () => {
+        // A request that keeps rejecting (e.g. a 500 or the flag turned off mid-run) must still honor
+        // the 15 minute cap instead of retrying forever and leaving the panel stuck running.
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock).mockRejectedValue(new Error('boom'))
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+
+        // 3s cadence for the first minute, then 15s: 20 + 56 polls covers the 15 minute cap.
+        for (let poll = 0; poll < 80 && !logic.values.pollTimedOut; poll++) {
+            await advancePoll(poll < 20 ? 3000 : 15000)
+        }
+
+        expect(logic.values.pollTimedOut).toBe(true)
+        expect(logic.values.isSuiteRunning).toBe(false)
+        const pollsBeforeGivingUp = (dataQualityRunsRetrieve as jest.Mock).mock.calls.length
+        await advancePoll(15000)
+        expect((dataQualityRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeGivingUp)
+    })
+
+    it('stops polling and denies access when a poll is forbidden', async () => {
+        // A permanent 403 mid-run (flag off, or query access revoked) should take the access-denied
+        // path at once rather than retrying until the 15 minute cap.
+        ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock).mockRejectedValue(forbidden())
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+        await advancePoll(3000)
+
+        expect(logic.values.accessDenied).toBe(true)
+        const pollsBeforeDenied = (dataQualityRunsRetrieve as jest.Mock).mock.calls.length
+        await advancePoll(15000)
+        expect((dataQualityRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeDenied)
+    })
+
+    it('adopts a run that was already in flight on mount, without a second request', async () => {
+        ;(dataQualityRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
+
+        await mountLogic()
+
+        // Adoption reads the newest row of the history this logic already loads, so mounting hits
+        // the list endpoint once rather than twice.
+        expect(dataQualityRunsList).toHaveBeenCalledTimes(1)
+        expect(logic.values.isSuiteRunning).toBe(true)
+    })
+
+    it('adopts the run the first metric check schedules once the worker writes it', async () => {
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [] })
+        await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
+        expect(logic.values.checks).toEqual([])
+
+        jest.useFakeTimers()
+        logic.actions.upsertCheck(buildCheck())
+        await drainListeners()
+        expect(logic.values.isSuiteRunning).toBe(false)
+
+        ;(dataQualityRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
+        await advancePoll(2000)
+
+        expect(logic.values.isSuiteRunning).toBe(true)
+    })
+
+    it('does not look for a scheduled run after a first check on a warehouse subject', async () => {
+        await mountLogic({ subjectType: 'table', subjectId: 'table-1' })
+        const listCallsAfterMount = (dataQualityRunsList as jest.Mock).mock.calls.length
+
+        jest.useFakeTimers()
+        logic.actions.upsertCheck(buildCheck())
+        await advancePoll(2000)
+
+        expect((dataQualityRunsList as jest.Mock).mock.calls.length).toEqual(listCallsAfterMount)
+    })
+
+    // kea-test-utils waits on real timers, so the polling tests settle listeners by draining
+    // microtasks instead: every step in the poll chain resolves an already-resolved mock.
+    async function drainListeners(): Promise<void> {
+        for (let tick = 0; tick < 20; tick++) {
+            await Promise.resolve()
+        }
+    }
+
+    async function startRunUnderFakeTimers(): Promise<void> {
+        jest.useFakeTimers()
+        logic.actions.runAll()
+        await drainListeners()
+    }
+
+    async function advancePoll(ms: number): Promise<void> {
+        jest.advanceTimersByTime(ms)
+        await drainListeners()
+    }
+})

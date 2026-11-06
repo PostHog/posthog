@@ -8,10 +8,13 @@ team's Slack credentials directly.
 
 import asyncio
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol, cast
+from uuid import UUID
 
 from django.conf import settings
-from django.db.models import F
+from django.db import transaction
+from django.db.models import CharField, Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models.functions import Cast
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -19,18 +22,49 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
+from posthog.dataclasses import frozen
+from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
+from posthog.integrations import IntegrationManager
 from posthog.models.comment import Comment
 from posthog.models.team import Team
+from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
 
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
+    AccountEmailThreadMessage as AccountEmailThreadMessage,
+    AccountEmailThreadSummary as AccountEmailThreadSummary,
+    ConversationMessageSender as ConversationMessageSender,
+    ConversationMessageSummary as ConversationMessageSummary,
+    EmailThreadAccountLinkInput as EmailThreadAccountLinkInput,
+    EmailThreadAddress as EmailThreadAddress,
+    EmailThreadForAccountMatching as EmailThreadForAccountMatching,
+    EmailThreadParticipantSummary as EmailThreadParticipantSummary,
+    PublicHumanReplies as PublicHumanReplies,
+    ResolvedTicketRevision as ResolvedTicketRevision,
     SupportChannel as SupportChannel,
+    SupportSlackSender as SupportSlackSender,
+    SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
 )
-from products.conversations.backend.models import Ticket
-from products.conversations.backend.slack import get_slack_client
-from products.conversations.backend.support_slack import get_support_slack_bot_token
+from products.conversations.backend.models import (
+    EmailThread,
+    EmailThreadAccountLink,
+    EmailThreadAccountMatchSource,
+    EmailThreadMessage,
+    EmailThreadParticipant,
+    EmailThreadParticipantKind,
+    Status,
+    Ticket,
+)
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel
+from products.conversations.backend.services.messages import public_human_ticket_replies
+from products.conversations.backend.slack import _is_internal_channel, get_slack_client
+from products.conversations.backend.support_slack import (
+    automated_update_channel_allowed,
+    get_support_slack_bot_token,
+    supporthog_lacks_custom_identity_scope,
+)
 from products.conversations.backend.support_slack_channels import (
     SupportSlackChannelsUnavailable as SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured as SupportSlackNotConfigured,
@@ -38,6 +72,32 @@ from products.conversations.backend.support_slack_channels import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class _TicketAccessControl(Protocol):
+    def filter_queryset_by_access_level(self, queryset: QuerySet[Ticket]) -> QuerySet[Ticket]: ...
+
+
+class _EmailThreadWithFacadePrefetch(Protocol):
+    facade_participants: list[EmailThreadParticipant]
+    facade_first_message_direction: str | None
+    facade_first_message_sender_email: str | None
+    facade_first_message_sender_name: str | None
+    facade_first_message_sent_at: datetime | None
+    facade_last_message_direction: str | None
+    facade_last_message_sender_email: str | None
+    facade_last_message_sender_name: str | None
+    facade_last_message_sent_at: datetime | None
+
+
+class GoogleAccountEmailSyncError(Exception):
+    pass
+
+
+@frozen
+class GoogleAccountEmailBackfillBatch:
+    next_page_token: str | None
+    fetched: int
 
 
 class SupportMessageSendError(Exception):
@@ -51,6 +111,191 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
+
+
+class SupportSenderIdentityUnavailable(Exception):
+    """This SupportHog install can't post under a name and avatar other than the bot's own.
+
+    Slack only grants scopes at install time, so an install authorized before
+    ``chat:write.customize`` was requested needs an admin to reconnect.
+    """
+
+
+def accept_github_event(delivery: WebhookDelivery) -> None:
+    """The inbound GitHub App webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import github_events  # noqa: PLC0415
+
+    github_events.accept_github_event(delivery)
+
+
+def accept_slack_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_event(delivery)
+
+
+def accept_slack_interactivity(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Slack click enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    slack_events.accept_slack_interactivity(delivery)
+
+
+def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Slack workspace is connected to.
+
+    Both Slack endpoints ask through here. Ingress asks before it dispatches, and forwards the
+    signed request to the other region when the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import slack_events  # noqa: PLC0415
+
+    return slack_events.slack_delivery_ownership(delivery)
+
+
+def accept_teams_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Teams webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    teams_events.accept_teams_event(delivery)
+
+
+def teams_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Teams tenant is connected to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    return teams_events.teams_delivery_ownership(delivery)
+
+
+def accept_mailgun_inbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun inbox route enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_inbound_message(delivery)
+
+
+def accept_mailgun_outbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun outbound capture route enters conversations here."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_outbound_message(delivery)
+
+
+def accept_mailgun_captured_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun catch-all route enters conversations here, for either direction."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_captured_message(delivery)
+
+
+def mailgun_inbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the delivery's inbox address belongs to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_inbound_delivery_ownership(delivery)
+
+
+def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the captured message was sent from."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_outbound_delivery_ownership(delivery)
+
+
+def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the catch-all delivery belongs to."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_capture_delivery_ownership(delivery)
+
+
+def mailgun_sender_is_active_here(sender_email: str) -> bool:
+    """Whether this region holds an active customer-communication channel sending as this address.
+
+    The other region asks before it ingests a captured outbound message, because a sender active
+    in both regions would otherwise land on the wrong team's thread.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_sender_is_active_here(sender_email)
+
+
+def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
+    """The answer the outbound route owes a region that still probes it with `sender_lookup=1`.
+
+    Delete this with the provider that reaches it, once both regions run the ingress version.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_legacy_sender_lookup_status(delivery)
+
+
+def sync_google_account_email(integration_id: int, team_id: int) -> None:
+    from products.conversations.backend.services.gmail_sync import (  # noqa: PLC0415 -- avoids the Conversations and Customer Analytics facade cycle
+        GmailSyncError,
+        sync_gmail_integration,
+    )
+
+    try:
+        sync_gmail_integration(integration_id, team_id)
+    except GmailSyncError as error:
+        raise GoogleAccountEmailSyncError(str(error)) from error
+
+
+def can_sync_google_account_email(integration_id: int, team_id: int) -> bool:
+    from products.conversations.backend.services.gmail_sync import (  # noqa: PLC0415 -- avoids the Conversations and Customer Analytics facade cycle
+        can_sync_gmail_integration,
+    )
+
+    return can_sync_gmail_integration(integration_id, team_id)
+
+
+def sync_google_account_email_backfill_batch(
+    integration_id: int,
+    team_id: int,
+    *,
+    start_at: datetime,
+    end_at: datetime,
+    page_token: str | None,
+) -> GoogleAccountEmailBackfillBatch:
+    from products.conversations.backend.services.gmail_sync import (  # noqa: PLC0415 -- avoids the Conversations and Customer Analytics facade cycle
+        GmailSyncError,
+        sync_gmail_backfill_batch,
+    )
+
+    try:
+        next_page_token, fetched = sync_gmail_backfill_batch(
+            integration_id,
+            team_id,
+            start_at=start_at,
+            end_at=end_at,
+            page_token=page_token,
+        )
+    except GmailSyncError as error:
+        raise GoogleAccountEmailSyncError(str(error)) from error
+    return GoogleAccountEmailBackfillBatch(next_page_token=next_page_token, fetched=fetched)
 
 
 def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> list[SupportChannel]:
@@ -74,9 +319,61 @@ def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> li
     return [SupportChannel(id=c["id"], name=c["name"], is_member=c["is_member"]) for c in channels]
 
 
-def post_support_message(team_id: int, channel_id: str, text: str) -> str:
+def _message_identity_kwargs(team: Team, sender: SupportSlackSender | None) -> dict[str, Any]:
+    """``chat.postMessage`` overrides for the name and avatar a message appears under."""
+    if sender is not None:
+        # The bot icon next to a person's name would contradict it, so it is not a fallback.
+        return {"username": sender.name, **({"icon_url": sender.icon_url} if sender.icon_url else {})}
+
+    kwargs: dict[str, Any] = {}
+    support_settings = team.conversations_settings or {}
+    if bot_display_name := support_settings.get("slack_bot_display_name"):
+        kwargs["username"] = bot_display_name
+    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
+        kwargs["icon_url"] = bot_icon_url
+    return kwargs
+
+
+def resolve_support_slack_sender(team_id: int, email: str) -> SupportSlackSender | None:
+    """The Slack name and avatar of the workspace member with this email, or ``None`` when
+    the email matches no Slack user.
+
+    Lets a caller post as a teammate's profile rather than the bot's; the message is still
+    a bot message, Slack only renders it under that name and avatar.
+
+    Raises :class:`SupportSlackNotConfigured` when the bot isn't connected, and
+    :class:`SupportSenderIdentityUnavailable` when the install can't post under a custom
+    identity at all — resolving a profile it could never post under only produces messages
+    Slack rejects one channel at a time.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+        client = get_slack_client(team)
+    except (Team.DoesNotExist, ValueError):
+        raise SupportSlackNotConfigured()
+
+    if supporthog_lacks_custom_identity_scope(team):
+        raise SupportSenderIdentityUnavailable()
+
+    profile = resolve_slack_profile_by_email(client, email, workspace=client.workspace_id)
+    if not profile or not profile.get("name"):
+        return None
+    return SupportSlackSender(name=str(profile["name"]), icon_url=str(profile.get("avatar") or ""))
+
+
+def post_support_message(
+    team_id: int,
+    channel_id: str,
+    text: str,
+    *,
+    sender: SupportSlackSender | None = None,
+) -> str:
     """Post ``text`` to a Slack channel as the SupportHog bot, applying the team's
     configured bot display name and icon. Returns the posted message's Slack ts.
+
+    ``sender`` overrides that identity for this message only — Slack renders it under the
+    given name and avatar (needs the ``chat:write.customize`` scope), which is how a
+    message can look like it comes from a teammate instead of the bot.
 
     Raises :class:`SupportSlackNotConfigured` when the bot isn't connected and
     :class:`SupportMessageSendError` when the post fails.
@@ -87,12 +384,7 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     except (Team.DoesNotExist, ValueError):
         raise SupportSlackNotConfigured()
 
-    message_kwargs: dict[str, Any] = {}
-    support_settings = team.conversations_settings or {}
-    if bot_display_name := support_settings.get("slack_bot_display_name"):
-        message_kwargs["username"] = bot_display_name
-    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
-        message_kwargs["icon_url"] = bot_icon_url
+    message_kwargs = _message_identity_kwargs(team, sender)
 
     try:
         response = client.chat_postMessage(channel=channel_id, text=text, **message_kwargs)
@@ -145,6 +437,59 @@ def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, ded
         content=content,
         item_context={"author_type": "AI", "is_private": True, "internal_note_key": dedupe_key},
     )
+    return str(comment.id)
+
+
+def post_ticket_automated_update(
+    team_id: int, ticket_id: str, *, public_content: str, private_content: str, dedupe_key: str
+) -> str | None:
+    source_ticket = Ticket.objects.filter(team_id=team_id, id=ticket_id).select_related("team").first()
+    if source_ticket is None:
+        return None
+    checked_channel = source_ticket.slack_channel_id
+    send_to_slack = False
+    if (
+        source_ticket.channel_source == Channel.SLACK
+        and checked_channel
+        and source_ticket.slack_thread_ts
+        and automated_update_channel_allowed(source_ticket.team, checked_channel)
+    ):
+        try:
+            send_to_slack = _is_internal_channel(get_slack_client(source_ticket.team), checked_channel)
+        except Exception:
+            logger.exception("Failed to check support Slack channel before automated update", ticket_id=ticket_id)
+
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
+        if ticket is None:
+            return None
+        if Comment.objects.filter(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=ticket_id,
+            item_context__automated_update_key=dedupe_key,
+            deleted=False,
+        ).exists():
+            return None
+        send_to_slack = bool(
+            send_to_slack
+            and ticket.channel_source == Channel.SLACK
+            and ticket.slack_channel_id == checked_channel
+            and ticket.slack_thread_ts == source_ticket.slack_thread_ts
+        )
+        comment = Comment.objects.create(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=ticket_id,
+            content=public_content if send_to_slack else private_content,
+            item_context={
+                "author_type": "AI",
+                "is_private": not send_to_slack,
+                "automated_update_key": dedupe_key,
+                "internal_channel_only": send_to_slack,
+                **({"internal_note_key": dedupe_key} if not send_to_slack else {}),
+            },
+        )
     return str(comment.id)
 
 
@@ -213,7 +558,87 @@ def trigger_immediate_channel_summary(
     return True
 
 
-def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50) -> list[TicketSummary]:
+def _get_first_string(context: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = context.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> ConversationMessageSummary | None:
+    if comment is None:
+        return None
+
+    context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    author_type = context.get("author_type")
+    is_outbound = bool(comment.created_by_id and author_type != "customer") or author_type in {
+        "AI",
+        "human",
+        "support",
+        WORKFLOW_AUTHOR_TYPE,
+    }
+    context_name = _get_first_string(
+        context,
+        (
+            "author_name",
+            "author_email",
+            "slack_author_name",
+            "teams_author_name",
+            "teams_author_email",
+            "github_login",
+            "email_from_name",
+            "slack_author_email",
+            "email_from",
+        ),
+    )
+    context_email = _get_first_string(
+        context,
+        ("author_email", "slack_author_email", "teams_author_email", "email_from"),
+    )
+    sender_name: str | None
+    sender_email: str | None
+
+    if is_outbound:
+        if comment.created_by is not None:
+            sender_name = comment.created_by.get_full_name() or comment.created_by.email
+            sender_email = comment.created_by.email
+        else:
+            sender_name = context_name or context_email or ("AI" if author_type == "AI" else "Support")
+            sender_email = context_email
+        sender = ConversationMessageSender(
+            name=sender_name or sender_email or "Support",
+            email=sender_email,
+            person_id=None,
+            distinct_id=None,
+        )
+    else:
+        traits = ticket.anonymous_traits or {}
+        trait_email = traits.get("email") if isinstance(traits.get("email"), str) else None
+        trait_name = traits.get("name") if isinstance(traits.get("name"), str) else None
+        sender_email = context_email or trait_email
+        sender_name = context_name or trait_name
+        sender = ConversationMessageSender(
+            name=sender_name or sender_email or "Customer",
+            email=sender_email,
+            person_id=None,
+            distinct_id=ticket.distinct_id,
+        )
+
+    return ConversationMessageSummary(
+        sender=sender,
+        sent_at=comment.created_at,
+        direction="outbound" if is_outbound else "inbound",
+    )
+
+
+def list_account_tickets(
+    team_id: int,
+    organization_id: str,
+    user_access_control: _TicketAccessControl,
+    *,
+    limit: int = 50,
+) -> list[TicketSummary]:
     """Support tickets whose resolved customer org matches ``organization_id``, newest activity first.
 
     ``organization_id`` is the customer's group key (a customer-analytics account's
@@ -221,9 +646,24 @@ def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50)
     """
     if not organization_id:
         return []
-    tickets = Ticket.objects.filter(team_id=team_id, organization_id=organization_id).order_by(
-        F("last_message_at").desc(nulls_last=True)
-    )[:limit]
+    tickets = list(
+        user_access_control.filter_queryset_by_access_level(
+            Ticket.objects.filter(team_id=team_id, organization_id=organization_id)
+        ).order_by(F("last_message_at").desc(nulls_last=True))[:limit]
+    )
+    latest_comments = {
+        comment.item_id: comment
+        for comment in Comment.objects.filter(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id__in=[str(ticket.id) for ticket in tickets],
+            deleted=False,
+        )
+        .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
+        .select_related("created_by")
+        .order_by("item_id", "-created_at", "-id")
+        .distinct("item_id")
+    }
     return [
         TicketSummary(
             id=str(ticket.id),
@@ -231,7 +671,475 @@ def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50)
             status=ticket.status,
             last_message_at=ticket.last_message_at,
             last_message_text=ticket.last_message_text,
+            last_message=_support_ticket_last_message(ticket, latest_comments.get(str(ticket.id))),
             deep_link=f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.ticket_number}",
+            created_at=ticket.created_at,
+            started_by=(ticket.anonymous_traits or {}).get("name")
+            or (ticket.anonymous_traits or {}).get("email")
+            or "Customer",
+            distinct_id=ticket.distinct_id,
         )
         for ticket in tickets
     ]
+
+
+def list_account_ticket_messages(
+    team_id: int,
+    organization_id: str,
+    ticket_id: str,
+    user_access_control: _TicketAccessControl,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[SupportTicketMessage], int] | None:
+    ticket = user_access_control.filter_queryset_by_access_level(
+        Ticket.objects.filter(team_id=team_id, organization_id=organization_id, id=ticket_id)
+    ).first()
+    if ticket is None:
+        return None
+
+    comments = (
+        Comment.objects.filter(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            deleted=False,
+        )
+        .select_related("created_by")
+        .order_by("created_at", "id")
+    )
+    count = comments.count()
+    messages = []
+    for comment in comments[offset : offset + limit]:
+        summary = _support_ticket_last_message(ticket, comment)
+        if summary is None:
+            continue
+        context = comment.item_context if isinstance(comment.item_context, dict) else {}
+        messages.append(
+            SupportTicketMessage(
+                id=str(comment.id),
+                content=comment.content or "",
+                author_name=summary.sender.name,
+                direction=summary.direction,
+                is_private=context.get("is_private") is True,
+                created_at=comment.created_at,
+            )
+        )
+    return messages, count
+
+
+def _comment_team_ids(team: Team) -> set[int]:
+    # Comments are RootTeamMixin, so save() stores them on the parent. Tickets stay on the environment.
+    team_ids = {team.id}
+    if team.parent_team_id:
+        team_ids.add(team.parent_team_id)
+    return team_ids
+
+
+def _support_learning_team(team_id: int) -> Team | None:
+    team = Team.objects.filter(id=team_id).only("id", "conversations_enabled", "parent_team_id").first()
+    if team is None or team.conversations_enabled is not True:
+        return None
+    return team
+
+
+def list_resolved_ticket_revisions(
+    team_id: int,
+    *,
+    since: datetime,
+    limit: int,
+    offset: int = 0,
+    ticket_id: UUID | None = None,
+) -> list[ResolvedTicketRevision]:
+    if limit <= 0 or offset < 0:
+        return []
+    team = _support_learning_team(team_id)
+    if team is None:
+        return []
+
+    comment_team_ids = _comment_team_ids(team)
+    has_public_human_reply = public_human_ticket_replies(comment_team_ids).filter(
+        item_id=Cast(OuterRef("id"), output_field=CharField()),
+    )
+    ticket_query = Ticket.objects.filter(
+        team_id=team.id,
+        status=Status.RESOLVED,
+    )
+    if ticket_id is None:
+        ticket_query = ticket_query.filter(Q(updated_at__gte=since) | Q(last_message_at__gte=since))
+    else:
+        ticket_query = ticket_query.filter(id=ticket_id)
+    tickets = list(
+        ticket_query.filter(Exists(has_public_human_reply)).order_by("-updated_at", "-id")[offset : offset + limit]
+    )
+    if not tickets:
+        return []
+
+    latest_by_item = {
+        comment.item_id: comment
+        for comment in public_human_ticket_replies(comment_team_ids, [str(ticket.id) for ticket in tickets])
+        .order_by("item_id", "-created_at", "-id")
+        .distinct("item_id")
+        .only("id", "item_id", "created_at")
+    }
+    revisions: list[ResolvedTicketRevision] = []
+    for ticket in tickets:
+        resolution_comment = latest_by_item.get(str(ticket.id))
+        if resolution_comment is None:
+            continue
+        revisions.append(
+            ResolvedTicketRevision(
+                ticket_id=ticket.id,
+                ticket_number=ticket.ticket_number,
+                resolution_comment_id=resolution_comment.id,
+                revision_at=max(ticket.updated_at, resolution_comment.created_at),
+                source_team_id=ticket.team_id,
+                display_label=f"ticket #{ticket.ticket_number}",
+                deep_link=f"{settings.SITE_URL}/project/{ticket.team_id}/support/tickets/{ticket.ticket_number}",
+            )
+        )
+    return revisions
+
+
+def get_public_human_replies(
+    team_id: int,
+    ticket_id: UUID,
+    *,
+    resolution_comment_id: UUID | None = None,
+) -> PublicHumanReplies | None:
+    team = _support_learning_team(team_id)
+    if team is None:
+        return None
+    if not Ticket.objects.filter(team_id=team.id, id=ticket_id).exists():
+        return None
+
+    replies: list[str] = []
+    found_resolution = resolution_comment_id is None
+    comments = (
+        public_human_ticket_replies(_comment_team_ids(team), [str(ticket_id)])
+        .order_by("created_at", "id")
+        .only("id", "content")
+    )
+    for comment in comments:
+        content = comment.content or ""
+        if not content.strip():
+            continue
+        replies.append(content)
+        if resolution_comment_id is not None and comment.id == resolution_comment_id:
+            # A later public human reply is a new revision under a new evidence key.
+            found_resolution = True
+            break
+    if not found_resolution or not replies:
+        return None
+    return PublicHumanReplies(replies=tuple(replies))
+
+
+def resolve_group_keys_by_email(
+    team_id: int,
+    emails: list[str],
+    group_type_index: int,
+) -> dict[str, str | None]:
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return {}
+
+    from products.conversations.backend.person_lookup import (  # noqa: PLC0415 — keeps HogQL and personhog off the facade import path
+        get_group_keys_by_email,
+    )
+
+    return get_group_keys_by_email(team=team, emails=emails, group_type_index=group_type_index)
+
+
+def list_email_threads_for_account_matching(
+    team_id: int,
+    *,
+    thread_ids: list[str] | None = None,
+    participant_emails: list[str] | None = None,
+    participant_domains: list[str] | None = None,
+    after_id: str | None = None,
+    limit: int = 100,
+) -> list[EmailThreadForAccountMatching]:
+    participants = EmailThreadParticipant.objects.for_team(team_id).filter(kind=EmailThreadParticipantKind.CUSTOMER)
+    threads = EmailThread.objects.for_team(team_id).prefetch_related(
+        Prefetch("participants", queryset=participants, to_attr="customer_participants")
+    )
+    if thread_ids is not None:
+        threads = threads.filter(id__in=thread_ids)
+    if participant_emails is not None or participant_domains is not None:
+        matching_participants = Q(email__in=participant_emails or [])
+        for domain in participant_domains or []:
+            matching_participants |= Q(email__endswith=f"@{domain}")
+        threads = threads.filter(Exists(participants.filter(matching_participants, thread_id=OuterRef("id"))))
+    if after_id is not None:
+        threads = threads.filter(id__gt=after_id)
+
+    thread_page = list(threads.order_by("id")[:limit])
+    gmail_sources_by_thread_id: dict[str, list[str]] = {}
+    integration_ids: set[int] = set()
+    invalid_source_thread_ids: set[str] = set()
+    for thread_id, source_id in (
+        EmailThreadMessage.objects.for_team(team_id)
+        .filter(thread_id__in=[thread.id for thread in thread_page], source_type="gmail")
+        .values_list("thread_id", "source_id")
+    ):
+        normalized_thread_id = str(thread_id)
+        gmail_sources_by_thread_id.setdefault(normalized_thread_id, []).append(source_id)
+        integration_id, separator, message_id = source_id.partition(":")
+        if not separator or not integration_id.isdigit() or not message_id:
+            invalid_source_thread_ids.add(normalized_thread_id)
+            continue
+        integration_ids.add(int(integration_id))
+
+    integration_owner_ids = {
+        integration_id: integration.created_by_id
+        for integration_id, integration in IntegrationManager.google_calendar.oauth.get_many(
+            team_id, integration_ids
+        ).items()
+    }
+    matching_threads: list[EmailThreadForAccountMatching] = []
+    for thread in thread_page:
+        normalized_thread_id = str(thread.id)
+        gmail_owner_id: int | None = None
+        source_ids = gmail_sources_by_thread_id.get(normalized_thread_id, [])
+        if source_ids and normalized_thread_id not in invalid_source_thread_ids:
+            owner_ids = {integration_owner_ids.get(int(source_id.partition(":")[0])) for source_id in source_ids}
+            if None not in owner_ids and len(owner_ids) == 1:
+                gmail_owner_id = owner_ids.pop()
+        matching_threads.append(
+            EmailThreadForAccountMatching(
+                id=normalized_thread_id,
+                participant_emails=[
+                    participant.email
+                    for participant in cast(list[EmailThreadParticipant], thread.customer_participants)
+                ],
+                gmail_owner_id=gmail_owner_id,
+            )
+        )
+    return matching_threads
+
+
+def _validate_match_source(link: EmailThreadAccountLinkInput) -> None:
+    if link.match_source not in EmailThreadAccountMatchSource.values:
+        raise ValueError(f"Unknown email account match source: {link.match_source}")
+
+
+@transaction.atomic
+def create_email_thread_account_links(
+    team_id: int,
+    thread_id: str,
+    links: list[EmailThreadAccountLinkInput],
+) -> None:
+    thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread_id)
+    linked_account_ids = set(
+        EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread).values_list("account_id", flat=True)
+    )
+    links_by_account_id = {link.account_id: link for link in links}
+    for link in links_by_account_id.values():
+        _validate_match_source(link)
+    EmailThreadAccountLink.objects.for_team(team_id).bulk_create(
+        [
+            EmailThreadAccountLink(
+                team_id=team_id,
+                thread=thread,
+                account_id=account_id,
+                account_external_id=link.account_external_id,
+                match_source=link.match_source,
+            )
+            for account_id, link in links_by_account_id.items()
+            if account_id not in linked_account_ids
+        ]
+    )
+
+
+@transaction.atomic
+def replace_email_thread_account_links(
+    team_id: int,
+    thread_id: str,
+    links: list[EmailThreadAccountLinkInput],
+    *,
+    match_sources: list[str] | None = None,
+) -> None:
+    thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread_id)
+    links_by_account_id = {link.account_id: link for link in links}
+    existing_links = EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread)
+    preserved_account_ids: set[str] = set()
+    if match_sources is not None:
+        preserved_account_ids = set(
+            existing_links.exclude(match_source__in=match_sources).values_list("account_id", flat=True)
+        )
+        existing_links = existing_links.filter(match_source__in=match_sources)
+    existing_links.exclude(account_id__in=links_by_account_id).delete()
+
+    for account_id, link in links_by_account_id.items():
+        _validate_match_source(link)
+        if account_id in preserved_account_ids:
+            continue
+        EmailThreadAccountLink.objects.for_team(team_id).update_or_create(
+            team_id=team_id,
+            thread=thread,
+            account_id=account_id,
+            defaults={
+                "account_external_id": link.account_external_id,
+                "match_source": link.match_source,
+            },
+        )
+
+
+def _email_thread_participant_summary(
+    participant: EmailThreadParticipant,
+) -> EmailThreadParticipantSummary:
+    return EmailThreadParticipantSummary(
+        email=participant.email,
+        display_name=participant.display_name,
+        kind=participant.kind,
+        person_id=str(participant.person_id) if participant.person_id else None,
+    )
+
+
+def _email_message_summary(
+    sender_email: str | None,
+    sender_name: str | None,
+    sent_at: datetime | None,
+    direction: str | None,
+    participant_by_email: dict[str, EmailThreadParticipantSummary],
+) -> ConversationMessageSummary | None:
+    if not sender_email or not sent_at or not direction:
+        return None
+    participant = participant_by_email.get(sender_email.lower())
+    return ConversationMessageSummary(
+        sender=ConversationMessageSender(
+            name=sender_name or sender_email,
+            email=sender_email,
+            person_id=participant.person_id if participant else None,
+            distinct_id=None,
+        ),
+        sent_at=sent_at,
+        direction=direction,
+    )
+
+
+def _account_email_thread_summary(thread: EmailThread) -> AccountEmailThreadSummary:
+    prefetched_thread = cast(_EmailThreadWithFacadePrefetch, thread)
+    participants = [
+        _email_thread_participant_summary(participant) for participant in prefetched_thread.facade_participants
+    ]
+    participant_by_email = {participant.email.lower(): participant for participant in participants}
+    first_message = _email_message_summary(
+        prefetched_thread.facade_first_message_sender_email,
+        prefetched_thread.facade_first_message_sender_name,
+        prefetched_thread.facade_first_message_sent_at,
+        prefetched_thread.facade_first_message_direction,
+        participant_by_email,
+    )
+    last_message = _email_message_summary(
+        prefetched_thread.facade_last_message_sender_email,
+        prefetched_thread.facade_last_message_sender_name,
+        prefetched_thread.facade_last_message_sent_at,
+        prefetched_thread.facade_last_message_direction,
+        participant_by_email,
+    )
+    return AccountEmailThreadSummary(
+        id=str(thread.id),
+        subject=thread.subject,
+        preview=thread.preview,
+        first_message_at=thread.first_message_at,
+        first_message=first_message,
+        last_message_at=thread.last_message_at,
+        last_message=last_message,
+        message_count=thread.message_count,
+        participants=participants,
+    )
+
+
+def list_account_email_threads(
+    team_id: int,
+    account_id: str,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadSummary], int]:
+    participants: QuerySet[EmailThreadParticipant] = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
+    first_message = (
+        EmailThreadMessage.objects.for_team(team_id).filter(thread_id=OuterRef("pk")).order_by("sent_at", "id")
+    )
+    latest_message = (
+        EmailThreadMessage.objects.for_team(team_id).filter(thread_id=OuterRef("pk")).order_by("-sent_at", "-id")
+    )
+    threads = (
+        EmailThread.objects.for_team(team_id)
+        .filter(account_links__team_id=team_id, account_links__account_id=account_id)
+        .annotate(
+            facade_first_message_direction=Subquery(first_message.values("direction")[:1]),
+            facade_first_message_sender_email=Subquery(first_message.values("sender_email")[:1]),
+            facade_first_message_sender_name=Subquery(first_message.values("sender_name")[:1]),
+            facade_first_message_sent_at=Subquery(first_message.values("sent_at")[:1]),
+            facade_last_message_direction=Subquery(latest_message.values("direction")[:1]),
+            facade_last_message_sender_email=Subquery(latest_message.values("sender_email")[:1]),
+            facade_last_message_sender_name=Subquery(latest_message.values("sender_name")[:1]),
+            facade_last_message_sent_at=Subquery(latest_message.values("sent_at")[:1]),
+        )
+        .prefetch_related(Prefetch("participants", queryset=participants, to_attr="facade_participants"))
+        .order_by(F("last_message_at").desc(nulls_last=True), "-id")
+    )
+    count = threads.count()
+    return [_account_email_thread_summary(thread) for thread in threads[offset : offset + limit]], count
+
+
+def _email_thread_addresses(value: object) -> list[EmailThreadAddress]:
+    if not isinstance(value, list):
+        return []
+    addresses: list[EmailThreadAddress] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        email = item.get("email")
+        name = item.get("name", "")
+        if isinstance(email, str) and isinstance(name, str):
+            addresses.append(EmailThreadAddress(name=name, email=email))
+    return addresses
+
+
+def list_account_email_thread_messages(
+    team_id: int,
+    account_id: str,
+    thread_id: str,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadMessage], int] | None:
+    thread = (
+        EmailThread.objects.for_team(team_id)
+        .filter(
+            id=thread_id,
+            account_links__team_id=team_id,
+            account_links__account_id=account_id,
+        )
+        .first()
+    )
+    if thread is None:
+        return None
+
+    messages = (
+        EmailThreadMessage.objects.for_team(team_id)
+        .filter(thread=thread)
+        .select_related("comment")
+        .order_by("sent_at", "id")
+    )
+    count = messages.count()
+    return (
+        [
+            AccountEmailThreadMessage(
+                id=str(message.id),
+                sent_at=message.sent_at,
+                sender=EmailThreadAddress(name=message.sender_name, email=message.sender_email),
+                to_recipients=_email_thread_addresses(message.to_recipients),
+                cc_recipients=_email_thread_addresses(message.cc_recipients),
+                sender_authenticated=message.sender_authenticated,
+                direction=message.direction,
+                content=message.comment.content or "",
+            )
+            for message in messages[offset : offset + limit]
+        ],
+        count,
+    )

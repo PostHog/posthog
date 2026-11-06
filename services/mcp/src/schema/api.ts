@@ -42,18 +42,30 @@ export interface ApiUser {
 // at the wire boundary (see `StateManager._fetchApiKey`); this type represents
 // the post-normalization shape that the rest of the codebase consumes.
 export interface ApiRedactedPersonalApiKey {
+    is_impersonated?: boolean
+    suppress_analytics?: boolean
     scopes: string[]
     scoped_teams: number[]
     scoped_organizations: string[]
+    // Set only for a token minted for a sandboxed task run. Read from introspection, never a header.
+    sandbox_task_id?: string
+    // The tools a run with a picked tool list holds. Absent means no per-tool policy.
+    mcp_allowed_tools?: string[]
+    supports_step_up?: boolean
 }
 
 export type ApiOAuthIntrospection =
     | {
           active: true
+          is_impersonated?: boolean
           scope: string
           scoped_teams: number[]
           scoped_organizations: string[]
           client_name?: string
+          client_id?: string
+          sandbox_task_id?: string
+          mcp_allowed_tools?: string[]
+          supports_step_up?: boolean
       }
     | {
           active: false

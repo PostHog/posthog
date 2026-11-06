@@ -12,6 +12,7 @@ import { cn } from 'lib/utils/css-classes'
 const HedgehogChart = pngHoggie(chartPng)
 
 export type WidgetCardBodyProps = React.HTMLAttributes<HTMLDivElement> & {
+    padding?: boolean
     locked?: boolean
     lockedMessage?: string
     error?: string | null
@@ -57,6 +58,7 @@ function WidgetCardBodyContent({
 }
 
 export function WidgetCardBody({
+    padding = true,
     locked,
     lockedMessage = 'You do not have access to view this widget.',
     error,
@@ -70,7 +72,8 @@ export function WidgetCardBody({
         <div
             data-slot="widget-card-body"
             className={clsx(
-                '@container/widget-card WidgetCard__body flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-4 pt-2',
+                '@container/widget-card WidgetCard__body flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
+                padding && 'p-4 pt-2',
                 className
             )}
             {...divProps}
@@ -236,6 +239,7 @@ export const WIDGET_LIST_COUNT_ISSUES: WidgetListCountNoun = { singular: 'issue'
 export const WIDGET_LIST_COUNT_RECORDINGS: WidgetListCountNoun = { singular: 'recording', plural: 'recordings' }
 export const WIDGET_LIST_COUNT_EXPERIMENTS: WidgetListCountNoun = { singular: 'experiment', plural: 'experiments' }
 export const WIDGET_LIST_COUNT_LOGS: WidgetListCountNoun = { singular: 'log line', plural: 'log lines' }
+export const WIDGET_LIST_COUNT_TICKETS: WidgetListCountNoun = { singular: 'ticket', plural: 'tickets' }
 
 export function formatWidgetListCountFooter(
     shown: number,

@@ -8,7 +8,6 @@ const base = {
   generatingPanelOpen: false,
   viewOpen: false,
   collapsed: false,
-  hasCommentTask: true,
 };
 
 describe("canvasSidePanelVisibility", () => {
@@ -36,12 +35,6 @@ describe("canvasSidePanelVisibility", () => {
     [
       "viewing, dock opened but minimized",
       { viewOpen: true, collapsed: true },
-      false,
-      false,
-    ],
-    [
-      "viewing a canvas no task backs",
-      { viewOpen: true, hasCommentTask: false },
       false,
       false,
     ],

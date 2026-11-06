@@ -15,17 +15,19 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 
-from products.actions.backend.models.action import Action
+from products.access_control.backend.models.access_control import AccessControl
+from products.actions.backend.facade.testing import acreate_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.facade.api import record_insight_views
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
+from products.workflows.backend.facade.testing import acreate_workflow_for_test
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.entity_search import EntitySearchContext
-from ee.models.rbac.access_control import AccessControl
+from ee.hogai.context.entity_search.context import SEARCH_LIMIT, EntitySearchContext
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models import Account
@@ -50,14 +52,15 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("insight", "test_insight_id", "/project/{team_id}/insights/test_insight_id"),
             ("dashboard", "test_dashboard_id", "/project/{team_id}/dashboard/test_dashboard_id"),
             ("experiment", "test_experiment_id", "/project/{team_id}/experiments/test_experiment_id"),
-            ("feature_flag", "test_flag_id", "/project/{team_id}/feature_flags/test_flag_id"),
+            ("feature_flag", "test_flag_id", "/project/{team_id}/feature-flags/test_flag_id"),
             ("action", "test_action_id", "/project/{team_id}/data-management/actions/test_action_id"),
             ("cohort", "test_cohort_id", "/project/{team_id}/cohorts/test_cohort_id"),
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
-            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
+            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error-tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
             ("alert_configuration", "test_alert_id", "/project/{team_id}/alerts?alert_id=test_alert_id"),
             ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
+            ("hog_flow", "test_flow_id", "/project/{team_id}/workflows/test_flow_id/workflow"),
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):
@@ -259,9 +262,28 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "deleted_flag" not in result_keys
         assert "deleted flag" not in result_names
 
+    async def test_feature_flag_filters_exclude_archived(self):
+        await FeatureFlag.objects.acreate(
+            team=self.team, key="active_flag", name="active flag", archived=False, created_by=self.user
+        )
+        await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="archived_flag",
+            name="archived flag",
+            active=False,
+            archived=True,
+            created_by=self.user,
+        )
+
+        results, _ = await self.context.search_entities({"feature_flag"}, "flag")
+
+        result_keys = [r["extra_fields"].get("key", "") for r in results]
+        assert "active_flag" in result_keys
+        assert "archived_flag" not in result_keys
+
     async def test_action_filters_exclude_deleted(self):
-        await Action.objects.acreate(team=self.team, name="active action", deleted=False, created_by=self.user)
-        await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
+        await acreate_action(team=self.team, name="active action", deleted=False, created_by=self.user)
+        await acreate_action(team=self.team, name="deleted action", deleted=True, created_by=self.user)
 
         results, _ = await self.context.search_entities({"action"}, "action")
 
@@ -303,7 +325,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             team=self.team, name="deleted insight", deleted=True, saved=True, created_by=self.user
         )
         await Dashboard.objects.acreate(team=self.team, name="deleted dashboard", deleted=True, created_by=self.user)
-        await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
+        await acreate_action(team=self.team, name="deleted action", deleted=True, created_by=self.user)
         await Cohort.objects.acreate(team=self.team, name="deleted cohort", deleted=True, created_by=self.user)
         await Survey.objects.acreate(
             team=self.team,
@@ -311,6 +333,9 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             archived=True,
             created_by=self.user,
             type=Survey.SurveyType.POPOVER,
+        )
+        await acreate_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="deleted workflow", status="archived"
         )
 
         results, _ = await self.context.search_entities("all", "deleted")
@@ -321,6 +346,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "deleted action" not in result_names
         assert "deleted cohort" not in result_names
         assert "archived survey" not in result_names
+        assert "deleted workflow" not in result_names
 
     async def test_list_entities_insight(self):
         insight1 = await Insight.objects.acreate(
@@ -330,11 +356,10 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             team=self.team, name="List Insight 2", deleted=False, saved=True, created_by=self.user
         )
         # list_entities for insights filters by recent views
-        await InsightViewed.objects.acreate(
-            team=self.team, user=self.user, insight=insight1, last_viewed_at=timezone.now()
-        )
-        await InsightViewed.objects.acreate(
-            team=self.team, user=self.user, insight=insight2, last_viewed_at=timezone.now()
+        await sync_to_async(record_insight_views)(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={insight1.id: timezone.now(), insight2.id: timezone.now()},
         )
 
         entities, total = await self.context.list_entities("insight", limit=10, offset=0)
@@ -352,11 +377,10 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         insight2 = await Insight.objects.acreate(
             team=self.team, name="Restricted Insight", deleted=False, saved=True, created_by=self.user
         )
-        await InsightViewed.objects.acreate(
-            team=self.team, user=self.user, insight=insight1, last_viewed_at=timezone.now()
-        )
-        await InsightViewed.objects.acreate(
-            team=self.team, user=self.user, insight=insight2, last_viewed_at=timezone.now()
+        await sync_to_async(record_insight_views)(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={insight1.id: timezone.now(), insight2.id: timezone.now()},
         )
 
         # Mock filter_queryset_by_access_level to filter out insight2
@@ -384,6 +408,49 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert len(entities) == 1
         assert total == 1
         assert entities[0]["extra_fields"]["name"] == "List Dashboard"
+
+    async def test_list_entities_workflow_surfaces_status_and_hides_archived(self):
+        await acreate_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="welcome email", status="active"
+        )
+        await acreate_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="win-back draft", status="draft"
+        )
+        await acreate_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="old campaign", status="archived"
+        )
+
+        results, total_count = await self.context.list_entities("hog_flow")
+
+        assert total_count == 2
+        assert {(r["extra_fields"]["name"], r["extra_fields"]["status"]) for r in results} == {
+            ("welcome email", "active"),
+            ("win-back draft", "draft"),
+        }
+
+    async def test_search_entities_merges_workflows_into_the_shared_ranked_limit(self):
+        await Dashboard.objects.abulk_create(
+            [
+                Dashboard(
+                    team=self.team,
+                    name=f"Dashboard {index}",
+                    description="priority workflow",
+                    created_by=self.user,
+                )
+                for index in range(SEARCH_LIMIT)
+            ]
+        )
+        await acreate_workflow_for_test(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Priority workflow",
+            status="active",
+        )
+
+        results, _ = await self.context.search_entities({"dashboard", "hog_flow"}, "priority workflow")
+
+        assert len(results) == SEARCH_LIMIT
+        assert results[0]["type"] == "hog_flow"
 
     async def test_list_entities_account(self):
         account = await Account.objects.unscoped().acreate(team=self.team, name="Acme Corp", external_id="acme-1")
@@ -597,8 +664,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
                 team=self.team, name=f"Paginated Insight {i}", deleted=False, saved=True, created_by=self.user
             )
             # list_entities for insights filters by recent views
-            await InsightViewed.objects.acreate(
-                team=self.team, user=self.user, insight=insight, last_viewed_at=timezone.now()
+            await sync_to_async(record_insight_views)(
+                team_id=self.team.id, user_id=self.user.id, last_viewed_at_by_insight_id={insight.id: timezone.now()}
             )
 
         entities_page1, total = await self.context.list_entities("insight", limit=2, offset=0)

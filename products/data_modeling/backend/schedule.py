@@ -17,8 +17,15 @@ from collections.abc import Collection
 from datetime import timedelta
 
 from asgiref.sync import async_to_sync
-from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow, ScheduleRange, ScheduleSpec
+from temporalio.client import (
+    ScheduleCalendarSpec,
+    ScheduleIntervalSpec,
+    ScheduleListActionStartWorkflow,
+    ScheduleRange,
+    ScheduleSpec,
+)
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import (
@@ -29,14 +36,26 @@ from posthog.temporal.common.search_attributes import (
 )
 
 from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
-from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
 
-# v2 (DAG-based) schedules run this workflow; their schedule id is the bare DAG id, or
-# "{dag_id}:{interval_seconds}" for a per-cadence-tier schedule. The v1 backend
-# (`data-modeling-run`, one schedule per saved query) is frozen and being migrated away from.
+# A schedule id is the bare DAG id, or "{dag_id}:{interval_seconds}" for a per-cadence-tier
+# schedule, optionally followed by ":{anchor}". Parsers must handle all three shapes.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
+
+_TRANSIENT_RPC_STATUSES = (
+    RPCStatusCode.UNAVAILABLE,
+    RPCStatusCode.DEADLINE_EXCEEDED,
+    RPCStatusCode.RESOURCE_EXHAUSTED,
+)
+
+
+def is_transient_temporal_error(exc: BaseException) -> bool:
+    """True when Temporal could not answer at all, so a retry can succeed with no change on our side."""
+    if isinstance(exc, RPCError):
+        return exc.status in _TRANSIENT_RPC_STATUSES
+    # A failed connect (TLS handshake, DNS, refused) happens before any RPC, so the Rust bridge
+    # raises an untyped RuntimeError instead of an RPCError.
+    return isinstance(exc, RuntimeError) and str(exc).startswith("Failed client connect:")
 
 
 def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id: str) -> TypedSearchAttributes:
@@ -51,12 +70,10 @@ def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id
 
 
 @async_to_sync
-async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = None) -> set[str]:
+async def get_v2_scheduled_dag_ids(
+    candidate_dag_ids: Collection[str] | None = None,
+) -> set[str]:
     """Return the IDs of DAGs that already have a v2 `data-modeling-execute-dag` Temporal schedule.
-
-    A DAG appearing here has been migrated off the frozen v1 backend. Callers performing v1
-    schedule operations must skip these DAGs' saved queries so they never re-create or revive a
-    v1 schedule for a DAG already running on v2.
 
     When `candidate_dag_ids` is given, the listing is scoped server-side to those DAGs via the
     `PostHogDagId` search attribute so we never paginate every schedule in the namespace — a
@@ -90,23 +107,11 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
 
 
 def get_v2_saved_query_ids(
-    candidate_ids: Collection[uuid.UUID] | None = None, *, team_id: int | None = None
+    candidate_ids: Collection[uuid.UUID] | None = None,
 ) -> set[uuid.UUID]:
     """Return saved query IDs whose DAG already runs on a v2 schedule.
 
-    A saved query counts as on v2 when any DAG it belongs to has a v2 schedule, because it can sit
-    in several DAGs and one v1-scheduled placement does not make a v1 schedule safe to mint.
-
-    `team_id` extends that to saved queries with no node, answering from the team's DAGs instead.
-    A node can be absent because `sync_saved_query_to_dag` deletes it when dependency resolution
-    raises, and reading "no node" as "not on v2" mints a v1 per-query schedule beside the team's
-    live tier, which then materializes the query twice on every cycle. Only a caller that is about
-    to create a v1 schedule needs this, so it stays opt-in: it answers about the team rather than
-    about a placement, and such a caller must still check for a node before scheduling. Pass the
-    team the candidates belong to, never one derived from the ids themselves.
-
-    Optionally restrict the lookup to `candidate_ids` to keep the query bounded. These saved
-    queries must be skipped by v1 schedule commands so we never undo migration progress.
+    Optionally restrict the lookup to `candidate_ids` to keep the query bounded.
     """
     if candidate_ids is not None:
         if not candidate_ids:
@@ -120,15 +125,6 @@ def get_v2_saved_query_ids(
             if dag_id is not None:
                 dag_ids_by_saved_query[saved_query_id].add(str(dag_id))
 
-        if team_id is not None:
-            nodeless = set(candidate_ids) - dag_ids_by_saved_query.keys()
-            team_dag_ids = (
-                {str(dag_id) for dag_id in DAG.objects.filter(team_id=team_id).values_list("id", flat=True)}
-                if nodeless
-                else set()
-            )
-            if team_dag_ids:
-                dag_ids_by_saved_query.update(dict.fromkeys(nodeless, team_dag_ids))
         if not dag_ids_by_saved_query:
             return set()
 
@@ -141,26 +137,6 @@ def get_v2_saved_query_ids(
 
     nodes = Node.objects.filter(dag_id__in=v2_dag_ids, saved_query_id__isnull=False)
     return set(nodes.values_list("saved_query_id", flat=True))
-
-
-def partition_saved_queries_by_v2_schedule(
-    saved_queries: list[DataWarehouseSavedQuery],
-) -> tuple[list[DataWarehouseSavedQuery], list[DataWarehouseSavedQuery]]:
-    """Split saved queries into (v1_eligible, on_v2).
-
-    A saved query is "on v2" when any DAG it belongs to already has a `data-modeling-execute-dag`
-    schedule. v1 schedule commands should skip the on_v2 list so they do not undo migration progress.
-    """
-    if not saved_queries:
-        return [], []
-
-    v2_ids = get_v2_saved_query_ids([sq.id for sq in saved_queries])
-    if not v2_ids:
-        return list(saved_queries), []
-
-    eligible = [sq for sq in saved_queries if sq.id not in v2_ids]
-    on_v2 = [sq for sq in saved_queries if sq.id in v2_ids]
-    return eligible, on_v2
 
 
 def _deterministic_int(entity_id: uuid.UUID, salt: str) -> int:
@@ -256,13 +232,16 @@ def _monthly_spec(entity_id: uuid.UUID, timezone: str) -> ScheduleSpec:
     )
 
 
-def _anchored_spec(entity_id: uuid.UUID, interval: timedelta, anchor_minutes: int) -> ScheduleSpec:
+def _anchored_spec(interval: timedelta, anchor_minutes: int) -> ScheduleSpec:
     """Pinned-phase spec: fires at times t ≡ anchor (mod interval), t counted from Monday 00:00 UTC.
 
     Always UTC (a fixed instant that does not shift with DST) and 1min jitter — an operator
     pinning 00:00 means 00:00, not the hash paths' up-to-1hr spread. Every sub-weekly bucket
     divides the day, so only the time-of-day part of the anchor matters there; weekly reads the
-    full value for its day. Monthly keeps its hash-picked day-of-month with the time pinned.
+    full value for its day. Monthly reads only the time of day too, and fires on the 30-day
+    epoch grid rather than a day of the month.
+
+    Nothing here depends on the entity: an anchored cohort shares one phase by definition.
     """
     time_of_day = anchor_minutes % (24 * 60)
     anchor_hour, anchor_min = divmod(time_of_day, 60)
@@ -296,12 +275,15 @@ def _anchored_spec(entity_id: uuid.UUID, interval: timedelta, anchor_minutes: in
             minute=[ScheduleRange(start=anchor_min, end=anchor_min)],
         )
     else:
-        day_of_month = (_deterministic_int(entity_id, "day") % 28) + 1
-        calendar = ScheduleCalendarSpec(
-            comment=f"Anchored: monthly (hash-picked day {day_of_month}) at {anchor_hour:02d}:{anchor_min:02d}",
-            day_of_month=[ScheduleRange(start=day_of_month, end=day_of_month)],
-            hour=[ScheduleRange(start=anchor_hour, end=anchor_hour)],
-            minute=[ScheduleRange(start=anchor_min, end=anchor_min)],
+        # Calendar months are 28-31 days, so no day_of_month holds a 30-day cycle. Warehouse
+        # sources run epoch-anchored interval schedules whose offset is a time of day, so a
+        # 30-day source always syncs on a day where days_since_epoch % 30 == 0. Sharing that
+        # grid is what lets an anchored model read the sync it was meant to read; a calendar
+        # day drifts against the grid and leaves the model a whole cycle in arrears.
+        return ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=interval, offset=timedelta(minutes=time_of_day))],
+            jitter=timedelta(minutes=1),
+            time_zone_name="UTC",
         )
 
     return ScheduleSpec(calendars=[calendar], jitter=timedelta(minutes=1), time_zone_name="UTC")
@@ -326,7 +308,7 @@ def build_schedule_spec(
         A ScheduleSpec ready to be used with Temporal's Schedule API.
     """
     if anchor_minutes is not None:
-        return _anchored_spec(entity_id, interval, anchor_minutes)
+        return _anchored_spec(interval, anchor_minutes)
 
     total_hours = interval.total_seconds() / 3600
 

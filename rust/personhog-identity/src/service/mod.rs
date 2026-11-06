@@ -1,9 +1,12 @@
 //! The gRPC service surface. This module is dispatch-only: each RPC family
-//! lives in its own submodule (get_or_create today; resolution, claims,
-//! splits, and merge classification will follow the same pattern).
+//! lives in its own submodule (get_or_create and the merge entrance today;
+//! resolution, claims, and splits will follow the same pattern). [`merge`]
+//! carries MergePersons' identity work — validation, resolution,
+//! classification, inline settlement.
 
 pub mod error;
 pub mod get_or_create;
+pub mod merge;
 pub mod validation;
 
 use std::sync::Arc;
@@ -16,20 +19,28 @@ use personhog_proto::personhog::identity::v1::{
     GetOrCreatePersonByDistinctIdRequest, GetOrCreatePersonByDistinctIdResponse,
     GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
     GetOrCreatePersonsByDistinctIdsResponse, GetPersonByDistinctIdResult,
-    GetPersonsByDistinctIdsRequest, GetPersonsByDistinctIdsResponse,
+    GetPersonsByDistinctIdsRequest, GetPersonsByDistinctIdsResponse, MergePersonsRequest,
+    MergePersonsResponse,
 };
-use personhog_proto::personhog::types::v1::{DistinctIdWithVersion, PersonDistinctIds};
+use personhog_proto::personhog::types::v1::{
+    DistinctIdWithVersion, Person as ProtoPerson, PersonDistinctIds,
+};
 
 use crate::leader::PropertyWriter;
+use crate::service::merge::MergeEntrance;
 use crate::service::validation::{
     validate_batch_size, validate_entry, validate_team_id, RequestLimits,
 };
 use crate::storage::IdentityStorage;
 
+const RESOLVE_KEYS_PER_CALL: &str = "personhog_identity_resolve_keys_per_call";
+
 pub struct PersonHogIdentityService {
     pub(crate) storage: Arc<dyn IdentityStorage>,
     pub(crate) property_writer: Arc<dyn PropertyWriter>,
     pub(crate) limits: RequestLimits,
+    pub(crate) property_write_concurrency: usize,
+    merge: MergeEntrance,
 }
 
 impl PersonHogIdentityService {
@@ -37,11 +48,16 @@ impl PersonHogIdentityService {
         storage: Arc<dyn IdentityStorage>,
         property_writer: Arc<dyn PropertyWriter>,
         limits: RequestLimits,
+        merge: MergeEntrance,
+        property_write_concurrency: usize,
     ) -> Self {
         Self {
             storage,
             property_writer,
             limits,
+            // Clamped to 1: a zero-width buffered stream never polls.
+            property_write_concurrency: property_write_concurrency.max(1),
+            merge,
         }
     }
 }
@@ -109,7 +125,9 @@ impl PersonHogIdentity for PersonHogIdentityService {
         &self,
         request: Request<GetPersonsByDistinctIdsRequest>,
     ) -> Result<Response<GetPersonsByDistinctIdsResponse>, Status> {
-        let keys = request.into_inner().keys;
+        let request = request.into_inner();
+        let keys = request.keys;
+        common_metrics::histogram(RESOLVE_KEYS_PER_CALL, &[], keys.len() as f64);
         validate_batch_size(&self.limits, keys.len())?;
         for key in &keys {
             validate_team_id(key.team_id)?;
@@ -119,21 +137,39 @@ impl PersonHogIdentity for PersonHogIdentityService {
             .iter()
             .map(|key| (key.team_id, key.distinct_id.clone()))
             .collect();
-        let resolved = self
-            .storage
-            .resolve_distinct_ids(&identifiers)
-            .await
-            .map_err(|e| crate::service::error::log_and_convert_error(e, "resolve_distinct_ids"))?;
+        let resolved: std::collections::HashMap<(i64, String), ProtoPerson> = if request.ids_only {
+            self.storage
+                .resolve_person_ids(&identifiers)
+                .await
+                .map_err(|e| crate::service::error::log_and_convert_error(e, "resolve_person_ids"))?
+                .into_iter()
+                .map(|((team_id, distinct_id), id)| {
+                    let person = ProtoPerson {
+                        id,
+                        team_id,
+                        ..Default::default()
+                    };
+                    ((team_id, distinct_id), person)
+                })
+                .collect()
+        } else {
+            self.storage
+                .resolve_distinct_ids(&identifiers)
+                .await
+                .map_err(|e| {
+                    crate::service::error::log_and_convert_error(e, "resolve_distinct_ids")
+                })?
+                .into_iter()
+                .map(|(key, person)| (key, person.into()))
+                .collect()
+        };
 
         let results = identifiers
             .into_iter()
             .map(|(team_id, distinct_id)| {
                 // Look up rather than consume: a key repeated in one
                 // request must resolve on every occurrence.
-                let person = resolved
-                    .get(&(team_id, distinct_id.clone()))
-                    .cloned()
-                    .map(Into::into);
+                let person = resolved.get(&(team_id, distinct_id.clone())).cloned();
                 GetPersonByDistinctIdResult {
                     team_id,
                     distinct_id,
@@ -177,6 +213,7 @@ impl PersonHogIdentity for PersonHogIdentityService {
                 .push(DistinctIdWithVersion {
                     distinct_id: mapping.distinct_id,
                     version: mapping.version,
+                    id: None,
                 });
         }
         let person_distinct_ids = by_person
@@ -189,5 +226,14 @@ impl PersonHogIdentity for PersonHogIdentityService {
         Ok(Response::new(GetDistinctIdsForPersonsResponse {
             person_distinct_ids,
         }))
+    }
+
+    async fn merge_persons(
+        &self,
+        request: Request<MergePersonsRequest>,
+    ) -> Result<Response<MergePersonsResponse>, Status> {
+        Ok(Response::new(
+            self.merge.handle(request.into_inner()).await?,
+        ))
     }
 }

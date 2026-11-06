@@ -1,10 +1,9 @@
 import { redactSecretHogFunctionInputs } from 'scenes/hog-functions/hog-function-utils'
+import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
-
-import { BUILDING_WORKFLOWS_SKILL, WORKFLOWS_MCP_TOOLS } from '../agentContext.generated'
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 
@@ -12,27 +11,31 @@ import type { HogFlow } from './hogflows/types'
 // the chip actually detaches the payload instead of only hiding the chip.
 const SKILL_DISMISS_GROUP = 'workflow-scene-skill'
 const EDITOR_STATE_DISMISS_GROUP = 'workflow-scene-state'
+// Own dismiss group: a dismissal is global and never resets, so a chip closed on a workflow must not strip this page.
+const NEW_WORKFLOW_DISMISS_GROUP = 'new-workflow-composer'
 
-// All static strings below are build-time constants from our own repo (skill markdown + tool
-// descriptions), which is what makes them safe to attach as trusted `instructions` items.
-const PREAMBLE_CONTEXT_ITEM: AttachedContextItem = {
+const BUILDING_WORKFLOWS_SKILL = 'building-workflows'
+const DESIGNING_EMAIL_TEMPLATES_SKILL = 'designing-email-templates'
+
+// All static strings below are our own build-time constants, which is what makes them safe to attach
+// as trusted `instructions` items. The skill bodies and tool schemas are not embedded: product skills
+// are installed in the agent's sandbox, and the exec MCP tool already exposes the workflows commands,
+// so naming them is enough to skip discovery.
+const TOOLING_CONTEXT_ITEM: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
     dismissGroup: SKILL_DISMISS_GROUP,
     value:
-        'The user has the PostHog workflow editor open. The full building-workflows skill and the complete ' +
-        'workflows MCP tool catalog are included in this context - you already have everything needed to act. ' +
-        'Do not spend turns discovering tools or reading skill files: call the listed tools directly, and use ' +
-        'the exec `info <tool>` command only when you need a full input schema.',
+        `Load the ${BUILDING_WORKFLOWS_SKILL} skill before your ` +
+        'first tool call; it covers the action/edge graph schema and the patch workflow. Act through the ' +
+        'workflows MCP tools (the exec `workflows-*` commands: workflows-get, workflows-patch-graph, ' +
+        'workflows-update, workflows-test-run, workflows-publish, workflows-logs, and the rest). Do not search ' +
+        'for tools; use the exec `info <tool>` command when you need a full input schema.',
 }
 
-const SKILL_CONTENT_CONTEXT_ITEM: AttachedContextItem = {
-    type: 'instructions',
-    hidden: true,
-    dismissGroup: SKILL_DISMISS_GROUP,
-    value:
-        `Skill ${BUILDING_WORKFLOWS_SKILL.name} (embedded, including its graph-schema reference): ` +
-        BUILDING_WORKFLOWS_SKILL.content,
+const PREAMBLE_CONTEXT_ITEM: AttachedContextItem = {
+    ...TOOLING_CONTEXT_ITEM,
+    value: `The user has the PostHog workflow editor open. ${TOOLING_CONTEXT_ITEM.value}`,
 }
 
 const EDITOR_STATE_CONTEXT_ITEM: AttachedContextItem = {
@@ -46,16 +49,9 @@ const EDITOR_STATE_CONTEXT_ITEM: AttachedContextItem = {
         'or workflows-get-email-template for library templates.',
 }
 
-const TOOL_CONTEXT_ITEMS: AttachedContextItem[] = WORKFLOWS_MCP_TOOLS.map((tool) => ({
-    type: 'instructions',
-    hidden: true,
-    dismissGroup: SKILL_DISMISS_GROUP,
-    value: `MCP tool ${tool.name}: ${tool.description}`,
-}))
-
 const SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
     type: 'skill',
-    key: BUILDING_WORKFLOWS_SKILL.name,
+    key: BUILDING_WORKFLOWS_SKILL,
     label: 'Building workflows skill',
     dismissGroup: SKILL_DISMISS_GROUP,
 }
@@ -64,6 +60,146 @@ export const WORKFLOW_AGENT_HEADLINES: string[] = [
     'How can I help with this workflow?',
     'What should this workflow do?',
 ]
+
+export const EMAIL_EDITOR_AGENT_HEADLINES: string[] = ['How should this email look?']
+
+export const NEW_WORKFLOW_AGENT_HEADLINES: string[] = ['What workflow would you like to build today?']
+
+// The first is the data-driven ask. The rest mirror the global templates: common flows, marketing, then AI.
+export const NEW_WORKFLOW_SUGGESTIONS: AiFirstSuggestion[] = [
+    {
+        title: 'Improve my conversion',
+        description: 'Look at the funnel and draft a campaign for the biggest drop-off',
+        prompt: 'Look at my conversion funnel and draft a campaign to improve the biggest drop-off',
+    },
+    {
+        title: 'Welcome new signups',
+        description: 'A short email sequence over the first week',
+        prompt: 'Send a welcome email sequence to new signups over their first week',
+    },
+    {
+        title: 'Alert on new support tickets',
+        description: 'Post to Slack when a ticket comes in',
+        prompt: 'Notify the team in Slack when a new support ticket comes in',
+    },
+    {
+        title: 'Recover abandoned checkouts',
+        description: 'Email people who start checkout but never finish',
+        prompt: 'Email people who start checkout but do not complete a purchase, and stop once they buy',
+    },
+    {
+        title: 'Win back inactive users',
+        description: 'Reach out after 30 days of silence',
+        prompt: 'Re-engage users who have been inactive for 30 days',
+    },
+    {
+        title: 'Answer support tickets with AI',
+        description: 'Triage each new ticket and draft a reply in Slack',
+        prompt: 'When a support ticket comes in, have an AI agent look at the customer in PostHog, set a priority, draft a reply, and post it to Slack',
+    },
+    {
+        title: 'Send a weekly AI report',
+        description: 'Summarize my key metrics in Slack every week',
+        prompt: 'Every Monday morning, have an AI agent summarize my key metrics and errors from the past week and post the report to Slack',
+    },
+    {
+        title: 'Triage alerts from Slack',
+        description: 'Investigate each new alert and reply with findings in the thread',
+        prompt: 'When an alert is posted in my Slack alerts channel, start an AI investigation and reply with the findings in the thread',
+    },
+]
+
+// The fastest useful outcome from nothing is a draft in the editor, refined with the agent alongside.
+const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
+    value:
+        'The user is starting a new workflow from a description. Work draft-first:\n' +
+        `1. Load the ${DESIGNING_EMAIL_TEMPLATES_SKILL} skill.\n` +
+        '2. Make workflows-create your first workflows tool call; questions wait until the draft exists. Keep it ' +
+        'minimal: the trigger plus each step as a placeholder. Each email step gets a placeholder subject, a ' +
+        "plain-text text, and a design copied from the skill reference's minimal example. Leave html out: step 4 " +
+        'renders it from the design. Done when the draft exists; the editor opens it at once.\n' +
+        '3. Fill in the details with workflows-patch-graph.\n' +
+        '4. Fill each email with one workflows-patch-action-email call: block operations for the content, plus an ' +
+        'email_patch with the real subject and a matching text. Done when no email holds placeholder copy.\n' +
+        '5. Test the workflow and leave it disabled.',
+}
+
+/** Skill pointer plus the draft-first instruction, no editor state. Not dismissible: the page only advances once the draft exists. */
+export function buildNewWorkflowComposerContext(): AttachedContextItem[] {
+    return [
+        { ...TOOLING_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP },
+        { ...SKILL_CHIP_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP, dismissible: false },
+        DRAFT_FIRST_CONTEXT_ITEM,
+    ]
+}
+
+const EMAIL_EDITING_DISMISS_GROUP = 'workflow-scene-email-editing'
+
+// Action IDs are arbitrary strings a workflow writer controls, and this one gets interpolated
+// into a trusted `instructions` context item; anything outside a generated-ID shape must not
+// reach trusted context, or a crafted ID becomes a prompt injection against the next reader.
+const SAFE_ACTION_ID = /^[A-Za-z0-9_-]{1,128}$/
+
+function findEmailAction(workflow: HogFlow | null, actionId: string | null): HogFlow['actions'][number] | null {
+    if (!actionId || !SAFE_ACTION_ID.test(actionId)) {
+        return null
+    }
+    const action = workflow?.actions?.find((a) => a.id === actionId)
+    return action && isEmailAction(action) ? action : null
+}
+
+/**
+ * Whether the URL says the email takeover is open on an email action this workflow actually has.
+ * The ?editor=email param can linger (the node/tab URL sync preserves foreign search params), so
+ * the params alone must never flip the panel into email-editing framing.
+ */
+export function isEditingEmailAction(workflow: HogFlow | null, searchParams: Record<string, any>): boolean {
+    return searchParams.editor === 'email' && !!findEmailAction(workflow, (searchParams.node as string) ?? null)
+}
+
+// Attached while the email takeover is open on a saved workflow, so "this email" resolves to the
+// action the user is actually looking at instead of the agent guessing between email steps. The
+// caller gates on findEmailAction; every item here is static text.
+function buildEmailEditingContextItems(): AttachedContextItem[] {
+    return [
+        {
+            type: 'instructions',
+            hidden: true,
+            dismissGroup: EMAIL_EDITING_DISMISS_GROUP,
+            // Deliberately static: instructions dedupe per task by exact text, so a varying id here
+            // would be pruned on a reopen (open A, open B, reopen A leaves B's pin as the newest
+            // surviving text). The pointer rides the editor-state item instead, whose value changes
+            // and therefore always re-sends - and no untrusted string enters trusted context at all.
+            value:
+                `The user has the email editor open. The hog_flow_editor_state item's ` +
+                `editing_email_action_id field names the open action; the latest editor state wins over ` +
+                `anything earlier in the conversation. Requests about "this email" mean that action's ` +
+                `config.inputs.email.value. For content and layout changes prefer ` +
+                `workflows-patch-action-email with design operations targeting that action; use ` +
+                `workflows-patch-graph with update_action on it for other fields. The open editor reloads ` +
+                `external edits live, so the user sees applied changes immediately.`,
+        },
+        {
+            type: 'skill',
+            key: DESIGNING_EMAIL_TEMPLATES_SKILL,
+            label: 'Designing email templates skill',
+            dismissGroup: EMAIL_EDITING_DISMISS_GROUP,
+        },
+        {
+            type: 'instructions',
+            hidden: true,
+            dismissGroup: EMAIL_EDITING_DISMISS_GROUP,
+            value:
+                `Load the ${DESIGNING_EMAIL_TEMPLATES_SKILL} skill for the email design JSON schema and the design ` +
+                `guidelines. The template library is served by the exec workflows-*-email-template commands ` +
+                `(workflows-list-email-templates, workflows-get-email-template, workflows-create-email-template, ` +
+                `workflows-patch-email-template, workflows-update-email-template, workflows-show-email-template).`,
+        },
+    ]
+}
 
 function redactInputsRecord(
     inputs: Record<string, CyclotronJobInputType>,
@@ -158,9 +294,18 @@ const DESIGN_ELIDED_MARKER =
  */
 export function serializeWorkflowEditorState(
     workflow: HogFlow,
-    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
+    editingEmailActionId: string | null = null
 ): string {
-    const prepared = redactWorkflowSecretInputs(workflow, hogFunctionTemplatesById)
+    const prepared = redactWorkflowSecretInputs(workflow, hogFunctionTemplatesById) as HogFlow & {
+        editing_email_action_id?: string
+    }
+    // The open-email pointer travels here rather than in the trusted instruction: this value
+    // changes across reopens so it is never deduplicated away, and the id (allowlisted upstream)
+    // stays out of trusted-instruction text.
+    if (editingEmailActionId) {
+        prepared.editing_email_action_id = editingEmailActionId
+    }
     for (const action of prepared.actions ?? []) {
         const email = emailValueOf(action)
         // Steps without a design keep their html, because it is the only body they have.
@@ -182,22 +327,17 @@ export function serializeWorkflowEditorState(
 }
 
 /**
- * The default agent context for the workflow editor scene: the embedded building-workflows skill,
- * the workflows MCP tool catalog, and the current workflow (a visible ref for saved workflows plus
- * the live editor state so unsaved edits are visible to the agent).
+ * The default agent context for the workflow editor scene: a pointer to the building-workflows skill
+ * and the workflows MCP tools, and the current workflow (a visible ref for saved workflows plus the
+ * live editor state so unsaved edits are visible to the agent).
  */
 export function buildWorkflowAgentContext(
     workflow: HogFlow | null,
     id: string,
-    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
+    editingEmailActionId: string | null = null
 ): AttachedContextItem[] {
-    const items: AttachedContextItem[] = [
-        PREAMBLE_CONTEXT_ITEM,
-        SKILL_CHIP_CONTEXT_ITEM,
-        SKILL_CONTENT_CONTEXT_ITEM,
-        ...TOOL_CONTEXT_ITEMS,
-        EDITOR_STATE_CONTEXT_ITEM,
-    ]
+    const items: AttachedContextItem[] = [PREAMBLE_CONTEXT_ITEM, SKILL_CHIP_CONTEXT_ITEM, EDITOR_STATE_CONTEXT_ITEM]
     if (id !== 'new') {
         items.push({
             type: 'hog_flow',
@@ -206,13 +346,21 @@ export function buildWorkflowAgentContext(
             dismissGroup: EDITOR_STATE_DISMISS_GROUP,
         })
     }
+    const editingEmail = id !== 'new' && !!findEmailAction(workflow, editingEmailActionId)
     if (workflow) {
         items.push({
             type: 'hog_flow_editor_state',
             hidden: true,
             dismissGroup: EDITOR_STATE_DISMISS_GROUP,
-            value: serializeWorkflowEditorState(workflow, hogFunctionTemplatesById),
+            value: serializeWorkflowEditorState(
+                workflow,
+                hogFunctionTemplatesById,
+                editingEmail ? editingEmailActionId : null
+            ),
         })
+    }
+    if (editingEmail) {
+        items.push(...buildEmailEditingContextItems())
     }
     return items
 }

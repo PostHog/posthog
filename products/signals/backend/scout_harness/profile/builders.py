@@ -20,17 +20,22 @@ items with name + status + timestamp. The agent gets MCP tools (`surveys-get-all
 `feature-flag-get-all`, `experiment-list`, `insights-trending-retrieve`, etc.) for
 deep drilldowns; the profile only orients.
 
+**Surface usage** — `surfaces`: whether each canonical scout's surface is in use, from that
+scout's default pre-check query. `top_events` cannot answer this for a quiet surface.
+
 Per-entity ordering picks `updated_at` / `last_modified_at` where available, falling
 back to `created_at` for entities that don't track modifications (cohorts, alerts).
 """
 
 from __future__ import annotations
 
+import math
+import time
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
-from django.db.models import Count, F, Max, OuterRef, Q, Subquery
+from django.db.models import Count, F, Max, Q
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -38,42 +43,49 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.integrations import IntegrationManager
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action_inventory
+from products.alerts.backend.facade.destinations import redact_urls_in_name
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.constants import SourceStatus
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
-
-# `products.experiments` ships a facade (api.py + contracts.py) but the contract is
-# not yet enforced by CI (no `backend:contract-check` script in package.json). The
-# facade exposes `create_experiment` but no list/query helpers, so the read-only
-# orientation reader here imports the model directly. When experiments isolation is
-# enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade import scout as experiments_scout
+from products.experiments.backend.facade.contracts import RecentExperiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
+from products.signals.backend.scout_harness.lazy_seed import canonical_precheck_queries, scout_skill_origin
+from products.signals.backend.scout_harness.precheck import (
+    PRECHECK_TIMEOUT_S,
+    resolve_effective_precheck,
+    run_precheck_query,
+)
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.warehouse_sources.backend.facade import api as warehouse_sources
+from products.workflows.backend.facade.api import get_workflow_activity_summary
 
 logger = logging.getLogger(__name__)
 
 # Bumps when the inventory schema changes meaningfully — `get_project_profile` invalidates
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
-# and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v12"
+# and new shapes in the cache. A redaction change bumps it too, so rows built before the
+# redaction stop being served.
+INVENTORY_SOURCE_VERSION = "v19"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -116,8 +128,16 @@ REVIEWER_CORRECTIONS_LIMIT = 20
 # most), so it needs no result cap of its own.
 SCOUT_FLEET_EMITTED_LOOKBACK_DAYS = 30
 
+# `build_surfaces` binds a pre-check's `{since}` to this many days before now, and `{interval_minutes}`
+# to the same span. Most default queries carry their own window off `{now}` and ignore both.
+SURFACES_LOOKBACK_DAYS = 30
+# The total time the surface queries can take in one build. A surface that the budget leaves out
+# reads as `in_use: null`.
+SURFACES_TIME_BUDGET_S = 30
+_UNANSWERED_SURFACE: dict[str, Any] = {"in_use": None, "evaluated_at": None, "row_count": None}
 
-def build_inventory(team: Team) -> Inventory:
+
+def build_inventory(team: Team, *, surfaces: dict[str, dict[str, Any]] | None = None) -> Inventory:
     """Aggregate the deterministic inventory layer for a team.
 
     Each source is read independently — a failure in one (e.g. warehouse temporarily
@@ -154,6 +174,7 @@ def build_inventory(team: Team) -> Inventory:
             "recent_actions": _recent_actions(team),
             "business_knowledge": _business_knowledge(team),
             "top_events": _top_events(team),
+            "surfaces": build_surfaces(team) if surfaces is None else surfaces,
         }
     )
 
@@ -178,6 +199,9 @@ def _project_context(team: Team) -> dict[str, Any]:
 
 def _products_in_use(team: Team) -> list[str]:
     """Products this team has completed onboarding for.
+
+    Onboarding is not usage: a team can use a product it never onboarded, and the reverse.
+    `surfaces` answers whether a surface is in use.
 
     `Team.has_completed_onboarding_for` is a JSON map of `{product_key: bool}` — keys
     we report are the ones the team explicitly finished onboarding. Missing or null
@@ -213,7 +237,7 @@ def _integrations(team: Team) -> list[dict[str, Any]]:
     Only the kind + creation timestamp — `Integration.config` and `Integration.sensitive_config`
     can hold tokens or workspace details we don't want to surface to the agent.
     """
-    rows = Integration.objects.filter(team=team).order_by("kind", "id")
+    rows = sorted(IntegrationManager.any.list(team.id), key=lambda row: (row.kind, row.id))
     return [
         {
             "kind": row.kind,
@@ -236,32 +260,16 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     semantics of the `external-data-sources-list` API so a scout can spot a dead source from
     the profile alone without a follow-up list call.
     """
-    # Newest schema-level error across the source's non-deleted schemas. Ordered by most
-    # recently updated so a scout sees the freshest failure, matching the list API's intent.
-    latest_error = Subquery(
-        ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False, latest_error__isnull=False)
-        .order_by("-updated_at")
-        .values("latest_error")[:1]
-    )
-    rows = (
-        ExternalDataSource.objects.filter(team=team, deleted=False)
-        .annotate(
-            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJob.Status.COMPLETED)),
-            latest_error=latest_error,
-        )
-        .order_by("source_type", "id")
-        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
-    )
     return [
         {
-            "source_type": row["source_type"],
-            "status": row["status"],
-            "prefix": row["prefix"] or "",
-            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-            "last_run_at": row["last_run_at"].isoformat() if row.get("last_run_at") else None,
-            "latest_error": row.get("latest_error"),
+            "source_type": source.source_type,
+            "status": source.status,
+            "prefix": source.prefix or "",
+            "created_at": source.created_at.isoformat(),
+            "last_run_at": source.last_run_at.isoformat() if source.last_run_at else None,
+            "latest_error": source.latest_error,
         }
-        for row in rows
+        for source in warehouse_sources.list_source_health(team.pk)
     ]
 
 
@@ -283,35 +291,20 @@ def _signal_source_configs(team: Team) -> dict[str, list[dict[str, str]]]:
 def _emit_eligibility(team: Team) -> dict[str, Any]:
     """Whether scout findings can actually reach the inbox for this team.
 
-    Mirrors the team/org-level half of the shared emit preflight (`_preflight_emit_gates`) so a
-    scout can read it at cold start and quick-close before doing throwaway work whose output would
-    be silently dropped. Both the signal and report channels gate on the same two conditions: the
-    org must have approved AI data processing, and the `signals_scout` source must be enabled.
-    `remediation` reuses the emit path's authoritative pointers so the profile and the skip
-    response never drift.
+    The profile row is shared by every scout on the team, so this stores the team-wide floor: the
+    two gates that hold for all of them (org AI-processing consent, `signals_scout` source
+    enablement). `emit_eligibility(run=None)` is where those are evaluated, and the profile
+    endpoint re-derives the block for whichever scout is reading. Delegating rather than
+    re-deriving is the point: the value a scout reads while orienting and the gate applied when it
+    writes come out of the same function, so the profile can't promise an emit the write path
+    refuses.
     """
     # Deferred to break the profile↔tools import cycle: `tools/__init__` eagerly imports
     # `tools.profile`, which imports this `profile` package, so a module-level import here would
     # re-enter a half-initialized `profile` package during `tools` package init.
-    from products.signals.backend.scout_harness.tools.emit import (  # noqa: PLC0415
-        SOURCE_PRODUCT,
-        SOURCE_TYPE,
-        remediation_for_skip,
-    )
+    from products.signals.backend.scout_harness.tools.emit import emit_eligibility  # noqa: PLC0415
 
-    ai_processing_approved = bool(team.organization.is_ai_data_processing_approved)
-    source_enabled = SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE)
-    can_emit = ai_processing_approved and source_enabled
-    # Point at the first failing gate, matching the preflight's check order.
-    blocking_reason = (
-        None if can_emit else ("ai_processing_not_approved" if not ai_processing_approved else "source_disabled")
-    )
-    return {
-        "ai_processing_approved": ai_processing_approved,
-        "source_enabled": source_enabled,
-        "can_emit": can_emit,
-        "remediation": remediation_for_skip(blocking_reason),
-    }
+    return emit_eligibility(team=team, run=None)
 
 
 def _scout_fleet(team: Team) -> dict[str, Any]:
@@ -326,8 +319,9 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     keeps the two causes distinguishable without a third bucket. Held-back scouts are the one
     case dropped rather than classified, so this payload can't disclose them (see below).
 
-    Queries: the config rows (schedule + emit posture, authoritative), the live skill names, the
-    flag payload for the holdback denylist, and one grouped pass over recent run rows for the
+    Queries: the config rows (schedule + emit posture + last pre-check, authoritative), the live
+    skill names, the skill rows that decide whether a skill default pre-check applies, the flag
+    payload for the holdback denylist, and one grouped pass over recent run rows for the
     last time each scout produced output. `last_run_at` comes off the config because the
     coordinator stamps it at dispatch, so it stays correct for a scout whose runs have aged out
     of the run-history window.
@@ -342,6 +336,7 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     last_emitted_by_skill = {
         row["skill_name"]: row["last_emitted_at"]
         for row in SignalScoutRun.objects.for_team(team.id)
+        .exclude(metadata__has_key="scout_trial")
         .filter(created_at__gte=emitted_since)
         .filter(Q(emitted_count__gt=0) | touched_a_report)
         .values("skill_name")
@@ -351,8 +346,16 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     # `SignalScoutConfigViewSet.list`: this payload is readable with `signal_scout:read`, so
     # listing a withheld row (even as not-running) would disclose the name and rollout status of
     # an unreleased scout to the very team it is withheld from.
-    withheld = withheld_skills_for_team(team.id)
+    withheld = withheld_skills_for_team(team.id) | SYSTEM_SCOUT_NAMES
     live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld)
+    # One query for the whole fleet: a skill default pre-check applies only to a canonical skill row.
+    canonical_skills = {
+        name
+        for name, metadata in LLMSkill.objects.filter(team_id=team.id, is_latest=True, deleted=False).values_list(
+            "name", "metadata"
+        )
+        if scout_skill_origin(name, metadata) == "canonical"
+    }
     enabled: list[dict[str, Any]] = []
     disabled: list[dict[str, Any]] = []
     for config in SignalScoutConfig.objects.for_team(team.id).exclude(skill_name__in=withheld).order_by("skill_name"):
@@ -371,6 +374,7 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
                 not_running_reason = "turned_off"
         elif config.skill_name not in live_skills:
             not_running_reason = "skill_unavailable"
+        precheck = resolve_effective_precheck(config, is_canonical=config.skill_name in canonical_skills)
         entry = {
             "skill_name": config.skill_name,
             "run_interval_minutes": config.run_interval_minutes,
@@ -380,6 +384,9 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
             "last_emitted_at": last_emitted_at.isoformat() if last_emitted_at else None,
             "not_running_reason": not_running_reason,
             "pause_reason": pause_reason,
+            "precheck_source": None if precheck.source == "off" else precheck.source,
+            "last_precheck_at": config.last_precheck_at.isoformat() if config.last_precheck_at else None,
+            "last_precheck_outcome": config.last_precheck_outcome,
         }
         (disabled if not_running_reason else enabled).append(entry)
     return {
@@ -529,27 +536,24 @@ def _recent_experiments(team: Team) -> dict[str, Any]:
     the model's own `is_running` property. `feature_flag_key` is the cross-ref the
     agent uses to correlate experiments with the `recent_feature_flags` section.
     """
-    qs = Experiment.objects.filter(team=team).filter(Q(deleted=False) | Q(deleted__isnull=True))
-    total = qs.count()
-    running = qs.filter(archived=False, start_date__isnull=False, end_date__isnull=True).count()
-    recent = qs.select_related("feature_flag").order_by("-updated_at")[:RECENT_ENTITY_LIMIT]
+    orientation = experiments_scout.experiment_orientation(team_id=team.id, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
-        "running_count": running,
+        "total_count": orientation.total_count,
+        "running_count": orientation.running_count,
         "recent": [
             {
                 "id": exp.id,
                 "name": exp.name,
                 "status": _experiment_status(exp),
-                "feature_flag_key": exp.feature_flag.key if exp.feature_flag_id else None,
-                "updated_at": exp.updated_at.isoformat() if exp.updated_at else None,
+                "feature_flag_key": exp.feature_flag_key,
+                "updated_at": exp.updated_at.isoformat(),
             }
-            for exp in recent
+            for exp in orientation.recent
         ],
     }
 
 
-def _experiment_status(exp: Experiment) -> str:
+def _experiment_status(exp: RecentExperiment) -> str:
     """Derive single-word experiment status from archive/start/end fields."""
     if exp.archived:
         return "archived"
@@ -580,7 +584,7 @@ def _recent_alerts(team: Team) -> dict[str, Any]:
         "recent": [
             {
                 "id": str(row["id"]),
-                "name": row["name"] or "",
+                "name": redact_urls_in_name(row["name"] or ""),
                 "enabled": row["enabled"],
                 "state": row["state"],
                 "calculation_interval": row["calculation_interval"],
@@ -598,6 +602,10 @@ def _recent_hog_functions(team: Team) -> dict[str, Any]:
     `type` discriminates destinations vs transformations vs site apps — the agent
     pattern-matches on it to decide whether activity is "data plumbing" or "user
     surface" work.
+
+    An alert destination is a hog function whose name embeds the full webhook URL, so a
+    name can carry a live channel credential in its path or query. The profile goes into
+    an agent context, so each name keeps only its host.
     """
     qs = HogFunction.objects.filter(team=team, deleted=False)
     total = qs.count()
@@ -611,7 +619,7 @@ def _recent_hog_functions(team: Team) -> dict[str, Any]:
         "recent": [
             {
                 "id": str(row["id"]),
-                "name": row["name"] or "",
+                "name": redact_urls_in_name(row["name"] or ""),
                 "type": row["type"],
                 "kind": row["kind"],
                 "enabled": row["enabled"],
@@ -628,21 +636,18 @@ def _recent_hog_flows(team: Team) -> dict[str, Any]:
     HogFlow's `status` enum carries the flow's lifecycle state directly; we surface
     it as-is so the agent can distinguish drafts from active flows.
     """
-    qs = HogFlow.objects.filter(team=team)
-    total = qs.count()
-    active = qs.exclude(status="archived").count()
-    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "name", "status", "updated_at")
+    summary = get_workflow_activity_summary(team_id=team.id, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
-        "active_count": active,
+        "total_count": summary.total_count,
+        "active_count": summary.active_count,
         "recent": [
             {
-                "id": str(row["id"]),
-                "name": row["name"] or "",
-                "status": row["status"],
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                "id": flow.id,
+                "name": flow.name,
+                "status": flow.status,
+                "updated_at": flow.updated_at.isoformat() if flow.updated_at else None,
             }
-            for row in recent
+            for flow in summary.recent
         ],
     }
 
@@ -705,18 +710,16 @@ def _recent_actions(team: Team) -> dict[str, Any]:
     this user behavior as a named thing"). Sort by `updated_at` so both new actions
     and edits to step definitions surface.
     """
-    qs = Action.objects.filter(team=team, deleted=False)
-    total = qs.count()
-    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "name", "updated_at")
+    inventory = get_action_inventory(team_id=team.pk, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
+        "total_count": inventory.total_count,
         "recent": [
             {
-                "id": row["id"],
-                "name": (row["name"] or "").strip(),
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                "id": entry.id,
+                "name": (entry.name or "").strip(),
+                "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
             }
-            for row in recent
+            for entry in inventory.recent
         ],
     }
 
@@ -725,11 +728,11 @@ def _business_knowledge(team: Team) -> dict[str, Any]:
     """Business knowledge orientation — total + ready count, aggregate doc/chunk volume,
     plus the 5 most recently updated sources.
 
-    Tells the scout whether the team has a curated knowledge base worth searching via
-    `business-knowledge-documents-search`. The profile does NOT evaluate the
-    `product-business-knowledge` feature flag — it reads only authoritative tables so
-    cached profiles stay valid across flag flips; the base prompt conditions on "tool
-    present AND ready_count > 0" instead.
+    Inventory for a scout that already knows the knowledge base exists: which sources are there,
+    how much is searchable, what changed recently. The profile does NOT evaluate the
+    `product-business-knowledge` feature flag — it reads only authoritative tables so cached
+    profiles stay valid across flag flips. Whether the run is told about the base at all is the
+    prompt's call, gated per run on flag + a maintained base (`prompt._BUSINESS_KNOWLEDGE`).
     """
     qs = KnowledgeSource.objects.for_team(team.id)
     total = qs.count()
@@ -838,12 +841,21 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
         detail = row.detail or {}
         changes = detail.get("changes") or []
         change = changes[0] if changes and isinstance(changes[0], dict) else {}
+        stated = {c.get("field"): c.get("after") for c in changes if isinstance(c, dict)}
+        # A default owner was a fallback, not a routing pick, so adding or removing one is not precedent.
+        default_owners = set(stated.get("default_owner_reviewers") or [])
+        before = [label for label in change.get("before") or [] if label not in default_owners]
+        after = [label for label in change.get("after") or [] if label not in default_owners]
+        if default_owners and set(before) == set(after):
+            continue
         corrections.append(
             {
                 "report_id": str(row.item_id),
                 "report_title": detail.get("name"),
-                "before": change.get("before") or [],
-                "after": change.get("after") or [],
+                "before": before,
+                "after": after,
+                "removal_reason": stated.get("removal_reason"),
+                "removal_reason_reviewers": stated.get("removal_reason_reviewers") or [],
                 "at": row.created_at.isoformat() if row.created_at else None,
             }
         )
@@ -927,3 +939,93 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
         }
         for row in rows
     ]
+
+
+def build_surfaces(team: Team) -> dict[str, dict[str, Any]]:
+    """Whether each canonical scout's surface is in use, keyed by scout name.
+
+    `top_events` keeps only the top events by volume, and `products_in_use` reads onboarding, so
+    neither can show that a quiet surface is in use. Each canonical scout that ships a default
+    pre-check (`scout-precheck-query`) already names the query that answers that question. This
+    section runs that query and reads its rows like a scheduled pre-check does: rows mean
+    `in_use: true`, no rows or one false value mean `in_use: false`.
+
+    Each query runs as that scout's acting user, so it can read the same `system.*` and warehouse
+    tables the scout can read. A query with no user loses those tables and reads as empty. An
+    entry is `in_use: null` when the query fails, when no member can act, or when the build runs
+    out of `SURFACES_TIME_BUDGET_S`. `source` names the cause. Held-back scouts are left out, so
+    the payload does not disclose them.
+    """
+    queries = canonical_precheck_queries()
+    configs = {
+        config.skill_name: config
+        for config in SignalScoutConfig.objects.for_team(team.id).filter(skill_name__in=queries.keys())
+    }
+    now = timezone.now()
+    deadline = time.monotonic() + SURFACES_TIME_BUDGET_S
+    return {
+        skill_name: _surface_entry(team, skill_name, queries[skill_name], configs.get(skill_name), now, deadline)
+        for skill_name in _surface_skill_names(team, queries)
+    }
+
+
+def deferred_surfaces(
+    team: Team, stored: dict[str, dict[str, Any]], *, answered_since: datetime
+) -> dict[str, dict[str, Any]]:
+    """The `surfaces` section without the queries: the stored answers, and `deferred` for the rest.
+
+    A stored entry is kept only when its query answered at or after `answered_since`. A reader
+    cannot tell a copied entry from a new one, so an old answer or a failure is not copied.
+    """
+    deferred = {**_UNANSWERED_SURFACE, "source": "deferred"}
+    return {
+        skill_name: stored[skill_name] if _answered_since(stored.get(skill_name), answered_since) else deferred
+        for skill_name in _surface_skill_names(team, canonical_precheck_queries())
+    }
+
+
+def _answered_since(entry: dict[str, Any] | None, since: datetime) -> bool:
+    if not entry or entry.get("source") != "skill_default" or not entry.get("evaluated_at"):
+        return False
+    return datetime.fromisoformat(entry["evaluated_at"]) >= since
+
+
+def _surface_skill_names(team: Team, queries: dict[str, str]) -> list[str]:
+    return sorted(queries.keys() - withheld_skills_for_team(team.id))
+
+
+def _surface_entry(
+    team: Team, skill_name: str, query: str, config: SignalScoutConfig | None, now: datetime, deadline: float
+) -> dict[str, Any]:
+    # Each query gets at most the time left in the build, so one slow query cannot pass the budget.
+    remaining_s = math.floor(deadline - time.monotonic())
+    if remaining_s < 1:
+        return {**_UNANSWERED_SURFACE, "source": "time_budget"}
+    acting_user = resolve_scout_run_acting_user(team, skill_name, config)
+    user = User.objects.filter(pk=acting_user.user_id).first() if acting_user is not None else None
+    if user is None:
+        return {**_UNANSWERED_SURFACE, "source": "no_acting_user"}
+    try:
+        result = run_precheck_query(
+            team,
+            user,
+            query,
+            since=now - timedelta(days=SURFACES_LOOKBACK_DAYS),
+            now=now,
+            interval_minutes=SURFACES_LOOKBACK_DAYS * 24 * 60,
+            timeout_s=min(PRECHECK_TIMEOUT_S, remaining_s),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout_profile: surface query failed for team_id=%s skill_name=%s",
+            team.id,
+            skill_name,
+            exc_info=True,
+        )
+        return {**_UNANSWERED_SURFACE, "source": "query_error"}
+    return {
+        "in_use": result.should_run,
+        "evaluated_at": now.isoformat(),
+        "source": "skill_default",
+        "row_count": result.row_count,
+    }

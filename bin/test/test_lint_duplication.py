@@ -1,0 +1,409 @@
+#!/usr/bin/env python3
+
+import sys
+import json
+import tempfile
+import subprocess
+from pathlib import Path
+
+import unittest
+from unittest.mock import patch
+
+from parameterized import parameterized
+
+from bin.lint_duplication import (
+    APP_MAX_NEW_CLONE_TOKENS,
+    TEST_MAX_NEW_CLONE_TOKENS,
+    build_findings,
+    changed_files_between,
+    clone_key,
+    clone_language,
+    find_gate_failures,
+    formats_touched,
+    is_test_file,
+    main,
+    mark_new_clones,
+)
+
+
+def make_clone(first: str, second: str, tokens: int, is_new: bool = True, fmt: str = "python") -> dict:
+    return {
+        "firstFile": {"name": first, "start": 1, "end": 10},
+        "secondFile": {"name": second, "start": 1, "end": 10},
+        "tokens": tokens,
+        "lines": 10,
+        "isNew": is_new,
+        "format": fmt,
+        "fragment": "x = 1\n" * 10,
+    }
+
+
+class TestIsTestFile(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("test_prefix", "posthog/api/test/test_team.py", True),
+            ("tests_dir", "products/alerts/backend/tests/api/test_alert.py", True),
+            ("test_suffix", "posthog/hogql/parser_python_test.py", True),
+            ("conftest", "posthog/conftest.py", True),
+            ("repo_test_utils", "posthog/test/utils.py", True),
+            ("app_viewset", "posthog/api/team.py", False),
+            ("testy_is_not_a_test_prefix", "posthog/testimony.py", False),
+            ("jest_test_ts", "frontend/src/exporter/Exporter.test.ts", True),
+            ("jest_test_tsx", "frontend/src/exporter/ExportedInsight/ExportedInsight.test.tsx", True),
+            ("playwright_spec", "playwright/e2e/insight-sharing-password.spec.ts", True),
+            ("storybook_story", "frontend/src/scenes/insights/Insight.stories.tsx", True),
+            ("tests_underscore_dir", "frontend/src/__tests__/utils.ts", True),
+            ("mocks_dir", "frontend/src/__mocks__/server.ts", True),
+            ("app_component", "frontend/src/scenes/insights/Insight.tsx", False),
+            ("app_logic", "frontend/src/scenes/insights/insightLogic.ts", False),
+        ]
+    )
+    def test_classification(self, _name: str, path: str, expected: bool) -> None:
+        self.assertEqual(is_test_file(path), expected)
+
+
+class TestFindGateFailures(unittest.TestCase):
+    @parameterized.expand(
+        [
+            (
+                "app_clone_at_bar_fails",
+                make_clone("posthog/api/a.py", "posthog/api/b.py", APP_MAX_NEW_CLONE_TOKENS),
+                True,
+            ),
+            (
+                "test_clone_under_test_bar_passes",
+                make_clone("posthog/api/test/test_a.py", "posthog/api/test/test_b.py", TEST_MAX_NEW_CLONE_TOKENS - 1),
+                False,
+            ),
+            (
+                "test_clone_at_test_bar_fails",
+                make_clone("posthog/api/test/test_a.py", "posthog/api/test/test_b.py", TEST_MAX_NEW_CLONE_TOKENS),
+                True,
+            ),
+            (
+                "cross_boundary_uses_app_bar",
+                make_clone("posthog/api/a.py", "posthog/api/test/test_b.py", APP_MAX_NEW_CLONE_TOKENS),
+                True,
+            ),
+            (
+                "pre_existing_clone_never_fails",
+                make_clone("posthog/api/a.py", "posthog/api/b.py", 900, is_new=False),
+                False,
+            ),
+            (
+                "ts_app_clone_at_bar_fails",
+                make_clone("frontend/src/a.ts", "frontend/src/b.ts", APP_MAX_NEW_CLONE_TOKENS, fmt="typescript"),
+                True,
+            ),
+            (
+                "ts_test_clone_under_test_bar_passes",
+                make_clone("frontend/src/a.test.ts", "frontend/src/b.test.ts", TEST_MAX_NEW_CLONE_TOKENS - 1),
+                False,
+            ),
+        ]
+    )
+    def test_gate(self, _name: str, clone: dict, expected_fails: bool) -> None:
+        failures = find_gate_failures([clone])
+        self.assertEqual(len(failures) == 1, expected_fails)
+
+    def test_worst_first(self) -> None:
+        small = make_clone("posthog/api/a.py", "posthog/api/b.py", 100)
+        big = make_clone("posthog/api/c.py", "posthog/api/d.py", 900)
+        failures = find_gate_failures([small, big])
+        self.assertEqual([clone["tokens"] for clone, _ in failures], [900, 100])
+
+
+class TestBuildFindings(unittest.TestCase):
+    def test_partition_by_language(self) -> None:
+        py = make_clone("posthog/api/a.py", "posthog/api/b.py", 200)
+        ts = make_clone("frontend/src/a.ts", "frontend/src/b.ts", 200, fmt="typescript")
+        tsx = make_clone("frontend/src/a.tsx", "frontend/src/b.tsx", 200, fmt="tsx")
+        findings = build_findings(find_gate_failures([py, ts, tsx]))
+        self.assertEqual([f["first_file"] for f in findings["python"]], ["posthog/api/a.py"])
+        self.assertEqual([f["first_file"] for f in findings["typescript"]], ["frontend/src/a.ts", "frontend/src/a.tsx"])
+
+    def test_finding_fields(self) -> None:
+        clone = make_clone("posthog/api/a.py", "posthog/api/test/test_a.py", 200)
+        (finding,) = build_findings(find_gate_failures([clone]))["python"]
+        self.assertEqual(
+            finding,
+            {
+                "first_file": "posthog/api/a.py",
+                "first_start": 1,
+                "second_file": "posthog/api/test/test_a.py",
+                "second_start": 1,
+                "lines": 10,
+                "tokens": 200,
+            },
+        )
+
+    def test_clone_language_defaults_to_typescript_for_non_python(self) -> None:
+        self.assertEqual(clone_language(make_clone("a.ts", "b.ts", 100, fmt="tsx")), "typescript")
+        self.assertEqual(clone_language(make_clone("a.py", "b.py", 100)), "python")
+
+
+class TestCloneKey(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("same_pair_same_key", None, None, True),
+            ("swapped_sides_same_key", "swap", None, True),
+            ("moved_in_file_same_key", "shift", None, True),
+            ("edited_fragment_differs", None, "fragment", False),
+            ("different_pair_differs", None, "rename", False),
+        ]
+    )
+    def test_key(
+        self, _name: str, first_mutation: str | None, second_mutation: str | None, expected_equal: bool
+    ) -> None:
+        first = make_clone("a.py", "b.py", 100)
+        second = make_clone("a.py", "b.py", 100)
+        if first_mutation == "swap":
+            first["firstFile"], first["secondFile"] = first["secondFile"], first["firstFile"]
+        if first_mutation == "shift":
+            first["firstFile"]["start"] = 42
+            first["secondFile"]["start"] = 99
+        if second_mutation == "fragment":
+            second["fragment"] = "y = 2\n" * 10
+        if second_mutation == "rename":
+            second["secondFile"]["name"] = "c.py"
+        self.assertEqual(clone_key(first) == clone_key(second), expected_equal)
+
+
+class TestMarkNewClones(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("no_baseline_all_new", 0, 2, [True, True]),
+            ("baseline_covers_one_copy", 1, 2, [False, True]),
+            ("baseline_covers_every_copy", 2, 2, [False, False]),
+            ("baseline_has_spare_copies", 3, 1, [False]),
+        ]
+    )
+    def test_grandfathers_only_as_many_copies_as_the_baseline_holds(
+        self, _name: str, baseline_copies: int, current_copies: int, expected_is_new: list[bool]
+    ) -> None:
+        baseline = [make_clone("a.py", "b.py", 100) for _ in range(baseline_copies)]
+        current = [make_clone("a.py", "b.py", 100, is_new=False) for _ in range(current_copies)]
+        mark_new_clones(current, baseline, {"a.py"})
+        self.assertEqual([clone["isNew"] for clone in current], expected_is_new)
+
+    def test_an_edited_fragment_is_new_even_when_the_pair_has_a_baseline_clone(self) -> None:
+        baseline = [make_clone("a.py", "b.py", 100)]
+        edited = make_clone("a.py", "b.py", 100)
+        edited["fragment"] = "y = 2\n" * 10
+        current = [make_clone("a.py", "b.py", 100), edited]
+        mark_new_clones(current, baseline, {"a.py"})
+        self.assertEqual([clone["isNew"] for clone in current], [False, True])
+
+    @parameterized.expand(
+        [
+            ("removed_third_copy", {"c.py"}, False),
+            ("first_copy_changed", {"a.py", "c.py"}, True),
+            ("second_copy_changed", {"b.py", "c.py"}, True),
+        ]
+    )
+    def test_changed_pairing_only_counts_when_a_copy_changed(
+        self, _name: str, changed_files: set[str], expected_is_new: bool
+    ) -> None:
+        baseline = [make_clone("a.py", "c.py", 100), make_clone("b.py", "c.py", 100)]
+        current = [make_clone("a.py", "b.py", 100)]
+        mark_new_clones(current, baseline, changed_files)
+        self.assertEqual(current[0]["isNew"], expected_is_new)
+
+
+class TestChangedFilesBetween(unittest.TestCase):
+    def test_ignores_untracked_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True, cwd=repo)
+            (repo / "tracked.py").write_text("before\n")
+            subprocess.run(["git", "add", "tracked.py"], check=True, cwd=repo)
+            subprocess.run(["git", "commit", "--quiet", "-m", "base"], check=True, cwd=repo)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+            (repo / "tracked.py").write_text("after\n")
+            subprocess.run(["git", "commit", "--quiet", "-am", "change tracked file"], check=True, cwd=repo)
+            (repo / "untracked.py").write_text("generated\n")
+
+            self.assertEqual(changed_files_between(baseline, "HEAD", repo), {"tracked.py"})
+
+
+class TestFormatsTouched(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("python_only", {"posthog/api/team.py"}, ["python"]),
+            ("tsx_only", {"frontend/src/scenes/insights/Insights.tsx"}, ["tsx"]),
+            ("typescript_covers_its_own_extensions", {"frontend/src/a.ts", "frontend/src/b.mts"}, ["typescript"]),
+            ("cython_is_python", {"posthog/accel.pyx", "posthog/accel.pxd"}, ["python"]),
+            (
+                # jscpd reads an extensionless file by its shebang, so the
+                # extension lists cannot say which format it belongs to.
+                "extensionless_forces_the_full_scan",
+                {"bin/sandbox", "frontend/src/a.tsx"},
+                ["python", "typescript", "tsx"],
+            ),
+            (
+                "both_halves_scans_everything",
+                {"posthog/api/team.py", "frontend/src/scenes/insights/Insights.tsx"},
+                ["python", "typescript", "tsx"],
+            ),
+            ("docs_only_touches_no_format", {"docs/README.md", ".github/workflows/ci-frontend.yml"}, []),
+        ]
+    )
+    def test_formats(self, _name: str, changed_files: set[str], expected: list[str]) -> None:
+        self.assertEqual(formats_touched(changed_files), expected)
+
+    def test_a_change_set_with_no_scanned_format_skips_the_scans(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True, cwd=repo)
+            (repo / "README.md").write_text("before\n")
+            subprocess.run(["git", "add", "README.md"], check=True, cwd=repo)
+            subprocess.run(["git", "commit", "--quiet", "-m", "base"], check=True, cwd=repo)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+            (repo / "README.md").write_text("after\n")
+            subprocess.run(["git", "commit", "--quiet", "-am", "edit docs"], check=True, cwd=repo)
+            scans: list[Path] = []
+            report_dir = repo / "report"
+            report_dir.mkdir()
+
+            def record_scan(scan_root: Path, _out_dir: Path, _formats: list[str]) -> list[dict]:
+                scans.append(scan_root)
+                return []
+
+            with patch("bin.lint_duplication.run_jscpd", side_effect=record_scan):
+                with patch.object(
+                    sys,
+                    "argv",
+                    ["lint_duplication.py", "--base", baseline, "--path", str(repo), "--report-dir", str(report_dir)],
+                ):
+                    self.assertEqual(main(), 0)
+
+            self.assertEqual(scans, [])
+            self.assertEqual(json.loads((report_dir / "duplication-scan-status.json").read_text()), {"status": "ok"})
+            self.assertEqual(json.loads((report_dir / "duplication-findings-python.json").read_text()), [])
+
+
+class TestCommittedScanTree(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("no_clones", [], [], 1, 0),
+            ("below_bar", [make_clone("tracked.py", "other.py", APP_MAX_NEW_CLONE_TOKENS - 1)], [], 1, 0),
+            ("unchanged_pair", [make_clone("unchanged.py", "other.py", 900)], [], 1, 0),
+            (
+                "grandfathered",
+                [make_clone("tracked.py", "other.py", APP_MAX_NEW_CLONE_TOKENS)],
+                [make_clone("tracked.py", "other.py", APP_MAX_NEW_CLONE_TOKENS)],
+                2,
+                0,
+            ),
+            ("new_clone", [make_clone("tracked.py", "other.py", APP_MAX_NEW_CLONE_TOKENS)], [], 2, 1),
+            ("baseline_failed", [make_clone("tracked.py", "other.py", 900)], None, 2, 2),
+        ]
+    )
+    def test_scans_head_without_worktree_changes(
+        self,
+        _name: str,
+        current_clones: list[dict],
+        baseline_clones: list[dict] | None,
+        expected_scans: int,
+        expected_exit: int,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True, cwd=repo)
+            (repo / "tracked.py").write_text("before\n")
+            subprocess.run(["git", "add", "tracked.py"], check=True, cwd=repo)
+            subprocess.run(["git", "commit", "--quiet", "-m", "base"], check=True, cwd=repo)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+            (repo / "tracked.py").write_text("committed\n")
+            subprocess.run(["git", "commit", "--quiet", "-am", "change tracked file"], check=True, cwd=repo)
+            (repo / "tracked.py").write_text("worktree\n")
+            (repo / "untracked.py").write_text("untracked\n")
+            scans: list[dict[str, str]] = []
+            scanned_formats: list[list[str]] = []
+
+            def record_scan(scan_root: Path, _out_dir: Path, formats: list[str]) -> list[dict]:
+                scanned_formats.append(formats)
+                scans.append({path.name: path.read_text() for path in scan_root.glob("*.py")})
+                if len(scans) == 1:
+                    return current_clones
+                if baseline_clones is None:
+                    raise SystemExit(2)
+                return baseline_clones
+
+            with patch("bin.lint_duplication.run_jscpd", side_effect=record_scan):
+                with patch.object(
+                    sys,
+                    "argv",
+                    ["lint_duplication.py", "--base", baseline, "--path", str(repo), "--report-dir", str(repo)],
+                ):
+                    self.assertEqual(main(), expected_exit)
+
+            self.assertEqual(scans, [{"tracked.py": "committed\n"}, {"tracked.py": "before\n"}][:expected_scans])
+            # Every scan is asked for the one format this change set can clone in.
+            self.assertEqual(scanned_formats, [["python"]] * expected_scans)
+            self.assertEqual(
+                json.loads((repo / "duplication-scan-status.json").read_text()),
+                {"status": "failed" if expected_exit == 2 else "ok"},
+            )
+            if expected_exit != 2:
+                findings = json.loads((repo / "duplication-findings-python.json").read_text())
+                self.assertEqual(json.loads((repo / "duplication-findings-ts.json").read_text()), [])
+                self.assertEqual(bool(findings), expected_exit == 1)
+                if findings:
+                    self.assertEqual(findings[0]["first_file"], "tracked.py")
+                    self.assertEqual(findings[0]["tokens"], APP_MAX_NEW_CLONE_TOKENS)
+            self.assertEqual(
+                subprocess.check_output(["git", "worktree", "list", "--porcelain"], cwd=repo, text=True).count(
+                    "worktree "
+                ),
+                1,
+            )
+
+    def test_failed_post_checkout_hook_does_not_leave_a_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True, cwd=repo)
+            (repo / "tracked.py").write_text("committed\n")
+            subprocess.run(["git", "add", "tracked.py"], check=True, cwd=repo)
+            subprocess.run(["git", "commit", "--quiet", "-m", "initial"], check=True, cwd=repo)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+            # The change set has to touch a scanned format, or the scan is skipped
+            # before any worktree is created and the hook never runs.
+            (repo / "tracked.py").write_text("changed\n")
+            subprocess.run(["git", "commit", "--quiet", "-am", "change"], check=True, cwd=repo)
+
+            hook = repo / ".git" / "hooks" / "post-checkout"
+            hook.write_text("#!/bin/sh\nexit 1\n")
+            hook.chmod(0o755)
+
+            with patch("bin.lint_duplication.run_jscpd", return_value=[]) as run_jscpd:
+                with patch.object(
+                    sys,
+                    "argv",
+                    ["lint_duplication.py", "--base", baseline, "--path", str(repo), "--report-dir", str(repo)],
+                ):
+                    self.assertEqual(main(), 2)
+
+            run_jscpd.assert_not_called()
+            self.assertEqual(
+                json.loads((repo / "duplication-scan-status.json").read_text()),
+                {"status": "failed"},
+            )
+            self.assertEqual(
+                subprocess.check_output(["git", "worktree", "list", "--porcelain"], cwd=repo, text=True).count(
+                    "worktree "
+                ),
+                1,
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

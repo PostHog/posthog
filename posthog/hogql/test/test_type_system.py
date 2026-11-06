@@ -1,17 +1,21 @@
 from datetime import date
 from typing import Optional, cast
+from uuid import UUID
 
 import pytest
+
+from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FloatArrayDatabaseField
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
+from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
 from posthog.hogql.type_diagnostics import (
@@ -186,6 +190,27 @@ class TestHogQLTypeSystem:
             # The error carries a source span so the editor can underline the offending branches.
             assert exc_info.value.start is not None, query
             assert exc_info.value.end is not None, query
+
+    def test_resolver_allows_boolean_branches_beside_property_accesses(self) -> None:
+        # A property access reads as the parent JSON column's type whenever no property-definition
+        # metadata is loaded, so treating that as a real conflict rejects queries ClickHouse runs.
+        for query in (
+            "SELECT coalesce(properties.blocked, false) FROM events",
+            "SELECT ifNull(properties.blocked, false) FROM events",
+            "SELECT if(1, false, properties.blocked) FROM events",
+            "SELECT multiIf(1, false, 2, true, properties.blocked) FROM events",
+            "SELECT coalesce(properties.blocked, properties.plan = 'paid') FROM events",
+            "SELECT coalesce(person.properties.blocked, false) FROM events",
+        ):
+            node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="clickhouse"))
+            column_type = node.select[0].type
+            assert column_type is not None
+            assert column_type.resolve_constant_type(self.context) == ast.UnknownType(), query
+
+        # A loaded property definition types the property confidently enough to conflict with the
+        # boolean branch, so only the property-access check keeps this query from being rejected.
+        self.context.property_metadata = PropertyMetadata(event_properties={"signup": {"type": "DateTime"}})
+        self._assert_first_column_type("SELECT coalesce(properties.signup, false) FROM events", ast.UnknownType())
 
     def test_resolver_poisons_only_unanalyzable_branches(self) -> None:
         # An unmapped function (throwIf) infers as unanalyzable, poisoning the unifying call's type...
@@ -600,6 +625,24 @@ class TestHogQLTypeSystem:
             ast.StringType(nullable=False),
         )
 
+    @parameterized.expand(
+        [
+            ("Float32", ast.FloatType(nullable=False)),
+            ("Nullable(UInt8)", ast.IntegerType(nullable=True)),
+        ]
+    )
+    def test_resolver_infers_trino_json_extract_keys_and_values_clickhouse_type(
+        self, type_name: str, value_type: ast.ConstantType
+    ) -> None:
+        self._assert_first_column_type(
+            f"SELECT JSONExtractKeysAndValues('{{\"a\": 1}}', '{type_name}')",
+            ast.ArrayType(
+                nullable=False,
+                item_type=ast.TupleType(nullable=False, item_types=[ast.StringType(nullable=False), value_type]),
+            ),
+            dialect="trino",
+        )
+
     def test_resolver_infers_json_helper_function_types(self) -> None:
         self._assert_first_column_type("SELECT JSONHas('{\"num\": 42}', 'num')", ast.IntegerType(nullable=False))
         self._assert_first_column_type(
@@ -796,15 +839,16 @@ class TestHogQLTypeSystem:
             # Falls through to the `*OrNull` parser, so the result really can be NULL.
             ("toDate", [ast.StringType(nullable=False)], True),
             ("toDateTime", [ast.StringType(nullable=False)], True),
-            # toDate overloads only for Date/DateTime, so an integer still parses.
-            ("toDate", [ast.IntegerType(nullable=False)], True),
             # toDateTimeUS declares no overloads at all — always the US best-effort parser.
             ("toDateTimeUS", [ast.StringType(nullable=False)], True),
             ("toDateTimeUS", [ast.DateTimeType(nullable=False)], True),
             # An overload wins, printing the plain constructor, which cannot fail.
             ("toDate", [ast.DateTimeType(nullable=False)], False),
             ("toDateTime", [ast.DateTimeType(nullable=False)], False),
+            ("toDate", [ast.IntegerType(nullable=False)], False),
             ("toDateTime", [ast.IntegerType(nullable=False)], False),
+            ("toDate", [ast.FloatType(nullable=False)], False),
+            ("toDateTime", [ast.FloatType(nullable=False)], False),
             # `_toDate` is already the plain constructor, so it never parses.
             ("_toDate", [ast.StringType(nullable=False)], False),
             # A nullable argument stays nullable down either path.
@@ -860,6 +904,8 @@ class TestHogQLTypeSystem:
     def test_resolver_infers_common_string_function_types(self) -> None:
         self._assert_first_column_type("SELECT base64Encode('test')", ast.StringType(nullable=False))
         self._assert_first_column_type("SELECT hex(unhex('DEADBEEF'))", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT sha1('abc')", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT sha1(toNullableString('abc'))", ast.StringType(nullable=True))
         self._assert_first_column_type(
             "SELECT splitByChar('.', '1.2.3')",
             ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
@@ -918,16 +964,29 @@ class TestHogQLTypeSystem:
             ),
         )
 
-    def test_select_set_query_unifies_output_column_types(self) -> None:
-        node = cast(
-            ast.SelectSetQuery,
-            resolve_types(
-                self._select("SELECT 1 AS value UNION ALL SELECT 2.0 AS value"), self.context, dialect="clickhouse"
-            ),
-        )
-
+    @pytest.mark.parametrize(
+        "query, dialect, expected",
+        [
+            ("SELECT 1 AS value UNION ALL SELECT 2.0 AS value", "clickhouse", ast.FloatType(nullable=False)),
+            ("SELECT 0, 1 AS value UNION ALL SELECT 2.5 AS other, 3", "trino", ast.IntegerType(nullable=False)),
+        ],
+    )
+    def test_select_set_query_unifies_output_column_types(
+        self, query: str, dialect: HogQLDialect, expected: ast.ConstantType
+    ) -> None:
+        node = cast(ast.SelectSetQuery, resolve_types(self._select(query), self.context, dialect=dialect))
         assert isinstance(node.type, ast.SelectSetQueryType)
-        assert node.type.resolve_column_constant_type("value", self.context) == ast.FloatType(nullable=False)
+        assert node.type.resolve_column_constant_type("value", self.context) == expected
+
+    def test_clickhouse_view_metadata_remains_lazy(self) -> None:
+        query = self._select("SELECT 1 FROM (SELECT 2 AS value) AS saved")
+        assert query.select_from is not None and isinstance(query.select_from.table, ast.SelectQuery)
+        query.select_from.table.view_name = "unavailable_view"
+        context = HogQLContext(database=None, enable_select_queries=True)
+        resolved = resolve_types(query, context, dialect="clickhouse")
+        assert resolved.select_from is not None and isinstance(resolved.select_from.type, ast.SelectViewType)
+        with pytest.raises(ResolutionError, match="Database must be set for queries with views"):
+            resolved.select_from.type.resolve_database_table(context)
 
     def test_type_diagnostics_reports_unknown_function_boundary(self) -> None:
         diagnostics = resolve_with_type_diagnostics(
@@ -1207,6 +1266,8 @@ class TestHogQLTypeSystem:
                     "accurateCast('42', 'Int64') AS number, "
                     "toFloat(1) AS score, "
                     "toBool('true') AS flag, "
+                    "accurateCast('2024-01-01', 'Date') AS day, "
+                    "accurateCast('00000000-0000-0000-0000-000000000001', 'UUID') AS identifier, "
                     "ifNull(NULL, 4) AS if_null, "
                     "ifNull(5, NULL) AS if_not_null, "
                     "coalesce(NULL, NULL, 6) AS coalesced, "
@@ -1224,7 +1285,19 @@ class TestHogQLTypeSystem:
         )
 
         values = [cast(ast.Constant, cast(ast.Alias, select_expr).expr).value for select_expr in simplified.select]
-        assert values == [42, 1.0, True, 4, 5, 6, 2.5, 1, '{"a":1}']
+        assert values == [
+            42,
+            1.0,
+            True,
+            date(2024, 1, 1),
+            UUID("00000000-0000-0000-0000-000000000001"),
+            4,
+            5,
+            6,
+            2.5,
+            1,
+            '{"a":1}',
+        ]
 
         types: list[ast.ConstantType] = []
         for select_expr in simplified.select:
@@ -1236,12 +1309,54 @@ class TestHogQLTypeSystem:
             ast.IntegerType(nullable=False),
             ast.FloatType(nullable=False),
             ast.BooleanType(nullable=False),
+            ast.DateType(nullable=False),
+            ast.UUIDType(nullable=False),
             ast.IntegerType(nullable=False),
             ast.IntegerType(nullable=False),
             ast.IntegerType(nullable=False),
             ast.FloatType(nullable=False),
             ast.IntegerType(nullable=False),
             ast.StringType(nullable=False),
+        ]
+
+    def test_type_aware_simplification_folds_literal_json_helper_variants(self) -> None:
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select(
+                    "SELECT "
+                    "JSONExtractString('{\"users\": [{\"name\": \"Ada\"}]}', 'users', 1, 'name') AS name, "
+                    "JSONExtractInt('{\"count\": 2}', 'count') AS count, "
+                    "JSONExtractFloat('{\"score\": 2}', 'score') AS score, "
+                    "JSONExtractBool('{\"active\": true}', 'active') AS active, "
+                    "JSONLength('{\"items\": [1, 2]}', 'items') AS length, "
+                    "JSONExtract('{\"tags\": [\"a\"]}', 'tags', 'Array(String)') AS tags, "
+                    "JSONExtract('{\"labels\": {\"a\": \"b\"}}', 'labels', 'Map(String, String)') AS labels"
+                ),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplified = cast(
+            ast.SelectQuery,
+            simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse"),
+        )
+
+        expressions = [cast(ast.Alias, select_expr).expr for select_expr in simplified.select]
+
+        assert [cast(ast.Constant, expr).value for expr in expressions] == ["Ada", 2, 2.0, True, 2, ["a"], {"a": "b"}]
+        assert [cast(ast.Constant, expr).type for expr in expressions] == [
+            ast.StringType(nullable=False),
+            ast.IntegerType(nullable=False),
+            ast.FloatType(nullable=False),
+            ast.BooleanType(nullable=False),
+            ast.IntegerType(nullable=False),
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+            ast.MapType(
+                nullable=False,
+                key_type=ast.StringType(nullable=False),
+                value_type=ast.StringType(nullable=False),
+            ),
         ]
 
     def test_type_aware_simplification_keeps_unsafe_casts(self) -> None:
@@ -1294,6 +1409,14 @@ class TestHogQLTypeSystem:
             expr = _simplified_expr(query)
             assert isinstance(expr, ast.Call)
             assert expr.name.lower() == "accuratecast"
+
+        for query, function_name in (
+            ("SELECT JSONExtractString('{\"count\": 1}', 'count') AS x", "jsonextractstring"),
+            ("SELECT JSONLength('{\"count\": 1}', 'count') AS x", "jsonlength"),
+        ):
+            expr = _simplified_expr(query)
+            assert isinstance(expr, ast.Call)
+            assert expr.name.lower() == function_name
 
         # A nullable input keeps its null-fallback / null-assertion wrapper.
         if_null_expr = _simplified_expr("SELECT ifNull(nullIf(5, 3), 0) AS x")

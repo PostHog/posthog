@@ -1,7 +1,9 @@
-import { MakeLogicType, actions, kea, path, reducers } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { MakeLogicType, actions, connect, kea, path, reducers } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
+
+import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 
 export type DataCatalogTab = 'metrics' | 'relationships' | 'certifications'
 
@@ -23,6 +25,7 @@ export type dataCatalogSceneLogicType = MakeLogicType<dataCatalogSceneLogicValue
 
 export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
     path(['products', 'data_catalog', 'frontend', 'dataCatalogSceneLogic']),
+    connect([dataCatalogAgentSyncLogic]),
     actions({
         setActiveTab: (activeTab: DataCatalogTab) => ({ activeTab }),
     }),
@@ -35,7 +38,11 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
         ],
     }),
     actionToUrl(({ values }) => ({
-        setActiveTab: () => urls.dataCatalog(values.activeTab === 'metrics' ? undefined : values.activeTab),
+        setActiveTab: () => {
+            if ((router.values.searchParams.tab ?? 'metrics') !== values.activeTab) {
+                return urls.dataCatalog(values.activeTab === 'metrics' ? undefined : values.activeTab)
+            }
+        },
     })),
     urlToAction(({ actions, values }) => ({
         [urls.dataCatalog()]: (_, searchParams) => {

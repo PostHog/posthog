@@ -1,22 +1,29 @@
+import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import {
     createOrganization,
     createTeam,
-    getFirstTeam,
+    createTestTeamFixture,
     getTeam,
-    resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '../../../tests/helpers/sql'
-import { Hub, Team } from '../../types'
+import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
+import {
+    HOG_EXAMPLES,
+    HOG_FILTERS_EXAMPLES,
+    HOG_FLOW_MASK_EXAMPLES,
+    HOG_INPUTS_EXAMPLES,
+    HOG_MASK_EXAMPLES,
+} from '../_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
     createHogExecutionGlobals,
@@ -27,7 +34,9 @@ import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { currentRuntimeContractHash } from '../utils/filter-runtime'
 import { CdpEventsConsumer } from './cdp-events.consumer'
+import { counterEventNameSource, counterUnmatchedEventName, counterUnmatchedEventNameInvoked } from './metrics'
 
 jest.setTimeout(1000)
 
@@ -49,10 +58,25 @@ describe('CdpEventsConsumer', () => {
         return item
     }
 
+    const handleBatch = async (messages: any[]): Promise<void> => {
+        const connect = processor['kafkaConsumer'].connect as jest.Mock
+        const { backgroundTask } = await connect.mock.calls[0][0](messages)
+        await backgroundTask
+    }
+
+    const lookupSpies = [
+        { lookup: 'team', spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam') },
+        { lookup: 'hog function', spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam') },
+        { lookup: 'hog flow', spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam') },
+    ]
+
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
+        const fixture = await createTestTeamFixture(hub.postgres)
+        team = fixture.team
+        await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
@@ -68,13 +92,6 @@ describe('CdpEventsConsumer', () => {
             hogQueue: mockJobQueue,
             hogflowQueue: mockJobQueue,
         })
-
-        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        processor['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
 
         mockQueueInvocations = mockJobQueue.queueInvocations
 
@@ -118,6 +135,49 @@ describe('CdpEventsConsumer', () => {
             const invocations2 = await processor._parseKafkaBatch(events)
             expect(invocations2).toHaveLength(2)
         })
+    })
+
+    describe('lookup failures', () => {
+        beforeEach(async () => {
+            await insertHogFunction({
+                team_id: team.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+        })
+
+        it.each(
+            lookupSpies.flatMap(({ lookup, spy }) => [
+                {
+                    lookup,
+                    kind: 'a retriable error',
+                    dlqEnabled: true,
+                    spy,
+                    lookupError: new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset')),
+                },
+                {
+                    lookup,
+                    kind: 'a non-retriable error with the dead-letter topic off',
+                    dlqEnabled: false,
+                    spy,
+                    lookupError: new Error('column "bytecode" does not exist'),
+                },
+            ])
+        )(
+            'fails the batch when the $lookup lookup throws $kind, and queues the event when the batch is read again',
+            async ({ spy, dlqEnabled, lookupError }) => {
+                hub.CDP_DLQ_ENABLED = dlqEnabled
+                spy().mockRejectedValueOnce(lookupError)
+                const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
+
+                await expect(handleBatch(messages)).rejects.toBe(lookupError)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+                await handleBatch(messages)
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            }
+        )
     })
 
     describe('general event processing', () => {
@@ -225,7 +285,7 @@ describe('CdpEventsConsumer', () => {
                         instance_id: globals.event.uuid,
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
-                        team_id: 2,
+                        team_id: team.id,
                     })
                 }
             })
@@ -254,7 +314,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtered',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -267,7 +327,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'triggered',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -282,7 +342,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'billing',
                             metric_name: 'billable_invocation',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -307,7 +367,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
-                            team_id: 2,
+                            team_id: team.id,
                         },
                     },
                     {
@@ -318,7 +378,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
-                            team_id: 2,
+                            team_id: team.id,
                         },
                     },
                 ])
@@ -533,7 +593,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtering_failed',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -545,6 +605,564 @@ describe('CdpEventsConsumer', () => {
                         },
                     },
                 ])
+            })
+        })
+
+        describe('dead letter queue', () => {
+            beforeEach(() => {
+                hub.CDP_DLQ_ENABLED = true
+            })
+
+            it('parks each event whose filter throws with its own bytes, naming only the function that failed', async () => {
+                const erroringFunction = await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.broken_filters,
+                })
+                const healthyFunction = await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                const events = [createIncomingEvent(team.id, {}), createIncomingEvent(team.id, {})]
+
+                await handleBatch(events.map((event, index) => createKafkaMessage(event, { offset: 10 + index })))
+
+                // Two events, so a failure traced back to the wrong message parks the other event's bytes.
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(2)
+                for (const [index, event] of events.entries()) {
+                    const record = parked.find((message) => message.value?.uuid === event.uuid)
+                    expect(record?.headers).toMatchObject({
+                        dlq_step: 'filter',
+                        dlq_team_id: String(team.id),
+                        dlq_offset: String(10 + index),
+                        dlq_hog_function_ids: erroringFunction.id,
+                        dlq_class: 'drift',
+                    })
+                }
+                const queued = mockQueueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
+                expect(queued.map((invocation: any) => invocation.functionId)).toEqual([
+                    healthyFunction.id,
+                    healthyFunction.id,
+                ])
+            })
+
+            it('queues nothing when the batch is abandoned because parking refused', async () => {
+                // A refusal that leaves invocations queued delivers them again on the reprocess.
+                jest.spyOn(processor['deadLetterService'], 'produceForBatch').mockRejectedValue(new Error('topic gone'))
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow(
+                    'topic gone'
+                )
+
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            it("parks nothing when the failure is the owner's to fix", async () => {
+                // An unstamped throw cannot be attributed, so it is the owner's until the backfill runs.
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.broken_filters_unstamped,
+                })
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+            })
+
+            it.each([
+                ['data', 'filters_bad_event_json' as const, JSON.stringify({ payload: '{' })],
+                // The refusal reaches the VM through the standard library, which reports it as `data`.
+                ['data', 'filters_bad_regex' as const, JSON.stringify({ payload: 'abc' })],
+                ['limit', 'filters_never_finish' as const, '{}'],
+            ])(
+                "parks nothing when a %s failure is the owner's",
+                async (_class, fixture, properties) => {
+                    // Both fail the same way on every attempt, so a replay cannot clear either.
+                    await insertHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES[fixture],
+                    })
+
+                    await handleBatch([createKafkaMessage(createIncomingEvent(team.id, { properties }))])
+
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                },
+                20000
+            )
+
+            it('parks a refusal the compiler said could not happen, and says it is a bug', async () => {
+                // The stamp matches the runtime that is running, so the compiler accepted a program
+                // the VM then refused. Nothing else in the queue means what this means.
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    filters: {
+                        ...HOG_FILTERS_EXAMPLES.broken_filters.filters,
+                        bytecode_contract: currentRuntimeContractHash(),
+                    },
+                })
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_class: 'bug' })
+            })
+
+            it('parks an event that throws unexpectedly instead of failing the whole batch', async () => {
+                // Nothing in the pipeline expects this, which is the point: an unanticipated bug
+                // used to reject the batch, restart the pod, and stall the partition forever.
+                const fn = await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // `mappings` is neither null nor an array, so the builder walks into `.map` on an
+                // object and throws where nothing catches it. Stands in for any shape of data or
+                // bug the per-function handling was not written for.
+                jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeams').mockResolvedValue({
+                    [team.id]: [{ ...fn, mappings: {} as any }],
+                })
+                const event = createIncomingEvent(team.id, {})
+
+                await expect(handleBatch([createKafkaMessage(event)])).resolves.toBeUndefined()
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({
+                    dlq_step: 'process',
+                    // No function named, so a replay rebuilds all of them: none ran this time.
+                    dlq_hog_function_ids: '',
+                })
+            })
+
+            it('fails the batch rather than dropping an unexpected throw while the queue is off', async () => {
+                // The flag ships off, so without this the catch above turns every unanticipated
+                // bug into a silently dropped event instead of a batch that retries.
+                hub.CDP_DLQ_ENABLED = false
+                const fn = await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeams').mockResolvedValue({
+                    [team.id]: [{ ...fn, mappings: {} as any }],
+                })
+
+                await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow()
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+            })
+
+            it('skips an event whose team id is not a team id, and processes the rest of the batch', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                const bad = createKafkaMessage({ ...createIncomingEvent(team.id, {}), team_id: 3_000_000_000 })
+
+                await handleBatch([bad, createKafkaMessage(createIncomingEvent(team.id, {}), { offset: 1 })])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
+            it.each([
+                {
+                    name: 'a message that is not an event object',
+                    step: 'parse',
+                    bad: () => createKafkaMessage('not json at all'),
+                },
+                {
+                    name: 'a message that is an array, not an event object',
+                    step: 'parse',
+                    bad: () => createKafkaMessage([]),
+                },
+                {
+                    name: 'an event whose properties are not JSON',
+                    step: 'parse',
+                    bad: (teamId: number) => createKafkaMessage(createIncomingEvent(teamId, { properties: '{' })),
+                },
+                ...lookupSpies.map(({ lookup, spy }) => ({
+                    name: `an event whose ${lookup} lookup throws a non-retriable error`,
+                    step: 'lookup',
+                    // The first message in the batch makes the first lookup call, so only it fails.
+                    bad: (teamId: number) => {
+                        spy().mockRejectedValueOnce(new Error('column "bytecode" does not exist'))
+                        return createKafkaMessage(createIncomingEvent(teamId, {}))
+                    },
+                })),
+            ])('parks $name and processes the rest of the batch', async ({ step, bad }) => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                await handleBatch([bad(team.id), createKafkaMessage(createIncomingEvent(team.id, {}), { offset: 1 })])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_step: step, dlq_offset: '0' })
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
+            it('leaves the body unread when the team id header names a team with no hog functions', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // team2 has no hog function and this body cannot be parsed, so a parked record could
+                // only come from reading a body the consumer does not need. The second message carries
+                // no header, so the batch also covers the fallback that reads the team from the body.
+                const unreadable = {
+                    ...createKafkaMessage(createIncomingEvent(team2.id, {}), {
+                        headers: [{ team_id: String(team2.id) }],
+                    }),
+                    value: Buffer.from('{'),
+                }
+
+                await handleBatch([unreadable, createKafkaMessage(createIncomingEvent(team.id, {}), { offset: 1 })])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
+            it('parks an event whose body names a different team than its header', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // The header decides which team's destinations load, the body carries the event data.
+                // Letting the two disagree would send one team's event to another team's destinations.
+                const mismatched = createKafkaMessage(createIncomingEvent(team2.id, {}), {
+                    headers: [{ team_id: String(team.id) }],
+                })
+
+                await handleBatch([mismatched])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse' })
+                expect(mockQueueInvocations).not.toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
+            describe('events no destination admits by name', () => {
+                let pageviewFunction: HogFunctionType
+
+                const withHeaders = (event: RawClickHouseEvent, offset = 0) =>
+                    createKafkaMessage(event, {
+                        offset,
+                        headers: [{ team_id: String(event.team_id) }, { event: event.event }],
+                    })
+
+                beforeEach(async () => {
+                    pageviewFunction = await insertHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    })
+                })
+
+                it.each([
+                    [true, 0, 1],
+                    [false, 1, 0],
+                ])(
+                    'with skipping %s, parks %i unreadable bodies of an event no destination admits and records %i filtered',
+                    async (skip, parked, filtered) => {
+                        hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = skip
+                        const unreadable = {
+                            ...withHeaders(createIncomingEvent(team.id, { event: 'signed_up' })),
+                            value: Buffer.from('{'),
+                        }
+
+                        await handleBatch([unreadable])
+
+                        const dlq = mockProducerObserver
+                            .getProducedMessages()
+                            .filter(({ topic }) => topic === 'cdp_events_dlq_test')
+                        expect(dlq).toHaveLength(parked)
+                        const filteredMetrics = mockProducerObserver
+                            .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                            .filter(({ value }: any) => value.app_source_id === pageviewFunction.id)
+                            .map(({ value }: any) => value.metric_name)
+                        expect(filteredMetrics).toEqual(Array(filtered).fill('filtered'))
+                    }
+                )
+
+                it('queues the same invocations and records the same metrics whether it skips or not', async () => {
+                    const hogFlow = await _insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder()
+                            .withTeamId(team.id)
+                            .withSimpleWorkflow({
+                                trigger: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                                },
+                            })
+                            .build()
+                    )
+                    processor['hogFlowManager']['onHogFlowsReloaded'](team.id, [hogFlow.id])
+                    const events = [
+                        createIncomingEvent(team.id, {
+                            properties: JSON.stringify({ $current_url: 'https://posthog.com' }),
+                        }),
+                        createIncomingEvent(team.id, {
+                            properties: JSON.stringify({ $current_url: 'https://other.com' }),
+                        }),
+                        createIncomingEvent(team.id, { event: '$autocapture' }),
+                        createIncomingEvent(team.id, { event: 'signed_up' }),
+                        createIncomingEvent(team.id, {
+                            event: '$push_notification_opened',
+                            properties: JSON.stringify({
+                                $notification_workflow_id: hogFlow.id,
+                                $notification_action_id: 'push_step_1',
+                            }),
+                        }),
+                    ]
+                    const counted = async () => ({
+                        unmatched: Object.fromEntries(
+                            (await counterUnmatchedEventName.get()).values.map(({ labels, value }) => [
+                                String(labels.skipped),
+                                value,
+                            ])
+                        ),
+                        invoked: (await counterUnmatchedEventNameInvoked.get()).values[0]?.value ?? 0,
+                    })
+                    const outcome = async (skip: boolean) => {
+                        hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = skip
+                        mockQueueInvocations.mockClear()
+                        mockProducerObserver.resetKafkaProducer()
+                        counterUnmatchedEventName.reset()
+                        counterUnmatchedEventNameInvoked.reset()
+                        await handleBatch(events.map(withHeaders))
+                        const queued = mockQueueInvocations.mock.calls.flatMap(([invocations]: any[]) => invocations)
+                        return {
+                            invocations: queued
+                                .map((x: any) => `${x.functionId} ${x.state.globals?.event.uuid ?? x.state.event.uuid}`)
+                                .sort(),
+                            metrics: mockProducerObserver
+                                .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                                .map(({ value }: any) => `${value.app_source_id} ${value.metric_name} ${value.count}`)
+                                .sort(),
+                        }
+                    }
+
+                    const parsed = await outcome(false)
+                    expect(parsed.invocations).toHaveLength(4)
+                    expect(parsed.metrics).toContain(`${pageviewFunction.id} filtered 3`)
+                    expect(parsed.metrics).toContain(`${hogFlow.id} push_opened 1`)
+                    expect(await counted()).toEqual({ unmatched: { false: 1 }, invoked: 0 })
+
+                    expect(await outcome(true)).toEqual(parsed)
+                    expect(await counted()).toEqual({ unmatched: { true: 1 }, invoked: 0 })
+                })
+
+                it('parses an event without the name header and leaves it to the pre-filter, with skipping on', async () => {
+                    hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = true
+                    counterUnmatchedEventName.reset()
+                    counterEventNameSource.reset()
+                    const signup = createIncomingEvent(team.id, { event: 'signed_up' })
+
+                    await handleBatch([
+                        createKafkaMessage(signup, { headers: [{ team_id: String(team.id) }] }),
+                        withHeaders(createIncomingEvent(team.id, { event: '$autocapture' }), 1),
+                    ])
+
+                    expect((await counterUnmatchedEventName.get()).values).toEqual([])
+                    expect(
+                        Object.fromEntries(
+                            (await counterEventNameSource.get()).values.map(({ labels, value }) => [
+                                labels.source,
+                                value,
+                            ])
+                        )
+                    ).toEqual({ none: 1, header: 1 })
+                    const metrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .filter(({ value }: any) => value.app_source_id === pageviewFunction.id)
+                        .map(({ value }: any) => `${value.metric_name} ${value.count}`)
+                        .sort()
+                    expect(metrics).toEqual(['filtered 1', 'triggered 1'])
+                })
+
+                it('counts an event the gate rejects that a destination still invokes, while skipping is off', async () => {
+                    hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = false
+                    counterUnmatchedEventNameInvoked.reset()
+                    const pageview = createIncomingEvent(team.id, {
+                        properties: JSON.stringify({ $current_url: 'https://posthog.com' }),
+                    })
+
+                    await handleBatch([
+                        createKafkaMessage(pageview, {
+                            headers: [{ team_id: String(team.id) }, { event: 'signed_up' }],
+                        }),
+                    ])
+
+                    expect((await counterUnmatchedEventNameInvoked.get()).values[0]?.value).toBe(1)
+                })
+
+                it('records the filtered metric of a skipped event once when its batch fails and is read again', async () => {
+                    hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = true
+                    const manager = processor['hogFunctionManager']
+                    const original = manager.getHogFunctionsForTeam.bind(manager)
+                    const lookup = jest
+                        .spyOn(manager, 'getHogFunctionsForTeam')
+                        .mockImplementationOnce(original)
+                        .mockRejectedValueOnce(
+                            new DependencyUnavailableError('Postgres is down', 'Postgres', new Error('down'))
+                        )
+                    const batch = [
+                        withHeaders(createIncomingEvent(team.id, { event: 'signed_up' })),
+                        withHeaders(
+                            createIncomingEvent(team.id, {
+                                properties: JSON.stringify({ $current_url: 'https://posthog.com' }),
+                            }),
+                            1
+                        ),
+                    ]
+
+                    try {
+                        await expect(handleBatch(batch)).rejects.toThrow('Postgres is down')
+                    } finally {
+                        lookup.mockRestore()
+                    }
+                    await handleBatch(batch)
+
+                    const filtered = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .filter(({ value }: any) => value.app_source_id === pageviewFunction.id)
+                        .filter(({ value }: any) => value.metric_name === 'filtered')
+                        .reduce((sum: number, { value }: any) => sum + value.count, 0)
+                    expect(filtered).toBe(1)
+                })
+            })
+
+            it('fails the batch when the record cannot be written, so the offsets stay put', async () => {
+                // Also guards the ordering: the handler has to await the write. Without the await
+                // this rejects in the background and the consumer walks past the event anyway.
+                const erroring = await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.broken_filters,
+                })
+                expect(erroring.id).toBeDefined()
+                // Spying here returns the observer's own spy, so it is re-armed rather than
+                // restored: restoring uninstalls the observer and every later assertion in this
+                // file passes against an empty recording.
+                mockProducerObserver.produceSpy.mockImplementation(({ topic }) =>
+                    topic === 'cdp_events_dlq_test'
+                        ? Promise.reject(new Error('broker rejected the record'))
+                        : Promise.resolve()
+                )
+
+                try {
+                    await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow(
+                        'broker rejected the record'
+                    )
+                } finally {
+                    mockProducerObserver.resetKafkaProducer()
+                }
+            })
+
+            it.each([
+                {
+                    name: 'a dependency outage',
+                    error: new DependencyUnavailableError('Postgres is down', 'Postgres', new Error('down')),
+                    batchSize: 1,
+                    rejection: 'Postgres is down',
+                },
+                {
+                    name: 'a lookup error a retry cannot fix across the whole batch',
+                    error: new Error('column "bytecode" does not exist'),
+                    batchSize: 3,
+                    rejection: 'Refusing to dead-letter 3 of 3 messages (0 process, 3 lookup)',
+                },
+            ])(
+                'fails the batch on $name while parsing, rather than parking every event',
+                async ({ error, batchSize, rejection }) => {
+                    await insertHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                    })
+                    const lookup = jest
+                        .spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam')
+                        .mockRejectedValue(error)
+                    const messages = Array.from({ length: batchSize }, (_, offset) =>
+                        createKafkaMessage(createIncomingEvent(team.id, {}), { offset })
+                    )
+
+                    await expect(handleBatch(messages)).rejects.toThrow(rejection)
+
+                    // A failure recorded for the failed batch must not be parked by the next batch.
+                    lookup.mockRestore()
+                    await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                }
+            )
+
+            it.each([
+                {
+                    name: 'destination',
+                    insert: () =>
+                        insertHogFunction({
+                            ...HOG_EXAMPLES.simple_fetch,
+                            ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                            ...HOG_FILTERS_EXAMPLES.no_filters,
+                            ...HOG_MASK_EXAMPLES.all,
+                        }),
+                },
+                {
+                    name: 'workflow',
+                    insert: () =>
+                        _insertHogFlow(
+                            hub.postgres,
+                            new FixtureHogFlowBuilder()
+                                .withTeamId(team.id)
+                                .withSimpleWorkflow({
+                                    trigger: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                                })
+                                .withTriggerMasking(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
+                                .build()
+                        ),
+                },
+            ])('releases the masking claims of a $name when the batch fails before queueing', async ({ insert }) => {
+                await insert()
+                const globals = await processor._parseKafkaBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                await expect(
+                    processor.processBatch(globals, () => Promise.reject(new Error('dead-letter write failed')))
+                ).rejects.toThrow('dead-letter write failed')
+
+                const { invocations } = await processor.processBatch(globals)
+                expect(invocations).toHaveLength(1)
+            })
+
+            it('parks nothing when every function builds', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
             })
         })
     })
@@ -565,9 +1183,12 @@ describe('hog flow processing', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        const fixture = await createTestTeamFixture(hub.postgres)
+        team = fixture.team
+        await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
         const mockQueue = createMockJobQueue()
 
         processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
@@ -576,12 +1197,6 @@ describe('hog flow processing', () => {
         })
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        processor['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
-
         await processor.start()
     })
 
@@ -679,7 +1294,7 @@ describe('hog flow processing', () => {
                     event: globals.event,
                     actionStepCount: 0,
                 },
-                teamId: 2,
+                teamId: team.id,
             })
         })
 

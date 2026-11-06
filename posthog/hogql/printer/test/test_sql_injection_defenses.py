@@ -9,6 +9,8 @@ from typing import Optional
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -44,7 +46,7 @@ def _select_parse_resolve_mutate_print(
     return print_prepared_ast(prepared, context=context, dialect="clickhouse")
 
 
-class TestVerbatimFieldConstructionRejection(BaseTest):
+class TestVerbatimFieldConstructionRejection(SimpleTestCase):
     """Group 1: `__post_init__` rejects out-of-allowlist values at construction."""
 
     @parameterized.expand(
@@ -213,7 +215,7 @@ class TestEscapePreservationOnParserOutput(BaseTest):
         self.assertIn("`id; DROP TABLE events; --`", sql)
 
 
-class TestParserPathProducesOnlyAllowlistedVerbatimValues(BaseTest):
+class TestParserPathProducesOnlyAllowlistedVerbatimValues(SimpleTestCase):
     """Group 5: every parser backend rejects grammar-quirk inputs that would produce out-of-allowlist verbatim-printed values."""
 
     def test_left_outer_semi_join_rejected_by_all_paths(self):

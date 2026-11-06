@@ -2,14 +2,24 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconQuestion } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonSwitch,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
+import { AvailableFeature, NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
 
+import { LOCKED_BY_ORGANIZATION, lockedValueFor } from '../shared/notificationLocks'
 import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
 
 enum NotificationBlock {
@@ -20,9 +30,13 @@ enum NotificationBlock {
     IssueAssigned = 'issue-assigned',
     EtWeeklyDigest = 'et-weekly-digest',
     WaWeeklyDigest = 'wa-weekly-digest',
+    DataCatalogWeeklyDigest = 'data-catalog-weekly-digest',
     CommentMentions = 'comment-mentions',
+    Approvals = 'approvals',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
+    AiEvaluationDisabled = 'ai-evaluation-disabled',
+    WorkflowSuggestions = 'workflow-suggestions',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -42,13 +56,22 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
+    ai_evaluation_disabled: true,
+    workflow_suggestions: true,
     materialized_view_sync_failed: false,
+    materialized_view_sync_failed_daily: true,
+    materialized_view_sync_failed_immediate: false,
     web_analytics_weekly_digest: true,
+    data_catalog_weekly_digest: true,
+    approval_requested: true,
+    approval_resolved: true,
 }
 
 function ProjectDigestSelector({
     keyPrefix,
     dataAttrPrefix,
+    setting,
+    inverse = false,
     isTeamDisabled,
     onToggleTeam,
     onToggleAllTeams,
@@ -56,14 +79,23 @@ function ProjectDigestSelector({
 }: {
     keyPrefix: string
     dataAttrPrefix: string
+    /** The setting an organization admin can enforce per project. */
+    setting: string
+    /** True when the stored value means "off", so an enforced value reads inverted. */
+    inverse?: boolean
     isTeamDisabled: (teamId: number) => boolean
     onToggleTeam: (teamId: number, enabled: boolean) => void
     onToggleAllTeams: (teamIds: number[], enabled: boolean) => void
     hint?: string
 }): JSX.Element {
-    const { userLoading } = useValues(userLogic)
+    const { user, userLoading } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const [expanded, setExpanded] = useState(true)
+
+    const teams = currentOrganization?.teams ?? []
+    const ownTeamIds = teams
+        .filter((team: TeamBasicType) => lockedValueFor(user?.notification_locks, setting, team.id) === null)
+        .map((team: TeamBasicType) => team.id)
 
     return (
         <div>
@@ -85,45 +117,51 @@ function ProjectDigestSelector({
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
-                                onClick={() =>
-                                    onToggleAllTeams(
-                                        (currentOrganization?.teams || []).map((t: TeamBasicType) => t.id),
-                                        true
-                                    )
-                                }
+                                onClick={() => onToggleAllTeams(ownTeamIds, true)}
+                                disabledReason={ownTeamIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined}
                             >
                                 Enable for all projects
                             </LemonButton>
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
-                                onClick={() =>
-                                    onToggleAllTeams(
-                                        (currentOrganization?.teams || []).map((t: TeamBasicType) => t.id),
-                                        false
-                                    )
-                                }
+                                onClick={() => onToggleAllTeams(ownTeamIds, false)}
+                                disabledReason={ownTeamIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined}
                             >
                                 Disable for all projects
                             </LemonButton>
                         </div>
 
-                        {currentOrganization?.teams?.map((team) => (
-                            <LemonCheckbox
-                                key={`${keyPrefix}-${team.id}`}
-                                id={`${keyPrefix}-${team.id}`}
-                                data-attr={`${dataAttrPrefix}_${team.id}`}
-                                onChange={(checked) => onToggleTeam(team.id, checked)}
-                                checked={!isTeamDisabled(team.id)}
-                                disabled={userLoading}
-                                label={
-                                    <div className="flex items-center gap-2">
-                                        <span>{team.name}</span>
-                                        <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
-                                    </div>
-                                }
-                            />
-                        ))}
+                        {teams.map((team: TeamBasicType) => {
+                            const enforced = lockedValueFor(user?.notification_locks, setting, team.id)
+                            return (
+                                <LemonCheckbox
+                                    key={`${keyPrefix}-${team.id}`}
+                                    id={`${keyPrefix}-${team.id}`}
+                                    data-attr={`${dataAttrPrefix}_${team.id}`}
+                                    onChange={(checked) => onToggleTeam(team.id, checked)}
+                                    checked={
+                                        enforced !== null ? (inverse ? !enforced : enforced) : !isTeamDisabled(team.id)
+                                    }
+                                    disabledReason={
+                                        enforced !== null
+                                            ? LOCKED_BY_ORGANIZATION
+                                            : userLoading
+                                              ? 'Loading...'
+                                              : undefined
+                                    }
+                                    label={
+                                        <div className="flex items-center gap-2">
+                                            <span>{team.name}</span>
+                                            <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
+                                            {enforced !== null && (
+                                                <LemonTag type="highlight">Set by your admin</LemonTag>
+                                            )}
+                                        </div>
+                                    }
+                                />
+                            )
+                        })}
                     </div>
                 </div>
             )}
@@ -140,6 +178,9 @@ function OrganizationMemberJoinSelector(): JSX.Element {
 
     const isOrgDisabled = (orgId: string): boolean =>
         !!user?.notification_settings?.organization_member_join_email_disabled?.[orgId]
+    const enforcedFor = (orgId: string): boolean | null =>
+        lockedValueFor(user?.notification_locks, 'organization_member_join_email_disabled', orgId)
+    const ownOrgIds = organizations.filter((o: OrganizationBasicType) => enforcedFor(o.id) === null).map((o) => o.id)
 
     return (
         <div>
@@ -164,40 +205,48 @@ function OrganizationMemberJoinSelector(): JSX.Element {
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
-                                onClick={() =>
-                                    updateMemberJoinEmailForAllOrganizations(
-                                        organizations.map((o: OrganizationBasicType) => o.id),
-                                        true
-                                    )
-                                }
+                                onClick={() => updateMemberJoinEmailForAllOrganizations(ownOrgIds, true)}
+                                disabledReason={ownOrgIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined}
                             >
                                 Enable for all organizations
                             </LemonButton>
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
-                                onClick={() =>
-                                    updateMemberJoinEmailForAllOrganizations(
-                                        organizations.map((o: OrganizationBasicType) => o.id),
-                                        false
-                                    )
-                                }
+                                onClick={() => updateMemberJoinEmailForAllOrganizations(ownOrgIds, false)}
+                                disabledReason={ownOrgIds.length === 0 ? LOCKED_BY_ORGANIZATION : undefined}
                             >
                                 Disable for all organizations
                             </LemonButton>
                         </div>
 
-                        {organizations.map((org) => (
-                            <LemonCheckbox
-                                key={`member-join-org-${org.id}`}
-                                id={`member-join-org-${org.id}`}
-                                data-attr={`member_join_email_org_${org.id}`}
-                                onChange={(checked) => updateMemberJoinEmailForOrganization(org.id, checked)}
-                                checked={!isOrgDisabled(org.id)}
-                                disabled={userLoading}
-                                label={<span>{org.name}</span>}
-                            />
-                        ))}
+                        {organizations.map((org) => {
+                            const enforced = enforcedFor(org.id)
+                            return (
+                                <LemonCheckbox
+                                    key={`member-join-org-${org.id}`}
+                                    id={`member-join-org-${org.id}`}
+                                    data-attr={`member_join_email_org_${org.id}`}
+                                    onChange={(checked) => updateMemberJoinEmailForOrganization(org.id, checked)}
+                                    checked={enforced !== null ? !enforced : !isOrgDisabled(org.id)}
+                                    disabledReason={
+                                        enforced !== null
+                                            ? LOCKED_BY_ORGANIZATION
+                                            : userLoading
+                                              ? 'Loading...'
+                                              : undefined
+                                    }
+                                    label={
+                                        <span className="flex items-center gap-2">
+                                            {org.name}
+                                            {enforced !== null && (
+                                                <LemonTag type="highlight">Set by your admin</LemonTag>
+                                            )}
+                                        </span>
+                                    }
+                                />
+                            )
+                        })}
                     </div>
                 </div>
             )}
@@ -206,7 +255,7 @@ function OrganizationMemberJoinSelector(): JSX.Element {
 }
 
 function PipelineNotificationSelector(): JSX.Element {
-    const { userLoading } = useValues(userLogic)
+    const { user, userLoading } = useValues(userLogic)
     const { updatePipelineNotification, updatePipelineNotificationForAll } = useActions(userLogic)
     const { pipelines, pipelinesLoading, pipelinesByTeam, allPipelineIds, isPipelineDisabled } =
         useValues(pipelineNotificationsLogic)
@@ -255,34 +304,54 @@ function PipelineNotificationSelector(): JSX.Element {
                                 </LemonButton>
                             </div>
 
-                            {Object.entries(pipelinesByTeam).map(([key, { teamId, teamName, items }]) => (
-                                <div key={key} className="flex flex-col gap-2">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-medium">{teamName}</span>
-                                        <LemonTag type="muted">id: {teamId}</LemonTag>
+                            {Object.entries(pipelinesByTeam).map(([key, { teamId, teamName, items }]) => {
+                                const enforced = lockedValueFor(
+                                    user?.notification_locks,
+                                    'pipeline_notifications_disabled',
+                                    teamId
+                                )
+                                return (
+                                    <div key={key} className="flex flex-col gap-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-medium">{teamName}</span>
+                                            <LemonTag type="muted">id: {teamId}</LemonTag>
+                                            {enforced !== null && (
+                                                <LemonTag type="highlight">Set by your admin</LemonTag>
+                                            )}
+                                        </div>
+                                        <div className="ml-4 flex flex-col gap-1">
+                                            {items.map((pipeline) => (
+                                                <LemonCheckbox
+                                                    key={pipeline.id}
+                                                    id={`pipeline-${pipeline.id}`}
+                                                    data-attr={`pipeline_notification_${pipeline.id}`}
+                                                    onChange={(checked) =>
+                                                        updatePipelineNotification(pipeline.id, checked)
+                                                    }
+                                                    checked={
+                                                        enforced !== null ? !enforced : !isPipelineDisabled(pipeline.id)
+                                                    }
+                                                    disabledReason={
+                                                        enforced !== null
+                                                            ? LOCKED_BY_ORGANIZATION
+                                                            : userLoading
+                                                              ? 'Loading...'
+                                                              : undefined
+                                                    }
+                                                    label={
+                                                        <div className="flex items-center gap-2">
+                                                            <span>{pipeline.name}</span>
+                                                            <LemonTag type="default">
+                                                                {PIPELINE_KIND_LABELS[pipeline.kind]}
+                                                            </LemonTag>
+                                                        </div>
+                                                    }
+                                                />
+                                            ))}
+                                        </div>
                                     </div>
-                                    <div className="ml-4 flex flex-col gap-1">
-                                        {items.map((pipeline) => (
-                                            <LemonCheckbox
-                                                key={pipeline.id}
-                                                id={`pipeline-${pipeline.id}`}
-                                                data-attr={`pipeline_notification_${pipeline.id}`}
-                                                onChange={(checked) => updatePipelineNotification(pipeline.id, checked)}
-                                                checked={!isPipelineDisabled(pipeline.id)}
-                                                disabled={userLoading}
-                                                label={
-                                                    <div className="flex items-center gap-2">
-                                                        <span>{pipeline.name}</span>
-                                                        <LemonTag type="default">
-                                                            {PIPELINE_KIND_LABELS[pipeline.kind]}
-                                                        </LemonTag>
-                                                    </div>
-                                                }
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
+                                )
+                            })}
                         </div>
                     )}
                 </div>
@@ -292,7 +361,7 @@ function PipelineNotificationSelector(): JSX.Element {
 }
 
 export function UpdateEmailPreferences(): JSX.Element {
-    const { user, userLoading } = useValues(userLogic)
+    const { user, userLoading, hasAvailableFeature } = useValues(userLogic)
     const {
         updateWeeklyDigestForTeam,
         updateWeeklyDigestForAllTeams,
@@ -353,6 +422,8 @@ export function UpdateEmailPreferences(): JSX.Element {
                     <ProjectDigestSelector
                         keyPrefix="weekly-digest"
                         dataAttrPrefix="weekly_digest"
+                        setting="project_weekly_digest_disabled"
+                        inverse
                         isTeamDisabled={(teamId) =>
                             !!user?.notification_settings.project_weekly_digest_disabled?.[teamId]
                         }
@@ -448,6 +519,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                         <ProjectDigestSelector
                             keyPrefix="et-digest"
                             dataAttrPrefix="et_weekly_digest"
+                            setting="error_tracking_weekly_digest_project_enabled"
                             isTeamDisabled={(teamId) =>
                                 !user?.notification_settings.error_tracking_weekly_digest_project_enabled?.[teamId]
                             }
@@ -478,6 +550,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                         <ProjectDigestSelector
                             keyPrefix="wa-digest"
                             dataAttrPrefix="wa_weekly_digest"
+                            setting="web_analytics_weekly_digest_project_enabled"
                             isTeamDisabled={(teamId) =>
                                 !user?.notification_settings.web_analytics_weekly_digest_project_enabled?.[teamId]
                             }
@@ -488,6 +561,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                 )}
             </div>
         ),
+        [NotificationBlock.DataCatalogWeeklyDigest]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="data_catalog_weekly_digest"
+                    label="Data catalog weekly digest"
+                    description="Get a weekly summary of the metrics, relationships, and certifications waiting for review in your projects"
+                    dataAttr="data_catalog_weekly_digest_enabled"
+                />
+            </div>
+        ),
         [NotificationBlock.CommentMentions]: (
             <div className="border rounded p-4">
                 <SimpleSwitch
@@ -495,6 +578,28 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Comment mentions"
                     description="Get notified when someone mentions you in a discussion on any project"
                     dataAttr="discussions_mentioned_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.Approvals]: (
+            <div className="border rounded p-4 space-y-3">
+                <div className="flex items-center gap-1 font-semibold">
+                    <span>Approvals</span>
+                    <Tooltip title="These switches apply to approval emails from all your organizations.">
+                        <IconQuestion className="text-secondary text-base" />
+                    </Tooltip>
+                </div>
+                <SimpleSwitch
+                    setting="approval_requested"
+                    label="Approval requests"
+                    description="Get an email when a change needs your approval"
+                    dataAttr="approval_requested_enabled"
+                />
+                <SimpleSwitch
+                    setting="approval_resolved"
+                    label="Change request updates"
+                    description="Get an email when your change request is approved, declined, expires, or goes live"
+                    dataAttr="approval_resolved_enabled"
                 />
             </div>
         ),
@@ -508,19 +613,43 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
             </div>
         ),
-        [NotificationBlock.MaterializedViewSync]: (
+        [NotificationBlock.AiEvaluationDisabled]: (
             <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="ai_evaluation_disabled"
+                    label="Disabled AI evaluations"
+                    description="Get notified when an AI observability evaluation stops because of an error"
+                    dataAttr="ai_evaluation_disabled_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.WorkflowSuggestions]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="workflow_suggestions"
+                    label="Workflow suggestions"
+                    description="Get an email when PostHog suggests a change to a workflow you set up"
+                    dataAttr="workflow_suggestions_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.MaterializedViewSync]: (
+            <div className="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="materialized_view_sync_failed"
                     label="Materialized view sync failures"
                     description="Get notified when a materialized view fails to sync"
                     dataAttr="materialized_view_sync_failed_enabled"
                 />
+                <MatviewFailureEmailOptions />
             </div>
         ),
     }
 
-    const highlightedBlock = highlight && NOTIFICATION_BLOCK_ORDER.includes(highlight) ? highlight : null
+    const visibleBlocks = NOTIFICATION_BLOCK_ORDER.filter(
+        (block) => block !== NotificationBlock.Approvals || hasAvailableFeature(AvailableFeature.APPROVALS)
+    )
+    const highlightedBlock = highlight && visibleBlocks.includes(highlight) ? highlight : null
     const highlightRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -531,7 +660,7 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     return (
         <div className="space-y-3">
-            {NOTIFICATION_BLOCK_ORDER.map((key) => (
+            {visibleBlocks.map((key) => (
                 <div
                     key={key}
                     ref={key === highlightedBlock ? highlightRef : undefined}
@@ -540,6 +669,31 @@ export function UpdateEmailPreferences(): JSX.Element {
                     {blocks[key]}
                 </div>
             ))}
+        </div>
+    )
+}
+
+const MatviewFailureEmailOptions = (): JSX.Element | null => {
+    const { user } = useValues(userLogic)
+
+    if (!user?.notification_settings?.materialized_view_sync_failed) {
+        return null
+    }
+
+    return (
+        <div className="pl-6 space-y-3">
+            <SimpleSwitch
+                setting="materialized_view_sync_failed_daily"
+                label="Daily digest"
+                description="One email a day summarizing failing views."
+                dataAttr="materialized_view_sync_failed_daily"
+            />
+            <SimpleSwitch
+                setting="materialized_view_sync_failed_immediate"
+                label="Right away"
+                description="An email when a view starts failing. While it keeps failing, only the daily digest lists it."
+                dataAttr="materialized_view_sync_failed_immediate"
+            />
         </div>
     )
 }
@@ -563,7 +717,8 @@ const SimpleSwitch = ({
     const { user, userLoading } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
 
-    const value = user?.notification_settings?.[setting]
+    const enforced = lockedValueFor(user?.notification_locks, setting)
+    const value = enforced ?? user?.notification_settings?.[setting]
     const defaultValue = NOTIFICATION_DEFAULTS[setting]
     let checked: boolean = typeof value === 'boolean' ? value : typeof defaultValue === 'boolean' ? defaultValue : false
     if (inverse) {
@@ -584,8 +739,13 @@ const SimpleSwitch = ({
                         })
                 }}
                 checked={checked}
-                disabled={userLoading}
-                label={label}
+                disabledReason={enforced !== null ? LOCKED_BY_ORGANIZATION : userLoading ? 'Loading...' : undefined}
+                label={
+                    <span className="flex items-center gap-2">
+                        {label}
+                        {enforced !== null && <LemonTag type="highlight">Set by your admin</LemonTag>}
+                    </span>
+                }
             />
             <span className="text-muted text-sm">{description}</span>
         </div>

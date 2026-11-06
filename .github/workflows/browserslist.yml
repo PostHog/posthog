@@ -10,7 +10,7 @@ permissions:
 
 jobs:
     update-browserslist-database:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         env:
             HUSKY: 0
@@ -19,7 +19,7 @@ jobs:
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
 
             - name: Checkout repository
@@ -84,7 +84,6 @@ jobs:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
             - name: Create or update pull request
-              id: pr
               if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -92,21 +91,11 @@ jobs:
                   existing_pr=$(gh pr list --head "browserslist-update" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
                     gh pr edit "$existing_pr" --body-file /tmp/pr-body.md
-                    echo "pr_number=$existing_pr" >> $GITHUB_OUTPUT
                   else
-                    pr_url=$(gh pr create \
+                    gh pr create \
                       --title "build: update Browserslist db" \
                       --body-file /tmp/pr-body.md \
                       --base master \
                       --head browserslist-update \
-                      --label "dependencies")
-                    echo "pr_number=$(basename "$pr_url")" >> $GITHUB_OUTPUT
+                      --label "dependencies"
                   fi
-
-            - name: Enable automerge
-              if: steps.check-changes.outputs.changes == 'true'
-              env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-              run: |
-                  gh pr merge "$PR_NUMBER" --auto --squash

@@ -15,9 +15,6 @@ JSONContent = dict[str, Any]
 
 NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Mapping[str, str] = {
     "ph-query": "Query",
-    "ph-python": "Python",
-    "ph-duck-sql": "DuckSQL",
-    "ph-hogql-sql": "HogQLSQL",
     "ph-recording": "Recording",
     "ph-recording-playlist": "RecordingPlaylist",
     "ph-feature-flag": "FeatureFlag",
@@ -282,9 +279,7 @@ def _serialize_rich_content_node(
     if isinstance(node_type, str) and node_type in NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG:
         return _serialize_component_node(
             NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[node_type],
-            _with_default_hidden_filters(
-                _get_serializable_attrs(node.get("attrs") if isinstance(node.get("attrs"), dict) else None)
-            ),
+            _get_serializable_attrs(node.get("attrs") if isinstance(node.get("attrs"), dict) else None),
         )
 
     child_markdown = "\n\n".join(
@@ -313,7 +308,7 @@ def _serialize_legacy_insight_node(node: JSONContent) -> str:
         return _serialize_unknown_rich_content_node(node)
     return _serialize_component_node(
         "Query",
-        _with_default_hidden_filters({"query": {"kind": "SavedInsightNode", "shortId": insight_short_id}}),
+        {"query": {"kind": "SavedInsightNode", "shortId": insight_short_id}},
     )
 
 
@@ -330,7 +325,7 @@ def _serialize_legacy_query_node(node: JSONContent) -> str:
     query = props.get("query")
     if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
         props["query"] = {"kind": "DataVisualizationNode", "source": query}
-    return _serialize_component_node("Query", _with_default_hidden_filters(props))
+    return _serialize_component_node("Query", props)
 
 
 def _serialize_legacy_link_node(node: JSONContent, options: NotebookMarkdownConversionOptions) -> str:
@@ -662,41 +657,49 @@ def _serialize_component_node(tag_name: str, props: Mapping[str, NotebookPropVal
     return f"<{tag_name}{_serialize_component_props(props)} />"
 
 
+# A prop name is written into the tag unquoted, so a name outside this grammar could close the tag and open another.
+_COMPONENT_PROP_NAME_REGEX = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+
+
 def _serialize_component_props(props: Mapping[str, NotebookPropValue]) -> str:
     serializable_props = _get_serializable_component_props(props)
-    entries = _get_ordered_component_prop_entries(serializable_props)
+    entries = [
+        (key, value)
+        for key, value in _get_ordered_component_prop_entries(serializable_props)
+        if _COMPONENT_PROP_NAME_REGEX.fullmatch(key)
+    ]
     return "".join(f" {key}" if value is True else f" {key}={_serialize_prop_value(value)}" for key, value in entries)
 
 
 def _get_serializable_component_props(props: Mapping[str, NotebookPropValue]) -> dict[str, NotebookPropValue]:
     next_props = {
-        key: value for key, value in props.items() if key not in ("view", "edit", "hideFilters", "hideResults")
+        key: value
+        for key, value in props.items()
+        if key not in ("edit", "hideFilters", "hideResults", "showFilters", "showResults")
+        and not (key == "view" and isinstance(value, bool))
     }
     legacy_view_panel_visible = props.get("view") if isinstance(props.get("view"), bool) else None
-    legacy_edit_panel_visible = props.get("edit") if isinstance(props.get("edit"), bool) else None
-    hide_filters = (
-        props.get("hideFilters") if isinstance(props.get("hideFilters"), bool) else legacy_edit_panel_visible is False
-    )
-    hide_results = (
-        props.get("hideResults") if isinstance(props.get("hideResults"), bool) else legacy_view_panel_visible is False
+    show_filters = props.get("showFilters") is True
+    show_results = (
+        props.get("showResults")
+        if isinstance(props.get("showResults"), bool)
+        else False
+        if props.get("hideResults") is True
+        else legacy_view_panel_visible
+        if legacy_view_panel_visible is not None
+        else True
     )
 
-    if hide_filters:
-        next_props["hideFilters"] = True
-    if hide_results:
+    if show_filters:
+        next_props["showFilters"] = True
+    if not show_results:
         next_props["hideResults"] = True
     return next_props
 
 
-def _with_default_hidden_filters(props: dict[str, NotebookPropValue]) -> dict[str, NotebookPropValue]:
-    if isinstance(props.get("hideFilters"), bool) or isinstance(props.get("edit"), bool):
-        return props
-    return {**props, "hideFilters": True}
-
-
 def _get_ordered_component_prop_entries(props: Mapping[str, NotebookPropValue]) -> list[tuple[str, NotebookPropValue]]:
     entries = list(props.items())
-    ordered_keys = ["hideFilters", "hideResults"]
+    ordered_keys = ["showFilters", "hideResults"]
     return [
         *[(key, props[key]) for key in ordered_keys if key in props],
         *[(key, value) for key, value in entries if key not in ordered_keys],

@@ -4,10 +4,11 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { groupLogic } from 'scenes/groups/groupLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { PropertyDefinitionType } from '~/types'
+
+import { groupLogic } from 'products/groups/frontend/logics/groupLogic'
 
 import { NotebookNodeType } from '../types'
 import { Properties } from './components/Properties'

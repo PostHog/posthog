@@ -2,7 +2,7 @@ import datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import dagster
@@ -255,7 +255,7 @@ class TestExchangeRateClickhouse:
 
 
 class TestExchangeRateSchedules:
-    @freeze_time("2023-01-15 01:30:00")
+    @time_machine.travel("2023-01-15 01:30:00", tick=False)
     def test_daily_exchange_rates_schedule(self):
         # Mock the scheduled execution context
         context = dagster.build_schedule_context(scheduled_execution_time=datetime.datetime(2023, 1, 15, 1, 30))
@@ -270,7 +270,7 @@ class TestExchangeRateSchedules:
         assert result.partition_key == "2023-01-14"
         assert result.run_key == "2023-01-14"
 
-    @freeze_time("2023-01-15 10:00:00")
+    @time_machine.travel("2023-01-15 10:00:00", tick=False)
     def test_hourly_exchange_rates_schedule(self):
         # Mock the scheduled execution context
         context = dagster.build_schedule_context(scheduled_execution_time=datetime.datetime(2023, 1, 15, 10, 0))

@@ -23,6 +23,10 @@
  * `_posthogUrl` link on tool results), checked against the generated app-url manifest
  * plus the SettingSectionId union. Pointing it at an API path is the easy mistake.
  *
+ * superseded_by: each redirect target must name a tool that exists, and never the tool
+ * declaring it. Exec drops a target it cannot resolve, so a stale name costs the retired
+ * tool its redirect and leaves no trace.
+ *
  * Usage:
  *   pnpm --filter=@posthog/mcp lint-tool-names
  */
@@ -45,6 +49,29 @@ const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const SCHEMA_DIR = path.resolve(MCP_ROOT, 'schema')
 
+// A tool config as this lint reads it: enough to check the name and the redirect it declares.
+type LintedToolConfig = { enabled: boolean; superseded_by?: string[] }
+
+// A declared redirect, kept with the source that carries it.
+type SupersededDeclaration = { source: string; successors: string[] }
+
+// First source wins, so a YAML-declared redirect reports against the editable YAML instead of the
+// generated JSON that copies it.
+function recordSuperseded(
+    superseded: Map<string, SupersededDeclaration>,
+    tool: string,
+    successors: unknown,
+    source: string
+): void {
+    if (!Array.isArray(successors) || superseded.has(tool)) {
+        return
+    }
+    superseded.set(tool, {
+        source,
+        successors: successors.filter((name): name is string => typeof name === 'string'),
+    })
+}
+
 function validateToolName(name: string, source: string, violations: Violation[]): void {
     if (name.length > MAX_TOOL_NAME_LENGTH) {
         violations.push({ source, tool: name, reason: `${name.length} chars (max ${MAX_TOOL_NAME_LENGTH})` })
@@ -58,7 +85,11 @@ function validateToolName(name: string, source: string, violations: Violation[])
     }
 }
 
-function validateYamlDefinitions(violations: Violation[], knownToolNames: Set<string>): boolean {
+function validateYamlDefinitions(
+    violations: Violation[],
+    knownToolNames: Set<string>,
+    superseded: Map<string, SupersededDeclaration>
+): boolean {
     const definitions = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
     let hasErrors = false
 
@@ -79,14 +110,15 @@ function validateYamlDefinitions(violations: Violation[], knownToolNames: Set<st
             continue
         }
         const tools = isQueryWrappers
-            ? (result.data as { wrappers: Record<string, { enabled: boolean }> }).wrappers
-            : (result.data as { tools: Record<string, { enabled: boolean }> }).tools
+            ? (result.data as { wrappers: Record<string, LintedToolConfig> }).wrappers
+            : (result.data as { tools: Record<string, LintedToolConfig> }).tools
         for (const [name, config] of Object.entries(tools)) {
             if (!config.enabled) {
                 continue
             }
             knownToolNames.add(name)
             validateToolName(name, label, violations)
+            recordSuperseded(superseded, name, config.superseded_by, label)
         }
     }
 
@@ -221,7 +253,45 @@ function validateUrlPrefixes(violations: Violation[]): void {
     }
 }
 
-function validateJsonDefinitions(fileName: string, violations: Violation[], knownToolNames: Set<string>): boolean {
+/**
+ * `superseded_by` names the tools that took over a retired tool's job, and exec resolves those
+ * names against the live catalog before it names any of them. A name that no longer resolves is
+ * dropped there, so the retired tool falls back to the generic "not enabled" message and its
+ * redirect goes quiet. A self-reference never resolves either: exec reaches the redirect only when
+ * the declaring tool is itself absent from the catalog.
+ */
+function validateSupersededBy(
+    superseded: Map<string, SupersededDeclaration>,
+    knownToolNames: Set<string>,
+    violations: Violation[]
+): void {
+    for (const [tool, { source, successors }] of superseded) {
+        for (const successor of successors) {
+            if (successor === tool) {
+                violations.push({
+                    source,
+                    tool: `superseded_by on ${tool}`,
+                    reason: 'a tool cannot supersede itself (name the tool that took over its job)',
+                })
+                continue
+            }
+            if (!knownToolNames.has(successor)) {
+                violations.push({
+                    source,
+                    tool: `superseded_by on ${tool}: ${successor || '(empty)'}`,
+                    reason: 'no tool by that name (point the redirect at the current tool name)',
+                })
+            }
+        }
+    }
+}
+
+function validateJsonDefinitions(
+    fileName: string,
+    violations: Violation[],
+    knownToolNames: Set<string>,
+    superseded: Map<string, SupersededDeclaration>
+): boolean {
     const filePath = path.resolve(SCHEMA_DIR, fileName)
     if (!fs.existsSync(filePath)) {
         return false
@@ -229,9 +299,10 @@ function validateJsonDefinitions(fileName: string, violations: Violation[], know
     const label = path.relative(REPO_ROOT, filePath)
     const content = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>
 
-    for (const name of Object.keys(content)) {
+    for (const [name, definition] of Object.entries(content)) {
         knownToolNames.add(name)
         validateToolName(name, label, violations)
+        recordSuperseded(superseded, name, (definition as { superseded_by?: unknown }).superseded_by, label)
     }
     return false
 }
@@ -329,13 +400,16 @@ function main(): void {
     const violations: Violation[] = []
     let hasErrors = false
     const knownToolNames = new Set<string>()
+    const superseded = new Map<string, SupersededDeclaration>()
 
-    hasErrors = validateYamlDefinitions(violations, knownToolNames) || hasErrors
+    hasErrors = validateYamlDefinitions(violations, knownToolNames, superseded) || hasErrors
     validateUrlPrefixes(violations)
 
     for (const jsonFile of ['tool-definitions.json', 'generated-tool-definitions.json']) {
-        hasErrors = validateJsonDefinitions(jsonFile, violations, knownToolNames) || hasErrors
+        hasErrors = validateJsonDefinitions(jsonFile, violations, knownToolNames, superseded) || hasErrors
     }
+
+    validateSupersededBy(superseded, knownToolNames, violations)
 
     const referenceFindings: ReferenceFinding[] = []
     collectToolReferenceFindings(referenceFindings, knownToolNames)

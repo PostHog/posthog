@@ -1,4 +1,7 @@
+import datetime as dt
 import dataclasses
+
+from django.db import transaction
 
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
@@ -12,13 +15,14 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataMo
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class CreateDataModelingJobInputs:
     team_id: int
     node_id: str
     dag_id: str
     engine: str = DataModelingJobEngine.CLICKHOUSE
     parent_workflow_id: str | None = None
+    manually_triggered_by_id: int | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -40,6 +44,7 @@ class SkippedDataModelingNode:
     failed_upstream_total: int = 0
     suspended_upstream_node_ids: list[str] = dataclasses.field(default_factory=list)
     suspended_upstream_total: int = 0
+    built_by_another_run: bool = False
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -48,25 +53,29 @@ class RecordSkippedDataModelingJobsInputs:
     dag_id: str
     engine: str
     skipped_nodes: list[SkippedDataModelingNode]
+    # Trino shadows reuse one parent workflow id across runs, so jobs from earlier runs must not count as already recorded.
+    run_started_at: str | None = None
 
 
 @database_sync_to_async_pool
 def _create_data_modeling_job(
     inputs: CreateDataModelingJobInputs, workflow_id: str, workflow_run_id: str
 ) -> CreatedDataModelingJob:
-    node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
-    )
-    job = DataModelingJob.objects.create(
-        team_id=inputs.team_id,
-        saved_query=node.saved_query,
-        status=DataModelingJob.Status.RUNNING,
-        engine=inputs.engine,
-        workflow_id=workflow_id,
-        workflow_run_id=workflow_run_id,
-        parent_workflow_id=inputs.parent_workflow_id,
-        created_by_id=node.saved_query.created_by_id if node.saved_query else None,
-    )
+    with transaction.atomic():
+        node = Node.objects.prefetch_related("saved_query").get(
+            id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
+        )
+        job = DataModelingJob.objects.create(
+            team_id=inputs.team_id,
+            saved_query=node.saved_query,
+            status=DataModelingJob.Status.RUNNING,
+            engine=inputs.engine,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            parent_workflow_id=inputs.parent_workflow_id,
+            created_by_id=node.saved_query.created_by_id if node.saved_query else None,
+            manually_triggered_by_id=inputs.manually_triggered_by_id,
+        )
     return CreatedDataModelingJob(
         job_id=str(job.id),
         saved_query_id=str(node.saved_query.id) if node.saved_query else None,
@@ -109,16 +118,20 @@ def _subject(names: list[str], total: int) -> str:
     return f"{noun} {shown[0]}"
 
 
-def _skip_reason(*, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int) -> str:
+def _skip_reason(
+    *, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int, built_by_another_run: bool
+) -> str:
+    if built_by_another_run:
+        return "Skipped because another run is already building this view."
     if failed_total and suspended_total:
         subject = _subject(failed + suspended, failed_total + suspended_total)
-        return f"Skipped because {subject} are failing or paused."
+        return f"Skipped because {subject} are failing or suspended."
     if failed_total:
         verb = "is" if failed_total == 1 else "are"
         return f"Skipped because {_subject(failed, failed_total)} {verb} failing."
     if suspended_total:
         verb = "was" if suspended_total == 1 else "were"
-        return f"Skipped because {_subject(suspended, suspended_total)} {verb} paused after repeated failures."
+        return f"Skipped because {_subject(suspended, suspended_total)} {verb} suspended after repeated failures."
     return "Skipped because an upstream view failed."
 
 
@@ -139,14 +152,15 @@ def _record_skipped_data_modeling_jobs(
     }
     skipped_nodes = [nodes[skipped.node_id] for skipped in inputs.skipped_nodes if skipped.node_id in nodes]
     saved_query_ids = {node.saved_query_id for node in skipped_nodes if node.saved_query_id is not None}
-    existing_saved_query_ids = set(
-        DataModelingJob.objects.filter(
-            team_id=inputs.team_id,
-            engine=inputs.engine,
-            parent_workflow_id=workflow_id,
-            saved_query_id__in=saved_query_ids,
-        ).values_list("saved_query_id", flat=True)
+    existing_jobs = DataModelingJob.objects.filter(
+        team_id=inputs.team_id,
+        engine=inputs.engine,
+        parent_workflow_id=workflow_id,
+        saved_query_id__in=saved_query_ids,
     )
+    if inputs.run_started_at:
+        existing_jobs = existing_jobs.filter(created_at__gte=dt.datetime.fromisoformat(inputs.run_started_at))
+    existing_saved_query_ids = set(existing_jobs.values_list("saved_query_id", flat=True))
 
     jobs = []
     for skipped in inputs.skipped_nodes:
@@ -165,6 +179,7 @@ def _record_skipped_data_modeling_jobs(
                     failed_total=skipped.failed_upstream_total,
                     suspended=[nodes[i].name for i in skipped.suspended_upstream_node_ids if i in nodes],
                     suspended_total=skipped.suspended_upstream_total,
+                    built_by_another_run=skipped.built_by_another_run,
                 ),
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,

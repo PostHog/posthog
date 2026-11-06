@@ -7,7 +7,6 @@ import { LemonBanner, LemonButton, LemonDivider, LemonModal } from '@posthog/lem
 
 import { SHARING_MODAL_WIDTH, SharingModalContent } from 'lib/components/Sharing/SharingModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { base64Encode } from 'lib/utils/base64'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -31,13 +30,12 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
 }
 
 function OpenNotebookShareModal({ shortId }: NotebookShareModalProps): JSX.Element {
-    const { content, isLocalOnly, isShareModalOpen } = useValues(notebookLogic({ shortId }))
+    const { isLocalOnly, isShareModalOpen } = useValues(notebookLogic({ shortId }))
     const { closeShareModal } = useActions(notebookLogic({ shortId }))
     const externalSharingEnabled = useFeatureFlag('NOTEBOOK_SHARING')
     const [interestTracked, setInterestTracked] = useState(false)
 
     const notebookUrl = urls.absolute(urls.currentProject(urls.notebook(shortId)))
-    const canvasUrl = urls.absolute(urls.canvas()) + `#🦔=${base64Encode(JSON.stringify(content))}`
 
     const trackInterest = (): void => {
         posthog.capture('pressed interested in notebook sharing', { url: notebookUrl })
@@ -81,31 +79,12 @@ function OpenNotebookShareModal({ shortId }: NotebookShareModalProps): JSX.Eleme
                         >
                             {notebookUrl}
                         </LemonButton>
-
-                        <LemonDivider className="my-4" />
                     </>
                 ) : (
                     <LemonBanner type="info">
                         <p>This notebook cannot be shared directly with others as it is only visible to you.</p>
                     </LemonBanner>
                 )}
-
-                <h3>Template link</h3>
-                <p>
-                    The link below will open a Canvas with the contents of this notebook, allowing the receiver to view
-                    it, edit it or create their own notebook without affecting this one.
-                </p>
-                <LemonButton
-                    type="secondary"
-                    fullWidth
-                    center
-                    truncate
-                    sideIcon={<IconCopy />}
-                    onClick={() => void copyToClipboard(canvasUrl, 'canvas link')}
-                    title={canvasUrl}
-                >
-                    {canvasUrl}
-                </LemonButton>
 
                 {!isLocalOnly &&
                     (externalSharingEnabled ? (

@@ -1,30 +1,41 @@
-//! SQL load + pure row→catalog transform. [`load_realtime_cohorts`] is the only DB touch;
-//! [`build_catalog_from_rows`] is pure so the catalog logic is testable without Postgres.
+//! SQL loads + pure row→catalog transform.
 
 use std::collections::HashMap;
 
 use chrono_tz::{Tz, UTC};
+use common_types::cohort::TeamAllowlist;
 use metrics::counter;
 use serde_json::Value;
 use sqlx::PgPool;
 use tracing::warn;
 
 use crate::filters::catalog::FilterCatalog;
-use crate::filters::reverse_index::TeamFiltersBuilder;
+use crate::filters::reverse_index::{catalog_analysis_budget, TeamFiltersBuilder};
 use crate::filters::{CohortId, FilterError, TeamId};
+use crate::hogvm::analysis::AnalysisBudget;
 use crate::metrics::{
     FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_INVALID_SHAPE_HASH,
     FILTER_CATALOG_TZ_FALLBACK,
 };
 use crate::seed::{BehavioralShapeHash, PersonShapeHash, ScopeKind, ShapeHashError};
 
+macro_rules! realtime_cohorts_select {
+    () => {
+        "SELECT c.id, c.team_id, c.filters, \
+                c.behavioral_filters_shape_hash, c.person_filters_shape_hash, t.timezone \
+         FROM posthog_cohort c \
+         JOIN posthog_team t ON t.id = c.team_id \
+         WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL"
+    };
+}
+
 /// Realtime cohorts to load, mirroring the Node filter manager's predicate, joined to
 /// `posthog_team` for the team timezone the bucket variants use for calendar-day computation.
-pub const REALTIME_COHORTS_SQL: &str = "SELECT c.id, c.team_id, c.filters, \
-            c.behavioral_filters_shape_hash, c.person_filters_shape_hash, t.timezone \
-     FROM posthog_cohort c \
-     JOIN posthog_team t ON t.id = c.team_id \
-     WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL";
+pub const REALTIME_COHORTS_SQL: &str = realtime_cohorts_select!();
+
+/// Separate from [`REALTIME_COHORTS_SQL`] so a generic plan keeps the `team_id` index.
+const REALTIME_COHORTS_FOR_TEAMS_SQL: &str =
+    concat!(realtime_cohorts_select!(), " AND c.team_id = ANY($1)");
 
 /// One realtime cohort row; `filters` is the `jsonb` column decoded to a `Value`.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -45,9 +56,43 @@ pub async fn load_realtime_cohorts(pool: &PgPool) -> Result<Vec<CohortRow>, Filt
     Ok(rows)
 }
 
-/// Group rows by team into a catalog. A cohort that fails to parse is counted, warned, and skipped
-/// rather than poisoning the rest of the catalog.
-pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> FilterCatalog {
+pub async fn load_realtime_cohorts_for_teams(
+    pool: &PgPool,
+    team_ids: &[i32],
+) -> Result<Vec<CohortRow>, FilterError> {
+    let rows = sqlx::query_as::<_, CohortRow>(REALTIME_COHORTS_FOR_TEAMS_SQL)
+        .bind(team_ids)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+/// Group rows by team into a catalog for the teams in `processing`. The catalog keeps the scope, so
+/// a reader can tell a team it does not process from a processed team with no realtime cohort. A
+/// cohort that fails to parse is counted, warned, and skipped rather than poisoning the rest of the
+/// catalog.
+pub fn build_catalog_from_rows(
+    rows: Vec<CohortRow>,
+    processing: TeamAllowlist,
+    cascade_enabled: bool,
+) -> FilterCatalog {
+    build_catalog_within(
+        rows,
+        processing,
+        cascade_enabled,
+        &mut catalog_analysis_budget(),
+    )
+}
+
+/// [`build_catalog_from_rows`] analyzing every team's conditions against one `budget`. Teams
+/// freeze in id order, so the budget is spent the same way on every replica and the plans stay a
+/// pure function of the rows.
+fn build_catalog_within(
+    rows: Vec<CohortRow>,
+    processing: TeamAllowlist,
+    cascade_enabled: bool,
+    budget: &mut AnalysisBudget,
+) -> FilterCatalog {
     let mut builders: HashMap<TeamId, (TeamFiltersBuilder, Tz)> = HashMap::new();
 
     for row in rows {
@@ -93,11 +138,28 @@ pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> F
         }
     }
 
-    FilterCatalog::from_teams(
-        builders
-            .into_iter()
-            .map(|(team, (builder, tz))| (team, builder.freeze_with(tz, cascade_enabled))),
-    )
+    let mut teams: Vec<(TeamId, (TeamFiltersBuilder, Tz))> = builders.into_iter().collect();
+    teams.sort_unstable_by_key(|(team, _)| *team);
+    // The team the budget ran out on, so an operator chasing a widened catalog has a place to start:
+    // it and every team after it in id order carry the conditions the budget refused.
+    let mut spent_on: Option<TeamId> = None;
+    let filters = teams.into_iter().map(|(team, (builder, tz))| {
+        let filters = builder.freeze_within(tz, cascade_enabled, budget);
+        if spent_on.is_none() && (budget.steps == 0 || budget.cells == 0) {
+            spent_on = Some(team);
+        }
+        (team, filters)
+    });
+    let catalog = FilterCatalog::for_processing(processing, filters);
+    if let Some(team_id) = spent_on {
+        warn!(
+            team_id = team_id.0,
+            steps_left = budget.steps,
+            cells_left = budget.cells,
+            "filter catalog analysis budget spent; the conditions it refused take every global root",
+        );
+    }
+    catalog
 }
 
 /// One persisted shape-hash column as a reconcile guard, or `None` when there is nothing to guard
@@ -144,6 +206,8 @@ fn resolve_team_tz(raw: &str, team_id: TeamId) -> Tz {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use serde_json::json;
 
@@ -193,9 +257,27 @@ mod tests {
     }
 
     #[test]
-    fn empty_rows_build_an_empty_catalog() {
-        let catalog = build_catalog_from_rows(vec![], false);
-        assert_eq!(catalog.team_count(), 0);
+    fn a_catalog_processes_exactly_its_scope() {
+        let scoped = build_catalog_from_rows(
+            vec![row(1, 9, behavioral_cohort())],
+            TeamAllowlist::Only(HashSet::from([8])),
+            false,
+        );
+        assert!(
+            scoped.processes(TeamId(8)),
+            "a team in scope with no cohort"
+        );
+        assert!(
+            !scoped.processes(TeamId(9)) && scoped.team(TeamId(9)).is_none(),
+            "a row outside the scope neither processes its team nor gives it filters",
+        );
+        assert_eq!(scoped.team_count(), 0);
+
+        let unscoped = build_catalog_from_rows(vec![], TeamAllowlist::All, false);
+        assert!(
+            unscoped.processes(TeamId(8)),
+            "every team, with or without a cohort"
+        );
     }
 
     #[test]
@@ -216,6 +298,7 @@ mod tests {
                 row_with_guards(6, Some(SHAPE_HASH), None),
                 row_with_guards(7, None, Some(PERSON_SHAPE_HASH)),
             ],
+            TeamAllowlist::All,
             false,
         );
 
@@ -255,7 +338,7 @@ mod tests {
             row_with_tz(1, 7, behavioral_cohort(), "America/New_York"),
             row_with_tz(2, 9, behavioral_cohort(), "not a real zone"),
         ];
-        let catalog = build_catalog_from_rows(rows, false);
+        let catalog = build_catalog_from_rows(rows, TeamAllowlist::All, false);
         assert_eq!(catalog.team(TeamId(7)).expect("team 7").timezone, New_York);
         assert_eq!(
             catalog.team(TeamId(9)).expect("team 9").timezone,
@@ -270,12 +353,46 @@ mod tests {
             row(1, 7, json!({ "bogus": true })),
             row(2, 7, behavioral_cohort()),
         ];
-        let catalog = build_catalog_from_rows(rows, false);
+        let catalog = build_catalog_from_rows(rows, TeamAllowlist::All, false);
 
         let team = catalog.team(TeamId(7)).expect("team present");
         assert!(team.cohorts.contains_key(&CohortId(2)));
         assert!(!team.cohorts.contains_key(&CohortId(1)));
         assert_eq!(team.unique_condition_hashes.len(), 1);
+    }
+
+    #[test]
+    fn one_budget_spans_the_catalog_and_is_spent_in_team_order() {
+        use crate::hogvm::analysis::{GlobalRoot, GlobalsPlan};
+
+        // The higher team arrives first; the lower id is still the one that gets the budget.
+        let rows = vec![
+            row(1, 9, behavioral_cohort()),
+            row(2, 3, behavioral_cohort()),
+        ];
+        // STRING, STRING, GET_GLOBAL, EQ, RETURN: exactly what one condition spends.
+        let mut budget = AnalysisBudget {
+            steps: 5,
+            cells: usize::MAX,
+        };
+        let catalog = build_catalog_within(rows, TeamAllowlist::All, false, &mut budget);
+
+        let plan = |team: i32| {
+            catalog
+                .team(TeamId(team))
+                .expect("team present")
+                .behavioral
+                .plan
+        };
+        assert!(
+            plan(3).reads(GlobalRoot::Event) && !plan(3).reads(GlobalRoot::Pdi),
+            "team 3 freezes first and narrows",
+        );
+        assert_eq!(
+            plan(9),
+            GlobalsPlan::FULL,
+            "team 9 finds the budget spent, so its condition takes every root",
+        );
     }
 
     #[test]
@@ -290,14 +407,14 @@ mod tests {
         });
         let rows = || vec![row(2, 7, behavioral_cohort()), row(1, 7, referrer.clone())];
 
-        let off = build_catalog_from_rows(rows(), false);
+        let off = build_catalog_from_rows(rows(), TeamAllowlist::All, false);
         assert_eq!(
             off.team(TeamId(7)).unwrap().eligibility[&CohortId(1)],
             CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
             "gate off keeps the ref cohort excluded",
         );
 
-        let on = build_catalog_from_rows(rows(), true);
+        let on = build_catalog_from_rows(rows(), TeamAllowlist::All, true);
         assert_eq!(
             on.team(TeamId(7)).unwrap().eligibility[&CohortId(1)],
             CohortEligibility::Stage2ComposableRef,

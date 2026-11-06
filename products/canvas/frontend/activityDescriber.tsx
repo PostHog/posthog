@@ -1,16 +1,18 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 interface CanvasPostHogCapabilities {
     insights?: string[]
     captureEvents?: string[]
     inlineQueries?: boolean
+    agentRequests?: boolean
 }
 
 function posthogCapabilities(value: unknown): CanvasPostHogCapabilities {
@@ -54,6 +56,9 @@ export function describeCapabilitiesChange(change: ActivityChange): Description[
     if (!!before.inlineQueries !== !!after.inlineQueries) {
         parts.push(after.inlineQueries ? <>enabled inline queries</> : <>disabled inline queries</>)
     }
+    if (!!before.agentRequests !== !!after.agentRequests) {
+        parts.push(after.agentRequests ? <>enabled agent requests</> : <>disabled agent requests</>)
+    }
 
     return parts
 }
@@ -93,32 +98,73 @@ const canvasUpdateFieldCopy = (change: ActivityChange): Description | null => {
     return null
 }
 
+function describeCanvasPublished(
+    logItem: ActivityLogItem,
+    actor: JSX.Element,
+    canvasName: JSX.Element
+): HumanizedChange {
+    const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
+    const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <>
+                Published the canvas
+                {parts.length > 0 && <> and changed its declared capabilities:{inlineOrList(parts)}</>}
+            </>,
+            canvasName
+        ),
+        description: (
+            <>
+                {actor} published canvas {canvasName}
+                {parts.length === 1 ? <> and</> : null}
+                {parts.length > 1 ? <> and changed its declared capabilities:</> : null}
+                {parts.length > 0 ? inlineOrList(parts) : null}
+            </>
+        ),
+    }
+}
+
+function describeCanvasDrafted(logItem: ActivityLogItem, actor: JSX.Element, canvasName: JSX.Element): HumanizedChange {
+    const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
+    const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <>Drafted a new version{parts.length > 0 && <> with capability changes:{inlineOrList(parts)}</>}</>,
+            canvasName
+        ),
+        description: (
+            <>
+                {actor} drafted a new version of canvas {canvasName}
+                {parts.length === 1 ? <> that</> : null}
+                {parts.length > 1 ? <> that changes its declared capabilities:</> : null}
+                {parts.length > 0 ? inlineOrList(parts) : null}
+            </>
+        ),
+    }
+}
+
 export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== 'Canvas') {
         console.error('canvas describer received a non-canvas activity')
         return { description: null }
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const canvasName = <strong>{logItem.detail.name || 'Untitled canvas'}</strong>
 
     if (logItem.activity === 'published') {
-        const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
-        const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
-        return {
-            description: (
-                <>
-                    {actor} published canvas {canvasName}
-                    {parts.length === 1 ? <> and</> : null}
-                    {parts.length > 1 ? <> and changed its declared capabilities:</> : null}
-                    {parts.length > 0 ? inlineOrList(parts) : null}
-                </>
-            ),
-        }
+        return describeCanvasPublished(logItem, actor, canvasName)
+    }
+
+    if (logItem.activity === 'drafted') {
+        return describeCanvasDrafted(logItem, actor, canvasName)
     }
 
     if (logItem.activity === 'reverted') {
         return {
+            summary: activityLogSummary(logItem, 'Reverted to an earlier version', canvasName),
             description: (
                 <>
                     {actor} reverted canvas {canvasName} to an earlier version
@@ -131,6 +177,7 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
         const parts = (logItem.detail.changes || []).map(canvasUpdateFieldCopy).filter(Boolean) as Description[]
         if (parts.length > 0) {
             return {
+                summary: activityLogSummary(logItem, <>Updated the canvas:{inlineOrList(parts)}</>, canvasName),
                 description: (
                     <>
                         {actor} updated canvas {canvasName}:{inlineOrList(parts)}
@@ -143,6 +190,7 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
     const buildCopy = BUILD_ACTIVITY_COPY[logItem.activity]
     if (buildCopy) {
         return {
+            summary: activityLogSummary(logItem, `${buildCopy} the canvas`, canvasName),
             description: (
                 <>
                     {actor} {buildCopy} canvas {canvasName}

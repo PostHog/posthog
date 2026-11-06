@@ -1,4 +1,5 @@
 from django.db import connection, models, transaction
+from django.db.models import Q
 
 from posthog.models import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -19,6 +20,14 @@ class DAGMismatchError(Exception):
     """exception raised when an edge would connect two different DAGs together"""
 
     pass
+
+
+# The edges that neither order runs nor carry cadence: a managed view's readers do not schedule it.
+# Exclude it from an edge queryset to get the scheduling edges.
+NON_SCHEDULING_EDGES = Q(
+    source__saved_query__managed_viewset__isnull=False,
+    target__saved_query__managed_viewset__isnull=True,
+)
 
 
 class DataModelingEdgeQuerySet(models.QuerySet):
@@ -53,7 +62,7 @@ class DataModelingEdgeManager(models.Manager):
 class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = DataModelingEdgeManager()
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, editable=False)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, editable=False, related_name="+")
     team_id: int
 
     # the source node of the edge (i.e. the node this edge is pointed away from)

@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA13",
+    "cluster": 2,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321-330 treats self_driving_review as sufficient to bypass bot refusal and invokes the shared draft prerequisite (review_pr.py:590). The initial hosted producer at stamphog/backend/tasks/tasks.py:1158-1181 verifies only open state and a head SHA before stamping inbox provenance. The target URL is writable via tasks/backend/presentation/views/api.py:1101-1118 and facade/api.py:1770-1788,2149-2154; review_hog/backend/receivers.py:92-138 forwards it with the existing signal task and opted-in reviewer. Current public task creation permits signal_report and internal=False (presentation/serializers.py:435-460,625-646), so an eligible caller-controlled task can point to an unrelated human draft. activities.py:451 carries this marker into the engine, with no author/native-head validation, and 723-745 can post approval when other checks pass.",
+            "refutation": "I first checked two claimed bypass premises that do not survive tracing: malformed truthy values are not currently produced, because activities.py:451 explicitly creates a bool and logic/reviewer.py:119-137 serializes that server-built context; ready-state transitions are intentionally allowed (tasks.py:160-168 and tests/test_tasks.py:835-854). Nevertheless, the initial producer really lacks the bot/link check and accepts the caller-writable target URL. The webhook's bot and native-head guards at tasks.py:169-178 do not cover this separate initial path. The retained defect is the reachable human-draft/incorrect-origin approval eligibility, not hypothetical string coercion or legitimate ready PR review."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The human/unrelated-PR part is reachable. /tmp/frozen-75215/products/tasks/backend/tests/test_api.py:1307-1333 demonstrates API creation of a signal implementation task; its PR output is writable through presentation/views/api.py:1101-1118 and facade/api.py:2139-2154. /tmp/frozen-75215/products/review_hog/backend/receivers.py:92-138 uses a noninternal signal task plus current reviewer opt-in but never checks its PR target. Stamphog tasks/tasks.py:1166-1181 accepts an open human or fork PR with a head SHA and stamps inbox_review. activities.py:451 turns that into True; /tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321-330 then allows the human PR into gates and review_pr.py:590 suppresses the draft refusal. The context can therefore contain false self-driving provenance for an unrelated human draft.",
+            "refutation": "First checked strict typing and lifecycle guards. The truthy-nonboolean premise is not a real input defect: activities.py:451 produces an actual bool and logic/reviewer.py:119-139 JSON-serializes it into server-written context; tests/test_review_local.py:282-315 cover omitted/true values. Requiring draft forever is also contradicted by tasks/tasks.py:160-165, which intentionally permits later re-reviews after ready. However neither safeguard validates the initial fetched author/head against the task. The ordinary task output API can supply a wrong URL while preserving valid report/reviewer guards, so the genuine retained issue is incorrect provenance enabling human-draft review, not bool parsing or a legitimate ready transition."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "A real non-internal signal task can originate from Inbox's manual Create PR flow (frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96; products/tasks/backend/models.py:207-209). A task writer can replace its output.pr_url (tasks/backend/facade/api.py:1770-1788,2149-2154). The opted-in receiver dispatches that URL without checking the PR identity at review_hog/backend/receivers.py:98-114,126-138. After fetching the arbitrary connected-repository PR, process_inbox_pr_review checks only open state and head SHA before generating inbox provenance (stamphog/backend/tasks/tasks.py:1166-1181). That becomes a true self_driving_review at temporal/activities.py:448-451. review_local.py:321-326 trusts it, while review_pr.py:590 omits the draft prerequisite regardless of author. Thus a human-authored draft referenced by the editable task output can be reviewed and potentially approved under the exceptional policy.",
+            "refutation": "I tried to refute the malformed-value and ready-state premises first. Production creates a real boolean and JSON-serializes it (stamphog/backend/logic/reviewer.py:101,131-137), so arbitrary truthy strings are not a reachable input. Reviewing a valid implementation after it becomes ready is consistent with the explicit lifecycle at stamphog/backend/tasks/tasks.py:160-165, so draft=true is not a valid universal requirement. Those portions do not justify the finding. However the human-draft case survives: the initial trigger does not call the webhook's bot/native checks, the manual Inbox path passes the internal guard, and task-output attestation protects only pr_merged. The retained defect is missing PR/task provenance validation, not permissive boolean parsing or ready-state reviews."
+        }
+    ]
+}

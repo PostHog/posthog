@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
     update-ai-costs:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
 
         steps:
@@ -24,7 +24,7 @@ jobs:
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
 
             - name: Checkout repository
@@ -37,7 +37,7 @@ jobs:
               with:
                   working-directory: nodejs
                   # --ignore-scripts already skips husky's prepare hook (no need for HUSKY=0)
-                  install-command: pnpm install --frozen-lockfile --ignore-scripts
+                  install-command: pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/nodejs...
 
             # Single definition for the writer and the PR body; a job-level env
             # block cannot reference the `runner` context.
@@ -177,7 +177,7 @@ jobs:
                     --base master \
                     --head chore/llma-update-ai-costs \
                     --label "automated" \
-                    --reviewer "PostHog/team-ai-gateway")
+                    --reviewer "PostHog/team-agent-infrastructure")
                   echo "Created $new_pr_url"
 
                   # If the previously open PR on this branch got auto-closed by the

@@ -5,7 +5,6 @@ import { BindLogic } from 'kea'
 import { useRef } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import {
@@ -249,9 +248,7 @@ export const WithoutTimestamps: Story = {
 // Covers the column-field pickers shown when a data warehouse table is
 // selected as an insight series in the legacy TaxonomicFilter path
 // (`DefinitionPopoverContents` → `DefinitionView` DWH branch). Pins the
-// `pill` variant of the category-dropdown experiment. The rebuild variant
-// of the same view is covered by `DataWarehouseConfig` in
-// `TaxonomicFilterMenu.stories.tsx`.
+// `pill` variant of the category-dropdown experiment.
 
 const mockDataWarehouseTable = {
     id: 'dwh-table-1',
@@ -311,7 +308,6 @@ const DataWarehouseColumnMappingWrapper = (): JSX.Element => {
 export const DataWarehouseColumnMapping: Story = {
     render: () => <DataWarehouseColumnMappingWrapper />,
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
         testOptions: { waitForSelector: '.definition-popover-data-warehouse-schema-form' },
     },
     // Open the first column picker so the snapshot captures the filterable

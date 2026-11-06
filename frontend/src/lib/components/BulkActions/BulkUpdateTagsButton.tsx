@@ -11,12 +11,22 @@ export type { BulkTagAction, BulkTaggableResource, BulkUpdateTagsResult } from '
 
 interface BulkUpdateTagsButtonProps {
     resource: BulkTaggableResource
-    // Integer PKs for most resources; event definitions are keyed by UUID strings.
+    // Integer PKs for most resources; event definitions and tickets are keyed by UUID strings.
     selectedIds: ReadonlyArray<number | string>
     onSuccess?: (result: BulkUpdateTagsResult) => void
+    /** Disables the trigger with an explanatory tooltip, for toolbars that render it before any selection exists. */
+    disabledReason?: string
+    /** Tooltip on the enabled trigger, e.g. a partial-selection warning. */
+    tooltip?: string
 }
 
-export function BulkUpdateTagsButton({ resource, selectedIds, onSuccess }: BulkUpdateTagsButtonProps): JSX.Element {
+export function BulkUpdateTagsButton({
+    resource,
+    selectedIds,
+    onSuccess,
+    disabledReason,
+    tooltip,
+}: BulkUpdateTagsButtonProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     return (
@@ -35,7 +45,14 @@ export function BulkUpdateTagsButton({ resource, selectedIds, onSuccess }: BulkU
                 </div>
             }
         >
-            <LemonButton type="secondary" size="small" icon={<IconPencil />} onClick={() => setVisible(true)}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPencil />}
+                onClick={() => setVisible(true)}
+                disabledReason={disabledReason}
+                tooltip={tooltip}
+            >
                 Update tags
             </LemonButton>
         </Popover>

@@ -1,16 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
+import { IconEllipsis, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { pluralize } from 'lib/utils/strings'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationConditionSet } from '../types'
+import { EvaluationConditionSet, EvaluationTarget } from '../types'
 
-export function EvaluationTriggers(): JSX.Element {
+interface EvaluationTriggersProps {
+    conditions?: EvaluationConditionSet[]
+    onChange?: (conditions: EvaluationConditionSet[]) => void
+    /** The unit the sampling percentage applies to. The configuration editor describes the
+     * evaluation's own target, so it leaves this unset. The backfill editor passes the unit the
+     * server counted, which is still the saved target after an unsaved target edit. */
+    unit?: EvaluationTarget
+}
+
+export function EvaluationTriggers({ conditions, onChange, unit }: EvaluationTriggersProps = {}): JSX.Element {
     const { evaluation } = useValues(llmEvaluationLogic)
     const { setTriggerConditions } = useActions(llmEvaluationLogic)
 
@@ -18,186 +28,125 @@ export function EvaluationTriggers(): JSX.Element {
         return <div>Loading...</div>
     }
 
+    const current = conditions ?? evaluation.conditions
+    const update = onChange ?? setTriggerConditions
+
     const addConditionSet = (): void => {
         const newCondition: EvaluationConditionSet = {
             id: `cond-${Date.now()}`,
             rollout_percentage: 100,
             properties: [],
         }
-        setTriggerConditions([...evaluation.conditions, newCondition])
+        update([...current, newCondition])
     }
 
     const updateConditionSet = (index: number, updates: Partial<EvaluationConditionSet>): void => {
-        const updatedConditions = evaluation.conditions.map((condition, i) =>
+        const updatedConditions = current.map((condition, i) =>
             i === index ? { ...condition, ...updates } : condition
         )
-        setTriggerConditions(updatedConditions)
+        update(updatedConditions)
     }
 
     const removeConditionSet = (index: number): void => {
-        if (evaluation.conditions.length === 1) {
+        if (current.length === 1) {
             // Keep at least one condition set
             return
         }
-        const updatedConditions = evaluation.conditions.filter((_, i) => i !== index)
-        setTriggerConditions(updatedConditions)
+        const updatedConditions = current.filter((_, i) => i !== index)
+        update(updatedConditions)
     }
 
     const duplicateConditionSet = (index: number): void => {
-        const conditionToDuplicate = evaluation.conditions[index]
+        const conditionToDuplicate = current[index]
         const duplicatedCondition: EvaluationConditionSet = {
             ...conditionToDuplicate,
             id: `cond-${Date.now()}`,
         }
-        const updatedConditions = [...evaluation.conditions]
+        const updatedConditions = [...current]
         updatedConditions.splice(index + 1, 0, duplicatedCondition)
-        setTriggerConditions(updatedConditions)
+        update(updatedConditions)
     }
 
-    const isTraceTarget = evaluation.target === 'trace'
+    const unitPlural = pluralize(2, unit ?? evaluation.target, undefined, false)
 
     return (
-        <div className="space-y-6">
-            <div className="text-sm text-muted">
-                Each condition set below defines when this evaluation should trigger. If multiple condition sets exist,
-                the evaluation will trigger if ANY of them match (OR logic).
-                {isTraceTarget && (
-                    <>
-                        {' '}
-                        Conditions match individual generations — the whole trace is evaluated once any of its
-                        generations matches, and sampling applies per trace.
-                    </>
-                )}
-            </div>
-
-            {evaluation.conditions.map((condition, index) => {
+        <div className="flex flex-col gap-1">
+            {current.map((condition, index) => {
                 const percentageValue = condition.rollout_percentage || 0
+                const hasFilters = (condition.properties ?? []).length > 0
 
                 return (
-                    <div key={condition.id} className="bg-bg-light border rounded p-4 space-y-4">
-                        {/* Header */}
-                        <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-2">
-                                <h4 className="font-semibold">Condition set {index + 1}</h4>
-                                {evaluation.conditions.length > 1 && (
-                                    <div className="text-sm text-muted">{index === 0 ? 'IF' : 'OR IF'}</div>
-                                )}
-                            </div>
-                            <div className="flex gap-1">
-                                <LemonButton
-                                    icon={<IconCopy />}
+                    <div key={condition.id} className="flex flex-col gap-1">
+                        <div className="flex items-start gap-2" data-attr="llma-evaluation-condition-set">
+                            <div className="flex flex-wrap items-center gap-2 text-sm min-w-0 flex-1">
+                                {/* Fixed width, so the inputs of every set line up under each other. */}
+                                <span className="w-12 shrink-0 text-right text-secondary">
+                                    {index === 0 ? 'Run on' : 'or'}
+                                </span>
+                                <LemonInput
+                                    type="number"
                                     size="small"
-                                    type="secondary"
-                                    onClick={() => duplicateConditionSet(index)}
-                                    tooltip="Duplicate condition set"
+                                    className="w-20"
+                                    value={percentageValue}
+                                    onChange={(value) =>
+                                        updateConditionSet(index, { rollout_percentage: Number(value) || 0 })
+                                    }
+                                    min={0.1}
+                                    max={100}
+                                    step={0.1}
+                                    suffix={<span>%</span>}
+                                    aria-label="Sampling percentage"
+                                    status={percentageValue === 0 ? 'danger' : undefined}
                                 />
-                                {evaluation.conditions.length > 1 && (
+                                <span>{hasFilters ? `of ${unitPlural} where` : `of all ${unitPlural}`}</span>
+                                <PropertyFilters
+                                    propertyFilters={condition.properties}
+                                    onChange={(properties) => updateConditionSet(index, { properties })}
+                                    pageKey={`evaluation-condition-${condition.id}`}
+                                    taxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.EventMetadata,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                    ]}
+                                    buttonSize="small"
+                                    hasRowOperator={false}
+                                    sendAllKeyUpdates
+                                    allowRelativeDateOptions={false}
+                                />
+                                <LemonMenu
+                                    items={[
+                                        { label: 'Duplicate', onClick: () => duplicateConditionSet(index) },
+                                        {
+                                            label: 'Remove',
+                                            status: 'danger',
+                                            onClick: () => removeConditionSet(index),
+                                            disabledReason:
+                                                current.length === 1
+                                                    ? 'It needs at least one condition set'
+                                                    : undefined,
+                                        },
+                                    ]}
+                                >
                                     <LemonButton
-                                        icon={<IconTrash />}
+                                        icon={<IconEllipsis />}
                                         size="small"
-                                        type="secondary"
-                                        status="danger"
-                                        onClick={() => removeConditionSet(index)}
-                                        tooltip="Remove condition set"
+                                        aria-label={`Condition set ${index + 1} actions`}
                                     />
-                                )}
+                                </LemonMenu>
                             </div>
                         </div>
-
-                        {/* Percentage Control */}
-                        <div className="space-y-2">
-                            <label className="block text-sm font-medium">
-                                Sampling percentage <span className="text-danger">*</span>
-                            </label>
-                            <div className="flex items-center gap-4 max-w-md">
-                                <div className="flex-1">
-                                    <LemonSlider
-                                        value={percentageValue}
-                                        onChange={(value) => updateConditionSet(index, { rollout_percentage: value })}
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                    />
-                                </div>
-                                <div className="w-24">
-                                    <LemonInput
-                                        type="number"
-                                        value={percentageValue}
-                                        onChange={(value) =>
-                                            updateConditionSet(index, { rollout_percentage: Number(value) || 0 })
-                                        }
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                        suffix={<span>%</span>}
-                                        placeholder="Set percentage"
-                                        status={percentageValue === 0 ? 'danger' : undefined}
-                                    />
-                                </div>
-                            </div>
-                            {percentageValue === 0 ? (
-                                <div className="text-xs text-danger">
-                                    Please set a sampling percentage between 0.1% and 100%
-                                </div>
-                            ) : (
-                                <div className="text-xs text-muted">
-                                    This evaluation will run on {percentageValue.toFixed(2)}% of matching{' '}
-                                    {isTraceTarget ? 'traces' : 'generations'}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Property Filters */}
-                        <div className="space-y-2">
-                            <label className="block text-sm font-medium">Filter conditions</label>
-                            <div className="text-sm text-muted mb-2">
-                                Filter by generation event properties or person properties to target specific users or
-                                generations. Leave empty to match all generations.
-                            </div>
-                            <PropertyFilters
-                                propertyFilters={condition.properties}
-                                onChange={(properties) => updateConditionSet(index, { properties })}
-                                pageKey={`evaluation-condition-${condition.id}`}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.EventMetadata,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                ]}
-                                addText="Add filter condition"
-                                hasRowOperator={false}
-                                sendAllKeyUpdates
-                                allowRelativeDateOptions={false}
-                            />
-                        </div>
+                        {percentageValue === 0 && (
+                            <span className="text-xs text-danger pl-14">
+                                Set a sampling percentage between 0.1% and 100%.
+                            </span>
+                        )}
                     </div>
                 )
             })}
-
-            {/* Add Condition Set Button */}
-            <div className="flex justify-center">
-                <LemonButton type="secondary" icon={<IconPlus />} onClick={addConditionSet}>
-                    Add Condition Set
+            <div className="pl-12 pt-1">
+                <LemonButton type="tertiary" size="small" icon={<IconPlus />} onClick={addConditionSet}>
+                    Add condition set
                 </LemonButton>
-            </div>
-
-            {/* Help Section */}
-            <div className="bg-bg-light border rounded p-3 text-sm">
-                <h4 className="font-semibold mb-2">Examples:</h4>
-                <ul className="space-y-1 text-muted list-disc list-inside">
-                    <li>
-                        <strong>10% of all generations:</strong> Set 10% sampling with no filter conditions
-                    </li>
-                    <li>
-                        <strong>5% of GPT-4 generations:</strong> Set 5% sampling with $ai_model_name = "gpt-4"
-                    </li>
-                    <li>
-                        <strong>Exclude internal users:</strong> Set 100% sampling with person property is_internal ≠
-                        true
-                    </li>
-                    <li>
-                        <strong>High-cost generations:</strong> Set 100% sampling with $ai_total_cost_usd &gt; 0.01
-                    </li>
-                </ul>
             </div>
         </div>
     )

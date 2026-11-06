@@ -47,7 +47,7 @@ from ee.hogai.stream.redis_stream import (
 from ee.hogai.utils.types.base import ApprovalPayload, AssistantOutput
 
 
-class TestRedisStream(BaseTest):
+class TestRedisStream(SimpleTestCase):
     def setUp(self):
         self.stream_key = f"test_stream:{uuid4()}"
         self.redis_stream = ConversationRedisStream(self.stream_key)
@@ -567,21 +567,6 @@ class TestRedisStream(BaseTest):
                 data = call[0][1]
                 self.assertIn("data", data)
 
-    def test_serializer_conversation_serialization(self):
-        serializer = ConversationStreamSerializer()
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-        event: AssistantOutput = (AssistantEventType.CONVERSATION, conversation)
-        serialized = serializer.dumps(event)
-        self.assertIsNotNone(serialized)
-        serialized = cast(dict[str, bytes], serialized)
-        self.assertIn("data", serialized)
-        self.assertIsInstance(serialized["data"], bytes)
-
-        bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
-        deserialized = serializer.deserialize(bytes_data)
-        self.assertEqual(deserialized.event.type, AssistantEventType.CONVERSATION)
-        self.assertEqual(deserialized.event.payload, conversation.id)
-
     def test_serializer_status_serialization(self):
         # Test RedisStreamSerializer with status data
         serializer = ConversationStreamSerializer()
@@ -635,7 +620,24 @@ class TestRedisStream(BaseTest):
         self.assertIn("Unknown event type", str(context.exception))
 
 
-class TestGetSubagentStreamKey(BaseTest):
+class TestConversationEventSerialization(BaseTest):
+    def test_serializer_conversation_serialization(self):
+        serializer = ConversationStreamSerializer()
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+        event: AssistantOutput = (AssistantEventType.CONVERSATION, conversation)
+        serialized = serializer.dumps(event)
+        self.assertIsNotNone(serialized)
+        serialized = cast(dict[str, bytes], serialized)
+        self.assertIn("data", serialized)
+        self.assertIsInstance(serialized["data"], bytes)
+
+        bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
+        deserialized = serializer.deserialize(bytes_data)
+        self.assertEqual(deserialized.event.type, AssistantEventType.CONVERSATION)
+        self.assertEqual(deserialized.event.payload, conversation.id)
+
+
+class TestGetSubagentStreamKey(SimpleTestCase):
     def test_get_subagent_stream_key_format(self):
         conversation_id = uuid4()
         tool_call_id = "tool_123"

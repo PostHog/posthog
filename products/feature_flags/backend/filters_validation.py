@@ -9,25 +9,25 @@ size limits, feature gates) need DB or request state and stay in
 Every check takes a filters dict that already passed `FeatureFlagFiltersSerializer` — types
 are trusted, operators are canonical (aliases applied), payload values are JSON-encoded
 strings — and returns violations instead of raising, so the `audit_flag_filters` management
-command can report all of them per flag. `validate_cross_field_or_raise` is the fail-fast
-wrapper for the write path (wired in a later phase).
+command can report all of them per flag. The write path collects the same violations, then
+reports or raises depending on the enforcement switch.
 """
 
 import re
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from rest_framework import serializers
-from rest_framework.exceptions import ErrorDetail
 from rest_framework.settings import api_settings
 
 from posthog.hogql.property import parse_semver
 
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
-from posthog.queries.base import determine_parsed_date_for_property_matching
+from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 
 from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
+from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 DATE_OPERATORS: frozenset[str] = frozenset({"is_date_exact", "is_date_after", "is_date_before"})
 STRING_VALUE_OPERATORS: frozenset[str] = frozenset(
@@ -36,27 +36,31 @@ STRING_VALUE_OPERATORS: frozenset[str] = frozenset(
         "not_regex",
         "icontains",
         "not_icontains",
-        "gt",
-        "gte",
-        "lt",
-        "lte",
     }
     | set(STRING_PREFIX_SUFFIX_OPERATORS)
 )
+# Every evaluator parses either form to the same number, so both are accepted.
+NUMERIC_COMPARISON_OPERATORS: frozenset[str] = frozenset({"gt", "gte", "lt", "lte"})
+
+
+def _is_comparable_number(value: Any) -> bool:
+    """Whether a number is one the Rust evaluator can read.
+
+    It decodes filters with serde_json, which rejects a value outside f64 range with
+    "number out of range" and fails the whole payload, not the one condition.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
 LIST_VALUE_OPERATORS: frozenset[str] = frozenset({"icontains_multi", "not_icontains_multi"})
-SEMVER_OPERATORS: frozenset[str] = frozenset(
-    {
-        "semver_gt",
-        "semver_gte",
-        "semver_lt",
-        "semver_lte",
-        "semver_eq",
-        "semver_neq",
-        "semver_tilde",
-        "semver_caret",
-        "semver_wildcard",
-    }
-)
+# The matcher honors these two on a cohort property and scores every other operator as a
+# non-match, so a condition that stores one of the others never matches.
+COHORT_OPERATORS: frozenset[str] = frozenset({"in", "not_in"})
 PERSON_AGGREGATED_PROPERTY_TYPES: tuple[str, ...] = ("person", "cohort", "flag")
 
 
@@ -75,18 +79,13 @@ def check_variant_rollout_sum(filters: Mapping[str, Any]) -> list[Violation]:
     variant_list = (filters.get("multivariate") or {}).get("variants", [])
     if not variant_list:
         return []
-    # Exact equality is deliberate parity with the live write path, which enforces
-    # `sum != 100`. Float summation is deterministic, so any flag that passed that check at
-    # write time still sums to exactly 100 here; near-100 drift only exists on rows that
-    # predate the check, and those genuinely need cleanup before enforcement because the
-    # write path would reject them on their next update anyway.
     rollout_sum = sum(variant.get("rollout_percentage", 0) for variant in variant_list)
-    if rollout_sum != 100:
+    if not variant_rollout_sum_is_100(rollout_sum):
         return [
             Violation(
                 rule_id="cross_field.variant_rollout_sum_not_100",
                 path="multivariate.variants",
-                message=f"Variant rollout percentages must sum to 100, got {rollout_sum}.",
+                message=f"Variant rollout percentages must sum to 100, got {format_variant_rollout_sum(rollout_sum)}.",
             )
         ]
     return []
@@ -230,12 +229,21 @@ def check_operator_value_compatibility(filters: Mapping[str, Any]) -> list[Viola
                         message="Flag properties must use the 'flag_evaluates_to' operator.",
                     )
                 )
-            if operator in ("in", "not_in") and prop.get("type") != "cohort":
+            if operator in COHORT_OPERATORS and prop.get("type") != "cohort":
                 violations.append(
                     Violation(
                         rule_id="cross_field.in_not_in_requires_cohort",
                         path=f"groups[{group_index}].properties[{prop_index}].operator",
                         message=f"Operator {operator} is only supported on cohort properties.",
+                    )
+                )
+            # An omitted operator is valid, because the matcher reads it as `in`.
+            if prop.get("type") == "cohort" and operator is not None and operator not in COHORT_OPERATORS:
+                violations.append(
+                    Violation(
+                        rule_id="cross_field.cohort_requires_in_or_not_in",
+                        path=f"groups[{group_index}].properties[{prop_index}].operator",
+                        message=f"Cohort properties must use the 'in' or 'not_in' operator, not '{operator}'.",
                     )
                 )
             if operator in DATE_OPERATORS and determine_parsed_date_for_property_matching(value) is None:
@@ -252,6 +260,16 @@ def check_operator_value_compatibility(filters: Mapping[str, Any]) -> list[Viola
                         rule_id="cross_field.operator_requires_string_value",
                         path=path,
                         message=f"Operator {operator} requires a string value.",
+                    )
+                )
+            if operator in NUMERIC_COMPARISON_OPERATORS and not (
+                isinstance(value, str) or _is_comparable_number(value)
+            ):
+                violations.append(
+                    Violation(
+                        rule_id="cross_field.operator_requires_string_value",
+                        path=path,
+                        message=f"Operator {operator} requires a string or number value.",
                     )
                 )
             if operator in LIST_VALUE_OPERATORS and not isinstance(value, list):
@@ -298,15 +316,6 @@ def check_groups_non_empty_for_create(filters: Mapping[str, Any]) -> list[Violat
 
 def collect_cross_field_violations(filters: Mapping[str, Any]) -> list[Violation]:
     return [violation for check in CROSS_FIELD_CHECKS for violation in check(filters)]
-
-
-def validate_cross_field_or_raise(filters: Mapping[str, Any]) -> None:
-    """Fail-fast wrapper over the same collectors, for the write path."""
-    violations = collect_cross_field_violations(filters)
-    if violations:
-        raise serializers.ValidationError(
-            [ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id) for violation in violations]
-        )
 
 
 _LIST_INDEX_RE = re.compile(r"\[\d+\]")

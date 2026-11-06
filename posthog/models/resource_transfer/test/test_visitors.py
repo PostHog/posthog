@@ -1,12 +1,11 @@
 from types import SimpleNamespace
 from typing import Any
 
-from posthog.test.base import BaseTest
-
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.visitors import CohortVisitor, InsightVisitor
 from posthog.models.resource_transfer.visitors.experiment import ExperimentVisitor
 from posthog.models.resource_transfer.visitors.experiment_holdout import ExperimentHoldoutVisitor
@@ -22,7 +21,6 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
 )
 from posthog.models.resource_transfer.visitors.survey import SurveyVisitor
 
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import ExperimentHoldout
 
@@ -42,7 +40,7 @@ def _experiment_like_resource(**overrides):
     return SimpleNamespace(**base)
 
 
-class TestExtractActionIds(BaseTest):
+class TestExtractActionIds(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -134,7 +132,7 @@ class TestExtractActionIds(BaseTest):
         assert InsightVisitor._extract_action_ids(filters, query) == expected
 
 
-class TestExtractCohortIds(BaseTest):
+class TestExtractCohortIds(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -242,7 +240,7 @@ class TestExtractCohortIds(BaseTest):
         assert InsightVisitor._extract_cohort_ids(filters, query) == expected
 
 
-class TestRewriteActionIdInFilters(BaseTest):
+class TestRewriteActionIdInFilters(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -279,7 +277,7 @@ class TestRewriteActionIdInFilters(BaseTest):
         assert InsightVisitor._rewrite_action_id_in_filters(filters, old_pk, new_pk) == expected
 
 
-class TestRewriteActionIdInQuery(BaseTest):
+class TestRewriteActionIdInQuery(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -338,7 +336,7 @@ class TestRewriteActionIdInQuery(BaseTest):
         assert InsightVisitor._rewrite_action_id_in_query(query, old_pk, new_pk) == expected
 
 
-class TestRewriteCohortIdInFilters(BaseTest):
+class TestRewriteCohortIdInFilters(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -399,7 +397,7 @@ class TestRewriteCohortIdInFilters(BaseTest):
         assert InsightVisitor._rewrite_cohort_id_in_filters(filters, old_pk, new_pk) == expected
 
 
-class TestRewriteCohortIdInQuery(BaseTest):
+class TestRewriteCohortIdInQuery(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -487,7 +485,7 @@ class TestRewriteCohortIdInQuery(BaseTest):
         assert InsightVisitor._rewrite_cohort_id_in_query(query, old_pk, new_pk) == expected
 
 
-class TestCohortExtractCohortIds(BaseTest):
+class TestCohortExtractCohortIds(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -581,7 +579,7 @@ class TestCohortExtractCohortIds(BaseTest):
         assert CohortVisitor._extract_cohort_ids(filters) == expected
 
 
-class TestCohortExtractActionIds(BaseTest):
+class TestCohortExtractActionIds(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -746,7 +744,7 @@ class TestCohortExtractActionIds(BaseTest):
         assert CohortVisitor._extract_action_ids(filters) == expected
 
 
-class TestCohortRewriteCohortIdInFilters(BaseTest):
+class TestCohortRewriteCohortIdInFilters(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -842,7 +840,7 @@ class TestCohortRewriteCohortIdInFilters(BaseTest):
         assert CohortVisitor._rewrite_cohort_id_in_filters(filters, old_pk, new_pk) == expected
 
 
-class TestCohortRewriteActionIdInFilters(BaseTest):
+class TestCohortRewriteActionIdInFilters(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -1196,7 +1194,7 @@ class TestFeatureFlagVisitorDynamicEdges(SimpleTestCase):
 
         by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
         assert (Cohort, 7) in by_model_pk
-        assert (Action, 11) in by_model_pk
+        assert (registered_model("Action"), 11) in by_model_pk
         assert (ExperimentHoldout, 3) in by_model_pk
 
         names = {e.name for e in edges}
@@ -1220,9 +1218,9 @@ class TestExperimentPayloadDynamicEdgeExtraction(SimpleTestCase):
                 }
             ],
         )
-        cohort_ids, action_ids = collect_cohort_and_action_ids_from_experiment_json(resource)
-        assert cohort_ids == {600}
-        assert action_ids == {501}
+        collected = collect_cohort_and_action_ids_from_experiment_json(resource)
+        assert collected.cohort_ids == {600}
+        assert collected.action_ids == {501}
 
     def test_collect_ids_from_filters_and_parameters_keys(self) -> None:
         # Top-level experiment ``filters`` often mirrors insight shapes nested under keys;
@@ -1241,9 +1239,9 @@ class TestExperimentPayloadDynamicEdgeExtraction(SimpleTestCase):
                 }
             },
         )
-        cohort_ids, action_ids = collect_cohort_and_action_ids_from_experiment_json(resource)
-        assert 111 in cohort_ids
-        assert 222 in action_ids
+        collected = collect_cohort_and_action_ids_from_experiment_json(resource)
+        assert 111 in collected.cohort_ids
+        assert 222 in collected.action_ids
 
 
 class TestExperimentVisitorDynamicEdges(SimpleTestCase):
@@ -1261,7 +1259,7 @@ class TestExperimentVisitorDynamicEdges(SimpleTestCase):
         )
         edges = ExperimentVisitor.get_dynamic_edges(exp)
         by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
-        assert (Action, 777) in by_model_pk
+        assert (registered_model("Action"), 777) in by_model_pk
         assert any(e.name == "json_action:777" for e in edges)
 
 
@@ -1295,7 +1293,7 @@ class TestExperimentSavedMetricVisitorDynamicEdges(SimpleTestCase):
         )
         edges = ExperimentSavedMetricVisitor.get_dynamic_edges(metric)
         by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
-        assert (Action, 888) in by_model_pk
+        assert (registered_model("Action"), 888) in by_model_pk
         assert (Cohort, 999) in by_model_pk
 
     def test_non_dict_query_returns_no_edges(self) -> None:
@@ -1306,7 +1304,7 @@ class TestExperimentSavedMetricVisitorDynamicEdges(SimpleTestCase):
         assert ExperimentSavedMetricVisitor.get_dynamic_edges(metric_list) == []
 
 
-class TestSurveyVisitorConditionsCohorts(BaseTest):
+class TestSurveyVisitorConditionsCohorts(SimpleTestCase):
     @parameterized.expand(
         [
             (

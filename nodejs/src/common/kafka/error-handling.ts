@@ -26,7 +26,7 @@ export const retryOnDependencyUnavailableError = async <T>(
             return await fn()
         } catch (error) {
             if (error instanceof DependencyUnavailableError) {
-                if (currentRetryCount === 4) {
+                if (currentRetryCount === retryCount - 1) {
                     logger.error('🔁', 'main_loop_error_retry_limit', {
                         error,
                         currentRetryCount,

@@ -1,26 +1,50 @@
+import ssl
+import datetime
+import threading
+import contextlib
 import subprocess
+import socketserver
+from pathlib import Path
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import ServerException
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.escape_sql import escape_param_clickhouse
 
+from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import Team
 
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
+    HISTORY_HIDDEN_COLUMNS,
     DataWarehouseTable,
+    classify_warehouse_read_error,
     get_hogql_field_for_column,
     run_chdb_query,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
+    DELETED_AT_COLUMN,
+    HISTORY_NAMING,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -165,6 +189,26 @@ class TestSafeExposeChError:
         with pytest.raises(Exception, match="Access was denied when reading the provided file"):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
+    @pytest.mark.parametrize(
+        "raw_message,expected_action",
+        [
+            ("DB::Exception: Access Denied: while reading key: my-data/file.csv, S3 exception", "s3:GetObject"),
+            ("DB::Exception: Could not list objects in bucket my-bucket, S3 exception", "s3:ListBucket"),
+            (
+                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'my-data/file.csv')",
+                "s3:GetObject",
+            ),
+        ],
+    )
+    def test_native_s3_access_denials_name_the_iam_action_to_check(
+        self, raw_message: str, expected_action: str
+    ) -> None:
+        # A self-managed S3 source reads and lists the customer's own bucket, so an access denial
+        # is theirs to fix — name the exact IAM action rather than dead-ending on "access denied".
+        with pytest.raises(Exception, match=expected_action):
+            DataWarehouseTable()._safe_expose_ch_error(ServerException(raw_message, code=499))
+
     def test_delta_kernel_object_store_blip_is_retried_not_blamed_on_the_bucket(self) -> None:
         # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
         # blips as delta-rs (e.g. a dropped connection to our own data-warehouse bucket), just
@@ -183,6 +227,311 @@ class TestSafeExposeChError:
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
 
+class TestWarehouseReadErrorClassification:
+    # Engine wording, written from the shape of each failure rather than copied from a customer's
+    # table: a bucket that refuses the read, a parquet footer the reader can't parse, a URL that
+    # answers with a redirect, and a column that left the files. The needles are what the engines
+    # emit, so a rephrasing on either side has to fail here instead of silently dropping the error
+    # back into error tracking as an unactionable ClickHouse string.
+    @pytest.mark.parametrize(
+        "engine_error,expected_fragment",
+        [
+            (
+                RuntimeError(
+                    "Code: 1001. DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: "
+                    "TProtocolException: Exceeded size limit. (STD_EXCEPTION)"
+                ),
+                "corrupted or oversized metadata",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: Received DeltaLake kernel error ObjectStoreError: The operation lacked "
+                    "the necessary privileges to complete for path team_0_source_0/table_0/_delta_log",
+                    code=742,
+                ),
+                "Access was denied when reading the provided file",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: Too many redirects: The table structure cannot be extracted from a "
+                    "Parquet format file.",
+                    code=230,
+                ),
+                "redirected too many times",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: Unknown expression or function identifier `updated_at` in scope "
+                    "SELECT max(updated_at) FROM s3('https://example.com/exports/**.parquet')",
+                    code=47,
+                ),
+                "isn't in your files any more",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: The table structure cannot be extracted from a Parquet format file: "
+                    "std::exception. Code: 1001, type: Azure::Storage::StorageException, e.what() = 404 "
+                    "The specified blob does not exist.",
+                    code=636,
+                ),
+                "doesn't exist in the container",
+            ),
+            (
+                ServerException(
+                    "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                    "HTTP response code: 404: while reading 'exports/my_table/' in bucket 'my-bucket' on disk "
+                    "'StorageS3': The table structure cannot be extracted from a CSV format file. You can "
+                    "specify the structure manually.",
+                    code=499,
+                ),
+                "doesn't exist in the bucket",
+            ),
+            (
+                ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
+                None,
+            ),
+        ],
+    )
+    def test_recurring_engine_errors_map_to_an_actionable_message(
+        self, engine_error: Exception, expected_fragment: str | None
+    ) -> None:
+        classified = classify_warehouse_read_error(engine_error)
+
+        if expected_fragment is None:
+            assert classified is None
+        else:
+            assert classified is not None and expected_fragment in classified
+
+
+class TestChdbFailureReporting:
+    # Both chdb call sites fall back to ClickHouse, so a chdb failure that the fallback answers
+    # must not reach error tracking. Each of these used to mint one issue per read, which is what
+    # buried the failures that need a person.
+    @pytest.mark.parametrize(
+        "chdb_error,reported",
+        [
+            (RuntimeError("chdb query timed out after 30.0s"), False),
+            (
+                RuntimeError(
+                    "Code: 48. DB::Exception: Reading from files with different schema is not possible. "
+                    "The table has 7 columns, which is different from 8 columns in the file. (NOT_IMPLEMENTED)"
+                ),
+                False,
+            ),
+            (
+                RuntimeError(
+                    "Code: 742. DB::Exception: Received DeltaLake kernel error ObjectStoreError: The "
+                    "operation lacked the necessary privileges to complete. (DELTA_KERNEL_ERROR)"
+                ),
+                False,
+            ),
+            (
+                RuntimeError(
+                    "Code: 1001. DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: "
+                    "TProtocolException: Exceeded size limit. (STD_EXCEPTION)"
+                ),
+                False,
+            ),
+            (RuntimeError("Code: 999. DB::Exception: A failure shape nobody has classified yet."), True),
+        ],
+    )
+    def test_only_unrecognized_chdb_failures_reach_error_tracking(self, chdb_error: Exception, reported: bool) -> None:
+        with patch("products.warehouse_sources.backend.models.table.capture_exception") as mock_capture:
+            DataWarehouseTable()._capture_unexpected_chdb_error(chdb_error)
+
+        assert mock_capture.called is reported
+
+
+class TestGetCountEngineChoice:
+    def _table(self, size_in_s3_mib: float | None) -> DataWarehouseTable:
+        return DataWarehouseTable(
+            name="t",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=Team(id=1),
+            url_pattern="s3://bucket/team_0/t/",
+            size_in_s3_mib=size_in_s3_mib,
+        )
+
+    @pytest.mark.parametrize(
+        "size_in_s3_mib,uses_chdb",
+        [
+            (None, True),
+            (10.0, True),
+            (4096.0, False),
+        ],
+    )
+    def test_chdb_is_skipped_for_a_table_it_cannot_count_in_its_budget(
+        self, size_in_s3_mib: float | None, uses_chdb: bool
+    ) -> None:
+        # A count reads the whole dataset, so a table already big enough for s3Cluster never
+        # finishes inside run_chdb_query's budget. Attempting it anyway added the full budget to
+        # every count of a large table before ClickHouse did the work regardless.
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="7\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[(7,)]
+            ) as mock_sync_execute,
+        ):
+            count = self._table(size_in_s3_mib).get_count()
+
+        assert count == 7
+        assert mock_run_chdb.called is uses_chdb
+        if not uses_chdb:
+            assert "s3Cluster(" in mock_sync_execute.call_args.args[0]
+
+
+class TestChdbEngineChoiceByFormat:
+    def _table(
+        self, table_format: str, has_credential: bool, url_pattern: str = "https://bucket.example.com/t/"
+    ) -> DataWarehouseTable:
+        return DataWarehouseTable(
+            name="t",
+            format=table_format,
+            team=Team(id=1),
+            url_pattern=url_pattern,
+            credential=DataWarehouseCredential(access_key="key", access_secret="secret") if has_credential else None,
+        )
+
+    @pytest.mark.parametrize("method,clickhouse_result", [("get_columns", [("id", "String")]), ("get_count", [(7,)])])
+    def test_azure_reads_run_on_the_cluster(self, method: str, clickhouse_result: list[tuple]) -> None:
+        table = self._table(
+            DataWarehouseTable.TableFormat.Parquet, True, "https://acct.blob.core.windows.net/container/t/*.parquet"
+        )
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch("products.warehouse_sources.backend.models.table.run_chdb_query") as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=clickhouse_result
+            ) as mock_sync_execute,
+        ):
+            getattr(table, method)()
+
+        assert not mock_run_chdb.called
+        assert "azureBlobStorage(" in mock_sync_execute.call_args.args[0]
+
+    @pytest.mark.parametrize(
+        "table_format,has_credential,uses_chdb",
+        [
+            (DataWarehouseTable.TableFormat.Delta, True, False),
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, True, False),
+            (DataWarehouseTable.TableFormat.Delta, False, True),
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, False, True),
+            (DataWarehouseTable.TableFormat.Parquet, True, True),
+            (DataWarehouseTable.TableFormat.CSVWithNames, True, True),
+            (DataWarehouseTable.TableFormat.JSON, True, True),
+        ],
+    )
+    def test_get_columns_reads_customer_delta_urls_on_the_cluster(
+        self, table_format: str, has_credential: bool, uses_chdb: bool
+    ) -> None:
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="id,String\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[("id", "String")]
+            ) as mock_sync_execute,
+        ):
+            columns = self._table(table_format, has_credential).get_columns()
+
+        assert columns["id"]["clickhouse"] == "String"
+        assert mock_run_chdb.called is uses_chdb
+        assert mock_sync_execute.called is not uses_chdb
+
+    @pytest.mark.parametrize(
+        "table_format,has_credential,uses_chdb",
+        [
+            (DataWarehouseTable.TableFormat.Delta, True, False),
+            (DataWarehouseTable.TableFormat.Delta, False, True),
+            # A count of a DeltaS3Wrapper table reads its parquet files through s3(), not deltaLake().
+            (DataWarehouseTable.TableFormat.DeltaS3Wrapper, True, True),
+            (DataWarehouseTable.TableFormat.Parquet, True, True),
+        ],
+    )
+    def test_get_count_reads_customer_delta_urls_on_the_cluster(
+        self, table_format: str, has_credential: bool, uses_chdb: bool
+    ) -> None:
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value="7\n"
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=[(7,)]
+            ) as mock_sync_execute,
+        ):
+            count = self._table(table_format, has_credential).get_count()
+
+        assert count == 7
+        assert mock_run_chdb.called is uses_chdb
+        assert mock_sync_execute.called is not uses_chdb
+
+    @pytest.mark.parametrize(
+        "table_format,file_pattern,chdb_codec",
+        [
+            (DataWarehouseTable.TableFormat.Parquet, "*.parquet", "none"),
+            (DataWarehouseTable.TableFormat.CSVWithNames, "*.csv.gz", "gzip"),
+            (DataWarehouseTable.TableFormat.Parquet, "*", "none"),
+            (DataWarehouseTable.TableFormat.CSVWithNames, "*", None),
+            (DataWarehouseTable.TableFormat.JSON, "**", None),
+        ],
+    )
+    def test_chdb_reads_with_the_codec_the_url_pattern_names(
+        self, table_format: str, file_pattern: str, chdb_codec: str | None
+    ) -> None:
+        table = self._table(table_format, has_credential=True)
+        table.url_pattern = f"https://bucket.example.com/t/{file_pattern}"
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query",
+                side_effect=lambda query: "7\n" if "count()" in query else "id,String\n",
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute",
+                side_effect=lambda query, **_: [(7,)] if "count()" in query else [("id", "String")],
+            ) as mock_sync_execute,
+        ):
+            assert table.get_columns()["id"]["clickhouse"] == "String"
+            assert table.get_count() == 7
+
+        if chdb_codec is None:
+            assert not mock_run_chdb.called
+            assert mock_sync_execute.call_count == 2
+        else:
+            chdb_queries = [call.args[0] for call in mock_run_chdb.call_args_list]
+            assert len(chdb_queries) == 2
+            assert all(query.endswith(f"'auto', '{chdb_codec}')") for query in chdb_queries), chdb_queries
+            assert not mock_sync_execute.called
+
+
+def _test_certificate(
+    name: str,
+    key: ec.EllipticCurvePrivateKey,
+    signing_key: ec.EllipticCurvePrivateKey,
+    issuer: x509.Name | None = None,
+) -> x509.Certificate:
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])
+    now = datetime.datetime.now(datetime.UTC)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer or subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(hours=1))
+        .not_valid_after(now + datetime.timedelta(hours=1))
+        .add_extension(x509.BasicConstraints(ca=issuer is None, path_length=None), critical=True)
+    )
+    if issuer is not None:
+        builder = builder.add_extension(x509.SubjectAlternativeName([x509.DNSName(name)]), critical=False)
+    return builder.sign(signing_key, hashes.SHA256())
+
+
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:
         # Real subprocess: chdb import alone exceeds the timeout, so this exercises the
@@ -191,18 +540,240 @@ class TestRunChdbQuery:
         with pytest.raises(RuntimeError, match="timed out"):
             run_chdb_query("SELECT sleep(2)", timeout=0.5)
 
-    def test_suppressed_delta_error_classification_survives_subprocess_boundary(self) -> None:
-        completed = subprocess.CompletedProcess(
-            args=[],
-            returncode=1,
-            stdout="",
-            stderr="Code: 36. DB::Exception: Unsupported DeltaLake type: timestamp_ntz. (BAD_ARGUMENTS)",
+    def test_child_process_runs_with_hardened_environment_and_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LD_PRELOAD", "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2")
+        monkeypatch.setenv("MALLOC_CONF", "background_thread:false")
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "false")
+        monkeypatch.setenv("HTTPS_PROXY", "http://web-1:x@egress-proxy.example:4750/")
+        monkeypatch.delenv("https_proxy", raising=False)
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="1\n", stderr="")
+        with patch(
+            "products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed
+        ) as mock_run:
+            run_chdb_query("SELECT 1")
+
+        child_env = mock_run.call_args.kwargs["env"]
+        assert "LD_PRELOAD" not in child_env
+        assert "MALLOC_CONF" not in child_env
+        assert child_env["AWS_REGION"] == "us-east-1"
+        assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
+        assert child_env["https_proxy"] == "http://web-1:x@egress-proxy.example:4750/"
+        assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SET s3_retry_attempts = 0; SELECT 1"
+
+    def test_read_rejects_a_certificate_issued_for_another_host(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # The proxy answers every CONNECT with a certificate the test CA issued for other.invalid. An engine
+        # that checks the chain but not the hostname accepts that certificate and reads the body.
+        ca_key = ec.generate_private_key(ec.SECP256R1())
+        ca = _test_certificate("Test CA", ca_key, ca_key)
+        leaf_key = ec.generate_private_key(ec.SECP256R1())
+        leaf = _test_certificate("other.invalid", leaf_key, ca_key, issuer=ca.subject)
+        (tmp_path / "ca.pem").write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+        (tmp_path / "leaf.pem").write_bytes(
+            leaf.public_bytes(serialization.Encoding.PEM)
+            + leaf_key.private_bytes(
+                serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+            )
         )
+        tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls_context.load_cert_chain(tmp_path / "leaf.pem")
+
+        class TlsTerminatingProxy(socketserver.BaseRequestHandler):
+            def handle(self) -> None:
+                request = b""
+                while b"\r\n\r\n" not in request:
+                    chunk = self.request.recv(4096)
+                    if not chunk:
+                        return
+                    request += chunk
+                self.request.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                with contextlib.suppress(OSError), tls_context.wrap_socket(self.request, server_side=True) as tls:
+                    tls.recv(65536)
+                    tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+
+        with socketserver.ThreadingTCPServer(("127.0.0.1", 0), TlsTerminatingProxy) as proxy:
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
+            monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{proxy.server_address[1]}")
+            monkeypatch.delenv("NO_PROXY", raising=False)
+            monkeypatch.delenv("no_proxy", raising=False)
+            monkeypatch.setenv("SSL_CERT_FILE", str(tmp_path / "ca.pem"))
+            try:
+                # Retries back off on each failed handshake and would outlast run_chdb_query's timeout.
+                with pytest.raises(RuntimeError, match="Unacceptable certificate from wrong.invalid"):
+                    run_chdb_query(
+                        "SET s3_retry_attempts = 0; "
+                        "SELECT * FROM s3('https://wrong.invalid/bucket/data.csv', 'RawBLOB')"
+                    )
+            finally:
+                proxy.shutdown()
+
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            "Code: 36. DB::Exception: Unsupported DeltaLake type: timestamp_ntz. (BAD_ARGUMENTS)",
+            # Emitted when a source adds a column mid-stream and the parquet parts under one
+            # table disagree on column count. Kept verbatim: the suppression matches on this
+            # wording, so a ClickHouse rephrasing has to fail the test rather than pass silently.
+            "Code: 48. DB::Exception: Reading from files with different schema is not possible. "
+            "The table has 23 columns, which is different from 24 columns in the file. (NOT_IMPLEMENTED)",
+            "Code: 579. DB::Exception: Too many redirects while trying to access "
+            "https://s3.amazonaws.com/bucket/table/. (TOO_MANY_REDIRECTS)",
+        ],
+    )
+    def test_suppressed_chdb_error_classification_survives_subprocess_boundary(self, stderr: str) -> None:
+        completed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=stderr)
         with patch("products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed):
             with pytest.raises(RuntimeError) as exc_info:
                 run_chdb_query("DESCRIBE TABLE s3('https://example.com/table/')")
 
         assert DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
+
+    def test_unrelated_chdb_error_is_not_suppressed(self) -> None:
+        # The suppression must stay a narrow allow-list. A chdb failure the ClickHouse fallback
+        # cannot absorb has to keep reaching error tracking.
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="Code: 499. DB::Exception: Access Denied. (S3_ERROR)"
+        )
+        with patch("products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed):
+            with pytest.raises(RuntimeError) as exc_info:
+                run_chdb_query("DESCRIBE TABLE s3('https://example.com/table/')")
+
+        assert not DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
+
+    @pytest.mark.parametrize("platform, suppressed", [("darwin", True), ("linux", False)])
+    def test_missing_deltalake_function_is_suppressed_only_on_macos(self, platform: str, suppressed: bool) -> None:
+        # Kept verbatim from chdb 4.3.0 on macOS, where the wheel ships without delta-kernel.
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="Code: 46. DB::Exception: Unknown table function deltaLake. (UNKNOWN_FUNCTION)",
+        )
+        with patch("products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed):
+            with pytest.raises(RuntimeError) as exc_info:
+                run_chdb_query("DESCRIBE TABLE deltaLake('https://example.com/table/')")
+
+        with patch("products.warehouse_sources.backend.models.table.sys.platform", platform):
+            assert DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value) is suppressed
+
+
+class TestStructureAgainstTheEngine(ClickhouseTestMixin, BaseTest):
+    # A warehouse read pins the stored structure as the `structure` argument of s3(), so what the engine
+    # does with that string decides whether a column is readable. These cases send the structure the model
+    # builds to ClickHouse and read rows back through it, which no mock-based test can do. They run on the
+    # cluster because that is where a read runs, and they send no settings for the same reason.
+    # `format()` stands in for s3() so the case needs no bucket: both take the same format and structure,
+    # and the parsing under test is the format reader's.
+    def _read_through_structure(self, table: DataWarehouseTable, select: str, rows: list[str]) -> list[tuple[Any, ...]]:
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.structure is not None
+        return sync_execute(
+            f"SELECT {select} FROM format(JSONEachRow, "
+            f"{escape_param_clickhouse(definition.structure)}, "
+            f"{escape_param_clickhouse(''.join(f'{row}\n' for row in rows))}) ORDER BY id"
+        )
+
+    def test_array_of_objects_is_readable_through_the_stored_structure(self) -> None:
+        # The element names are what makes the column parseable. Without them ClickHouse reads
+        # `items` as a positional array, so every query over the table raises code 27, including
+        # queries that never mention the column.
+        table = DataWarehouseTable(
+            name="orders",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            url_pattern="s3://bucket/team_1/orders/*",
+            columns={
+                "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True},
+                "items": {
+                    "clickhouse": "Array(Tuple(sku Nullable(String), qty Nullable(Int64)))",
+                    "hogql": "StringArrayDatabaseField",
+                    "valid": True,
+                },
+            },
+        )
+
+        result = self._read_through_structure(table, "items.sku", ['{"id": 1, "items": [{"sku": "widget", "qty": 2}]}'])
+
+        assert result == [(["widget"],)]
+
+    def test_a_key_outside_the_schema_reads_through_a_json_column(self) -> None:
+        # Introspection samples part of the data, so the second row's key is absent from the stored schema
+        # and still reads. A Tuple of the sampled keys drops it at parse time instead.
+        table = DataWarehouseTable(
+            name="runs",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            url_pattern="s3://bucket/team_1/runs/*",
+            columns={
+                "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True},
+                "usage": {"clickhouse": "JSON", "hogql": "StringJSONDatabaseField", "valid": True},
+            },
+        )
+
+        result = self._read_through_structure(
+            table,
+            "id, toString(usage.cacheWriteInputTokenCount) AS written",
+            [
+                '{"id": 1, "usage": {"inputTokens": 10}}',
+                '{"id": 2, "usage": {"inputTokens": 20, "cacheWriteInputTokenCount": 5}}',
+            ],
+        )
+
+        # The row that carries the key reads it; the row that does not reads empty rather than failing.
+        assert result == [(1, ""), (2, "5")]
+
+
+class TestSchemaInferenceMode(BaseTest):
+    def _table(self, table_format: str) -> DataWarehouseTable:
+        return DataWarehouseTable(name="t", format=table_format, team=self.team, url_pattern="s3://bucket/team_1/t/*")
+
+    @parameterized.expand(
+        [
+            ("json", DataWarehouseTable.TableFormat.JSON),
+            ("csv_with_names", DataWarehouseTable.TableFormat.CSVWithNames),
+            ("delta", DataWarehouseTable.TableFormat.Delta),
+        ]
+    )
+    def test_introspection_does_not_widen_the_file_sample(self, _name: str, table_format: str) -> None:
+        # `union` reads the head of every object the pattern matches. A table whose pattern spans a
+        # date-partitioned bucket cannot finish that inside a request, and the refresh fails instead
+        # of returning the narrow schema. Widening belongs on an asynchronous path, so introspection
+        # must keep the default sample until one exists.
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            return_value=[("id", "Int64")],
+        ) as mock_sync_execute:
+            self._table(table_format).get_columns()
+
+        assert "schema_inference_mode" not in mock_sync_execute.call_args.kwargs["settings"]
+
+    def test_a_failed_describe_raises_instead_of_storing_a_narrower_schema(self) -> None:
+        # A degraded schema that persists silently is indistinguishable from the bug being fixed:
+        # the person refreshes, nothing changes, and no signal exists anywhere. The retries belong
+        # on this pass, because the cluster fails intermittently.
+        with patch("products.warehouse_sources.backend.models.table.time.sleep"):
+            with patch(
+                "products.warehouse_sources.backend.models.table.sync_execute",
+                side_effect=ServerException("DB::Exception: Unexpected", code=1002),
+            ) as mock_sync_execute:
+                with pytest.raises(Exception):
+                    self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
+
+        assert mock_sync_execute.call_count == 5
+
+
+class TestHistoryHiddenColumns(SimpleTestCase):
+    def test_names_match_the_columns_capture_writes(self) -> None:
+        assert HISTORY_HIDDEN_COLUMNS == {
+            CDC_OP_COLUMN,
+            CDC_SEQ_COLUMN,
+            CDC_TIMESTAMP_COLUMN,
+            DELETED_AT_COLUMN,
+            HISTORY_NAMING.partition_column,
+        }
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):
@@ -226,3 +797,164 @@ class TestGetHogqlFieldForColumn(SimpleTestCase):
 
         assert type(field) is expected_type
         assert field.is_nullable()
+
+
+class TestUrlPatternChangeGuard(BaseTest):
+    # A table with no credential is read by ClickHouse under the node's own S3 role, so its
+    # url_pattern is only safe to trust because PostHog computed it. This guards that invariant at
+    # the model layer so any writer (not just the REST API) is refused by default.
+    def _credential_less_table(
+        self, url_pattern: str = "https://posthog-owned.example/team_1/x.csv"
+    ) -> DataWarehouseTable:
+        table = DataWarehouseTable(name="t", format="CSVWithNames", team=self.team, url_pattern=url_pattern)
+        table.save(internally_computed_url_pattern=True)
+        return table
+
+    def _credentialed_table(self, url_pattern: str = "https://customer-bucket.example/x.csv") -> DataWarehouseTable:
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="access_key", access_secret="access_secret"
+        )
+        table = DataWarehouseTable(
+            name="t", format="CSVWithNames", team=self.team, url_pattern=url_pattern, credential=credential
+        )
+        table.save()
+        return table
+
+    def test_creating_a_credential_less_table_does_not_require_the_flag(self) -> None:
+        table = DataWarehouseTable(
+            name="t", format="CSVWithNames", team=self.team, url_pattern="https://x.example/a.csv"
+        )
+        table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://x.example/a.csv"
+
+    def test_changing_url_pattern_without_the_flag_is_rejected(self) -> None:
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_2/y.csv"
+        with pytest.raises(ValidationError, match="no credential"):
+            table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
+
+    def test_changing_url_pattern_with_the_flag_is_allowed(self) -> None:
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_1/y.csv"
+        table.save(internally_computed_url_pattern=True)
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/y.csv"
+
+    def test_changing_url_pattern_on_a_credentialed_table_does_not_require_the_flag(self) -> None:
+        table = self._credentialed_table()
+
+        table.url_pattern = "https://customer-bucket.example/renamed.csv"
+        table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://customer-bucket.example/renamed.csv"
+
+    def test_resaving_the_same_url_pattern_does_not_require_the_flag(self) -> None:
+        table = self._credential_less_table()
+
+        table.columns = {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+        table.save()
+
+        table.refresh_from_db()
+        assert table.columns == {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+
+    def test_update_fields_scoped_save_skips_the_check_when_url_pattern_is_excluded(self) -> None:
+        # Mirrors ExternalDataSchema._sync_teardown_kind: a save scoped away from url_pattern via
+        # update_fields can't have changed it, so the extra DB read to compare prior state is skipped.
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_2/y.csv"  # not persisted below
+        table.columns = {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+        table.save(update_fields=["columns"])
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
+        assert table.columns == {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
+
+    def test_attaching_a_credential_in_the_same_call_still_requires_the_flag(self) -> None:
+        # The guard reads the row's prior DB state, not the value being assigned in this call, so
+        # attaching a real credential here doesn't retroactively make the prior state trusted -
+        # writers computing url_pattern from something other than request input (like the demo and
+        # seed-data table registration) still have to declare that explicitly.
+        table = self._credential_less_table()
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="access_key", access_secret="access_secret"
+        )
+
+        table.credential = credential
+        table.url_pattern = "https://posthog-owned.example/team_1/y.csv"
+        with pytest.raises(ValidationError, match="no credential"):
+            table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
+
+    def test_full_clean_rejects_the_same_way_save_does(self) -> None:
+        # Django admin validates via full_clean() (form.is_valid() -> clean()) before ever calling
+        # save(), and ModelAdmin.save_model() doesn't translate a save()-raised ValidationError into
+        # a form error - so the same check has to be reachable from clean() too, for admin to show a
+        # normal field error instead of an unhandled 500.
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_2/y.csv"
+        with pytest.raises(ValidationError, match="no credential"):
+            table.full_clean()
+
+    def test_clean_allows_a_credentialed_table_to_change_url_pattern(self) -> None:
+        # Calls clean() directly rather than full_clean(): other required fields (row_count,
+        # size_in_s3_mib) are legitimately blank on a freshly built table and full_clean() would
+        # reject those regardless, which isn't what this test is checking.
+        table = self._credentialed_table()
+
+        table.url_pattern = "https://customer-bucket.example/renamed.csv"
+        table.clean()  # must not raise
+
+    def test_soft_delete_on_a_credential_less_table_does_not_trip_the_guard(self) -> None:
+        table = self._credential_less_table()
+
+        table.soft_delete()
+
+        table.refresh_from_db()
+        assert table.deleted is True
+
+
+class TestRowCountColumnWidth(BaseTest):
+    def test_row_count_beyond_32_bit_range_can_be_saved(self) -> None:
+        # Postgres's `integer` column tops out at 2,147,483,647, so a synced table with more
+        # rows than that must still be able to save through table.save().
+        table = DataWarehouseTable(
+            name="t", format="Delta", team=self.team, url_pattern="s3://bucket/team_1/t", row_count=2_147_483_648
+        )
+        table.save()
+
+        table.refresh_from_db()
+        assert table.row_count == 2_147_483_648
+
+
+class TestModelsNamespaceGuard(BaseTest):
+    def test_legacy_table_with_reserved_name_can_be_soft_deleted(self) -> None:
+        [table] = DataWarehouseTable.objects.bulk_create(
+            [DataWarehouseTable(name="models.revenue", format="Parquet", team=self.team, url_pattern="s3://x/*")]
+        )
+
+        table.soft_delete()
+
+        table.refresh_from_db()
+        assert table.deleted is True
+
+    def test_existing_table_cannot_be_renamed_into_reserved_namespace(self) -> None:
+        table = DataWarehouseTable.objects.create(
+            name="revenue", format="Parquet", team=self.team, url_pattern="s3://x/*"
+        )
+
+        table.name = "models.revenue"
+        with pytest.raises(ValidationError, match="models namespace"):
+            table.save()

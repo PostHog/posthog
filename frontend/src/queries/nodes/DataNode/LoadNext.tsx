@@ -3,18 +3,21 @@ import { useMemo } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { isDataVisualizationNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import { DataNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
 
 interface LoadNextProps {
     query: DataNode
+    nouns?: [string, string]
+    expectedTotalRows?: number
 }
 
-export function LoadNext({ query }: LoadNextProps): JSX.Element {
+export function LoadNext({ query, nouns = ['entry', 'entries'], expectedTotalRows }: LoadNextProps): JSX.Element {
     const { canLoadNextData, nextDataLoading, numberOfRows, hasMoreData, dataLimit } = useValues(dataNodeLogic)
     const { loadNextData } = useActions(dataNodeLogic)
 
@@ -40,16 +43,20 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
             return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
         }
+        if (!canLoadNextData && !hasMoreData && numberOfRows && expectedTotalRows && numberOfRows < expectedTotalRows) {
+            return `Showing ${humanFriendlyNumber(numberOfRows)} of ${humanFriendlyNumber(expectedTotalRows)} ${nouns[1]}`
+        }
+        const noun = numberOfRows === 1 ? nouns[0] : nouns[1]
         let result = `Showing ${
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
-        }${numberOfRows === 1 ? 'one' : numberOfRows} ${numberOfRows === 1 ? 'entry' : 'entries'}`
+        }${numberOfRows === 1 ? 'one' : humanFriendlyNumber(numberOfRows)} ${noun}`
         if (canLoadNextData) {
             result += nextDataLoading ? ' – loading more…' : ' – click to load more'
         } else if (hasMoreData) {
             result += ' – reached the end of results'
         }
         return result
-    }, [query, dataLimit, numberOfRows, canLoadNextData, nextDataLoading, hasMoreData])
+    }, [query, dataLimit, numberOfRows, canLoadNextData, nextDataLoading, hasMoreData, nouns, expectedTotalRows])
 
     // pagination component exists
     if (

@@ -2,22 +2,30 @@
 import configPropertyMetadata from '../generated/widget-config-property-keys.json'
 import {
     activityEventsWidgetConfigSchema,
+    canvasAppWidgetConfigSchema,
+    conversationsRecentTicketsWidgetConfigSchema,
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
+    metricsTableWidgetConfigSchema,
+    notebookWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     surveyResultsWidgetConfigSchema,
     widgetFilterEntrySchema,
 } from '../generated/widget-configs.zod'
 
 const WIDGET_CONFIG_SCHEMAS = {
+    canvas_app: canvasAppWidgetConfigSchema,
+    conversations_recent_tickets: conversationsRecentTicketsWidgetConfigSchema,
     activity_events_list: activityEventsWidgetConfigSchema,
     error_tracking_list: errorTrackingWidgetConfigSchema,
     session_replay_list: sessionReplayWidgetConfigSchema,
     experiments_list: experimentsWidgetConfigSchema,
     experiment_results: experimentResultsWidgetConfigSchema,
     logs_list: logsWidgetConfigSchema,
+    metrics_table: metricsTableWidgetConfigSchema,
+    notebook_widget: notebookWidgetConfigSchema,
     survey_results: surveyResultsWidgetConfigSchema,
 } as const
 
@@ -135,6 +143,10 @@ function normalizePropertyTree(tree: unknown): unknown {
     if ('$types' in tree && Array.isArray(tree.$types)) {
         const normalizedTypes = [...new Set(tree.$types.map((type) => (type === 'number' ? 'integer' : type)))].sort()
         return { $types: normalizedTypes }
+    }
+    // Zod has one number type, so a float field (e.g. the metrics table quantile) reads as an integer.
+    if ('$type' in tree && tree.$type === 'number') {
+        return { $type: 'integer' }
     }
 
     return Object.fromEntries(Object.entries(tree).map(([key, value]) => [key, normalizePropertyTree(value)]))

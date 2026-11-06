@@ -6,9 +6,11 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
-from products.tasks.backend.metrics import observe_task_run_failed
+from products.tasks.backend.metrics import observe_sandbox_deadline, observe_task_run_failed
 
 logger = get_logger(__name__)
+
+SANDBOX_DEADLINE_EVENT = "sandbox_deadline"
 
 
 @dataclass
@@ -31,6 +33,9 @@ def track_workflow_event(input: TrackWorkflowEventInput) -> None:
         if input.event_name == "task_run_failed":
             observe_task_run_failed(input.properties)
 
+        if input.event_name == SANDBOX_DEADLINE_EVENT:
+            observe_sandbox_deadline(input.properties)
+
         if not input.capture_analytics:
             return
 
@@ -39,7 +44,7 @@ def track_workflow_event(input: TrackWorkflowEventInput) -> None:
             event=input.event_name,
             properties=input.properties,
             groups=input.groups or {},
-            send_feature_flags=True,
+            send_feature_flags=not input.event_name.startswith("agent_first_"),
         )
     except Exception:
         logger.exception(

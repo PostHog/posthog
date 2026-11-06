@@ -1,0 +1,593 @@
+# Each case has one rule. A path the pattern matches resolves to team-rule, any other path to team-file.
+cases:
+    - name: a leading slash anchors the pattern to the directory of the file
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+          a/owners.yaml: |
+              version: 1
+              owners: []
+              rules:
+                - match: '/docs'
+                  owners: team-rule
+      expect:
+          'a/docs/x.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: a/owners.yaml
+              slack: '#team-rule'
+          'a/docs':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: a/owners.yaml
+              slack: '#team-rule'
+          'a/b/docs/x.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a pattern with a slash in the middle is anchored
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: 'foo/bar'
+                  owners: team-rule
+      expect:
+          'foo/bar':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'foo/bar/baz.py':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'x/foo/bar':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a pattern with no slash matches at any depth
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: 'foo'
+                  owners: team-rule
+      expect:
+          'foo':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/b/foo':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/b/foo/c':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/foobar':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a slash-free wildcard pattern matches at any depth
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '*.js'
+                  owners: team-rule
+      expect:
+          'c.js':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/b/c.js':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/b/c.ts':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a slash-free wildcard pattern can match inside a name
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: 'docker-compose*.yml'
+                  owners: team-rule
+      expect:
+          'a/b/docker-compose.dev.yml':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/b/compose.yml':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a trailing slash matches everything below a directory of that name at any depth
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: 'docs/'
+                  owners: team-rule
+      expect:
+          'docs/x':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/x/y':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/docs/y':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docsx/y':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a literal last segment also owns the subtree below it
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/foo/bar'
+                  owners: team-rule
+      expect:
+          'foo/bar/baz.py':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'foo/bar/deep/baz.py':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'foo/barbaz.py':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a single star does not cross a slash
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/*'
+                  owners: team-rule
+      expect:
+          'docs/x.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/a/b.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a single star as the last segment does not own a subtree
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: 'src/*'
+                  owners: team-rule
+      expect:
+          'src/a.py':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'src/a/b.py':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a double star matches zero or more directories
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: 'a/**/b'
+                  owners: team-rule
+      expect:
+          'a/b':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/x/y/b':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/b/c':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/xb':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a leading double star matches at any depth including the top
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '**/foo'
+                  owners: team-rule
+      expect:
+          'foo':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/foo':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/b/foo':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+
+    - name: a trailing double star matches everything below the directory
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: 'gen/**'
+                  owners: team-rule
+      expect:
+          'gen/x':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'gen/a/b':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'other/gen/x':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a lone double star matches every path
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '**'
+                  owners: team-rule
+      expect:
+          'x.py':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'anything/x':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+
+    - name: a question mark matches exactly one character except a slash
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: 'file?.txt'
+                  owners: team-rule
+      expect:
+          'file1.txt':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/fileX.txt':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'file12.txt':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+          'file.txt':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a backslash escapes the next character
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '\*.txt'
+                  owners: team-rule
+      expect:
+          '*.txt':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a/*.txt':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'a.txt':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: patterns are relative to the directory of the file
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+          web/owners.yaml: |
+              version: 1
+              owners: []
+              rules:
+                - match: '/src/*.ts'
+                  owners: team-rule
+      expect:
+          'web/src/a.ts':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: web/owners.yaml
+              slack: '#team-rule'
+          'src/a.ts':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+          'web/lib/src/a.ts':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a character class matches one character from the set
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[ab].md'
+                  owners: team-rule
+      expect:
+          'docs/a.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/b.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/c.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a character class matches one character from a range
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[a-c]*.py'
+                  owners: team-rule
+      expect:
+          'docs/bar.py':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/zar.py':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: an exclamation mark at the start of a character class negates it
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[!ab]?.md'
+                  owners: team-rule
+      expect:
+          'docs/cx.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/ax.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a closing bracket in the first position is a member of the character class
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[]a].md'
+                  owners: team-rule
+      expect:
+          'docs/].md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/a.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/b.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: a character class does not match a slash
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/a[/]b'
+                  owners: team-rule
+      expect:
+          'a/b':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'
+
+    - name: an unclosed bracket is a literal bracket
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-file
+              rules:
+                - match: '/docs/[ab.md'
+                  owners: team-rule
+      expect:
+          'docs/[ab.md':
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-rule'
+          'docs/a.md':
+              owners: [team-file]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-file'

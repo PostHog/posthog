@@ -31,6 +31,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.schema_enums import ProductKey
 
 from products.cohorts.backend.models.backfill import (
+    READINESS_CHUNKS,
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
     CohortBackfillRun,
@@ -293,7 +294,10 @@ def load_run_context(team_id: int, cohort_id: int, run_id: Optional[str] = None)
     confirmed_days = frozenset(
         day for day, statuses in day_statuses.items() if statuses == {CohortBackfillChunkStatus.CONFIRMED}
     )
-    non_confirmed = chunks.exclude(status=CohortBackfillChunkStatus.CONFIRMED).count()
+    # Only the readiness chunks can leave the seed domain partial: a held trailing chunk is scanned
+    # after readiness stamps, and the boundary day it covers is classified as pending until then.
+    non_confirmed = chunks.filter(READINESS_CHUNKS).exclude(status=CohortBackfillChunkStatus.CONFIRMED).count()
+    trailing_day_planned = chunks.filter(~READINESS_CHUNKS).exists()
 
     run_tz = resolve_zoneinfo(run.timezone)
     return RunContext(
@@ -305,4 +309,5 @@ def load_run_context(team_id: int, cohort_id: int, run_id: Optional[str] = None)
         confirmed_days=confirmed_days,
         non_confirmed_chunks=non_confirmed,
         shape_hash_drift=participation_hash != current_hash,
+        trailing_day_planned=trailing_day_planned,
     )

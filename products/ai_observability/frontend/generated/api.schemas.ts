@@ -16,6 +16,8 @@ export interface _SummaryApi {
     product: string
     /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
     total_cost_usd: number
+    /** Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount. */
+    billable_cost_usd: number
     /** Total $ai_generation + $ai_embedding events captured across every product. */
     event_count: number
     /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
@@ -34,6 +36,8 @@ export interface _ProductBreakdownRowApi {
     event_count: number
     /** Total cost in USD for this product over the lookback window. */
     cost_usd: number
+    /** Whether this product is eligible for PostHog AI or Desktop credit billing, independent of event-level billing rules. */
+    billable: boolean
 }
 
 export interface _ProductBreakdownApi {
@@ -215,7 +219,84 @@ export interface _ErrorResponseApi {
     detail: string
 }
 
-export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
+/**
+ * * `sessions` - sessions
+ * * `tool_calls` - tool_calls
+ * * `user_identity` - user_identity
+ * * `trace_structure` - trace_structure
+ */
+export type AIObservabilityInstrumentationCheckEnumApi =
+    (typeof AIObservabilityInstrumentationCheckEnumApi)[keyof typeof AIObservabilityInstrumentationCheckEnumApi]
+
+export const AIObservabilityInstrumentationCheckEnumApi = {
+    Sessions: 'sessions',
+    ToolCalls: 'tool_calls',
+    UserIdentity: 'user_identity',
+    TraceStructure: 'trace_structure',
+} as const
+
+/**
+ * * `ok` - ok
+ * * `warning` - warning
+ * * `pending` - pending
+ * * `dismissed` - dismissed
+ */
+export type InstrumentationCheckStatusEnumApi =
+    (typeof InstrumentationCheckStatusEnumApi)[keyof typeof InstrumentationCheckStatusEnumApi]
+
+export const InstrumentationCheckStatusEnumApi = {
+    Ok: 'ok',
+    Warning: 'warning',
+    Pending: 'pending',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * Counts this check was graded from, over the same window. Which counts appear depends on the check.
+ */
+export type InstrumentationCheckApiStats = { [key: string]: number }
+
+export interface InstrumentationCheckApi {
+    /** Identifier of the check. Stable across statuses, so a surface can key its own copy off it.
+     *
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure */
+    key: AIObservabilityInstrumentationCheckEnumApi
+    /** How the check graded: 'ok' when the instrumentation is present, 'warning' when it is absent, 'pending' when the project has too little traffic to judge, and 'dismissed' when someone on the team marked the check as not applicable.
+     *
+     * * `ok` - ok
+     * * `warning` - warning
+     * * `pending` - pending
+     * * `dismissed` - dismissed */
+    status: InstrumentationCheckStatusEnumApi
+    /** Short label for the check, the same for every status. */
+    title: string
+    /** Sentence explaining what the counts mean and, for a warning, what to send. A dismissed check keeps the sentence its counts earned. */
+    detail: string
+    /** Documentation page covering how to send the missing instrumentation. */
+    docs_url: string
+    /** Counts this check was graded from, over the same window. Which counts appear depends on the check. */
+    stats: InstrumentationCheckApiStats
+}
+
+export interface InstrumentationChecklistApi {
+    /** Length in days of the event window the checks were graded over. */
+    window_days: number
+    /** Every check, graded. Checks are always all returned, including the ones that pass. */
+    checks: InstrumentationCheckApi[]
+}
+
+export interface InstrumentationCheckActionApi {
+    /** Key of the check to dismiss or restore.
+     *
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure */
+    check: AIObservabilityInstrumentationCheckEnumApi
+}
 
 /**
  * * `engineering` - Engineering
@@ -273,6 +354,1566 @@ export interface UserBasicApi {
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
+
+/**
+ * * `ci` - CI
+ * * `local` - Local
+ * * `scheduled` - Scheduled
+ */
+export type OfflineExperimentRunSourceEnumApi =
+    (typeof OfflineExperimentRunSourceEnumApi)[keyof typeof OfflineExperimentRunSourceEnumApi]
+
+export const OfflineExperimentRunSourceEnumApi = {
+    Ci: 'ci',
+    Local: 'local',
+    Scheduled: 'scheduled',
+} as const
+
+/**
+ * * `uploading` - Uploading
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type OfflineExperimentStatusEnumApi =
+    (typeof OfflineExperimentStatusEnumApi)[keyof typeof OfflineExperimentStatusEnumApi]
+
+export const OfflineExperimentStatusEnumApi = {
+    Uploading: 'uploading',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface OfflineExperimentReadApi {
+    /** User who submitted the experiment, or null for service credentials. */
+    readonly created_by: UserBasicApi | null
+    /** Project tag names assigned to this experiment. */
+    tags: string[]
+    /** Stable experiment UUID. */
+    id: string
+    /** Experiment name. */
+    name: string
+    /** Execution source.
+     *
+     * * `ci` - CI
+     * * `local` - Local
+     * * `scheduled` - Scheduled */
+    run_source: OfflineExperimentRunSourceEnumApi | null
+    /** Upload lifecycle state.
+     *
+     * * `uploading` - Uploading
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: OfflineExperimentStatusEnumApi
+    /** Caller-supplied execution time. */
+    started_at: string
+    /** First server acceptance time. */
+    created_at: string
+    /**
+     * Server closure time, or null while uploading.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Declared expected items, when supplied.
+     * @nullable
+     */
+    expected_item_count: number | null
+    /**
+     * Declared expected results across all scorers.
+     * @nullable
+     */
+    expected_result_count: number | null
+    /** Observed items, including items without a selected scorer result. */
+    accepted_item_count: number
+    /**
+     * Results visible to this caller; unavailable without scorer-read scope.
+     * @nullable
+     */
+    visible_result_count: number | null
+    /**
+     * Distinct visible scorer definitions.
+     * @nullable
+     */
+    visible_scorer_definition_count: number | null
+    /**
+     * Distinct visible scorer versions.
+     * @nullable
+     */
+    visible_scorer_version_count: number | null
+    /** authorized for visible-result counts, or unavailable without scorer-read scope. */
+    result_count_scope: string
+    /**
+     * Durable suite identifier.
+     * @nullable
+     */
+    suite_key: string | null
+    /**
+     * Dataset provider or source.
+     * @nullable
+     */
+    dataset_source: string | null
+    /**
+     * Durable dataset identifier.
+     * @nullable
+     */
+    dataset_identifier: string | null
+    /**
+     * Durable dataset revision identifier.
+     * @nullable
+     */
+    dataset_revision_identifier: string | null
+    /**
+     * Optional hosted revision navigation reference.
+     * @nullable
+     */
+    dataset_revision_id: string | null
+    /**
+     * Application revision under evaluation.
+     * @nullable
+     */
+    application_version: string | null
+    /**
+     * Model revision under evaluation.
+     * @nullable
+     */
+    model_version: string | null
+    /**
+     * Prompt revision under evaluation.
+     * @nullable
+     */
+    prompt_version: string | null
+}
+
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
+export interface OfflineExperimentPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Experiment page. */
+    results: OfflineExperimentReadApi[]
+}
+
+export interface OfflineEvaluationValidationErrorApi {
+    /** Stable validation error code. */
+    code: string
+    /** Explanation of the invalid value. */
+    detail: string
+    /**
+     * Invalid field path, with dot-separated fields and zero-based batch indexes.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export interface OfflineEvaluationErrorApi {
+    /** Error category for standard API errors. */
+    type?: string
+    /** Stable error code. */
+    code: string
+    /** Explanation of the rejected request. */
+    detail: string
+    /**
+     * Invalid field, including batch entry index.
+     * @nullable
+     */
+    attr?: string | null
+    /**
+     * Declared item count.
+     * @nullable
+     */
+    expected_item_count?: number | null
+    /**
+     * Declared result count.
+     * @nullable
+     */
+    expected_result_count?: number | null
+    /** Accepted items at failed completion. */
+    accepted_item_count?: number
+    /** Accepted results at failed completion. */
+    accepted_result_count?: number
+    /** All validation errors found in the request. */
+    errors?: OfflineEvaluationValidationErrorApi[]
+}
+
+export interface ExperimentSubmissionApi {
+    /** Caller-generated experiment UUID. Reuse it for exact retries. */
+    id: string
+    /**
+     * Display name for this experiment execution.
+     * @maxLength 400
+     */
+    name: string
+    /** Execution start time in ISO 8601 format, supplied by the caller. */
+    started_at: string
+    /** Where the execution started: ci, local, or scheduled. Omit or use null when unknown.
+     *
+     * * `ci` - CI
+     * * `local` - Local
+     * * `scheduled` - Scheduled */
+    run_source?: OfflineExperimentRunSourceEnumApi | null
+    /**
+     * Expected number of distinct items. Completion must match this count when supplied.
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    expected_item_count?: number | null
+    /**
+     * Expected number of distinct item/scorer-version results, including non-success statuses.
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    expected_result_count?: number | null
+    /**
+     * Stable identifier for comparing executions of the same evaluation suite.
+     * @maxLength 255
+     * @nullable
+     */
+    suite_key?: string | null
+    /**
+     * Source of an external dataset. Hosted dataset provenance is derived from its revision.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_source?: string | null
+    /**
+     * Stable identifier for the external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_identifier?: string | null
+    /**
+     * Pinned revision identifier of the external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_revision_identifier?: string | null
+    /**
+     * UUID of a hosted dataset revision in this project.
+     * @nullable
+     */
+    dataset_revision_id?: string | null
+    /**
+     * Version of the application under evaluation.
+     * @maxLength 255
+     * @nullable
+     */
+    application_version?: string | null
+    /**
+     * Version of the model under evaluation.
+     * @maxLength 255
+     * @nullable
+     */
+    model_version?: string | null
+    /**
+     * Version of the prompt under evaluation.
+     * @maxLength 255
+     * @nullable
+     */
+    prompt_version?: string | null
+}
+
+export interface ExperimentReceiptApi {
+    /** Stable experiment UUID supplied at creation. */
+    id: string
+    /** Current upload lifecycle state.
+     *
+     * * `uploading` - Uploading
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: OfflineExperimentStatusEnumApi
+    /** Whether this request created the experiment. */
+    created: boolean
+    /** Caller-supplied execution start time. */
+    started_at: string
+    /** Time the experiment was first accepted. */
+    created_at: string
+    /**
+     * Server closure time; null while uploading.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Declared item count, when supplied.
+     * @nullable
+     */
+    expected_item_count: number | null
+    /**
+     * Declared result count, when supplied.
+     * @nullable
+     */
+    expected_result_count: number | null
+    /** Number of unique accepted items. */
+    accepted_item_count: number
+    /** Number of unique accepted results across all statuses. */
+    accepted_result_count: number
+}
+
+export interface PatchedOfflineExperimentMetadataApi {
+    /**
+     * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
+}
+
+/**
+ * * `not_provided` - Not provided
+ * * `available` - Available
+ * * `expired` - Expired
+ */
+export type PayloadStateEnumApi = (typeof PayloadStateEnumApi)[keyof typeof PayloadStateEnumApi]
+
+export const PayloadStateEnumApi = {
+    NotProvided: 'not_provided',
+    Available: 'available',
+    Expired: 'expired',
+} as const
+
+/**
+ * * `ok` - OK
+ * * `error` - Error
+ * * `skipped` - Skipped
+ * * `not_applicable` - Not applicable
+ */
+export type OfflineEvaluationResultStatusEnumApi =
+    (typeof OfflineEvaluationResultStatusEnumApi)[keyof typeof OfflineEvaluationResultStatusEnumApi]
+
+export const OfflineEvaluationResultStatusEnumApi = {
+    Ok: 'ok',
+    Error: 'error',
+    Skipped: 'skipped',
+    NotApplicable: 'not_applicable',
+} as const
+
+export interface OfflineResultCellApi {
+    /** Stable result UUID. */
+    id: string
+    /** Item evaluated by this result. */
+    item_id: string
+    /** Evaluation outcome.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Typed score for ok outcomes; null for other outcomes. */
+    value: number | boolean | string[] | null
+    /**
+     * Optional evaluator error code.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * Optional evaluator trace navigation reference.
+     * @nullable
+     */
+    evaluator_trace_id: string | null
+    /**
+     * Caller-supplied evaluation time.
+     * @nullable
+     */
+    evaluated_at: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Result payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload expires 30 days after first acceptance; deletion runs hourly.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Exact scorer-version UUID in the item page's scorer_versions list. */
+    scorer_version_id: string
+}
+
+export interface OfflineItemReadApi {
+    /**
+     * Model used for the item, falling back to the experiment's model.
+     * @nullable
+     */
+    model_version?: string | null
+    /** Stable item UUID. */
+    id: string
+    /** Owning experiment UUID. */
+    experiment_id: string
+    /**
+     * Optional stable case identifier.
+     * @nullable
+     */
+    case_key: string | null
+    /**
+     * Optional trial identifier within a case.
+     * @nullable
+     */
+    trial: string | null
+    /**
+     * Durable dataset item identifier.
+     * @nullable
+     */
+    dataset_item_identifier: string | null
+    /**
+     * Durable dataset item-version identifier.
+     * @nullable
+     */
+    dataset_item_version_identifier: string | null
+    /**
+     * Optional hosted item-version navigation reference.
+     * @nullable
+     */
+    dataset_item_version_id: string | null
+    /**
+     * Optional application trace navigation reference.
+     * @nullable
+     */
+    application_trace_id: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Item payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload expires 30 days after first acceptance; deletion runs hourly.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Cells for explicitly selected scorer versions; empty when none selected. */
+    results: OfflineResultCellApi[]
+}
+
+/**
+ * * `categorical` - categorical
+ * * `numeric` - numeric
+ * * `boolean` - boolean
+ */
+export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
+
+export const ScoreDefinitionKindEnumApi = {
+    Categorical: 'categorical',
+    Numeric: 'numeric',
+    Boolean: 'boolean',
+} as const
+
+export interface CategoricalScoreOptionApi {
+    /**
+     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+     * @maxLength 128
+     */
+    key: string
+    /**
+     * Human-readable option label.
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * * `single` - single
+ * * `multiple` - multiple
+ */
+export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
+
+export const SelectionModeEnumApi = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+export interface CategoricalScorePassingRuleApi {
+    /**
+     * Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.
+     * @items.maxLength 128
+     */
+    categories: string[]
+}
+
+export interface CategoricalScoreDefinitionConfigApi {
+    /** Ordered categorical options available to the scorer. */
+    options: CategoricalScoreOptionApi[]
+    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+     *
+     * * `single` - single
+     * * `multiple` - multiple */
+    selection_mode?: SelectionModeEnumApi
+    /**
+     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    min_selections?: number | null
+    /**
+     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    max_selections?: number | null
+    /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: CategoricalScorePassingRuleApi | null
+}
+
+/**
+ * * `gte` - At or above
+ * * `lte` - At or below
+ */
+export type NumericScorePassingRuleSerializerOperatorEnumApi =
+    (typeof NumericScorePassingRuleSerializerOperatorEnumApi)[keyof typeof NumericScorePassingRuleSerializerOperatorEnumApi]
+
+export const NumericScorePassingRuleSerializerOperatorEnumApi = {
+    Gte: 'gte',
+    Lte: 'lte',
+} as const
+
+export interface NumericScorePassingRuleApi {
+    /** Pass at or above (gte), or at or below (lte), the threshold.
+     *
+     * * `gte` - At or above
+     * * `lte` - At or below */
+    operator: NumericScorePassingRuleSerializerOperatorEnumApi
+    /** Finite passing threshold within any configured score bounds. */
+    threshold: number
+}
+
+export interface NumericScoreDefinitionConfigApi {
+    /**
+     * Optional inclusive minimum score.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Optional inclusive maximum score.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional increment step for numeric input, for example 1 or 0.5.
+     * @nullable
+     */
+    step?: number | null
+    /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: NumericScorePassingRuleApi | null
+}
+
+export interface BooleanScoreDefinitionConfigApi {
+    /**
+     * Whether true means failure. False, omitted, or null means true passes in offline evaluations.
+     * @nullable
+     */
+    true_is_failure?: boolean | null
+    /** Optional label for a true value. */
+    true_label?: string
+    /** Optional label for a false value. */
+    false_label?: string
+}
+
+export type ScoreDefinitionConfigApi =
+    | CategoricalScoreDefinitionConfigApi
+    | NumericScoreDefinitionConfigApi
+    | BooleanScoreDefinitionConfigApi
+
+export interface OfflineScorerVersionReadApi {
+    /** Exact immutable scorer-version UUID. */
+    id: string
+    /** Stable scorer definition UUID. */
+    definition_id: string
+    /** Version number within the definition. */
+    version: number
+    /** Scorer value kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    kind: ScoreDefinitionKindEnumApi
+    /** Current scorer display name. */
+    name: string
+    /** Current compact label. Blank uses the full name. */
+    short_name: string
+    /** Current scorer description. */
+    description: string
+    /** Whether the scorer is archived. */
+    archived: boolean
+    /** Pinned immutable configuration used to interpret these results. */
+    config: ScoreDefinitionConfigApi
+}
+
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
+export interface OfflineItemPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Item page. */
+    results: OfflineItemReadApi[]
+    /** Selected scorer versions, each returned once, including versions with no results. */
+    scorer_versions: OfflineScorerVersionReadApi[]
+}
+
+export type OfflineExperimentItemPayloadInputApiInput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+export type OfflineExperimentItemPayloadInputApiOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+export type OfflineExperimentItemPayloadInputApiExpectedOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+/**
+ * @nullable
+ */
+export type OfflineExperimentItemPayloadInputApiMetadata = { [key: string]: unknown } | null
+
+export interface OfflineExperimentItemPayloadInputApi {
+    input?: OfflineExperimentItemPayloadInputApiInput
+    output?: OfflineExperimentItemPayloadInputApiOutput
+    expected_output?: OfflineExperimentItemPayloadInputApiExpectedOutput
+    /** @nullable */
+    metadata?: OfflineExperimentItemPayloadInputApiMetadata
+}
+
+export interface OfflineItemPayloadReadApi {
+    /** Owning item UUID. */
+    id: string
+    /** Durable payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Whether the stored payload is currently available. */
+    available: boolean
+    /** Stored item payload, preserving omitted properties and JSON null; null if unavailable. */
+    data: OfflineExperimentItemPayloadInputApi | null
+}
+
+export interface OfflineResultReadApi {
+    /** Stable result UUID. */
+    id: string
+    /** Item evaluated by this result. */
+    item_id: string
+    /** Evaluation outcome.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Typed score for ok outcomes; null for other outcomes. */
+    value: number | boolean | string[] | null
+    /**
+     * Optional evaluator error code.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * Optional evaluator trace navigation reference.
+     * @nullable
+     */
+    evaluator_trace_id: string | null
+    /**
+     * Caller-supplied evaluation time.
+     * @nullable
+     */
+    evaluated_at: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Result payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload expires 30 days after first acceptance; deletion runs hourly.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Pinned scorer version. */
+    scorer: OfflineScorerVersionReadApi
+}
+
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
+export interface OfflineResultPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Result page. */
+    results: OfflineResultReadApi[]
+}
+
+export interface OfflineResultCellsApi {
+    /** Selected authorized versions, including versions with no results for these items. */
+    scorer_versions: OfflineScorerVersionReadApi[]
+    /** Submitted results for the exact selected items and versions; at most 1,000 cells. */
+    results: OfflineResultCellApi[]
+}
+
+/**
+ * @nullable
+ */
+export type OfflineEvaluationResultPayloadInputApiMetadata = { [key: string]: unknown } | null
+
+export interface OfflineEvaluationResultPayloadInputApi {
+    /** @nullable */
+    reasoning?: string | null
+    /** @nullable */
+    error_message?: string | null
+    /** @nullable */
+    metadata?: OfflineEvaluationResultPayloadInputApiMetadata
+}
+
+export interface OfflineResultPayloadReadApi {
+    /** Owning result UUID. */
+    id: string
+    /** Durable payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Whether the stored payload is currently available. */
+    available: boolean
+    /** Stored reasoning/error payload; null if unavailable. */
+    data: OfflineEvaluationResultPayloadInputApi | null
+}
+
+export interface OfflineStatusCountsApi {
+    /** Successful results. */
+    ok: number
+    /** Evaluator errors. */
+    error: number
+    /** Skipped evaluations. */
+    skipped: number
+    /** Not-applicable evaluations. */
+    not_applicable: number
+}
+
+export interface OfflineCategorySummaryApi {
+    /** Category key from the pinned configuration. */
+    key: string
+    /** Successful results selecting this category. */
+    count: number
+    /**
+     * Selection count divided by successful result count; null with no successes.
+     * @nullable
+     */
+    rate: number | null
+    /** Category label from the pinned configuration. */
+    label: string
+}
+
+export interface OfflineScorerSummaryApi {
+    /** Exact scorer version summarized. */
+    scorer: OfflineScorerVersionReadApi
+    /** All observed experiment items, independent of scorer selection or item pagination. */
+    observed_item_count: number
+    /** Submitted results for this scorer version, across all statuses. */
+    result_count: number
+    /** Counts for each submitted outcome. */
+    status_counts: OfflineStatusCountsApi
+    /** Observed items without a result for this version; not the number of all intended missing items. */
+    missing_result_count: number
+    /** Distinct non-null case keys in observed items. */
+    distinct_case_count: number
+    /** Observed items with case keys. */
+    items_with_case_key_count: number
+    /** Observed items without case keys. */
+    items_without_case_key_count: number
+    /** Observed items with trial identifiers. */
+    trial_item_count: number
+    /** Distinct case/trial identities; trial-only items remain independent. */
+    distinct_trial_count: number
+    /**
+     * Numeric mean of successful scores only; null for other kinds or no successes.
+     * @nullable
+     */
+    mean: number | null
+    /**
+     * Successful boolean true results; null for other kinds.
+     * @nullable
+     */
+    true_count: number | null
+    /**
+     * Successful boolean false results; null for other kinds.
+     * @nullable
+     */
+    false_count: number | null
+    /**
+     * Boolean true fraction among successes; null with no successes or for other kinds.
+     * @nullable
+     */
+    true_rate: number | null
+    /**
+     * Successful results passing the pinned rule. Boolean scores default to true passing; null for unconfigured numeric or categorical scorers.
+     * @nullable
+     */
+    pass_count: number | null
+    /**
+     * Successful results failing the pinned rule; null for unconfigured numeric or categorical scorers.
+     * @nullable
+     */
+    fail_count: number | null
+    /**
+     * Passing fraction among successful results; null without successful results or an applicable rule. Boolean scores default to true passing. Excludes errors, skipped, not-applicable, and missing results.
+     * @nullable
+     */
+    pass_rate: number | null
+    /** Pinned categorical distribution; multiselect rates may sum above one. */
+    categories: OfflineCategorySummaryApi[]
+}
+
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
+export interface OfflineSummaryPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Scorer-version summary page; each group includes all matching results. */
+    results: OfflineScorerSummaryApi[]
+}
+
+export interface ItemSubmissionApi {
+    /** Caller-generated UUID for one input/output execution. Reuse for exact retries. */
+    id: string
+    /**
+     * Model used for this item. Omitted or null values inherit the experiment's model.
+     * @maxLength 255
+     * @nullable
+     */
+    model_version?: string | null
+    /**
+     * Stable case identifier for matching inputs across experiments.
+     * @maxLength 255
+     * @nullable
+     */
+    case_key?: string | null
+    /**
+     * Identifier for a repeated execution of the same case.
+     * @maxLength 255
+     * @nullable
+     */
+    trial?: string | null
+    /**
+     * Stable item identifier in an external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_item_identifier?: string | null
+    /**
+     * Pinned item-version identifier in an external dataset.
+     * @maxLength 255
+     * @nullable
+     */
+    dataset_item_version_identifier?: string | null
+    /**
+     * UUID of the hosted item version in the experiment's dataset revision.
+     * @nullable
+     */
+    dataset_item_version_id?: string | null
+    /**
+     * Trace identifier for the application execution that produced this output.
+     * @maxLength 255
+     * @nullable
+     */
+    application_trace_id?: string | null
+    /** Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ. */
+    payload?: OfflineExperimentItemPayloadInputApi
+}
+
+export interface ResultSubmissionApi {
+    /** UUID of an item declared in this request or already accepted in this experiment. */
+    item_id: string
+    /** Exact UUID of an existing scorer version in this project. */
+    scorer_version_id: string
+    /** Outcome of this scorer execution.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+    value?: number | boolean | string[] | null
+    /**
+     * Optional stable error code, permitted only for error outcomes.
+     * @maxLength 128
+     * @nullable
+     */
+    error_code?: string | null
+    /**
+     * Trace identifier of the evaluator that produced this result.
+     * @maxLength 255
+     * @nullable
+     */
+    evaluator_trace_id?: string | null
+    /**
+     * Caller-supplied evaluation time in ISO 8601 format.
+     * @nullable
+     */
+    evaluated_at?: string | null
+    /** Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels. */
+    payload?: OfflineEvaluationResultPayloadInputApi
+}
+
+export interface UploadSubmissionApi {
+    /**
+     * Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.
+     * @maxItems 1000
+     */
+    items?: ItemSubmissionApi[]
+    /**
+     * One to 1,000 unique item/scorer-version results. The entire request commits atomically.
+     * @minItems 1
+     * @maxItems 1000
+     */
+    results: ResultSubmissionApi[]
+}
+
+export interface ItemReceiptApi {
+    /** Accepted item UUID. */
+    id: string
+    /** Whether this upload created the item. */
+    created: boolean
+    /** Original server acceptance time, unchanged on retry. */
+    accepted_at: string
+}
+
+export interface ResultReceiptApi {
+    /** Accepted item UUID. */
+    id: string
+    /** Whether this upload created the item. */
+    created: boolean
+    /** Original server acceptance time, unchanged on retry. */
+    accepted_at: string
+    /** Item this result evaluates. */
+    item_id: string
+    /** Pinned scorer version used by this result. */
+    scorer_version_id: string
+}
+
+export interface UploadReceiptApi {
+    /** One acknowledgment per referenced item. */
+    items: ItemReceiptApi[]
+    /** Acknowledgments in the submitted result order. */
+    results: ResultReceiptApi[]
+}
+
+export interface OfflineHistoryPointApi {
+    /**
+     * Breakdown value for this summary; null when unspecified or no breakdown is selected.
+     * @nullable
+     */
+    breakdown_value?: string | null
+    /** Experiment execution and cohort context. */
+    experiment: OfflineExperimentReadApi
+    /** Complete summary for one experiment and scorer version. */
+    summary: OfflineScorerSummaryApi
+}
+
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
+export interface OfflineHistoryPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Total authorized rows matching the filters, independent of this page. */
+    count: number
+    /**
+     * Continuation cursor, or null after the final page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Experiment/scorer-version history page. */
+    results: OfflineHistoryPointApi[]
+}
+
+export type TraceApiNodeIdsByAlias = { [key: string]: string }
+
+export interface TracePersonApi {
+    distinctId: string
+    label: string
+}
+
+export interface TraceNodeStatsApi {
+    costUsd: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    latencyMs: number | null
+}
+
+export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
+
+export const TraceNodeKindEnumApi = {
+    Trace: 'trace',
+    Span: 'span',
+    Generation: 'generation',
+    Embedding: 'embedding',
+} as const
+
+export interface TraceNodeApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    model: string | null
+    stats: TraceNodeStatsApi
+    hasError: boolean
+    children: TraceNodeApi[]
+}
+
+export interface TraceTimelineRowApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    depth: number
+    startMs: number
+    durationMs: number | null
+    hasError: boolean
+}
+
+export interface TraceGitApi {
+    /** The git branch checked out when the trace ran. */
+    branch: string
+    /** The repository as owner/name, or null when the branch's event has none. */
+    repo: string | null
+}
+
+export interface TraceApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    person: TracePersonApi | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    tree: TraceNodeApi[]
+    timeline: TraceTimelineRowApi[]
+    totalMs: number
+    threadNodeIds: string[]
+    defaultNodeId: string
+    nodeIdsByAlias: TraceApiNodeIdsByAlias
+    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
+    git: TraceGitApi | null
+}
+
+export interface TraceClusterApi {
+    /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
+    runId: string
+    /** When the run finished. */
+    runAt: string
+    /** The clustering job the run belongs to, null for a run without a job. */
+    jobId: string | null
+    jobName: string | null
+    /** The cluster's id within its run. -1 is the run's outliers. */
+    clusterId: number
+    title: string | null
+    description: string | null
+    /** The trace fit no cluster in this run. */
+    isOutlier: boolean
+}
+
+export interface TraceClustersApi {
+    /** The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. Manual runs are left out. Clusters come before outliers, then newest first. */
+    clusters: TraceClusterApi[]
+}
+
+export type TraceEvaluationResultOutcomeEnumApi =
+    (typeof TraceEvaluationResultOutcomeEnumApi)[keyof typeof TraceEvaluationResultOutcomeEnumApi]
+
+export const TraceEvaluationResultOutcomeEnumApi = {
+    Pass: 'pass',
+    Fail: 'fail',
+    Inconclusive: 'inconclusive',
+    Unrated: 'unrated',
+} as const
+
+export interface TraceEvaluationResultApi {
+    id: string
+    evaluationId: string | null
+    evaluationName: string
+    /** The tree node the result grades: the generation's event uuid, or the trace id for a trace-level result. */
+    targetNodeId: string
+    outcome: TraceEvaluationResultOutcomeEnumApi
+    /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
+    label: string
+    /** The numeric result of a numeric evaluation, null for every other type. */
+    score: number | null
+    reasoning: string | null
+    timestamp: string
+    isBackfill: boolean
+}
+
+export type TraceNodeEvaluationRollupOutcomeEnumApi =
+    (typeof TraceNodeEvaluationRollupOutcomeEnumApi)[keyof typeof TraceNodeEvaluationRollupOutcomeEnumApi]
+
+export const TraceNodeEvaluationRollupOutcomeEnumApi = {
+    Pass: 'pass',
+    Fail: 'fail',
+    Unrated: 'unrated',
+} as const
+
+export interface TraceNodeEvaluationRollupApi {
+    /** The tree node the results grade. */
+    nodeId: string
+    /** Fail if any evaluation fails on the node, else pass if any passes, else unrated. */
+    outcome: TraceNodeEvaluationRollupOutcomeEnumApi
+}
+
+/**
+ * Counts the latest run of each evaluation on each node, by when the run started, so re-runs and backfills
+ * count once. Inconclusive results count as unrated. Computed over the results returned, at most 250.
+ */
+export interface TraceEvaluationSummaryApi {
+    passed: number
+    failed: number
+    unrated: number
+    /** One entry per node with results, sorted by node id. */
+    nodes: TraceNodeEvaluationRollupApi[]
+}
+
+export interface TraceEvaluationResultsApi {
+    results: TraceEvaluationResultApi[]
+    summary: TraceEvaluationSummaryApi
+}
+
+export interface TraceExportCreateApi {
+    /** When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table. */
+    timestamp_hint?: string
+}
+
+export type ExportStatusEnumApi = (typeof ExportStatusEnumApi)[keyof typeof ExportStatusEnumApi]
+
+export const ExportStatusEnumApi = {
+    Pending: 'pending',
+    Complete: 'complete',
+    Failed: 'failed',
+} as const
+
+export interface TraceExportApi {
+    /** The export id, used to read its status and download the file. */
+    id: number
+    /** Whether the file is still being written, ready, or failed. */
+    status: ExportStatusEnumApi
+    /** The name the downloaded JSON file gets. */
+    filename: string
+    /** When the export was requested. */
+    createdAt: string
+    /** When the file is deleted. */
+    expiresAfter: string | null
+    /** Why the export failed, null unless status is failed. */
+    exception: string | null
+}
+
+export interface TraceNodeMetadataApi {
+    provider: string | null
+    temperature: number | null
+    sessionId: string | null
+    promptName: string | null
+    promptVersion: number | null
+}
+
+export interface TraceNodeIOKeysApi {
+    input: string | null
+    output: string | null
+    tools: string | null
+}
+
+/**
+ * The event's properties as ingested, including its input and output values.
+ */
+export type TraceNodeEventApiProperties = { [key: string]: unknown }
+
+export interface TraceNodeEventApi {
+    name: string
+    uuid: string
+    timestamp: string
+    /** The event's properties as ingested, including its input and output values. */
+    properties: TraceNodeEventApiProperties
+    /** Which keys of `properties` hold the node's input, output and tools, or null when it has none. */
+    ioKeys: TraceNodeIOKeysApi
+}
+
+export interface TraceNodeDetailApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    error: string | null
+    metadata: TraceNodeMetadataApi
+    event: TraceNodeEventApi | null
+}
+
+export interface TraceExportFileApi {
+    /** The trace as the trace endpoint returns it. */
+    trace: TraceApi
+    /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
+    truncated: boolean
+    /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
+    nodes: TraceNodeDetailApi[]
+}
+
+export interface TraceExportErrorApi {
+    /** Why the file cannot be downloaded yet. */
+    detail: string
+}
+
+export interface TraceFeedbackScoreApi {
+    id: string
+    name: string | null
+    /** The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5. */
+    value: string
+    /** The tree node the score targets: the step's event uuid, or the trace id for a trace-level score. */
+    nodeId: string
+    timestamp: string
+}
+
+export interface TraceFeedbackTextApi {
+    kind: 'text'
+    id: string
+    text: string
+    /** The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback. */
+    nodeId: string
+    timestamp: string
+}
+
+export interface TraceSurveyApi {
+    id: string
+    /** Null when the survey no longer exists. */
+    name: string | null
+}
+
+export interface TraceThumbsAnswerApi {
+    kind: 'thumbs'
+    question: string
+    up: boolean
+}
+
+export interface TraceRatingAnswerApi {
+    kind: 'rating'
+    question: string
+    value: string
+    scale: number | null
+    lowerLabel: string | null
+    upperLabel: string | null
+}
+
+export interface TraceChoiceAnswerApi {
+    kind: 'choice'
+    question: string
+    choices: string[]
+}
+
+export interface TraceTextAnswerApi {
+    kind: 'text'
+    question: string
+    text: string
+}
+
+/**
+ * Why the answers cannot be shown: the survey was deleted, or it has no questions.
+ */
+export type TraceSurveyResponseApiUnavailable =
+    | (typeof TraceSurveyResponseApiUnavailable)[keyof typeof TraceSurveyResponseApiUnavailable]
+    | null
+
+export const TraceSurveyResponseApiUnavailable = {
+    SurveyNotFound: 'survey_not_found',
+    NoQuestions: 'no_questions',
+} as const
+
+export interface TraceSurveyResponseApi {
+    kind: 'survey'
+    id: string
+    /** The tree node the response targets: the trace id, as a survey response covers the whole trace. */
+    nodeId: string
+    timestamp: string
+    survey: TraceSurveyApi
+    answers: (TraceThumbsAnswerApi | TraceRatingAnswerApi | TraceChoiceAnswerApi | TraceTextAnswerApi)[]
+    /** False when the user left the survey before its end. */
+    complete: boolean
+    /** Why the answers cannot be shown: the survey was deleted, or it has no questions. */
+    unavailable: TraceSurveyResponseApiUnavailable
+}
+
+export interface TraceUnansweredSurveyApi {
+    survey: TraceSurveyApi
+    /** When the survey was first shown. */
+    timestamp: string
+}
+
+export type SurveyResponsesStatusEnumApi =
+    (typeof SurveyResponsesStatusEnumApi)[keyof typeof SurveyResponsesStatusEnumApi]
+
+export const SurveyResponsesStatusEnumApi = {
+    Ok: 'ok',
+    Failed: 'failed',
+    NotPermitted: 'not_permitted',
+} as const
+
+export interface TraceFeedbackSummaryApi {
+    /** Scores plus responses. */
+    total: number
+    /** Thumbs up answers to 2-point survey rating questions. */
+    thumbsUp: number
+    /** Thumbs down answers to 2-point survey rating questions. */
+    thumbsDown: number
+}
+
+export interface TraceFeedbackApi {
+    /** Oldest first. */
+    scores: TraceFeedbackScoreApi[]
+    /** What users said, oldest first. */
+    responses: (TraceFeedbackTextApi | TraceSurveyResponseApi)[]
+    /** Surveys shown with the trace and not answered, oldest first. */
+    unanswered: TraceUnansweredSurveyApi[]
+    /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
+    surveyResponsesStatus: SurveyResponsesStatusEnumApi
+    summary: TraceFeedbackSummaryApi
+}
+
+export interface TracePullRequestApi {
+    /** The owner of the pull request's repository. */
+    repoOwner: string
+    /** The name of the pull request's repository. */
+    repoName: string
+    /** The pull request number. */
+    number: number
+    /** The pull request title, or null when the synced data has none. */
+    title: string | null
+}
+
+export interface TracePullRequestLookupApi {
+    /** The pull request the trace's git branch belongs to, ranked by engineering analytics, or null when the trace has no branch, the project has no GitHub source, or no pull request matches. */
+    pullRequest: TracePullRequestApi | null
+}
+
+export interface TraceHumanReviewScoreApi {
+    /** The scorer's name. */
+    name: string
+    /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+    value: string
+    /** The scorer's name and the score together, such as `Tone: 4.5`. */
+    label: string
+}
+
+export interface TraceHumanReviewApi {
+    /** The display name of whoever last saved the review, or null when that user was removed. */
+    reviewedBy: string | null
+    /** When the review was last saved. */
+    reviewedAt: string
+    /** The reviewer's reasoning, if any. */
+    comment: string | null
+    /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+    scores: TraceHumanReviewScoreApi[]
+}
+
+export interface TraceReviewQueueAssignmentApi {
+    /** The review queue's id. */
+    id: string
+    /** The review queue's name. */
+    name: string
+    /** The queue item that holds the trace, for moving or removing it. */
+    itemId: string
+}
+
+export interface TraceReviewStatusApi {
+    /** The trace's human review, or null when it has none or the user may not see it. */
+    review: TraceHumanReviewApi | null
+    /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+    queue: TraceReviewQueueAssignmentApi | null
+}
+
+export interface TraceSearchMatchApi {
+    /** A step whose stored data contains the query. The root's id is the trace id. */
+    nodeId: string
+    /** How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too. */
+    count: number
+}
+
+export interface TraceSearchResultsApi {
+    /** Occurrences of the query across every matching step. */
+    total: number
+    /** Matching steps in tree order, the root first. Steps without a match are left out. */
+    matches: TraceSearchMatchApi[]
+}
+
+export type TraceSummaryStatusEnumApi = (typeof TraceSummaryStatusEnumApi)[keyof typeof TraceSummaryStatusEnumApi]
+
+export const TraceSummaryStatusEnumApi = {
+    Pending: 'pending',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+export interface TraceSummaryItemApi {
+    text: string
+    /** The step the item refers to, or null when it names none. */
+    nodeId: string | null
+}
+
+export interface TraceSummaryContentApi {
+    title: string
+    bullets: TraceSummaryItemApi[]
+    /** Details worth a second look, or empty. */
+    notes: TraceSummaryItemApi[]
+    /** The main steps of the trace as a small text diagram. */
+    flow: string
+    /** The model that wrote the summary. */
+    model: string
+    generatedAt: string
+}
+
+export type TraceSummaryFailureReasonEnumApi =
+    (typeof TraceSummaryFailureReasonEnumApi)[keyof typeof TraceSummaryFailureReasonEnumApi]
+
+export const TraceSummaryFailureReasonEnumApi = {
+    TraceNotFound: 'trace_not_found',
+    TooLarge: 'too_large',
+    Timeout: 'timeout',
+    ProviderError: 'provider_error',
+    NotApproved: 'not_approved',
+    AccessChanged: 'access_changed',
+    Error: 'error',
+} as const
+
+export interface TraceSummaryFailureApi {
+    reason: TraceSummaryFailureReasonEnumApi
+    /** Why the summary failed, ready to show to the user. */
+    message: string
+}
+
+export interface TraceSummaryApi {
+    /** `pending` while the summary is written, then `ready` or `failed`. */
+    status: TraceSummaryStatusEnumApi
+    /** The summary when `status` is `ready`, else null. */
+    content: TraceSummaryContentApi | null
+    /** Why it failed when `status` is `failed`, else null. */
+    failure: TraceSummaryFailureApi | null
+}
+
+export interface TraceSummaryRequestApi {
+    /** Replace a ready summary with a new one. A pending summary is never replaced. */
+    regenerate?: boolean
+}
+
+export interface TraceAvailabilityRequestApi {
+    /**
+     * Application and evaluator trace IDs to check without loading trace contents.
+     * @minItems 1
+     * @maxItems 2
+     * @items.maxLength 255
+     */
+    trace_ids: string[]
+}
+
+export interface TraceAvailabilityApi {
+    /** Requested trace IDs readable from AI events or the shared events table. */
+    available_trace_ids: string[]
+}
+
+export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**
  * JSON object with item metadata.
@@ -402,9 +2043,10 @@ export const CodeEnumApi = {
  * * `dataset_items` - dataset_items
  * * `dataset_item_versions` - dataset_item_versions
  */
-export type ResourceEnumApi = (typeof ResourceEnumApi)[keyof typeof ResourceEnumApi]
+export type DatasetConflictResponseResourceEnumApi =
+    (typeof DatasetConflictResponseResourceEnumApi)[keyof typeof DatasetConflictResponseResourceEnumApi]
 
-export const ResourceEnumApi = {
+export const DatasetConflictResponseResourceEnumApi = {
     Datasets: 'datasets',
     DatasetItems: 'dataset_items',
     DatasetItemVersions: 'dataset_item_versions',
@@ -438,7 +2080,7 @@ export interface DatasetConflictResponseApi {
      * * `datasets` - datasets
      * * `dataset_items` - dataset_items
      * * `dataset_item_versions` - dataset_item_versions */
-    resource?: ResourceEnumApi
+    resource?: DatasetConflictResponseResourceEnumApi
     /** Number of resources that already exist. */
     current_count?: number
     /** Maximum number of resources allowed. */
@@ -481,7 +2123,16 @@ export interface DatasetReadApi {
     readonly description: string
     /** JSON object with descriptive dataset metadata. */
     readonly metadata: DatasetReadApiMetadata
+    /** Project tag names assigned to this resource. */
+    readonly tags: readonly string[]
     readonly archived: boolean
+    /**
+     * Earliest cleanup time if the dataset remains unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether the dataset is within seven days of expiry. */
+    readonly expiring_soon: boolean
     /**
      * Latest dataset revision, or null before the first item is added.
      * @nullable
@@ -521,6 +2172,12 @@ export type DatasetCreateApiMetadata = { [key: string]: unknown }
 
 export interface DatasetCreateApi {
     /**
+     * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /**
      * Dataset name. Names are unique within a project.
      * @maxLength 400
      */
@@ -540,6 +2197,12 @@ export interface DatasetCreateApi {
 export type PatchedDatasetUpdateApiMetadata = { [key: string]: unknown }
 
 export interface PatchedDatasetUpdateApi {
+    /**
+     * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * New dataset name. Names are unique within a project.
      * @maxLength 400
@@ -562,20 +2225,11 @@ export interface DatasetExportCreateApi {
     revision?: number
 }
 
-export type DatasetExportReadStatusEnumApi =
-    (typeof DatasetExportReadStatusEnumApi)[keyof typeof DatasetExportReadStatusEnumApi]
-
-export const DatasetExportReadStatusEnumApi = {
-    Pending: 'pending',
-    Complete: 'complete',
-    Failed: 'failed',
-} as const
-
 export interface DatasetExportReadApi {
     /** Export ID used to check status and download the file. */
     readonly id: number
     /** Current export state: pending, complete, or failed. */
-    readonly status: DatasetExportReadStatusEnumApi
+    readonly status: ExportStatusEnumApi
     /** Immutable dataset revision included in the export. */
     readonly dataset_revision: number
     /** Generated JSONL filename. */
@@ -605,6 +2259,13 @@ export interface DatasetRevisionReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the revision. */
     readonly team_id: number
+    /**
+     * Earliest expiry time of this dataset snapshot if unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+    /** Whether this snapshot is within seven days of expiry. */
+    readonly expiring_soon: boolean
 }
 
 export interface PaginatedDatasetRevisionReadListApi {
@@ -664,6 +2325,24 @@ export interface EvaluationRunRequestApi {
     distinct_id?: string | null
 }
 
+export interface EvaluationRunEvaluationApi {
+    /** UUID of the evaluation being run. */
+    id: string
+    /** Display name of the evaluation being run. */
+    name: string
+}
+
+export interface EvaluationRunResponseApi {
+    /** Temporal workflow ID of the enqueued run. */
+    workflow_id: string
+    /** Workflow status at the time of the response. */
+    status: string
+    /** Evaluation selected for this run. */
+    evaluation: EvaluationRunEvaluationApi
+    /** UUID of the event being evaluated. */
+    target_event_id: string
+}
+
 /**
  * * `active` - Active
  * * `paused` - Paused
@@ -686,11 +2365,13 @@ export const EvaluationStatusEnumApi = {
  * * `provider_key_quota_exceeded` - Provider API key quota exceeded
  * * `provider_key_rate_limited` - Provider API key is rate limited
  * * `model_not_found` - Model not found
+ * * `model_not_supported` - Model does not support chat completions
  * * `hog_error` - Hog evaluation code failed
  */
-export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
+export type EvaluationStatusReasonEnumApi =
+    (typeof EvaluationStatusReasonEnumApi)[keyof typeof EvaluationStatusReasonEnumApi]
 
-export const StatusReasonEnumApi = {
+export const EvaluationStatusReasonEnumApi = {
     ProviderKeyRequired: 'provider_key_required',
     ProviderKeyDeleted: 'provider_key_deleted',
     NoDefaultModel: 'no_default_model',
@@ -699,6 +2380,7 @@ export const StatusReasonEnumApi = {
     ProviderKeyQuotaExceeded: 'provider_key_quota_exceeded',
     ProviderKeyRateLimited: 'provider_key_rate_limited',
     ModelNotFound: 'model_not_found',
+    ModelNotSupported: 'model_not_supported',
     HogError: 'hog_error',
 } as const
 
@@ -717,13 +2399,28 @@ export const EvaluationTypeEnumApi = {
 
 /**
  * * `boolean` - Boolean (Pass/Fail)
+ * * `numeric` - Numeric
+ * * `categorical` - Categorical
  * * `sentiment` - Sentiment
  */
 export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
 
 export const OutputTypeEnumApi = {
     Boolean: 'boolean',
+    Numeric: 'numeric',
+    Categorical: 'categorical',
     Sentiment: 'sentiment',
+} as const
+
+/**
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type EvaluationApiOutputConfigSelectionMode =
+    (typeof EvaluationApiOutputConfigSelectionMode)[keyof typeof EvaluationApiOutputConfigSelectionMode]
+
+export const EvaluationApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
 } as const
 
 export type EvaluationConditionApiPropertiesItem = { [key: string]: unknown }
@@ -761,6 +2458,17 @@ export const EvaluationTargetEnumApi = {
 } as const
 
 /**
+ * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
+ */
+export type EvaluationApiTargetConfigStrategy =
+    (typeof EvaluationApiTargetConfigStrategy)[keyof typeof EvaluationApiTargetConfigStrategy]
+
+export const EvaluationApiTargetConfigStrategy = {
+    FixedWindow: 'fixed_window',
+    Inactivity: 'inactivity',
+} as const
+
+/**
  * * `openai` - Openai
  * * `anthropic` - Anthropic
  * * `gemini` - Gemini
@@ -769,7 +2477,8 @@ export const EvaluationTargetEnumApi = {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
- * * `zeabur` - Zeabur AI Hub
+ * * `system_one` - System One
+ * * `openai_compatible` - OpenAI-compatible
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -782,7 +2491,8 @@ export const LLMProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
-    Zeabur: 'zeabur',
+    SystemOne: 'system_one',
+    OpenaiCompatible: 'openai_compatible',
 } as const
 
 /**
@@ -811,58 +2521,136 @@ export type EvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
+          /**
+           * Judge method. Omit to keep the saved method; null restores automatic routing.
+           * @nullable
+           */
+          judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. */
+          include_media?: boolean
+          /**
+           * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+           * @nullable
+           */
+          reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
+export type EvaluationApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
+
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type EvaluationApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
+    /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
+     */
+    options?: EvaluationApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: EvaluationApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
+    passing_rule?: EvaluationApiOutputConfigPassingRule
 }
 
 /**
- * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
+ * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
  */
-export type EvaluationApiTargetConfig =
-    | {
-          /** Wait a fixed window after the first matching generation, then evaluate. */
-          strategy: 'fixed_window'
-          /**
-           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 10
-           * @maximum 604800
-           */
-          window_seconds?: number
-      }
-    | {
-          /** Evaluate once the unit has had no new activity for the quiet period. */
-          strategy: 'inactivity'
-          /**
-           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 10
-           * @maximum 86400
-           */
-          quiet_period_seconds?: number
-          /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 60
-           * @maximum 604800
-           */
-          max_age_seconds?: number
-      }
+export type EvaluationApiTargetConfig = {
+    /** 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'. */
+    strategy?: EvaluationApiTargetConfigStrategy
+    /**
+     * fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 10
+     * @maximum 604800
+     */
+    window_seconds?: number
+    /**
+     * inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 10
+     * @maximum 86400
+     */
+    quiet_period_seconds?: number
+    /**
+     * inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 60
+     * @maximum 604800
+     */
+    max_age_seconds?: number
+}
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -880,13 +2668,13 @@ export interface EvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
-    readonly status_reason: StatusReasonEnumApi | null
+    readonly status_reason: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
      */
     readonly status_reason_detail: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -894,12 +2682,14 @@ export interface EvaluationApi {
     evaluation_type: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: EvaluationApiEvaluationConfig
-    /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+    /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
      *
      * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -909,7 +2699,7 @@ export interface EvaluationApi {
      * * `trace` - Trace
      * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
+    /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
     target_config?: EvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -919,6 +2709,11 @@ export interface EvaluationApi {
     readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedEvaluationListApi {
@@ -931,6 +2726,128 @@ export interface PaginatedEvaluationListApi {
 }
 
 /**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `cancelled` - Cancelled
+ * * `interrupted` - Interrupted
+ */
+export type EvaluationBackfillStatusEnumApi =
+    (typeof EvaluationBackfillStatusEnumApi)[keyof typeof EvaluationBackfillStatusEnumApi]
+
+export const EvaluationBackfillStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Cancelled: 'cancelled',
+    Interrupted: 'interrupted',
+} as const
+
+export type EvaluationBackfillConditionApiPropertiesItem = { [key: string]: unknown }
+
+/**
+ * One condition set as it was frozen onto the backfill: no id, no compiled bytecode.
+ */
+export interface EvaluationBackfillConditionApi {
+    /** Property filters (event or person) that scope which units match this condition set. */
+    properties?: EvaluationBackfillConditionApiPropertiesItem[]
+    /** Percentage (0-100) of matching units sampled for this condition set. */
+    rollout_percentage?: number
+}
+
+export interface EvaluationBackfillApi {
+    /** Backfill identifier. */
+    readonly id: string
+    /** Running, completed, interrupted by an error, or cancelled by a user.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     * * `interrupted` - Interrupted */
+    readonly status: EvaluationBackfillStatusEnumApi
+    /** Reason an interrupted backfill stopped; empty otherwise. */
+    readonly status_reason: string
+    /** What one unit is, frozen at creation: a generation, a trace, or a session.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    readonly target: EvaluationTargetEnumApi
+    /** Inclusive start of the window, by unit timestamp. */
+    readonly window_start: string
+    /** Exclusive end of the window. */
+    readonly window_end: string
+    /** Condition sets frozen at creation, so an edit to the evaluation does not change this run. */
+    readonly conditions: readonly EvaluationBackfillConditionApi[]
+    /** Whether units with an existing result are evaluated again. */
+    readonly rerun_existing: boolean
+    /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
+    readonly total_count: number
+    /** Units the backfill has started an evaluation for so far. */
+    readonly dispatched_count: number
+    /**
+     * Evaluations that finished with a verdict. Null for legacy runs.
+     * @nullable
+     */
+    readonly completed_count: number | null
+    /** Evaluations that finished with a recorded skip instead of a verdict. */
+    readonly evaluation_skipped_count: number
+    /** Units the live path had already covered, so nothing was dispatched. */
+    readonly skipped_count: number
+    /** Units whose evaluation failed to start or finish. Legacy runs only counted start failures. */
+    readonly failed_count: number
+    /**
+     * Units left to retry after completion. Legacy runs estimated this before evaluations finished.
+     * @nullable
+     */
+    readonly remaining_count: number | null
+    /** User who started the backfill. */
+    readonly created_by: UserBasicApi | null
+    /** When the backfill was created. */
+    readonly created_at: string
+    /**
+     * When the backfill reached a terminal status; null while it runs.
+     * @nullable
+     */
+    readonly finished_at: string | null
+}
+
+export interface PaginatedEvaluationBackfillListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EvaluationBackfillApi[]
+}
+
+export interface EvaluationBackfillRequestApi {
+    /** Inclusive start of the window, by unit timestamp. */
+    window_start: string
+    /** Exclusive end of the window. Values in the future are clamped to now. */
+    window_end: string
+    /** Condition sets to match. Defaults to the evaluation's own condition sets. */
+    conditions?: EvaluationConditionApi[]
+    /** Evaluate units again even when this evaluation already has a result for them. */
+    rerun_existing?: boolean
+}
+
+export interface EvaluationBackfillEstimateApi {
+    /** Units that would be evaluated. */
+    total_units: number
+    /** Units in the range this evaluation has already judged. They are excluded from total_units unless rerun_existing is set. */
+    already_evaluated_units: number
+    /** What one unit is: a generation, a trace, or a session.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    unit: EvaluationTargetEnumApi
+    /** Window start after clamping. */
+    window_start: string
+    /** Window end after clamping. */
+    window_end: string
+}
+
+/**
  * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
  */
 export type PatchedEvaluationApiEvaluationConfig =
@@ -940,58 +2857,158 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
+          /**
+           * Judge method. Omit to keep the saved method; null restores automatic routing.
+           * @nullable
+           */
+          judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. */
+          include_media?: boolean
+          /**
+           * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+           * @nullable
+           */
+          reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
+export type PatchedEvaluationApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
+
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type PatchedEvaluationApiOutputConfigSelectionMode =
+    (typeof PatchedEvaluationApiOutputConfigSelectionMode)[keyof typeof PatchedEvaluationApiOutputConfigSelectionMode]
+
+export const PatchedEvaluationApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+/**
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type PatchedEvaluationApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
+    /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
+     */
+    options?: PatchedEvaluationApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: PatchedEvaluationApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
+    passing_rule?: PatchedEvaluationApiOutputConfigPassingRule
 }
 
 /**
- * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
+ * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
  */
-export type PatchedEvaluationApiTargetConfig =
-    | {
-          /** Wait a fixed window after the first matching generation, then evaluate. */
-          strategy: 'fixed_window'
-          /**
-           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 10
-           * @maximum 604800
-           */
-          window_seconds?: number
-      }
-    | {
-          /** Evaluate once the unit has had no new activity for the quiet period. */
-          strategy: 'inactivity'
-          /**
-           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 10
-           * @maximum 86400
-           */
-          quiet_period_seconds?: number
-          /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 60
-           * @maximum 604800
-           */
-          max_age_seconds?: number
-      }
+export type PatchedEvaluationApiTargetConfigStrategy =
+    (typeof PatchedEvaluationApiTargetConfigStrategy)[keyof typeof PatchedEvaluationApiTargetConfigStrategy]
 
+export const PatchedEvaluationApiTargetConfigStrategy = {
+    FixedWindow: 'fixed_window',
+    Inactivity: 'inactivity',
+} as const
+
+/**
+ * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
+ */
+export type PatchedEvaluationApiTargetConfig = {
+    /** 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'. */
+    strategy?: PatchedEvaluationApiTargetConfigStrategy
+    /**
+     * fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 10
+     * @maximum 604800
+     */
+    window_seconds?: number
+    /**
+     * inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 10
+     * @maximum 86400
+     */
+    quiet_period_seconds?: number
+    /**
+     * inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 60
+     * @maximum 604800
+     */
+    max_age_seconds?: number
+}
+
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface PatchedEvaluationApi {
     readonly id?: string
     /**
@@ -1009,13 +3026,13 @@ export interface PatchedEvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
-    readonly status_reason?: StatusReasonEnumApi | null
+    readonly status_reason?: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
      */
     readonly status_reason_detail?: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -1023,12 +3040,14 @@ export interface PatchedEvaluationApi {
     evaluation_type?: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
-    /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+    /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
      *
      * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1038,7 +3057,7 @@ export interface PatchedEvaluationApi {
      * * `trace` - Trace
      * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
+    /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
     target_config?: PatchedEvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -1048,9 +3067,343 @@ export interface PatchedEvaluationApi {
     readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+/**
+ * Null when the evaluation has no passing rule, or the run was not graded by it.
+ */
+export type EvaluationRunApiOutcome = (typeof EvaluationRunApiOutcome)[keyof typeof EvaluationRunApiOutcome] | null
+
+export const EvaluationRunApiOutcome = {
+    Passed: 'passed',
+    Failed: 'failed',
+} as const
+
+export interface EvaluationRunApi {
+    timestamp: string
+    /** Null when the evaluation has no passing rule, or the run was not graded by it. */
+    outcome: EvaluationRunApiOutcome
+    /** The evaluator's reasoning, cut to about 1,000 characters. */
+    reasoning: string | null
+    /** The generation the run graded. Null for trace and session runs. */
+    targetEventId: string | null
+    traceId: string | null
+}
+
+export interface EvaluationRunsApi {
+    /** Newest first. */
+    results: EvaluationRunApi[]
+}
+
+export interface ScoreScaleApi {
+    min: number
+    max: number
+}
+
+export interface ScoreBucketApi {
+    label: string
+    count: number
+}
+
+export interface ScoreHistogramApi {
+    scale: ScoreScaleApi
+    /** One bucket per integer on a small integer scale, else ten equal buckets across the scale. */
+    buckets: ScoreBucketApi[]
+}
+
+export type EvaluationsOverviewIntervalEnumApi =
+    (typeof EvaluationsOverviewIntervalEnumApi)[keyof typeof EvaluationsOverviewIntervalEnumApi]
+
+export const EvaluationsOverviewIntervalEnumApi = {
+    Hour: 'hour',
+    Day: 'day',
+} as const
+
+export interface PassFailCountsApi {
+    passed: number
+    failed: number
+}
+
+export interface ScoreDistributionApi {
+    mean: number
+    /** The configured score bounds, or null when the evaluation sets none. */
+    scale: ScoreScaleApi | null
+}
+
+export interface PassRateSummaryApi {
+    kind: 'pass_rate'
+    passed: number
+    failed: number
+    /** Counts in the previous period, or null when it graded too few to compare. */
+    previous: PassFailCountsApi | null
+    /** The score of numeric evaluations with a passing rule. */
+    score: ScoreDistributionApi | null
+}
+
+export interface ScoreSummaryApi {
+    kind: 'score'
+    /** Null when the current period scored nothing. */
+    score: ScoreDistributionApi | null
+    previousMean: number | null
+}
+
+export interface CategoryCountApi {
+    key: string
+    label: string
+    count: number
+    /** Percentage of the previous period's graded runs with this category, or null when it graded too few to compare. */
+    previousShare: number | null
+}
+
+export interface CategoriesSummaryApi {
+    kind: 'categories'
+    multiple: boolean
+    /** Sorted by count, most frequent first. */
+    categories: CategoryCountApi[]
+    /** Multiple-selection runs that returned no category. */
+    noCategoriesCount: number
+}
+
+export interface SentimentSummaryApi {
+    kind: 'sentiment'
+    positive: number
+    neutral: number
+    negative: number
+    previousNegativeShare: number | null
+}
+
+export interface EvaluationResultTrendApi {
+    /** Headline value per bucket, aligned with the overview's `buckets`. Null where nothing was graded. */
+    values: (number | null)[]
+    /** Graded runs per bucket. */
+    volume: number[]
+}
+
+export type ResultChangeUnitEnumApi = (typeof ResultChangeUnitEnumApi)[keyof typeof ResultChangeUnitEnumApi]
+
+export const ResultChangeUnitEnumApi = {
+    Pp: 'pp',
+    Points: 'points',
+} as const
+
+export interface ResultChangeApi {
+    /** Signed difference against the previous period, rounded for display. */
+    value: number
+    unit: ResultChangeUnitEnumApi
+    /** What changed when it is not the headline, such as a category label. */
+    subject: string | null
+}
+
+export type AttentionReasonsEnumApi = (typeof AttentionReasonsEnumApi)[keyof typeof AttentionReasonsEnumApi]
+
+export const AttentionReasonsEnumApi = {
+    Errored: 'errored',
+    Silent: 'silent',
+    Worse: 'worse',
+} as const
+
+export type BucketStatusEnumApi = (typeof BucketStatusEnumApi)[keyof typeof BucketStatusEnumApi]
+
+export const BucketStatusEnumApi = {
+    None: 'none',
+    Dip: 'dip',
+    Normal: 'normal',
+} as const
+
+export interface EvaluationResultApi {
+    id: string
+    name: string
+    directoryName: string | null
+    evaluationType: string
+    outputType: string
+    enabled: boolean
+    /** Why the evaluation stopped with an error, as an evaluation status reason, or null when it has none. */
+    statusReason: string | null
+    createdBy: string | null
+    gradedCount: number
+    /** Graded runs in the previous period, or null when none. */
+    previousGradedCount: number | null
+    notApplicableCount: number
+    /** Runs skipped before scoring. */
+    skippedCount: number
+    /** The latest graded run in the current or previous period. */
+    lastRunAt: string | null
+    summary: PassRateSummaryApi | ScoreSummaryApi | CategoriesSummaryApi | SentimentSummaryApi
+    trend: EvaluationResultTrendApi
+    /** Change against the previous period, or null when not comparable. */
+    change: ResultChangeApi | null
+    lowEvidence: boolean
+    attentionReasons: AttentionReasonsEnumApi[]
+    /** Each bucket against the previous period. A bucket with too few graded runs to judge is never a dip. */
+    bucketStatus: BucketStatusEnumApi[]
+    /** Key of the category a categorical evaluation's trend follows. */
+    trackedCategory: string | null
+}
+
+/**
+ * The same figure for both periods, over only the evaluations with results in both.
+ */
+export interface PeriodComparisonApi {
+    current: number
+    previous: number
+}
+
+export interface OverviewSentimentApi {
+    evaluationId: string
+    negativeShare: number
+    previousShare: number | null
+}
+
+export interface OverviewTotalsApi {
+    graded: number
+    /** Graded runs in each period, over evaluations with results in both. Null when none has. */
+    gradedComparison: PeriodComparisonApi | null
+    gradedTrend: number[]
+    sentiment: OverviewSentimentApi | null
+}
+
+export interface PassRateOverviewEntryApi {
+    evaluationId: string
+    rate: number
+    lowEvidence: boolean
+}
+
+export interface PassRateOverviewApi {
+    /** Pass rate evaluations with results in the period, paused ones included, lowest rate first. */
+    entries: PassRateOverviewEntryApi[]
+    /** Median of the per-evaluation pass rates without low evidence. */
+    median: number | null
+    /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
+    medianComparison: PeriodComparisonApi | null
+    /** Median pass rate per bucket, aligned with `buckets`. */
+    medianTrend: (number | null)[]
+}
+
+export interface EvaluationsOverviewApi {
+    /** Start of the period, in the project's timezone. */
+    start: string
+    /** End of the period, exclusive. */
+    end: string
+    previousStart: string
+    /** End of the previous period. While the current period runs, the previous one stops at the same point, so both cover the same length of time. */
+    previousEnd: string
+    /** `hour` for a period of two days or less, else `day`. */
+    interval: EvaluationsOverviewIntervalEnumApi
+    /** Start of each bucket, in the project's timezone. Every series is aligned with it. The first bucket can start before `start`. */
+    buckets: string[]
+    evaluations: EvaluationResultApi[]
+    /** Totals over every evaluation's results in the period, paused ones included. */
+    totals: OverviewTotalsApi
+    passRateOverview: PassRateOverviewApi
+}
+
+export type TestHogRequestApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type TestHogRequestApiOutputConfigSelectionMode =
+    (typeof TestHogRequestApiOutputConfigSelectionMode)[keyof typeof TestHogRequestApiOutputConfigSelectionMode]
+
+export const TestHogRequestApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+/**
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type TestHogRequestApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output settings used to validate the preview, including bounds, categories, and allows_na.
+ */
+export type TestHogRequestApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
+    /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
+     */
+    options?: TestHogRequestApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: TestHogRequestApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
+    passing_rule?: TestHogRequestApiOutputConfigPassingRule
 }
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
+
+/**
+ * * `boolean` - Boolean (Pass/Fail)
+ * * `numeric` - Numeric
+ * * `categorical` - Categorical
+ */
+export type HogEvaluationOutputTypeEnumApi =
+    (typeof HogEvaluationOutputTypeEnumApi)[keyof typeof HogEvaluationOutputTypeEnumApi]
+
+export const HogEvaluationOutputTypeEnumApi = {
+    Boolean: 'boolean',
+    Numeric: 'numeric',
+    Categorical: 'categorical',
+} as const
 
 export interface TestHogTargetConfigApi {
     /**
@@ -1068,8 +3421,16 @@ export interface TestHogTargetConfigApi {
 }
 
 export interface TestHogRequestApi {
+    /** Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.
+     *
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     * * `categorical` - Categorical */
+    output_type?: HogEvaluationOutputTypeEnumApi
+    /** Output settings used to validate the preview, including bounds, categories, and allows_na. */
+    output_config?: TestHogRequestApiOutputConfig
     /**
-     * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+     * Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
      * @minLength 1
      */
     source: string
@@ -1094,6 +3455,16 @@ export interface TestHogRequestApi {
 }
 
 export interface TestHogResultItemApi {
+    /**
+     * Selected category keys. An empty list is an applicable result; null means no categorical result was produced.
+     * @nullable
+     */
+    categories?: string[] | null
+    /**
+     * Raw numeric score, or null when no numeric score was produced.
+     * @nullable
+     */
+    score?: number | null
     /** Stable identifier for the sampled generation, trace, or session. */
     sample_id: string
     /** Type of sampled unit: generation, trace, or session.
@@ -1117,7 +3488,7 @@ export interface TestHogResultItemApi {
     /** First 200 characters of output from the sampled unit. */
     output_preview: string
     /**
-     * True = pass, False = fail, null = N/A or error.
+     * Raw boolean result, or null when the evaluation returns N/A or raises an error.
      * @nullable
      */
     result: boolean | null
@@ -1168,12 +3539,15 @@ export const AnalysisLevelEnumApi = {
     Evaluation: 'evaluation',
 } as const
 
+export type ClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
     analysis_level: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at: string
     readonly updated_at: string
@@ -1188,12 +3562,15 @@ export interface PaginatedClusteringJobListApi {
     results: ClusteringJobApi[]
 }
 
+export type PatchedClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
     analysis_level?: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at?: string
     readonly updated_at?: string
@@ -1358,7 +3735,24 @@ export interface LLMProviderKeyApi {
     readonly error_message: string | null
     api_key?: string
     readonly api_key_masked: string
-    /** Azure OpenAI endpoint URL */
+    /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+    base_url?: string
+    /**
+     * Model ID served by the System One endpoint.
+     * @maxLength 100
+     */
+    system_one_model?: string
+    /**
+     * Configured provider base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display: string | null
+    /**
+     * Configured System One model ID.
+     * @nullable
+     */
+    readonly system_one_model_display: string | null
+    /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
     azure_endpoint?: string
     /**
      * Azure OpenAI API version
@@ -1442,6 +3836,13 @@ export interface EvaluationReportApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1511,6 +3912,13 @@ export interface EvaluationReportUpdateApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1571,6 +3979,13 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count?: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at?: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1627,6 +4042,93 @@ export const GenerationStatusEnumApi = {
 } as const
 
 /**
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type EvaluationReportMetricsApiOutputConfigSelectionMode =
+    (typeof EvaluationReportMetricsApiOutputConfigSelectionMode)[keyof typeof EvaluationReportMetricsApiOutputConfigSelectionMode]
+
+export const EvaluationReportMetricsApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+export type EvaluationReportMetricsApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type EvaluationReportMetricsApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output configuration and passing rule used for both report periods.
+ */
+export type EvaluationReportMetricsApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
+    /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
+     */
+    options?: EvaluationReportMetricsApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: EvaluationReportMetricsApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
+    passing_rule?: EvaluationReportMetricsApiOutputConfigPassingRule
+}
+
+/**
  * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
  */
 export type EvaluationReportMetricsApiResultCounts = { [key: string]: number }
@@ -1649,9 +4151,13 @@ export type EvaluationReportMetricsApiPreviousResultCounts = { [key: string]: nu
 export type EvaluationReportMetricsApiPreviousResultRates = { [key: string]: number } | null
 
 export interface EvaluationReportMetricsApi {
+    /** Output configuration and passing rule used for both report periods. */
+    output_config?: EvaluationReportMetricsApiOutputConfig
     /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
      *
      * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
     /** Number of evaluation results in the report period. */
@@ -1679,10 +4185,13 @@ export interface EvaluationReportMetricsApi {
      * @nullable
      */
     previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
-    /** Boolean pass percentage, excluding results marked not applicable. */
-    pass_rate?: number
     /**
-     * Boolean pass percentage for the previous period, or null when unavailable.
+     * Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.
+     * @nullable
+     */
+    pass_rate?: number | null
+    /**
+     * Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.
      * @nullable
      */
     previous_pass_rate?: number | null
@@ -1717,9 +4226,10 @@ export interface EvaluationReportRunContentApi {
  * * `partial_failure` - Partial Failure
  * * `failed` - Failed
  */
-export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof DeliveryStatusEnumApi]
+export type EvaluationReportRunDeliveryStatusEnumApi =
+    (typeof EvaluationReportRunDeliveryStatusEnumApi)[keyof typeof EvaluationReportRunDeliveryStatusEnumApi]
 
-export const DeliveryStatusEnumApi = {
+export const EvaluationReportRunDeliveryStatusEnumApi = {
     Pending: 'pending',
     Generated: 'generated',
     Delivered: 'delivered',
@@ -1747,7 +4257,7 @@ export interface EvaluationReportRunApi {
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed */
-    readonly delivery_status: DeliveryStatusEnumApi
+    readonly delivery_status: EvaluationReportRunDeliveryStatusEnumApi
     /** Delivery error messages. Empty when all configured deliveries succeeded. */
     readonly delivery_errors: readonly string[]
     /** When this report run was created. */
@@ -1763,108 +4273,27 @@ export interface PaginatedEvaluationReportRunListApi {
     results: EvaluationReportRunApi[]
 }
 
-/**
- * * `all` - all
- * * `pass` - pass
- * * `fail` - fail
- * * `na` - na
- */
-export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
-
-export const FilterEnumApi = {
-    All: 'all',
-    Pass: 'pass',
-    Fail: 'fail',
-    Na: 'na',
-} as const
-
-/**
- * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
- */
-export interface EvaluationSummaryRequestApi {
-    /** UUID of the evaluation config to summarize */
-    evaluation_id: string
-    /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-     *
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na */
-    filter?: FilterEnumApi
-    /**
-     * Optional: specific generation IDs to include in summary (max 250)
-     * @maxItems 250
-     */
-    generation_ids?: string[]
-    /** If true, bypass cache and generate a fresh summary */
-    force_refresh?: boolean
-}
-
-export interface EvaluationPatternApi {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatisticsApi {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummaryResponseApi {
-    overall_assessment: string
-    pass_patterns: EvaluationPatternApi[]
-    fail_patterns: EvaluationPatternApi[]
-    na_patterns: EvaluationPatternApi[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatisticsApi
-}
-
-export interface EvaluationSummaryThrottleResponseApi {
-    /** Error category */
-    type: string
-    /** Machine-readable error code */
-    code: string
-    /** Why the request was throttled */
-    detail: string
-    /**
-     * Related request field, when applicable
-     * @nullable
-     */
-    attr: string | null
-}
-
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
+    /** Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation. */
+    provider: string
+}
+
+export interface LLMProviderModelsSummaryApi {
+    /** Supported provider value, exactly as the `provider` param accepts it. */
+    provider: string
+    /** How many of this provider's models appear in `models`. */
+    model_count: number
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own provider keys, whatever this value is. */
+    requires_provider_key: boolean
 }
 
 export interface LLMModelsListResponseApi {
-    /** Models supported for the requested provider. */
+    /** Models supported for the requested provider, or for every supported provider when `provider` is omitted. */
     models: LLMModelInfoApi[]
-}
-
-export interface OfflineExperimentItemsRequestApi {
-    /** `$ai_experiment_id` whose offline-evaluation items to return. */
-    experiment_id: string
-    /**
-     * Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.
-     * @nullable
-     */
-    date_from?: string | null
-    /**
-     * Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.
-     * @nullable
-     */
-    date_to?: string | null
-}
-
-export interface OfflineExperimentItemsResponseApi {
-    /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
-    results: unknown[][]
+    /** One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed. */
+    providers: LLMProviderModelsSummaryApi[]
 }
 
 export interface ParserRecipeApi {
@@ -1933,7 +4362,24 @@ export interface PatchedLLMProviderKeyApi {
     readonly error_message?: string | null
     api_key?: string
     readonly api_key_masked?: string
-    /** Azure OpenAI endpoint URL */
+    /** Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone. */
+    base_url?: string
+    /**
+     * Model ID served by the System One endpoint.
+     * @maxLength 100
+     */
+    system_one_model?: string
+    /**
+     * Configured provider base URL (read-only, for display)
+     * @nullable
+     */
+    readonly base_url_display?: string | null
+    /**
+     * Configured System One model ID.
+     * @nullable
+     */
+    readonly system_one_model_display?: string | null
+    /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
     azure_endpoint?: string
     /**
      * Azure OpenAI API version
@@ -1955,6 +4401,25 @@ export interface PatchedLLMProviderKeyApi {
     readonly created_by?: UserBasicApi
     /** @nullable */
     readonly last_used_at?: string | null
+}
+
+export interface LLMProxyModelInfoApi {
+    /** Provider-specific model identifier. */
+    id: string
+    /** Model display name. */
+    name: string
+    /** Provider display name. */
+    provider: string
+    /** Description of the model. */
+    description: string
+    /** Whether the provider recommends this model. */
+    is_recommended: boolean
+    /** Whether this model supports decision questions. */
+    supports_decisions?: boolean
+    /** Whether this model supports chat completions with written reasoning. */
+    supports_chat?: boolean
+    /** Whether an evaluation judge can set a reasoning level for this model. */
+    supports_reasoning?: boolean
 }
 
 export interface ReviewQueueItemApi {
@@ -2036,100 +4501,15 @@ export interface PatchedReviewQueueUpdateApi {
     name?: string
 }
 
-/**
- * * `categorical` - categorical
- * * `numeric` - numeric
- * * `boolean` - boolean
- */
-export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
-
-export const ExperimentMetricKindEnumApi = {
-    Categorical: 'categorical',
-    Numeric: 'numeric',
-    Boolean: 'boolean',
-} as const
-
-export interface CategoricalScoreOptionApi {
-    /**
-     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
-     * @maxLength 128
-     */
-    key: string
-    /**
-     * Human-readable option label.
-     * @maxLength 256
-     */
-    label: string
-}
-
-/**
- * * `single` - single
- * * `multiple` - multiple
- */
-export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
-
-export const SelectionModeEnumApi = {
-    Single: 'single',
-    Multiple: 'multiple',
-} as const
-
-export interface CategoricalScoreDefinitionConfigApi {
-    /** Ordered categorical options available to the scorer. */
-    options: CategoricalScoreOptionApi[]
-    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
-     *
-     * * `single` - single
-     * * `multiple` - multiple */
-    selection_mode?: SelectionModeEnumApi
-    /**
-     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
-     * @minimum 1
-     * @nullable
-     */
-    min_selections?: number | null
-    /**
-     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
-     * @minimum 1
-     * @nullable
-     */
-    max_selections?: number | null
-}
-
-export interface NumericScoreDefinitionConfigApi {
-    /**
-     * Optional inclusive minimum score.
-     * @nullable
-     */
-    min?: number | null
-    /**
-     * Optional inclusive maximum score.
-     * @nullable
-     */
-    max?: number | null
-    /**
-     * Optional increment step for numeric input, for example 1 or 0.5.
-     * @nullable
-     */
-    step?: number | null
-}
-
-export interface BooleanScoreDefinitionConfigApi {
-    /** Optional label for a true value. */
-    true_label?: string
-    /** Optional label for a false value. */
-    false_label?: string
-}
-
-export type ScoreDefinitionConfigApi =
-    | CategoricalScoreDefinitionConfigApi
-    | NumericScoreDefinitionConfigApi
-    | BooleanScoreDefinitionConfigApi
-
 export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
+    /** Optional compact label for table headers and other compact views. */
+    readonly short_name: string
     readonly description: string
-    readonly kind: ExperimentMetricKindEnumApi
+    /** Project tag names assigned to this resource. */
+    readonly tags: readonly string[]
+    readonly kind: ScoreDefinitionKindEnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -2145,6 +4525,8 @@ export interface ScoreDefinitionApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
+    /** User who last updated the scorer or created a version. */
+    readonly updated_by: UserBasicApi | null
     readonly team: number
 }
 
@@ -2159,10 +4541,21 @@ export interface PaginatedScoreDefinitionListApi {
 
 export interface ScoreDefinitionCreateApi {
     /**
+     * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /**
      * Human-readable scorer name.
      * @maxLength 255
      */
     name: string
+    /**
+     * Optional compact label. Blank uses the full name.
+     * @maxLength 40
+     */
+    short_name?: string
     /**
      * Optional human-readable description.
      * @nullable
@@ -2173,7 +4566,7 @@ export interface ScoreDefinitionCreateApi {
      * * `categorical` - categorical
      * * `numeric` - numeric
      * * `boolean` - boolean */
-    kind: ExperimentMetricKindEnumApi
+    kind: ScoreDefinitionKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -2182,10 +4575,21 @@ export interface ScoreDefinitionCreateApi {
 
 export interface PatchedScoreDefinitionMetadataApi {
     /**
+     * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    /**
      * Updated scorer name.
      * @maxLength 255
      */
     name?: string
+    /**
+     * Updated compact label. Blank uses the full name.
+     * @maxLength 40
+     */
+    short_name?: string
     /**
      * Updated scorer description.
      * @nullable
@@ -2196,6 +4600,21 @@ export interface PatchedScoreDefinitionMetadataApi {
 }
 
 export interface ScoreDefinitionNewVersionApi {
+    /**
+     * Updated compact label, saved with this version.
+     * @maxLength 40
+     */
+    short_name?: string
+    /**
+     * Updated scorer name, saved with this version.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Updated scorer description, saved with this version.
+     * @nullable
+     */
+    description?: string | null
     /** Next immutable scorer configuration. */
     config: ScoreDefinitionConfigApi
     /**
@@ -2203,6 +4622,52 @@ export interface ScoreDefinitionNewVersionApi {
      * @minimum 1
      */
     base_version?: number
+}
+
+export interface ScoreDefinitionVersionApi {
+    /** UUID identifying this exact immutable version. */
+    readonly id: string
+    /** Scorer definition that owns this version. */
+    readonly definition_id: string
+    /** Immutable version number within this scorer. */
+    readonly version: number
+    /** Scorer value kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    readonly kind: ScoreDefinitionKindEnumApi
+    /** Immutable configuration for this exact version. */
+    readonly config: ScoreDefinitionConfigApi
+    /** Time this version was created. */
+    readonly created_at: string
+    /** User who created this version. */
+    readonly created_by: UserBasicApi | null
+}
+
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
+export interface ScoreDefinitionVersionPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Total immutable versions for this scorer. */
+    count: number
+    /**
+     * Continuation cursor, or null on the last page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Versions on this page, newest first. */
+    results: ScoreDefinitionVersionApi[]
 }
 
 /**
@@ -2242,6 +4707,8 @@ export interface SummarizeRequestApi {
     data?: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
+    /** Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title. */
+    compact_context?: boolean
     /**
      * LLM model to use (defaults based on provider)
      * @nullable
@@ -2553,6 +5020,18 @@ export interface LLMPromptLabelSummaryApi {
     version: number
 }
 
+export interface LLMPromptResolvedReferenceApi {
+    /** Name of the referenced prompt that was spliced in. */
+    name: string
+    /** Exact version whose content was spliced in. */
+    version: number
+    /**
+     * Label the reference used, or null when it pinned a version directly.
+     * @nullable
+     */
+    label: string | null
+}
+
 /**
  * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
  * @nullable
@@ -2592,6 +5071,8 @@ export interface LLMPromptListApi {
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
     readonly all_labels: readonly LLMPromptLabelSummaryApi[]
+    /** @nullable */
+    readonly resolved_references: readonly LLMPromptResolvedReferenceApi[] | null
 }
 
 export interface PaginatedLLMPromptListListApi {
@@ -2668,6 +5149,8 @@ export interface LLMPromptPublicApi {
     version: number
     /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
     label?: string
+    /** The exact prompt versions spliced into the returned content, in order of first appearance. Empty when the prompt has no references. Only present when references were resolved. */
+    resolved_references?: LLMPromptResolvedReferenceApi[]
     created_at: string
     updated_at: string
     deleted: boolean
@@ -2712,6 +5195,13 @@ export interface PatchedLLMPromptPublishApi {
     version_description?: string
 }
 
+export interface LLMPromptReferencedConflictApi {
+    /** What is still referenced and what to do next. */
+    detail: string
+    /** Names of the prompts whose latest or labeled version holds the reference. */
+    referencing_prompts: string[]
+}
+
 export interface LLMPromptDuplicateApi {
     /**
      * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
@@ -2752,12 +5242,29 @@ export interface LLMPromptVersionSummaryApi {
     readonly labels: readonly string[]
 }
 
+export interface LLMPromptReferencedByApi {
+    /** Prompt whose latest or labeled version references this prompt. */
+    name: string
+    /**
+     * Label of this prompt the reference follows, or null when it pins a version.
+     * @nullable
+     */
+    label: string | null
+    /**
+     * Version of this prompt the reference pins, or null when it follows a label.
+     * @nullable
+     */
+    version: number | null
+}
+
 export interface LLMPromptResolveResponseApi {
     prompt: LLMPromptApi
     versions: LLMPromptVersionSummaryApi[]
     has_more: boolean
     /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
     labels: LLMPromptLabelApi[]
+    /** Prompts whose latest or labeled version references this prompt, with the label or version each reference uses. Empty when nothing references this prompt. At most 100 entries, ordered by prompt name. */
+    referenced_by: LLMPromptReferencedByApi[]
 }
 
 /**
@@ -2836,6 +5343,32 @@ export interface TaggerConditionApi {
 }
 
 /**
+ * * `openai` - Openai
+ * * `anthropic` - Anthropic
+ * * `gemini` - Gemini
+ * * `openrouter` - Openrouter
+ * * `fireworks` - Fireworks
+ * * `azure_openai` - Azure OpenAI
+ * * `together_ai` - Together AI
+ * * `minimax` - MiniMax
+ * * `openai_compatible` - OpenAI-compatible
+ */
+export type LLMCompletionProviderEnumApi =
+    (typeof LLMCompletionProviderEnumApi)[keyof typeof LLMCompletionProviderEnumApi]
+
+export const LLMCompletionProviderEnumApi = {
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
+    TogetherAi: 'together_ai',
+    Minimax: 'minimax',
+    OpenaiCompatible: 'openai_compatible',
+} as const
+
+/**
  * Nested serializer for model configuration.
  */
 export interface TaggerModelConfigurationApi {
@@ -2849,8 +5382,8 @@ export interface TaggerModelConfigurationApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub */
-    provider: LLMProviderEnumApi
+     * * `openai_compatible` - OpenAI-compatible */
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -2903,8 +5436,8 @@ export interface TaggerModelConfigurationWriteApi {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub */
-    provider: LLMProviderEnumApi
+     * * `openai_compatible` - OpenAI-compatible */
+    provider: LLMCompletionProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
      * @maxLength 100
@@ -2915,19 +5448,6 @@ export interface TaggerModelConfigurationWriteApi {
      * @nullable
      */
     provider_key_id?: string | null
-}
-
-export interface TaggerCreateApi {
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
 }
 
 export interface TaggerUpdateApi {
@@ -3067,6 +5587,435 @@ export const LlmAnalyticsPersonalSpendListBucketMinutes = {
     Number60: 60,
 } as const
 
+export type AiObservabilityInstrumentationChecklistRetrieveParams = {
+    /**
+     * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
+     */
+    refresh?: boolean
+}
+
+export type AiObservabilityOfflineExperimentsListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string
+    /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string
+    /**
+     * Match any selected tag (OR) or all selected tags (AND).
+     *
+     * * `any` - Any
+     * * `all` - All
+     * @minLength 1
+     */
+    tag_match?: AiObservabilityOfflineExperimentsListTagMatch
+    /**
+     * JSON array of tag names, for example ["quality","production"]. Up to 20 tags. An empty array disables tag filtering.
+     */
+    tags?: string
+}
+
+export type AiObservabilityOfflineExperimentsListTagMatch =
+    (typeof AiObservabilityOfflineExperimentsListTagMatch)[keyof typeof AiObservabilityOfflineExperimentsListTagMatch]
+
+export const AiObservabilityOfflineExperimentsListTagMatch = {
+    Any: 'any',
+    All: 'all',
+} as const
+
+export type AiObservabilityOfflineExperimentsItemsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineExperimentsResultCellsRetrieveParams = {
+    /**
+     * Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.
+     * @minLength 1
+     * @maxLength 1849
+     */
+    item_ids: string
+    /**
+     * Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids: string
+}
+
+export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Restrict results to this scorer definition.
+     */
+    scorer_definition_id?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+}
+
+export type AiObservabilityOfflineScorersHistoryListParams = {
+    /**
+     * Exact application revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    application_version?: string
+    /**
+     * Split history by this property. Model uses each item's model, falling back to the experiment's model.
+     *
+     * * `model_version` - Model
+     * * `prompt_version` - Prompt version
+     * * `application_version` - Application version
+     * * `suite_key` - Suite
+     * * `run_source` - Run source
+     * @minLength 1
+     */
+    breakdown?: AiObservabilityOfflineScorersHistoryListBreakdown
+    /**
+     * Filter experiments by the author's user ID.
+     * @minimum 1
+     */
+    created_by?: number
+    /**
+     * Only include experiments without an author.
+     */
+    created_by_is_null?: boolean
+    /**
+     * Continuation cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Exact durable dataset identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_identifier?: string
+    /**
+     * Exact durable dataset revision identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_revision_identifier?: string
+    /**
+     * Exact dataset source.
+     * @minLength 1
+     * @maxLength 255
+     */
+    dataset_source?: string
+    /**
+     * Inclusive execution start time, in ISO 8601 format.
+     */
+    date_from?: string
+    /**
+     * Exclusive execution end time, in ISO 8601 format.
+     */
+    date_to?: string
+    /**
+     * Page size, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Exact model revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    model_version?: string
+    /**
+     * Exact prompt revision.
+     * @minLength 1
+     * @maxLength 255
+     */
+    prompt_version?: string
+    /**
+     * Filter ci, local, scheduled, or not_specified for omitted run source.
+     * @minLength 1
+     * @maxLength 16
+     */
+    run_source?: string
+    /**
+     * Comma-separated list of at most 20 distinct scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids?: string
+    /**
+     * Search experiment names.
+     * @minLength 1
+     * @maxLength 400
+     */
+    search?: string
+    /**
+     * Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.
+     * @minLength 1
+     * @maxLength 32
+     */
+    statuses?: string
+    /**
+     * Exact evaluation suite identifier.
+     * @minLength 1
+     * @maxLength 255
+     */
+    suite_key?: string
+    /**
+     * Match any selected tag (OR) or all selected tags (AND).
+     *
+     * * `any` - Any
+     * * `all` - All
+     * @minLength 1
+     */
+    tag_match?: AiObservabilityOfflineScorersHistoryListTagMatch
+    /**
+     * JSON array of tag names, for example ["quality","production"]. Up to 20 tags. An empty array disables tag filtering.
+     */
+    tags?: string
+}
+
+export type AiObservabilityOfflineScorersHistoryListBreakdown =
+    (typeof AiObservabilityOfflineScorersHistoryListBreakdown)[keyof typeof AiObservabilityOfflineScorersHistoryListBreakdown]
+
+export const AiObservabilityOfflineScorersHistoryListBreakdown = {
+    ModelVersion: 'model_version',
+    PromptVersion: 'prompt_version',
+    ApplicationVersion: 'application_version',
+    SuiteKey: 'suite_key',
+    RunSource: 'run_source',
+} as const
+
+export type AiObservabilityOfflineScorersHistoryListTagMatch =
+    (typeof AiObservabilityOfflineScorersHistoryListTagMatch)[keyof typeof AiObservabilityOfflineScorersHistoryListTagMatch]
+
+export const AiObservabilityOfflineScorersHistoryListTagMatch = {
+    Any: 'any',
+    All: 'all',
+} as const
+
+export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesClustersRetrieveParams = {
+    /**
+     * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
+     */
+    created_at: string
+}
+
+export type AiObservabilityTracesExportsContentRetrieveParams = {
+    /**
+     * What the file is read for. Only a download is recorded as one.
+     *
+     * * `download` - Download
+     * * `copy` - Copy
+     * @minLength 1
+     */
+    purpose?: AiObservabilityTracesExportsContentRetrievePurpose
+}
+
+export type AiObservabilityTracesExportsContentRetrievePurpose =
+    (typeof AiObservabilityTracesExportsContentRetrievePurpose)[keyof typeof AiObservabilityTracesExportsContentRetrievePurpose]
+
+export const AiObservabilityTracesExportsContentRetrievePurpose = {
+    Download: 'download',
+    Copy: 'copy',
+} as const
+
+export type AiObservabilityTracesFeedbackRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesPullRequestRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesSearchRetrieveParams = {
+    /**
+     * The text to find in the trace's steps, ignoring case.
+     * @minLength 1
+     * @maxLength 200
+     */
+    q: string
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesSummaryCreateParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
 export type DatasetItemsListParams = {
     /**
      * Return archived items instead of active items.
@@ -3078,6 +6027,7 @@ export type DatasetItemsListParams = {
     dataset: string
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number
     /**
@@ -3137,6 +6087,7 @@ export type DatasetItemsPartialUpdateBody = {
 export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -3158,6 +6109,7 @@ export type DatasetsListParams = {
     id__in?: string[]
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -3179,11 +6131,31 @@ export type DatasetsListParams = {
      * @minLength 1
      */
     search?: string
+    /**
+     * Match any selected tag (OR) or all selected tags (AND). Additional tags are allowed.
+     *
+     * * `any` - Any
+     * * `all` - All
+     * @minLength 1
+     */
+    tag_match?: DatasetsListTagMatch
+    /**
+     * JSON array of tag names, for example ["quality","production"]. Up to 20 tags. An empty array disables tag filtering.
+     */
+    tags?: string
 }
+
+export type DatasetsListTagMatch = (typeof DatasetsListTagMatch)[keyof typeof DatasetsListTagMatch]
+
+export const DatasetsListTagMatch = {
+    Any: 'any',
+    All: 'all',
+} as const
 
 export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -3191,8 +6163,6 @@ export type DatasetsRevisionsListParams = {
      */
     offset?: number
 }
-
-export type EvaluationRunsCreate200 = { [key: string]: unknown }
 
 export type EvaluationsListParams = {
     /**
@@ -3253,6 +6223,88 @@ export const EvaluationsListEvaluationType = {
     Sentiment: 'sentiment',
 } as const
 
+export type EvaluationsBackfillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EvaluationsRunsRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string
+    /**
+     * How many runs to return, newest first.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter with a 400.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * @minLength 1
+     */
+    outcome?: EvaluationsRunsRetrieveOutcome
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean
+}
+
+export type EvaluationsRunsRetrieveOutcome =
+    (typeof EvaluationsRunsRetrieveOutcome)[keyof typeof EvaluationsRunsRetrieveOutcome]
+
+export const EvaluationsRunsRetrieveOutcome = {
+    Passed: 'passed',
+    Failed: 'failed',
+} as const
+
+export type EvaluationsScoreDistributionRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean
+}
+
+export type EvaluationsOverviewRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string
+    /**
+     * Only these evaluations. Defaults to every evaluation the user can see.
+     */
+    evaluation_ids?: string[]
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean
+}
+
 export type LlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -3290,23 +6342,15 @@ export type LlmAnalyticsEvaluationReportsRunsListParams = {
     offset?: number
 }
 
-export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
-
 export type LlmAnalyticsModelsRetrieveParams = {
     /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.
      */
     key_id?: string
     /**
-     * LLM provider to list models for. Must be one of the supported providers.
+     * LLM provider to list models for. Omit it to list every supported provider and its models in one call.
      */
-    provider: LlmAnalyticsModelsRetrieveProvider
+    provider?: LlmAnalyticsModelsRetrieveProvider
 }
 
 export type LlmAnalyticsModelsRetrieveProvider =
@@ -3319,14 +6363,11 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Gemini: 'gemini',
     Minimax: 'minimax',
     Openai: 'openai',
+    OpenaiCompatible: 'openai_compatible',
     Openrouter: 'openrouter',
+    SystemOne: 'system_one',
     TogetherAi: 'together_ai',
-    Zeabur: 'zeabur',
 } as const
-
-export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsParserRecipesListParams = {
     /**
@@ -3409,6 +6450,10 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     archived?: boolean
     /**
+     * Filter by the creator's user ID.
+     */
+    created_by?: number
+    /**
      * Filter by scorer kind.
      */
     kind?: string
@@ -3425,9 +6470,44 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     order_by?: string
     /**
-     * Search scorers by name or description.
+     * Search scorers by name, short name, or description.
      */
     search?: string
+    /**
+     * Match any selected tag (OR) or all selected tags (AND). Additional tags are allowed.
+     *
+     * * `any` - Any
+     * * `all` - All
+     * @minLength 1
+     */
+    tag_match?: LlmAnalyticsScoreDefinitionsListTagMatch
+    /**
+     * JSON array of tag names, for example ["quality","production"]. Up to 20 tags. An empty array disables tag filtering.
+     */
+    tags?: string
+}
+
+export type LlmAnalyticsScoreDefinitionsListTagMatch =
+    (typeof LlmAnalyticsScoreDefinitionsListTagMatch)[keyof typeof LlmAnalyticsScoreDefinitionsListTagMatch]
+
+export const LlmAnalyticsScoreDefinitionsListTagMatch = {
+    Any: 'any',
+    All: 'all',
+} as const
+
+export type LlmAnalyticsScoreDefinitionsVersionsListParams = {
+    /**
+     * Continuation cursor from the prior page.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
 }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
@@ -3485,6 +6565,10 @@ export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown }
 
 export type LlmPromptsListParams = {
     /**
+     * Return archived prompts instead of active ones. Each archived prompt appears once, at its most recent version.
+     */
+    archived?: boolean
+    /**
      * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
@@ -3497,6 +6581,12 @@ export type LlmPromptsListParams = {
      * Filter prompts by the ID of the user who created them.
      */
     created_by_id?: number
+    /**
+     * Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string
     /**
      * Number of results to return per page.
      */
@@ -3528,6 +6618,10 @@ export type LlmPromptsListParams = {
      */
     order_by?: string
     /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags.
+     */
+    resolve?: boolean
+    /**
      * Optional substring filter applied to prompt names and prompt content.
      */
     search?: string
@@ -3557,6 +6651,10 @@ export type LlmPromptsNameRetrieveParams = {
      * @maxLength 128
      */
     label?: string
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'.
+     */
+    resolve?: boolean
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1

@@ -13,6 +13,8 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { QueuedSend } from './services/hogflows/transactional-email'
+import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
 
@@ -44,13 +46,27 @@ export type HogFunctionMasking = {
     threshold: number | null
 }
 
+export type HogFunctionFilterDataWarehouse = {
+    table_name?: string
+}
+
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'internal-events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
+    // Warehouse tables this function is subscribed to. Never compiled into bytecode, so the
+    // consumer has to match on it directly.
+    data_warehouse?: HogFunctionFilterDataWarehouse[]
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
+    /** Set by Django when compilation failed. The bytecode is null beside it, unless the save kept the last working one. */
+    bytecode_error?: string
+    /**
+     * The runtime contract hash the bytecode was compiled against, from filter_globals.json. Absent on
+     * bytecode saved before the compiler checked globals and functions.
+     */
+    bytecode_contract?: string
 }
 
 export type GroupType = {
@@ -79,6 +95,7 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     source?: {
+        id?: string
         name: string
         url: string
     }
@@ -184,6 +201,7 @@ export type HogFunctionFilterGlobals = {
     }
 
     variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
+    cohort_ids?: number[] // Cohorts the person is a member of, read by the inCohort/notInCohort STL functions
 }
 
 export type MetricLogSource = 'hog_function' | 'hog_flow' | 'legacy_plugin'
@@ -214,6 +232,7 @@ export type MinimalAppMetric = {
     metric_kind: 'failure' | 'success' | 'other' | 'email' | 'sms' | 'push' | 'billing' | 'fetch'
     metric_name:
         | 'early_exit'
+        | 'canceled'
         | 'triggered'
         | 'trigger_failed'
         | 'succeeded'
@@ -225,6 +244,7 @@ export type MinimalAppMetric = {
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
+        | 'missing_credential'
         | 'missing_addon'
         | 'fetch'
         | 'billable_invocation'
@@ -237,14 +257,20 @@ export type MinimalAppMetric = {
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_link_clicked_by_link'
+        | 'email_opened_by_person'
+        | 'email_clicked_by_person'
         | 'email_bounced'
         | 'email_bounced_hard'
         | 'email_bounced_transient'
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
+        | 'message_frequency_capped'
+        | 'message_frequency_cap_held'
         | 'email_suppressed'
+        | 'email_missing_recipient'
+        | 'email_suspended'
+        | 'email_paused'
         | 'email_blocked'
-        | 'email_spam'
         | 'email_unsubscribed'
         | 'email_untracked'
         | 'push_sent'
@@ -270,6 +296,26 @@ export type MinimalAppMetric = {
 export type AppMetricType = MinimalAppMetric & {
     timestamp: ClickHouseTimestamp
     app_source: MetricLogSource
+}
+
+/**
+ * Where an event stopped, for a record on a dead-letter topic.
+ *
+ * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
+ * `parse`, `lookup` and `process` are the ones it does not: a message it cannot read, a team, hog
+ * function or hog flow lookup that failed with an error that is not retriable, and anything else
+ * that throws while the pipeline turns an event into invocations. Those three park a lone
+ * unanticipated failure rather than stalling the partition it arrived on.
+ */
+export type DeadLetterStep = 'parse' | 'lookup' | 'filter' | 'inputs' | 'process'
+
+export type InvocationBuildFailure = {
+    sourceId: string
+    sourceKind: 'hog_function' | 'hog_flow'
+    step: DeadLetterStep
+    error: string
+    /** Who has to act on it. Only our own classes are worth parking, see HogErrorClass. */
+    errorClass?: HogErrorClass
 }
 
 export interface HogFunctionTiming {
@@ -300,23 +346,70 @@ export type CyclotronJobInvocation = {
     queuePriority: number
     // When the invocation is scheduled to run
     queueScheduledAt?: DateTime
+    // When the queue first stored the job. A reschedule moves queueScheduledAt but not this, and a clone keeps it.
+    queueCreatedAt?: DateTime
+    // The scheduled time this job had when it was dequeued. A clone resets queueScheduledAt but keeps this.
+    queueDueAt?: DateTime
     // Metadata for the invocation - TODO: check when this gets cleared
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)
     queueSource?: CyclotronJobQueueSource
+    // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
+    // was in flight. The consumer must terminate it as canceled instead of executing.
+    cancelRequestedAt?: DateTime
 }
 
 // The result of an execution
 export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = CyclotronJobInvocation> = {
     invocation: T
     finished: boolean
+    /** The invocation deliberately finished without running because its trigger did not match. */
+    skipped?: boolean
+    /**
+     * Whether a send reached a recipient. Distinct from `skipped` above, which is set only for a
+     * trigger or recipient-preference skip: a push that found no device token sets neither that
+     * flag nor an error, so nothing else on the result tells the two apart.
+     */
+    deliveredToRecipient?: boolean
+    emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
+    // The run was canceled rather than succeeding or failing. Only meaningful with
+    // finished=true and no error: the job row and the lifecycle row both flip to
+    // 'canceled'.
+    canceled?: boolean
     error?: any
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
     messageAssets: MessageAssetRow[]
+    conversionWatchers: ConversionWatcherRow[]
     execResult?: unknown
+}
+
+// The compiled conversion goal as it stood when a run enrolled. Pinned to the run rather than read
+// from the live flow, so editing a goal changes what future runs are measured against without
+// re-judging cohorts already in flight under the old one.
+export type PinnedConversionGoal = {
+    // Property-based goal, evaluated against person properties.
+    properties?: any[]
+    // Event-based goals, any one of which converts.
+    events?: any[][]
+}
+
+// One per enrolled run on a workflow with a conversion goal, outliving the run so a conversion that
+// lands after the last step is still observable. See the conversion_watchers migration for why this
+// is not a cyclotron_jobs row.
+export type ConversionWatcherRow = {
+    id: string
+    team_id: number
+    function_id: string
+    run_id: string
+    parent_run_id: string | null
+    distinct_id: string | null
+    person_id: string | null
+    flow_version: number | null
+    goal: PinnedConversionGoal
+    expires_at: Date
 }
 
 export type CyclotronJobInvocationHogFunctionContext = {
@@ -337,7 +430,14 @@ export type CyclotronJobInvocationHogFunctionContext = {
     // version (a retry's scheduled time) and lose the original.
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
+    // Set when a protected workflow step pauses mid-send, so its retries stay protected.
+    sensitive?: boolean
+    actionStepCount?: number
+    customerTaskIdempotencyVersion?: 1
+    send?: QueuedSend
 }
+
+export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
 
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
     state: CyclotronJobInvocationHogFunctionContext
@@ -350,6 +450,16 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     person?: CyclotronPerson
     groups?: HogFunctionInvocationGlobals['groups']
     filterGlobals: HogFunctionFilterGlobals
+    // Re-reads the person uncached and rebuilds filterGlobals from it. The worker supplies this; a
+    // wait step calls it before its first evaluation, where a stale person parks the run for good.
+    // It returns the values rather than mutating, so it stays correct on a cloned invocation.
+    refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
+}
+
+export type MessageOptOutRecord = {
+    identifier: string
+    // A message category id, or '$all' for all marketing messages.
+    categoryId: string
 }
 
 export type HogFlowInvocationContext = {
@@ -377,10 +487,36 @@ export type HogFlowInvocationContext = {
     // Absent on runs parked before this was introduced — those attribute to no version at all
     // rather than to a wrong one.
     flowVersion?: number
+    // Opt-outs this run's "Opt out of messages" steps made. Message steps check them before the recipient cache,
+    // because a worker that resumes the run can hold the recipient's preferences from before the opt-out.
+    messageOptOuts?: MessageOptOutRecord[]
+    // Stamped on every execution of a protected workflow and persisted with the state, so a recovery path that holds only the
+    // workflow id still keeps a sensitive run's message data out of its snapshot.
+    sensitive?: boolean
+    // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
+    // `triggered` and clears this flag, so a rescheduled run does not count again.
+    triggerMetricPending?: boolean
     actionStepCount: number
+    // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
+    customerTaskIdempotencyVersion?: 1
     currentAction?: {
         id: string
         startedAtTimestamp: number
+        // The instant a delay_until step resolved to when it first parked, as an ISO string. A resumed
+        // invocation rebuilds its filter globals from stored state, which can arrive without the event
+        // properties the expression reads, so re-evaluating on wake is allowed to fail back to this.
+        delayUntilAt?: string
+        // Set when a delay_until step could not work out when to continue. The run aborts on it whatever
+        // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
+        // run the next step immediately, which for a "N days before X" message is worse than not sending.
+        delayUntilUnresolved?: boolean
+        // Failed cohort membership lookups so far on this step. The step retries on a backoff while
+        // this stays under the limit, because a lookup timeout is usually a short stall.
+        cohortLookupAttempts?: number
+        // Set when a cohort membership lookup failed on every attempt. The run aborts on it whatever
+        // on_error says, because the default 'continue' takes the continue edge, and on a branch that
+        // edge sends a member down the path for people outside the cohort.
+        cohortLookupFailed?: boolean
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).
@@ -397,6 +533,14 @@ export type HogFlowInvocationContext = {
         // it (scheduled=now). The wait handler consumes it to attribute the re-check outcome
         // (advanced vs re-parked) to the re-key, so the wasted-re-park churn is observable.
         rekeyWake?: boolean
+        // Set when a distinct_id's first mapping fills a parked wait's missing person anchor and wakes
+        // it. A matcher wake carrying no eventMatched, so the handler consumes it like rekeyWake.
+        anchorWake?: boolean
+        // The max_wait_duration this wait parked against. The timing sweep moves `scheduled` with a
+        // bulk UPDATE and cannot stamp a marker the way the matcher does, so a wake that follows a
+        // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
+        // parked ceiling with the action's current one tells the two apart.
+        parkedMaxWaitDuration?: string
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
@@ -412,21 +556,32 @@ export type HogFlowInvocationContext = {
         //     debug line *and clears the flag* so any subsequent actions on the same dequeue
         //     (the email handler's `nextAction: exit`, etc.) log normally.
         routingOnlyReschedule?: boolean
-        // Set when a wait_until_condition re-parks on its polling interval. Lets the handler
-        // attribute a later condition match to the periodic poll (vs evaluate-on-entry) and emit
-        // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
-        // ever catches a wake the subscription streams missed, gating its eventual removal.
-        pollReparked?: boolean
+        // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
+        awaitingResume?: {
+            key: string
+            deadlineAt: string
+            dispatch: Record<string, unknown>
+            label?: string
+            parkedAt?: string
+        }
+        resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
+        // Set when a message step first finds the person at the frequency cap and the team holds capped
+        // messages. The step re-checks the cap on each wake and skips the send once this ISO time passes.
+        frequencyCapHoldDeadlineAt?: string
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
     conversionMatched?: boolean
+    // Set once the membership table has caught up with the change that started a cohort-triggered run.
+    // The writer that fills the table lags the trigger, so a mismatch read before this means a pending write.
+    cohortTriggerConfirmed?: boolean
     // Once-per-run guard for the property-based conversion metric. Executor-owned:
     // shouldExitEarly runs on every resume, so without this a persistently-true
     // conversion filter would emit a `conversion` metric on every step. Event-based
     // conversions are counted by the matcher and never touch this flag.
     conversionCounted?: boolean
     variables?: Record<string, any>
+    send?: QueuedSend
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
@@ -459,6 +614,13 @@ export type HogFunctionInputSchemaType = {
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
+        | 'task_model'
+        | 'task_repository'
+        | 'task_mcp_installations'
+        | 'signals_scout'
+        | 'posthog_survey'
+        | 'replay_vision_scan'
+        | 'task_skills'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -474,6 +636,12 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     platform?: 'android' | 'ios'
+    /**
+     * Space-separated OAuth scopes. On an `integration` input these are the scopes the connection
+     * must grant, and a connection missing one gets an error banner. On any other input, paired
+     * with `integration_key`, they are the scopes only that field needs — a connection without them
+     * still works, so the field just says what it is missing. Neither is enforced at runtime.
+     */
     requiredScopes?: string
     /**
      * templating: true indicates the field supports templating. Alternatively
@@ -490,6 +658,7 @@ export type HogFunctionTypeType =
     | 'source_webhook'
     | 'warehouse_source_webhook'
     | 'site_destination'
+    | 'legacy_destination'
 
 // Function types a cyclotron worker actually executes, so a rerun can safely re-enqueue
 // the stored invocation onto the cyclotron hog queue and have it run. Every other type
@@ -571,7 +740,7 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns'
+    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns' | 'posthog'
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }

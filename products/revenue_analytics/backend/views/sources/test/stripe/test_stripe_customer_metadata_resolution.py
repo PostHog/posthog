@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.schema import CurrencyCode, HogQLQueryModifiers, HogQLQueryResponse
@@ -192,7 +192,7 @@ class TestStripeCustomerMetadataResolution(ClickhouseTestMixin, APIBaseTest):
         super().tearDown()
 
     def _select_all_from_view(self, view_name: str) -> HogQLQueryResponse:
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = ast.SelectQuery(
                 select=[ast.Field(chain=["*"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),

@@ -1,13 +1,13 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
     messagingSuppressionsAddSuppressionCreate,
-    messagingSuppressionsRemoveSuppressionCreate,
+    messagingSuppressionsBulkRemoveSuppressionsCreate,
     messagingSuppressionsSuppressionsRetrieve,
 } from 'products/messaging/frontend/generated/api'
 import type {
@@ -24,8 +24,9 @@ export interface suppressionListLogicValues {
     addSuppressionLoading: boolean
     currentPage: number
     newIdentifier: string
-    removeSuppression: string | null
-    removeSuppressionLoading: boolean
+    removedSuppressions: string[]
+    removedSuppressionsLoading: boolean
+    searchTerm: string
     showAddModal: boolean
     suppressions: PaginatedMessageSuppressionApi
     suppressionsLoading: boolean
@@ -48,49 +49,18 @@ export interface suppressionListLogicActions {
         addSuppression: MessageSuppressionApi
         payload?: string
     }
+    confirmRemove: (entries: readonly MessageSuppressionApi[]) => {
+        entries: readonly MessageSuppressionApi[]
+    }
     loadNextPage: () => {
         value: true
-    }
-    loadNextPageFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadNextPageSuccess: (
-        suppressions: PaginatedMessageSuppressionApi,
-        payload?: {
-            value: true
-        }
-    ) => {
-        suppressions: PaginatedMessageSuppressionApi
-        payload?: {
-            value: true
-        }
     }
     loadPreviousPage: () => {
         value: true
     }
-    loadPreviousPageFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
+    loadSuppressions: (page?: number) => {
+        page: number
     }
-    loadPreviousPageSuccess: (
-        suppressions: PaginatedMessageSuppressionApi,
-        payload?: {
-            value: true
-        }
-    ) => {
-        suppressions: PaginatedMessageSuppressionApi
-        payload?: {
-            value: true
-        }
-    }
-    loadSuppressions: () => any
     loadSuppressionsFailure: (
         error: string,
         errorObject?: any
@@ -100,31 +70,47 @@ export interface suppressionListLogicActions {
     }
     loadSuppressionsSuccess: (
         suppressions: PaginatedMessageSuppressionApi,
-        payload?: any
+        payload?: {
+            page: number
+        }
     ) => {
         suppressions: PaginatedMessageSuppressionApi
-        payload?: any
+        payload?: {
+            page: number
+        }
     }
-    removeSuppression: (identifier: string) => string
-    removeSuppressionFailure: (
+    removeSuppressions: ({ identifiers, confirmComplaints }: { confirmComplaints: boolean; identifiers: string[] }) => {
+        identifiers: string[]
+        confirmComplaints: boolean
+    }
+    removeSuppressionsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    removeSuppressionSuccess: (
-        removeSuppression: string,
-        payload?: string
+    removeSuppressionsSuccess: (
+        removedSuppressions: string[],
+        payload?: {
+            identifiers: string[]
+            confirmComplaints: boolean
+        }
     ) => {
-        removeSuppression: string
-        payload?: string
+        removedSuppressions: string[]
+        payload?: {
+            identifiers: string[]
+            confirmComplaints: boolean
+        }
     }
     setCurrentPage: (page: number) => {
         page: number
     }
     setNewIdentifier: (identifier: string) => {
         identifier: string
+    }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
     }
     setShowAddModal: (show: boolean) => {
         show: boolean
@@ -133,11 +119,40 @@ export interface suppressionListLogicActions {
 
 export type suppressionListLogicType = MakeLogicType<suppressionListLogicValues, suppressionListLogicActions>
 
-const fetchPage = async (projectId: number | null, page: number): Promise<PaginatedMessageSuppressionApi> => {
+const fetchPage = async (
+    projectId: number | null,
+    page: number,
+    search: string
+): Promise<PaginatedMessageSuppressionApi> => {
     if (projectId === null) {
         return EMPTY_SUPPRESSIONS
     }
-    return await messagingSuppressionsSuppressionsRetrieve(String(projectId), { page })
+    return await messagingSuppressionsSuppressionsRetrieve(String(projectId), {
+        search: search.trim() || undefined,
+        page,
+    })
+}
+
+export function removalWarning(entries: readonly MessageSuppressionApi[]): {
+    title: string
+    description: string
+    confirmLabel: string
+} {
+    const single = entries.length === 1
+    const title = single
+        ? `Remove ${entries[0].identifier} from the suppression list?`
+        : `Remove ${entries.length} addresses from the suppression list?`
+    const resend = single
+        ? 'Your workflows will send to this address again. If it bounces again, it goes back on the list.'
+        : 'Your workflows will send to these addresses again. Any that bounce again go back on the list.'
+    if (!entries.some((entry) => entry.source === 'COMPLAINT')) {
+        return { title, description: resend, confirmLabel: 'Remove' }
+    }
+    return {
+        title,
+        description: `${single ? 'This recipient' : 'Some of these recipients'} reported your emails as spam. Sending to them again can hurt your sender reputation, so more of your email may land in spam. ${resend}`,
+        confirmLabel: 'Remove anyway',
+    }
 }
 
 export const suppressionListLogic = kea<suppressionListLogicType>([
@@ -147,19 +162,22 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
     })),
     actions({
         setCurrentPage: (page: number) => ({ page }),
+        loadSuppressions: (page?: number) => ({ page: page ?? 1 }),
         loadNextPage: true,
         loadPreviousPage: true,
         setShowAddModal: (show: boolean) => ({ show }),
         setNewIdentifier: (identifier: string) => ({ identifier }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        confirmRemove: (entries: readonly MessageSuppressionApi[]) => ({ entries }),
     }),
     reducers({
         currentPage: [
             1,
             {
                 setCurrentPage: (_, { page }) => page,
-                loadSuppressionsSuccess: () => 1,
-                loadNextPageSuccess: (state) => state + 1,
-                loadPreviousPageSuccess: (state) => Math.max(1, state - 1),
+                // Track the page that actually loaded, so a discarded stale response can't
+                // desync the label from the rows.
+                loadSuppressionsSuccess: (state, { payload }) => payload?.page ?? state,
             },
         ],
         showAddModal: [
@@ -177,34 +195,32 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                 setShowAddModal: (state, { show }) => (show ? state : ''),
             },
         ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
     }),
     loaders(({ values, actions }) => ({
         suppressions: {
             __default: EMPTY_SUPPRESSIONS,
-            loadSuppressions: async (): Promise<PaginatedMessageSuppressionApi> => {
+            // Single loader for every page fetch (initial, search, next, prev) so overlapping
+            // requests share one action key and the breakpoint can discard the stale one — a
+            // pagination response resolving after a search reload must not overwrite it.
+            loadSuppressions: async ({ page }, breakpoint): Promise<PaginatedMessageSuppressionApi> => {
                 try {
-                    return await fetchPage(values.currentProjectId, 1)
+                    const result = await fetchPage(values.currentProjectId, page, values.searchTerm)
+                    breakpoint()
+                    return result
                 } catch (e) {
+                    if (isBreakpoint(e as Error)) {
+                        throw e
+                    }
                     lemonToast.error('Failed to load suppression list')
                     // Rethrow so kea-loaders emits loadSuppressionsFailure and the currentPage reducer
-                    // (which only advances on *Success) stays put — otherwise a failed page fetch would
+                    // (which only moves on *Success) stays put — otherwise a failed page fetch would
                     // still tick currentPage and skip pages permanently.
-                    throw e
-                }
-            },
-            loadNextPage: async (): Promise<PaginatedMessageSuppressionApi> => {
-                try {
-                    return await fetchPage(values.currentProjectId, values.currentPage + 1)
-                } catch (e) {
-                    lemonToast.error('Failed to load next page')
-                    throw e
-                }
-            },
-            loadPreviousPage: async (): Promise<PaginatedMessageSuppressionApi> => {
-                try {
-                    return await fetchPage(values.currentProjectId, Math.max(1, values.currentPage - 1))
-                } catch (e) {
-                    lemonToast.error('Failed to load previous page')
                     throw e
                 }
             },
@@ -228,22 +244,65 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                 }
             },
         },
-        removeSuppression: {
-            __default: null as string | null,
-            removeSuppression: async (identifier: string): Promise<string> => {
+        removedSuppressions: {
+            __default: [] as string[],
+            removeSuppressions: async ({
+                identifiers,
+                confirmComplaints,
+            }: {
+                identifiers: string[]
+                confirmComplaints: boolean
+            }): Promise<string[]> => {
                 if (values.currentProjectId === null) {
                     throw new Error('No current project')
                 }
                 try {
-                    await messagingSuppressionsRemoveSuppressionCreate(String(values.currentProjectId), { identifier })
-                    lemonToast.success(`${identifier} removed from suppression list`)
-                    actions.loadSuppressions()
-                    return identifier
+                    const { removed } = await messagingSuppressionsBulkRemoveSuppressionsCreate(
+                        String(values.currentProjectId),
+                        { identifiers, confirm_complaints: confirmComplaints }
+                    )
+                    lemonToast.success(
+                        removed.length === 0
+                            ? 'Already removed from the suppression list'
+                            : removed.length === 1
+                              ? `${removed[0]} removed from the suppression list`
+                              : `${removed.length} addresses removed from the suppression list`
+                    )
+                    // Removing every row on the last page leaves that page empty, and the API rejects an empty page.
+                    const pageEmptied = removed.length >= (values.suppressions.results?.length ?? 0)
+                    actions.loadSuppressions(pageEmptied ? Math.max(1, values.currentPage - 1) : values.currentPage)
+                    return removed
                 } catch (e) {
-                    lemonToast.error('Failed to remove from suppression list')
+                    lemonToast.error('Failed to remove from the suppression list. Reload the list and try again.')
                     throw e
                 }
             },
+        },
+    })),
+    listeners(({ actions, values }) => ({
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSuppressions()
+        },
+        loadNextPage: () => actions.loadSuppressions(values.currentPage + 1),
+        loadPreviousPage: () => actions.loadSuppressions(Math.max(1, values.currentPage - 1)),
+        confirmRemove: ({ entries }) => {
+            const { title, description, confirmLabel } = removalWarning(entries)
+            const confirmComplaints = entries.some((entry) => entry.source === 'COMPLAINT')
+            LemonDialog.open({
+                title,
+                description,
+                primaryButton: {
+                    children: confirmLabel,
+                    status: 'danger',
+                    onClick: () =>
+                        actions.removeSuppressions({
+                            identifiers: entries.map((entry) => entry.identifier),
+                            confirmComplaints,
+                        }),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
         },
     })),
     afterMount(({ actions }) => {

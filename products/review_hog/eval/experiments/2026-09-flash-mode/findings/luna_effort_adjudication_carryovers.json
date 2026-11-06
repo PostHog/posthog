@@ -1,0 +1,139 @@
+{
+    "MA1": {
+        "source_id": "UA1",
+        "reason": "Same engine draft-gate and machine-author framing claim: self_driving bypasses the gate without requiring bot authorship. This carries the human-authored draft sub-claim, not the additional claim about ready PRs."
+    },
+    "MA6": {
+        "source_id": "UA7",
+        "reason": "Same initial receiver provenance claim: process_inbox_pr_review stamps the self-driving marker without positively linking the fetched PR to the supplied task run or checking its author. The documentation anchor describes the same runtime omission."
+    },
+    "MA7": {
+        "source_id": "UA7",
+        "reason": "Same initial receiver provenance claim: caller-provided PR linkage is trusted without checking bot authorship, a repository-native head, or the implementation-run relationship before creating the inbox review."
+    },
+    "MA8": {
+        "source_id": "UA6",
+        "reason": "Same caught Celery broker-publication failure claim at the receiver dispatch. This is the panel's rejected broker-publish sub-claim, not the separate task-retry exhaustion or stranded-QUEUED sub-claims in cluster 58."
+    },
+    "MA9": {
+        "source_id": "UA3",
+        "reason": "Same unscoped task-run lookup followed by a team check: a foreign-team result can be selected first and then rejected, hiding the requested team's qualifying run."
+    },
+    "MB1": {
+        "source_id": "UA1",
+        "reason": "Same engine-side draft-gate and machine-author framing claim: a self_driving flag enables the carve-out without requiring bot authorship."
+    },
+    "MB2": {
+        "source_id": "GC7",
+        "reason": "Same mismatch between the stated any-assignee opt-in rule and the canonical-reviewer-only toggle check; an enabled noncanonical assignee cannot trigger the review."
+    },
+    "MB4": {
+        "source_id": "UA6",
+        "reason": "Same initial Celery broker-publication failure, before the task or ReviewRun exists. The facade anchor is the publication call caught by the receiver; this is not task retry exhaustion."
+    },
+    "MB7": {
+        "source_id": "UA7",
+        "reason": "Same initial receiver provenance omission despite the documentation anchor: caller-provided PR identity is stamped without positively verifying the task-to-PR relationship or expected author."
+    },
+    "MB8": {
+        "source_id": "UA7",
+        "reason": "Same process_inbox_pr_review omission: the fetched PR is not checked for implementation-run linkage, expected bot authorship, or a repository-native head before receiving self-driving provenance."
+    },
+    "MB9": {
+        "source_id": "UA6",
+        "reason": "Same caught initial Celery publication failure at the receiver. This maps to the rejected broker-publish sub-claim in cluster 58, not its task retry or stranded-QUEUED sub-claims."
+    },
+    "MB10": {
+        "source_id": "UA9",
+        "reason": "Same short non-rate-limit task retry budget exhausting during a transient GitHub or database outage. This carries the general task-retry exhaustion sub-claim; it does not endorse the separate assertion about retries occurring inside the primary rate-limit window."
+    },
+    "XA2": {
+        "source_id": "UA1",
+        "reason": "Same engine-side bot/draft gate claim: self_driving enables the carve-out without requiring bot authorship. This carries the human-authored draft sub-claim, not the additional assertion that ready PRs must be refused."
+    },
+    "XA5": {
+        "source_id": "UA6",
+        "reason": "Same caught initial Celery broker-publication failure before the task enters the queue. This is the panel's rejected broker-publish sub-claim, not its separate retry-exhaustion or stranded-QUEUED sub-claims."
+    },
+    "XA7": {
+        "source_id": "UA7",
+        "reason": "Same initial receiver provenance omission despite the documentation anchor: caller-provided task and PR identifiers are stamped without positively checking the task-to-PR linkage, expected bot author, or repository-native head."
+    },
+    "XA9": {
+        "source_id": "UA7",
+        "reason": "Same process_inbox_pr_review trust boundary: a caller-writable TaskRun PR URL becomes inbox provenance without validating implementation-run linkage, expected bot authorship, or a repository-native head."
+    },
+    "XA10": {
+        "source_id": "UB8",
+        "reason": "Same enqueue-time toggle snapshot claim: the initial Celery task does not re-resolve the opt-in before creating the run after a delay or retry. This matches the panel's rejected execution-time toggle recheck claim."
+    },
+    "XA12": {
+        "source_id": "UA3",
+        "reason": "Same unscoped task-run lookup followed by a team check: selecting a foreign-team match first can hide the requested team's qualifying run. The additional implementation predicates describe the same filter-after-selection problem."
+    },
+    "XA18": {
+        "source_id": "SA5",
+        "reason": "Same exhausted post-commit Temporal-start retries leaving a committed QUEUED ReviewRun without a workflow or reconciliation. This carries the stranded-QUEUED sub-claim, not the initial broker-publish or generic pre-run retry sub-claims in cluster 58."
+    },
+    "XA13": {
+        "source_id": "UA7",
+        "reason": "Same initial receiver provenance omission: a caller-writable task PR URL receives the self-driving marker without validating task-to-PR linkage, bot author, or a repository-native head. This carries that receiver sub-claim, not the secondary boolean-parsing recommendation or assertion about ready PRs."
+    },
+    "XB2": {
+        "source_id": "UB8",
+        "reason": "Same enqueue-time inbox-toggle snapshot claim: the initial Celery task does not re-resolve the opt-in after queue delay. This carries the panel's rejected execution-time toggle-recheck claim."
+    },
+    "XB13": {
+        "source_id": "UB8",
+        "reason": "Same enqueue-time inbox-toggle snapshot claim: the initial Celery task does not re-resolve the opt-in after queue delay. This carries the panel's rejected execution-time toggle-recheck claim."
+    },
+    "XB4": {
+        "source_id": "UA1",
+        "reason": "Same engine bot/draft-gate claim: the self-driving flag bypasses the gate without requiring the expected bot-authored draft shape. This carries the human-authored draft sub-claim, not separate assertions about ready PRs or fork provenance."
+    },
+    "XB16": {
+        "source_id": "UA1",
+        "reason": "Same engine bot/draft-gate claim: the self-driving flag bypasses the gate without requiring the expected bot-authored draft shape. This carries the human-authored draft sub-claim, not separate assertions about ready PRs or fork provenance."
+    },
+    "XB5": {
+        "source_id": "UA6",
+        "reason": "Same initial Celery broker-publication failure before a task exists. This carries the panel's rejected broker-publish sub-claim, not task retry exhaustion or an independently established process-crash window after commit."
+    },
+    "XB7": {
+        "source_id": "UA6",
+        "reason": "The original panel rejects the broker-publication-failure sub-claim. All three fresh verifiers independently retain the separate process-exit window after TaskRun commit but before callback publication. The combined finding remains real/should_fix only for that additional sub-claim; the panel's broker verdict remains false.",
+        "retained_subclaim": {
+            "claim": "A process exit after the TaskRun output commits but before its in-process callback publishes to Celery leaves no durable pending Stamphog review or guaranteed reconciliation.",
+            "is_real": true,
+            "severity": "should_fix",
+            "source": "verified-3-skeptics:3/3",
+            "evidence": [
+                "products/review_hog/backend/receivers.py:131-139 registers publication as in-process transaction.on_commit work after the TaskRun commit.",
+                "products/stamphog/backend/facade/api.py:149-155 only publishes the Celery task; the first ReviewRun is created later at products/stamphog/backend/tasks/tasks.py:1223-1229.",
+                "products/review_hog/backend/receivers.py:85-89 ignores state/status-only saves; products/tasks/backend/webhooks.py:283-292 suppresses repeated PR URL writes, so another output save is not guaranteed.",
+                "posthog/tasks/tasks.py:270-303 reconciles queued Tasks TaskRuns, not missing Stamphog review dispatches; a process exit before publication is outside both producer retries and process_inbox_pr_review retries.",
+                "findings/verify_result_XB.json:XB7 contains three should_fix votes that each explicitly retain the post-commit, pre-publication process-loss window."
+            ]
+        }
+    },
+    "XB11": {
+        "source_id": "UA7",
+        "reason": "Same initial receiver provenance omission: caller-writable task output can select a PR without validating task-to-PR linkage, expected bot authorship, or a repository-native head before stamping the self-driving marker. The carryover excludes any separate claim that ready PRs must be refused."
+    },
+    "XB12": {
+        "source_id": "UA7",
+        "reason": "Same initial receiver provenance omission: caller-writable task output can select a PR without validating task-to-PR linkage, expected bot authorship, or a repository-native head before stamping the self-driving marker. The carryover excludes any separate claim that ready PRs must be refused."
+    },
+    "XB14": {
+        "source_id": "UA7",
+        "reason": "Same initial receiver provenance omission: caller-writable task output can select a PR without validating task-to-PR linkage, expected bot authorship, or a repository-native head before stamping the self-driving marker. The carryover excludes any separate claim that ready PRs must be refused."
+    },
+    "XB19": {
+        "source_id": "GC7",
+        "reason": "Same canonical-reviewer-only toggle check conflicting with the stated any-assigned-reviewer rule: an enabled noncanonical assignee cannot trigger the review."
+    },
+    "XB20": {
+        "source_id": "UA3",
+        "reason": "Same unscoped task-run lookup followed by a team check: a foreign-team branch match can be selected first and then rejected, hiding the requested team's qualifying run."
+    }
+}

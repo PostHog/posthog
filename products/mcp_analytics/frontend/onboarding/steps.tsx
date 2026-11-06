@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { onboardingLogic } from 'scenes/onboarding/legacy/onboardingLogic'
-import { OnboardingStep } from 'scenes/onboarding/legacy/OnboardingStep'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { OnboardingStep } from 'scenes/onboarding/OnboardingStep'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
-import { urls } from 'scenes/urls'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -48,5 +47,4 @@ export const mcpAnalyticsOnboarding: ProductOnboardingProvider = {
             render: () => <MCPAnalyticsInstallStep />,
         },
     ],
-    completeRedirectUrl: () => urls.mcpAnalyticsDashboard(),
 }

@@ -1,8 +1,12 @@
 """Activities for evaluation reports workflow."""
 
+import time
+import hashlib
 import datetime as dt
 from collections import defaultdict
-from typing import TYPE_CHECKING, NamedTuple
+from dataclasses import replace
+from itertools import batched
+from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -10,13 +14,24 @@ from django.db.models import Q
 import temporalio.activity
 from dateutil.rrule import rrulestr
 from structlog import get_logger
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models.utils import strip_null_bytes
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.eval_reports.constants import COUNT_TRIGGER_QUERY_WIDTH
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_CURSOR_SETTLE_LAG,
+    COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE,
+    COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
+    COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
+    COUNT_TRIGGER_QUERY_WIDTH,
+)
 from posthog.temporal.ai_observability.eval_reports.targets import (
     GENERATION_TARGET,
     resolve_evaluation_target,
@@ -40,6 +55,9 @@ from posthog.temporal.ai_observability.eval_reports.types import (
     UpdateNextDeliveryDateInput,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.ai_observability.backend.models.evaluation_configs import evaluation_supports_reports
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -152,7 +170,9 @@ def _fetch_count_triggered_eval_report_candidate_groups() -> list[list[str]]:
         .values_list("id", "team_id")
     ):
         ids_by_team[team_id].append(str(pk))
-    return [chunk for ids in ids_by_team.values() for chunk in _chunk(ids, COUNT_TRIGGER_QUERY_WIDTH)]
+    return [
+        list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
+    ]
 
 
 def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":
@@ -220,10 +240,6 @@ def _check_count_triggered_eval_report_sync(
     return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=count >= report.trigger_threshold)
 
 
-def _chunk(items: list, size: int) -> list[list]:
-    return [items[index : index + size] for index in range(0, len(items), size)]
-
-
 def _check_count_triggered_eval_reports_batch(
     report_ids: list[str],
     now: dt.datetime | None = None,
@@ -254,8 +270,7 @@ def _check_count_triggered_eval_reports_batch(
     }
 
     outputs: dict[str, CheckCountTriggeredEvalReportOutput] = {}
-    # team_id -> list of (report_id, report, since) for reports that passed the Postgres gate
-    survivors: dict[int, list[tuple[str, EvaluationReport, dt.datetime]]] = defaultdict(list)
+    survivors: dict[int, list[_CountCandidate]] = defaultdict(list)
 
     for report_id in report_ids:
         report = reports.get(report_id)
@@ -271,33 +286,111 @@ def _check_count_triggered_eval_reports_batch(
             )
             continue
         assert since is not None
-        survivors[report.team_id].append((report_id, report, since))
+        survivors[report.team_id].append(_CountCandidate.start(report_id, report, since))
 
-    for entries in survivors.values():
-        team = entries[0][1].team
-        # Cap the per-query width so a team with many reports doesn't build one giant query.
-        for chunk in _chunk(entries, COUNT_TRIGGER_QUERY_WIDTH):
-            counts = _count_eval_results_for_reports(
+    deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
+    settle_until = now - COUNT_TRIGGER_CURSOR_SETTLE_LAG
+    for candidates in survivors.values():
+        team = candidates[0].report.team
+        # Sort by cursor before capping the per-query width, so entries sharing a chunk
+        # have a comparable window — one stale report no longer sets the scan's lower
+        # bound for every other report queued alongside it.
+        candidates.sort(key=lambda candidate: candidate.cursor)
+        for chunk in batched(candidates, COUNT_TRIGGER_QUERY_WIDTH, strict=False):
+            result = _count_eval_results_for_reports_with_split_retry(
                 team,
                 [
                     _CountEntry(
-                        key=report_id,
-                        evaluation_id=str(report.evaluation_id),
-                        since=since,
-                        event_predicate=get_outcome_definition(report.evaluation.output_type).event_predicate,
-                        target_predicate=target_event_predicate(report.evaluation.target),
+                        key=candidate.report_id,
+                        evaluation_id=str(candidate.report.evaluation_id),
+                        since=candidate.cursor,
+                        event_predicate=candidate.event_predicate,
+                        target_predicate=candidate.target_predicate,
                     )
-                    for report_id, report, since in chunk
+                    for candidate in chunk
                 ],
+                until=now,
+                settle_until=settle_until,
+                deadline=deadline,
             )
-            for report_id, report, _since in chunk:
-                assert report.trigger_threshold is not None
-                outputs[report_id] = CheckCountTriggeredEvalReportOutput(
-                    report_id=report_id, due=counts.get(report_id, 0) >= report.trigger_threshold
+            if result.covered_before <= now:
+                # The check still succeeds, so this log is the only sign that a team is catching up.
+                logger.warning(
+                    "count_triggered_eval_report_check.partial_count",
+                    team_id=team.pk,
+                    report_count=len(chunk),
+                    scan_start=chunk[0].cursor.isoformat(),
+                    covered_before=result.covered_before.isoformat(),
+                )
+            for candidate in chunk:
+                count = result.counts.get(candidate.report_id, _EntryCount(total=0, settled=0))
+                _save_running_count(
+                    candidate,
+                    cursor=max(candidate.cursor, min(result.covered_before, settle_until)),
+                    counted_results=candidate.counted_results + count.settled,
+                )
+                assert candidate.report.trigger_threshold is not None
+                outputs[candidate.report_id] = CheckCountTriggeredEvalReportOutput(
+                    report_id=candidate.report_id,
+                    due=candidate.counted_results + count.total >= candidate.report.trigger_threshold,
                 )
 
     # Preserve input order so the workflow's aggregation and logging stay deterministic.
     return [outputs[report_id] for report_id in report_ids]
+
+
+class _CountCandidate(NamedTuple):
+    report_id: str
+    report: "EvaluationReport"
+    anchor: dt.datetime
+    event_predicate: str
+    target_predicate: str
+    predicates_hash: str
+    # The check counts from here; `counted_results` already covers anchor..cursor.
+    cursor: dt.datetime
+    counted_results: int
+
+    @classmethod
+    def start(cls, report_id: str, report: "EvaluationReport", anchor: dt.datetime) -> "_CountCandidate":
+        event_predicate = get_outcome_definition(report.evaluation.output_type).event_predicate
+        target_predicate = target_event_predicate(report.evaluation.target)
+        predicates_hash = hashlib.sha256(f"{event_predicate}\n{target_predicate}".encode()).hexdigest()
+        cursor, counted_results = anchor, 0
+        # A saved count only holds while the rows it counted still match the evaluation's predicates.
+        if (
+            report.count_anchor_at == anchor
+            and report.count_predicates_hash == predicates_hash
+            and report.count_cursor_at is not None
+            and report.counted_results is not None
+        ):
+            cursor, counted_results = report.count_cursor_at, report.counted_results
+        return cls(
+            report_id, report, anchor, event_predicate, target_predicate, predicates_hash, cursor, counted_results
+        )
+
+
+def _save_running_count(candidate: _CountCandidate, cursor: dt.datetime, counted_results: int) -> None:
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
+
+    report = candidate.report
+    if (
+        report.count_anchor_at == candidate.anchor
+        and report.count_predicates_hash == candidate.predicates_hash
+        and report.count_cursor_at == cursor
+    ):
+        return
+    # Match the values this check read, so a concurrent check or a reset does not get overwritten.
+    EvaluationReport.objects.filter(
+        id=report.id,
+        count_anchor_at=report.count_anchor_at,
+        count_predicates_hash=report.count_predicates_hash,
+        count_cursor_at=report.count_cursor_at,
+    ).update(
+        count_anchor_at=candidate.anchor,
+        count_predicates_hash=candidate.predicates_hash,
+        count_cursor_at=cursor,
+        counted_results=counted_results,
+    )
 
 
 def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetime) -> int:
@@ -331,7 +424,9 @@ def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetim
     # These count checks run every 5 minutes across all count-triggered reports, so keep them
     # off the online cluster that serves user-facing queries — route to the offline replica.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=report.team_id):
-        result = execute_hogql_query(query=query, team=report.team, workload=Workload.OFFLINE)
+        result = execute_hogql_query(
+            query=query, team=report.team, workload=Workload.OFFLINE, query_type="EvalReportResultCount"
+        )
     rows = result.results or []
     if not rows:
         return 0
@@ -346,18 +441,38 @@ class _CountEntry(NamedTuple):
     target_predicate: str
 
 
+class _EntryCount(NamedTuple):
+    total: int
+    # The part of `total` with a timestamp before `settle_until`.
+    settled: int
+
+
+class _CountResult(NamedTuple):
+    counts: dict[str, _EntryCount]
+    # The counts cover the requested range from its start up to, but not including, this instant.
+    covered_before: dt.datetime
+
+
 def _count_eval_results_for_reports(
     team: "Team",
     entries: list[_CountEntry],
-) -> dict[str, int]:
-    """Count `$ai_evaluation` events for many reports in a single ClickHouse query.
+    since: dt.datetime,
+    until: dt.datetime,
+    settle_until: dt.datetime,
+    max_execution_time: int,
+) -> dict[str, _EntryCount]:
+    """Count `$ai_evaluation` events for many reports over one time range, in a single
+    ClickHouse query.
 
-    We emit one `countIf` column per entry, each carrying the exact per-report predicate
+    We emit two `countIf` columns per entry, each carrying the exact per-report predicate
     (evaluation_id + output-type `event_predicate` + `target_predicate` + `timestamp >=
-    since`), so every count equals what the single-report query would return. The shared
-    WHERE only narrows the scan (its `IN` set and `min(since)` never exclude a row any
-    countIf would have counted). Returns {key: count}.
+    entry.since`), so a call covering every entry's own window returns what the single-report
+    query would. The second column also requires `timestamp < settle_until`. The shared WHERE
+    narrows the scan to `since`..`until` and to the entries' evaluation ids. Callers that pass
+    a range narrower than an entry's own window get that range's share of the count, and must
+    sum the shares to get the entry's total.
     """
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.parser import parse_expr, parse_select
     from posthog.hogql.query import execute_hogql_query
 
@@ -375,22 +490,26 @@ def _count_eval_results_for_reports(
         # nosemgrep: hogql-fstring-audit (the predicates come from fixed internal definitions)
         parse_expr(
             f"countIf(properties.$ai_evaluation_id = {{evaluation_id}}"
-            f" AND {entry.event_predicate} AND {entry.target_predicate} AND timestamp >= {{since}})",
+            f" AND {entry.event_predicate} AND {entry.target_predicate} AND timestamp >= {{since}}{extra_predicate})",
             placeholders={
                 "evaluation_id": ast.Constant(value=entry.evaluation_id),
                 "since": ast.Constant(value=entry.since),
+                "settle_until": ast.Constant(value=settle_until),
             },
         )
         for entry in entries
+        for extra_predicate in ("", " AND timestamp < {settle_until}")
     ]
 
     unique_evaluation_ids = list(dict.fromkeys(entry.evaluation_id for entry in entries))
     query = parse_select(
         "SELECT 1 FROM events WHERE event = '$ai_evaluation' "
-        "AND properties.$ai_evaluation_id IN {evaluation_ids} AND timestamp >= {min_since}",
+        "AND properties.$ai_evaluation_id IN {evaluation_ids} "
+        "AND timestamp >= {since} AND timestamp <= {until}",
         placeholders={
             "evaluation_ids": ast.Tuple(exprs=[ast.Constant(value=e) for e in unique_evaluation_ids]),
-            "min_since": ast.Constant(value=min(entry.since for entry in entries)),
+            "since": ast.Constant(value=since),
+            "until": ast.Constant(value=until),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -398,13 +517,103 @@ def _count_eval_results_for_reports(
     query.select = select_columns
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
+        result = execute_hogql_query(
+            query=query,
+            team=team,
+            workload=Workload.OFFLINE,
+            query_type="EvalReportResultCountBatch",
+            # "throw", not the profile default: the split retry needs the timeout to raise. A
+            # partial count reads as below threshold and silently keeps the report from firing.
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw"),
+        )
 
     rows = result.results or []
     if not rows:
-        return {entry.key: 0 for entry in entries}
+        return {entry.key: _EntryCount(total=0, settled=0) for entry in entries}
     row = rows[0]
-    return {entries[index].key: int(row[index] or 0) for index in range(len(entries))}
+    return {
+        entry.key: _EntryCount(total=int(row[2 * index] or 0), settled=int(row[2 * index + 1] or 0))
+        for index, entry in enumerate(entries)
+    }
+
+
+def _count_eval_results_for_reports_with_split_retry(
+    team: "Team",
+    entries: list[_CountEntry],
+    until: dt.datetime,
+    settle_until: dt.datetime,
+    since: dt.datetime | None = None,
+    deadline: float | None = None,
+    max_execution_time: int = COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
+) -> _CountResult:
+    """Run the batched count query, halving the time range and retrying over each half if
+    ClickHouse can't finish it inside its own execution-time budget.
+
+    A `ClickHouseQueryTimeOut` means the rows in `since`..`until` don't fit the budget, so
+    replaying the identical query would just time out again. Halving the range halves the
+    rows each attempt reads, and the two halves sum to the same per-entry counts. Splitting
+    the countIf columns instead would leave both halves reading almost the same rows, because
+    the columns share one scan and the width barely moves its cost.
+
+    Every attempt draws on one shared wall-clock budget (`deadline`, in `time.monotonic()`
+    seconds), capping its own execution time by what remains, so the whole split tree
+    concludes before the activity's own timeout. ClickHouse can overrun its execution limit,
+    so an attempt only claims a limit it can afford to overshoot by
+    COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR. Once the remainder can't fund a meaningful query,
+    the timeout surfaces and the activity fails cleanly instead of being killed mid-split by
+    Temporal.
+
+    The halves run oldest first. When a later part cannot finish, the result keeps the counts
+    of the finished earlier part and `covered_before` marks where they stop, so the caller can
+    save that progress. The timeout surfaces only when no part of the range finished.
+    """
+    if since is None:
+        since = min(entry.since for entry in entries)
+    if deadline is None:
+        deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
+    affordable_execution_time = int((deadline - time.monotonic()) / COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR)
+    budget = min(max_execution_time, affordable_execution_time)
+    if budget < COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS:
+        raise ClickHouseQueryTimeOut("Count query budget exhausted before the split could finish.")
+    # The events table stores timestamps as DateTime64(6), so one microsecond past an instant
+    # is the next representable one and adjacent ranges cannot overlap.
+    try:
+        counts = _count_eval_results_for_reports(
+            team, entries, since=since, until=until, settle_until=settle_until, max_execution_time=budget
+        )
+        return _CountResult(counts=counts, covered_before=until + dt.timedelta(microseconds=1))
+    except ClickHouseQueryTimeOut:
+        if (until - since) <= COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE:
+            raise
+        midpoint = since + (until - since) / 2
+        earlier_half = _count_eval_results_for_reports_with_split_retry(
+            team,
+            entries,
+            since=since,
+            until=midpoint,
+            settle_until=settle_until,
+            deadline=deadline,
+            max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
+        )
+        if earlier_half.covered_before <= midpoint:
+            return earlier_half
+        try:
+            later_half = _count_eval_results_for_reports_with_split_retry(
+                team,
+                entries,
+                since=midpoint + dt.timedelta(microseconds=1),
+                until=until,
+                settle_until=settle_until,
+                deadline=deadline,
+                max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
+            )
+        except ClickHouseQueryTimeOut:
+            return earlier_half
+        counts = dict(earlier_half.counts)
+        for key, count in later_half.counts.items():
+            earlier = counts.get(key, _EntryCount(total=0, settled=0))
+            counts[key] = _EntryCount(total=earlier.total + count.total, settled=earlier.settled + count.settled)
+        return _CountResult(counts=counts, covered_before=later_half.covered_before)
 
 
 def _find_nth_eval_timestamp(
@@ -453,7 +662,9 @@ def _find_nth_eval_timestamp(
         },
     )
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
+        result = execute_hogql_query(
+            query=query, team=team, workload=Workload.OFFLINE, query_type="EvalReportNthResultTimestamp"
+        )
     rows = result.results or []
     if rows and rows[0][0] is not None:
         ts = rows[0][0]
@@ -511,9 +722,24 @@ async def prepare_report_context_activity(
     def prepare() -> PrepareReportContextOutput:
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-        report = EvaluationReport.objects.select_related("evaluation").get(id=inputs.report_id)
+        report = EvaluationReport.objects.select_related("evaluation").filter(id=inputs.report_id).first()
+        if report is None:
+            raise ApplicationError(
+                "This evaluation report no longer exists.", type="ReportNotFound", non_retryable=True
+            )
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
+        if not evaluation_supports_reports(evaluation.output_type, evaluation.target, evaluation.output_config):
+            if not inputs.manual:
+                report.last_attempted_at = now
+                report.set_next_delivery_date()
+                report.save(update_fields=["last_attempted_at", "next_delivery_date"])
+            # Activity failures remain readable by workflow workers from an older release.
+            raise ApplicationError(
+                "This evaluation no longer supports reports. For numeric or categorical evaluations, set a passing rule and generate the report again.",
+                type="ReportNotEligible",
+                non_retryable=True,
+            )
 
         period_end = now
 
@@ -557,9 +783,13 @@ async def prepare_report_context_activity(
             evaluation_id=str(evaluation.id),
             evaluation_name=evaluation.name,
             evaluation_description=evaluation.description or "",
-            evaluation_prompt=evaluation.evaluation_config.get("prompt", ""),
+            evaluation_prompt=evaluation.evaluation_config.get(
+                "source" if evaluation.evaluation_type == "hog" else "prompt", ""
+            ),
             evaluation_type=evaluation.evaluation_type,
             output_type=evaluation.output_type,
+            true_is_failure=bool(evaluation.output_config.get("true_is_failure")),
+            output_config=evaluation.output_config,
             period_start=period_start.isoformat(),
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),
@@ -587,23 +817,22 @@ async def run_eval_report_agent_activity(
             from posthog.temporal.ai_observability.eval_reports.report_agent import run_eval_report_agent
 
             evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
+            evaluation_output_configs = _load_evaluation_output_configs(inputs.team_id)
+            agent_inputs = inputs
+            if inputs.output_type in ("numeric", "categorical") and not inputs.output_config:
+                # Older workflow payloads omit the rule snapshot.
+                output_config = evaluation_output_configs.get(inputs.evaluation_id, {})
+                if not evaluation_supports_reports(inputs.output_type, evaluation_target, output_config):
+                    raise ApplicationError(
+                        "This evaluation no longer supports reports.", type="ReportNotEligible", non_retryable=True
+                    )
+                agent_inputs = replace(inputs, output_config=output_config)
             return (
                 run_eval_report_agent(
-                    team_id=inputs.team_id,
-                    report_id=inputs.report_id,
-                    trace_id=inputs.trace_id,
-                    session_id=inputs.session_id,
-                    evaluation_id=inputs.evaluation_id,
-                    evaluation_name=inputs.evaluation_name,
-                    evaluation_description=inputs.evaluation_description,
-                    evaluation_prompt=inputs.evaluation_prompt,
-                    evaluation_type=inputs.evaluation_type,
+                    agent_inputs,
                     evaluation_target=evaluation_target,
-                    output_type=inputs.output_type,
-                    period_start=inputs.period_start,
-                    period_end=inputs.period_end,
-                    previous_period_start=inputs.previous_period_start,
-                    report_prompt_guidance=inputs.report_prompt_guidance,
+                    detector_evaluation_ids=_load_detector_evaluation_ids(inputs.team_id),
+                    evaluation_output_configs=evaluation_output_configs,
                 ),
                 evaluation_target,
             )
@@ -621,11 +850,34 @@ async def run_eval_report_agent_activity(
 
 
 def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
-    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
-        Evaluation,
-    )
+    from products.ai_observability.backend.models.evaluations import Evaluation
 
     return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
+
+
+def _load_evaluation_output_configs(team_id: int) -> dict[str, dict[str, Any]]:
+    from products.ai_observability.backend.models.evaluations import Evaluation
+
+    return {
+        str(evaluation_id): config
+        for evaluation_id, config in Evaluation.objects.filter(
+            team_id=team_id, output_type__in=("numeric", "categorical")
+        ).values_list("id", "output_config")
+    }
+
+
+def _load_detector_evaluation_ids(team_id: int) -> list[str]:
+    """The generation detail tool lists every evaluation on a generation, not just this report's,
+    so it needs each one's polarity to label it. Read here rather than in the context activity,
+    which would carry the whole team's list through two Temporal payloads to reach this one."""
+    from products.ai_observability.backend.models.evaluations import Evaluation
+
+    return [
+        str(evaluation_id)
+        for evaluation_id in Evaluation.objects.filter(
+            team_id=team_id, output_type="boolean", output_config__true_is_failure=True
+        ).values_list("id", flat=True)
+    ]
 
 
 @temporalio.activity.defn
@@ -638,18 +890,19 @@ async def store_report_run_activity(
     def store() -> str:
         import uuid
 
-        from posthog.models.event.util import create_event
         from posthog.models.team import Team
         from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (  # noqa: PLC0415 -- keeps report agent dependencies off the activity import path
             EvalReportGenerationStatus,
             EvalReportMetrics,
             normalize_report_content_payload,
         )
+        from posthog.temporal.ai_observability.generated_event_usage import create_generated_ai_event
 
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 
         # Mirror content.metrics into the legacy `metadata` JSONField for consumers that still read it.
-        content = normalize_report_content_payload(inputs.content or {})
+        # The report agent can quote generation text, which can contain NUL.
+        content: dict[str, Any] = strip_null_bytes(normalize_report_content_payload(inputs.content or {}))
         evaluation_target = resolve_evaluation_target(content.get("evaluation_target", GENERATION_TARGET))
         generation_status = EvalReportGenerationStatus(content["generation_status"])
         metrics = content.get("metrics")
@@ -701,7 +954,7 @@ async def store_report_run_activity(
                     "$ai_report_previous_total_runs": parsed_metrics.previous_total_runs,
                 }
             )
-        if parsed_metrics is not None and parsed_metrics.output_type == "boolean":
+        if parsed_metrics is not None and parsed_metrics.output_type in ("boolean", "numeric", "categorical"):
             # Preserve the original flat properties for existing boolean-report consumers.
             properties.update(
                 {
@@ -713,7 +966,7 @@ async def store_report_run_activity(
                 }
             )
 
-        create_event(
+        create_generated_ai_event(
             event_uuid=uuid.uuid4(),
             event="$ai_evaluation_report",
             team=team,

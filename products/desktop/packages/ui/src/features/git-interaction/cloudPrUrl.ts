@@ -4,7 +4,7 @@ import type { AgentSession } from "@posthog/ui/features/sessions/sessionStore";
 
 export function resolveCloudPrUrls(
   task: Task | undefined,
-  session: AgentSession | undefined,
+  session: Pick<AgentSession, "cloudOutput"> | undefined,
 ): string[] {
   return mergePrUrls(
     readPrUrls(task?.latest_run?.output),
@@ -14,7 +14,7 @@ export function resolveCloudPrUrls(
 
 export function resolveCloudPrSummaries(
   task: Task | undefined,
-  session: AgentSession | undefined,
+  session: Pick<AgentSession, "cloudOutput"> | undefined,
 ): Record<string, string> {
   return {
     ...readPrSummaries(session?.cloudOutput),
@@ -24,7 +24,7 @@ export function resolveCloudPrSummaries(
 
 export function resolveCloudPrUrl(
   task: Task | undefined,
-  session: AgentSession | undefined,
+  session: Pick<AgentSession, "cloudOutput"> | undefined,
 ): string | null {
   return resolveCloudPrUrls(task, session)[0] ?? null;
 }

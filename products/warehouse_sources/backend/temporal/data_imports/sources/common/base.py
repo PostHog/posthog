@@ -1,20 +1,27 @@
 import datetime
+import functools
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
-
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
+    SourceFieldConfig,
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldOauthAccountSelectConfig,
@@ -23,20 +30,34 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
+    default_credential_kind,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import LegacyOAuthGrant
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
+    OAuthPointer,
+    PointerPath,
+    declared_oauth_pointer_paths,
+    find_in_use_oauth_slot,
+    pointer_at,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    is_unreachable_vendor_error,
+    unreachable_vendor_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceInputs,
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, SourceKey
 
 logger = structlog.get_logger(__name__)
 
@@ -87,15 +108,48 @@ FieldType = Union[
     SourceFieldSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldOauthAccountSelectConfig,
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldSSHTunnelConfig,
 ]
 
 SourceCredentialsValidationResult = tuple[bool, str | None]
 
+# Field names that say where stored credentials connect, and as which account, for any source that
+# declares them. The input of the default `credential_identity_fields`.
+GENERIC_IDENTITY_FIELDS: frozenset[str] = frozenset(
+    {
+        "host",
+        "port",
+        "instance_url",
+        "connection_string",
+        "ssh_tunnel",
+        "user",
+        "username",
+        "account",
+        "account_id",
+        "account_sid",
+    }
+)
+
+
+def _declared_field_names(fields: Iterable[SourceFieldConfig]) -> Iterator[str]:
+    """The names of the form fields at any depth: in switch groups and in the options of a select."""
+    for field in fields:
+        yield field.name
+        if isinstance(field, SourceFieldSwitchGroupConfig):
+            yield from _declared_field_names(field.fields)
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                yield from _declared_field_names(option.fields or [])
+
+
 # Label used by sources whose vendor has no meaningful API versioning. Version strings are
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
 UNVERSIONED_API_VERSION = "v1"
+
+# Wall-clock bound on `probe_new_data` before the import falls back to the full sync.
+FAST_RETURN_PROBE_TIMEOUT = datetime.timedelta(minutes=2)
 
 
 def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
@@ -107,6 +161,36 @@ def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
     """
     error_msg_lower = error_msg.lower()
     return any(pattern.lower() in error_msg_lower for pattern in patterns)
+
+
+CredentialProbe = TypeVar("CredentialProbe", bound=Callable[..., tuple[bool, str | None]])
+
+_GUARDED_PROBE = "_reports_unreachable_vendor"
+
+
+def _report_unreachable_vendor(probe: CredentialProbe) -> CredentialProbe:
+    """Wrap a `validate_credentials` override so that an unreachable vendor gives `(False, message)`.
+
+    The API calls the probe while a person creates or edits a source. A raised transport error there
+    shows them a message that blames their credentials. Every other error still raises."""
+
+    @functools.wraps(probe)
+    def guarded(self: "_BaseSource[Any]", *args: Any, **kwargs: Any) -> tuple[bool, str | None]:
+        try:
+            return probe(self, *args, **kwargs)
+        except Exception as error:
+            if not is_unreachable_vendor_error(error):
+                raise
+            # The class name only: a transport error message can repeat a URL that holds a credential.
+            logger.warning(
+                "validate_credentials could not reach the vendor",
+                source_type=str(self.source_type),
+                error_class=type(error).__name__,
+            )
+        return False, unreachable_vendor_message(self._vendor_label())
+
+    setattr(guarded, _GUARDED_PROBE, True)
+    return cast(CredentialProbe, guarded)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -137,6 +221,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # silently sync unfiltered rows.
     supports_row_filters: bool = False
 
+    # `True` only for sources whose discovery reads primary keys off the table itself, so an
+    # incremental table with none found has nothing to merge on. Sources left `False` declare
+    # the key in code at sync time, and are never asked for one.
+    detects_primary_keys: bool = False
+
     # `True` for sources whose HogQL tables use a PostHog-managed canonical schema
     # (`external_table_definitions`) — Stripe, Paddle, Zendesk. Their query exposes a fixed
     # field set (and powers revenue analytics), so the physical column set must stay complete.
@@ -157,6 +246,23 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # instead of naming the source type.
     supports_xmin: bool = False
 
+    # Direct-only connectors opt out so API clients cannot create a source that is accepted by
+    # discovery but can never run a scheduled import.
+    supports_scheduled_sync: bool = True
+
+    # For a source PostHog creates and syncs itself, one run at a time, when the data behind it
+    # changes (an uploaded file). The API refuses to create one from a request body, and refuses to
+    # turn on its schedule, because each scheduled run would bill the same rows again.
+    syncs_on_demand: bool = False
+
+    # False keeps the source out of the source catalog, for a source the app sets up through its own
+    # flow and never through the generic setup form.
+    listed_in_catalog: bool = True
+
+    # Sources with stable upstream resource ids need unfiltered discovery when a stored schema name
+    # may no longer match after an upstream rename.
+    uses_stable_schema_resource_ids: bool = False
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
@@ -175,9 +281,42 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
 
+    # How far back a first sync reaches, for a source that bounds one. A source that sets this
+    # reads `SourceInputs.history_start` instead of resolving a constant against the day it runs.
+    # See `sources/common/history_window.py`.
+    history_lookback: datetime.timedelta | None = None
+
+    # How the wizard tells that a codebase uses this source. Every released source sets it, and
+    # `tests/test_codebase_detection.py` fails for one that does not.
+    codebase_detection: Detection | NotDetectable | None = None
+
+    # Makes the wizard send users to the app's new-source form even when every field could be typed in
+    # a terminal. Sources whose fields need OAuth, a file upload or an account picker go there anyway.
+    setup_requires_ui: bool = False
+
+    def history_lookback_for_schema(
+        self, schema_name: str, config: ConfigType | None = None
+    ) -> datetime.timedelta | None:
+        """How far back a first sync of one schema reaches, or None for no bound.
+
+        Override when tables of one source need different bounds, for example a daily and an hourly
+        rollup of the same data, where the hourly table holds 24 rows for every daily row. `config`
+        is the source's parsed config, for a source whose depth the user picks at setup; it is None
+        when the config could not be read, and an override must still answer in that case.
+        """
+        return self.history_lookback
+
+    def row_filter_columns_for_schema(self, schema_name: str) -> tuple["RowFilterColumn", ...] | None:
+        """The columns a row filter on one schema may use, or None for every column of the table.
+
+        Override in a source whose API filters on a fixed set of fields. An empty tuple means the
+        schema accepts no row filter. Only read when `supports_row_filters` is True.
+        """
+        return None
+
     @property
     @abstractmethod
-    def source_type(self) -> ExternalDataSourceType:
+    def source_type(self) -> SourceKey:
         raise NotImplementedError()
 
     @property
@@ -204,7 +343,8 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         Returns `dict[str, str | None]`:
             key = a partial error message to match on
-            value = a friendly error message to show to users. We fallback to displaying the key when this is missing
+            value = a friendly error message to show to users. `None` keeps the raised error message,
+                which is what a source wants when that message carries detail no fixed string could
         """
 
         return {}
@@ -222,6 +362,39 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return set()
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        """Customer-facing messages for retryable failures that survived the whole retry budget.
+
+        Entries here do NOT change retryability — a matching failure keeps retrying and the schema
+        stays enabled. They only replace the raw driver text the job would otherwise store once
+        Temporal's retries run out, so `latest_error` names the failure class and a next action
+        instead of leaking connection internals.
+
+        Keys are partial error messages matched against `str(error)`, and should be drawn from
+        `get_retryable_errors` — a class the source never retries has no exhaustion to describe.
+        `get_non_retryable_errors` is consulted first, so a message matching both keeps the
+        non-retryable wording. The finalizer's generic `Transient_Error_Messages` map is consulted
+        next, so entries here only apply to classes that map does not name.
+
+        Returns `dict[str, str]`:
+            key = a partial error message to match on
+            value = the message to store on the failed job
+        """
+
+        return {}
+
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        """Sibling schemas `schema_name` reads from the warehouse instead of re-fetching.
+
+        Non-empty only for fan-out children that read their parent from the warehouse
+        (`DependentEndpointConfig.parent_source == "warehouse"`). Nothing requires these to
+        be enabled: `import_data_activity_sync` checks them per run and falls back to the
+        parent API when they aren't usable. Sources built on the shared REST fan-out wire
+        this to `required_parents_from_endpoint_configs`.
+        """
+
+        return []
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 
@@ -233,6 +406,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return {}
+
+    def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
+        """Curated descriptions adapted to one connected source's physical table names.
+
+        `get_canonical_descriptions` is keyed by source type, so a description that names a physical
+        table is written for a source connected without a table prefix, while `build_table_name`
+        prepends whatever prefix that source was given. Sources whose descriptions embed table names
+        override this to rebuild them for `table_prefix`; almost none do, so the default ignores it.
+        """
+
+        return self.get_canonical_descriptions()
 
     def get_schemas(
         self,
@@ -257,6 +441,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         instead of special-casing ``None``.
         """
         raise NotImplementedError()
+
+    def describe_pinned_schema(
+        self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
+    ) -> SourceSchema | None:
+        """Describe a pinned schema from the definition stored on it, without discovery.
+
+        Discovery can't report a pinned schema (see `SCHEMA_PINNED_METADATA_KEY`), so callers ask
+        this first. A source that can rebuild the schema from `schema_metadata` checks that the
+        credentials can read the schema's own data, raises the errors a sync raises when they
+        can't, and returns the schema. `None` means the caller uses `validate_credentials` and
+        `get_schemas`, as for any other schema.
+        """
+        return None
 
     def _placeholder_config(self) -> ConfigType:
         """Build a credential-free config instance for static, no-network schema listing.
@@ -307,18 +504,54 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         return self._config_class.validate_dict(job_inputs)
 
+    def serialize_config(self, config: ConfigType) -> dict[str, Any]:
+        """Serialize parsed config for storage. Sources may retain rollout-compatible fields."""
+        return config.to_dict()
+
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         return None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # Every override gets the guard, so a new source cannot forget it.
+        probe = cls.__dict__.get("validate_credentials")
+        if callable(probe) and not getattr(probe, _GUARDED_PROBE, False):
+            cls.validate_credentials = _report_unreachable_vendor(probe)  # type: ignore[method-assign]
+
+    def _vendor_label(self) -> str:
+        # The label is for a message only, so a source config that cannot build must not hide the result.
+        try:
+            return self.get_source_config.label or str(self.source_type)
+        except Exception:
+            return "the vendor"
 
     def validate_credentials(
         self, config: ConfigType, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message.
 
+        Every override runs inside a guard that turns an unreachable vendor (a dropped connection, a
+        timeout, a server error) into `(False, message)`, so an override can let those errors raise.
+
         ``api_version`` follows the `get_schemas` contract: the resolved pin of the source
         instance being validated, or ``None`` (→ `default_version`) before a row exists."""
         return True, None
+
+    def probe_new_data(self, config: ConfigType, inputs: SourceInputs) -> bool | None:
+        """Whether the source has data past this schema's stored watermark.
+
+        `False` lets the run complete without extracting anything, so only return it when the
+        source is provably unchanged. `None` (the default) means "unknown" and runs the normal
+        sync, which is also the right answer for any error: never let a probe failure suppress
+        a sync. Callers guarantee the schema is incremental/append, past its initial sync, and
+        has no repair work pending.
+
+        The caller stops waiting after FAST_RETURN_PROBE_TIMEOUT but cannot interrupt this
+        method's thread, so implementations should bound their own remote call below that limit
+        (for example a server-side statement timeout) to avoid orphaned queries.
+        """
+        return None
 
     def get_endpoint_permissions(
         self, config: ConfigType, team_id: int, endpoints: list[str], api_version: str | None = None
@@ -339,6 +572,87 @@ class _BaseSource(ABC, Generic[ConfigType]):
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
 
+    @property
+    def credential_identity_fields(self) -> frozenset[str]:
+        """Connection fields that say where the stored credentials connect, and as which account.
+
+        When other sources or products share the credentials row, a change to one of these fields makes a
+        new row, so the other users keep their connection. The default is ``connection_host_fields`` plus
+        each name in ``GENERIC_IDENTITY_FIELDS`` that the source declares as a form field (at any depth) or
+        stores as a config attribute."""
+        declared = set(_declared_field_names(self.get_source_config.fields))
+        declared |= {config_field.name for config_field in dataclasses.fields(self._config_class)}
+        return frozenset(self.connection_host_fields) | (GENERIC_IDENTITY_FIELDS & declared)
+
+    @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        """True when each ``*_integration_id`` field of the inputs holds the id of a core ``Integration`` row.
+
+        The reconcile command checks that each such id points at a row. Override it to False when the source
+        keeps its OAuth rows in another model."""
+        return True
+
+    @property
+    def credential_kind(self) -> str | None:
+        """The ``Integration`` kind that holds this source's typed-in credentials, or None when the source has none.
+
+        The default is the kind of the source's OAuth field, else the kebab-case source type. Override it when the
+        source has the credential shape of an existing kind (Postgres is ``postgresql``), or when kebab-case splits
+        a brand name (MySQL is ``mysql``). The kind is stored data and `facade/credential_kinds.py` freezes it, so
+        never change the kind of a released source. A subclass inherits an override, so it must set its own kind."""
+        return default_credential_kind(self.source_type, self.get_source_config)
+
+    @property
+    def credential_auth_type(self) -> str:
+        """The default auth type (``oauth``, ``token`` or ``credentials``) of rows of ``credential_kind``.
+
+        The default comes from the connection fields. It is stored data and `facade/credential_auth_types.py`
+        freezes it, so never change it for a released source."""
+        # The derivation module imports this module.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_auth_type import (  # noqa: PLC0415
+            derive_credential_auth_type,
+        )
+
+        return derive_credential_auth_type(self.get_source_config)
+
+    def has_legacy_oauth_tokens(self, job_inputs: Mapping[str, Any]) -> bool:
+        """Check for legacy OAuth tokens without network calls."""
+        return False
+
+    def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
+        """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.
+
+        None means the inputs hold no legacy OAuth tokens to move into a row.
+        """
+        return None
+
+    def in_use_oauth_slot(self, job_inputs: Mapping[str, Any]) -> PointerPath | None:
+        """Where ``job_inputs`` keep the OAuth pointer (`*_integration_id`) that the sync uses, or None.
+
+        The default walks the form: an OAuth field under a select option or a switch group is in use only when
+        that option is selected or the group is on. Override it for a pointer that no form field declares
+        (Slack's legacy ``slack_integration_id``), together with ``oauth_pointer_paths``. Raises
+        `OAuthPointerShapeError` when the inputs cannot tell which field is in use."""
+        return find_in_use_oauth_slot(self.get_source_config.fields, job_inputs)
+
+    def in_use_oauth_pointer(self, job_inputs: Mapping[str, Any]) -> OAuthPointer | None:
+        """The OAuth pointer that the sync of these inputs uses, or None. Do not override: override
+        ``in_use_oauth_slot``."""
+        return pointer_at(job_inputs, self.in_use_oauth_slot(job_inputs))
+
+    @property
+    def oauth_pointer_paths(self) -> frozenset[PointerPath]:
+        """Every place in ``job_inputs`` that can hold an OAuth pointer, also under options that are not selected."""
+        return declared_oauth_pointer_paths(self.get_source_config.fields)
+
+    def is_unreachable_validation_error(self, error: str) -> bool:
+        """Whether a ``validate_credentials`` message means only that the host could not be reached
+        over the network. The update serializer may then save the change with a warning for a team
+        that uses internal hosts, because the API can lack a network path that the workers have. A
+        message that reports rejected credentials or a rejected config must return ``False``.
+        Default: no message qualifies."""
+        return False
+
     def server_managed_job_input_fields(
         self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
     ) -> list[str]:
@@ -347,6 +661,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
         (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
+
+    # Top-level ``job_inputs`` keys that hold server-written runtime state, such as a pointer to an
+    # uploaded file. They are neither credentials nor settings a person picks, so they stay in
+    # ``job_inputs`` when the connection fields move to their own store. Keys that start with
+    # ``cdc_`` are runtime state for every source and need no entry here.
+    runtime_job_input_keys: frozenset[str] = frozenset()
 
     # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
     # sources are capped; everything else is open. The API enforces this at create.
@@ -370,6 +690,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         redirect the row's injected token. Default: no row-backed credentials."""
         return False
 
+    def get_server_metadata(self, config: ConfigType, team_id: int) -> dict[str, Any]:
+        """Version facts probed from the upstream server, which the schema-discovery pass merges
+        onto the source's ``connection_metadata``. Distinct from ``get_connection_metadata``, which
+        the API calls for direct-query sources only and which returns that mode's connection
+        config, so a source that implements one does not implement the other by accident. The keys
+        vary per source, so the shape is a dict and not a fixed contract. No-op by default."""
+        return {}
+
     def on_source_created(self, source_model: "ExternalDataSource", team_id: int) -> None:
         """Post-create hook. Custom claims its OAuth2 integration row here. No-op by default."""
         return None
@@ -378,21 +706,77 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
         return None
 
+    def on_source_deleted(self, source_model: "ExternalDataSource") -> None:
+        """Best-effort cleanup once the source is soft-deleted, for example of files PostHog stores
+        for it. Runs inside the delete's transaction, so work outside the database belongs in
+        `transaction.on_commit`. No-op by default."""
+        return None
+
+    def has_cleanup_after_sync(self, source_model: "ExternalDataSource") -> bool:
+        """Whether `cleanup_after_sync` has work to do after a sync of one of the source's schemas
+        completes. Kept cheap and false for most sources, because a true answer adds a step to the
+        post-import workflow."""
+        return False
+
+    def cleanup_after_sync(self, source_model: "ExternalDataSource", job: "ExternalDataJob") -> None:
+        """Runs after `job` completed and its table was loaded, when `has_cleanup_after_sync` said so.
+        No-op by default."""
+        return None
+
+    def manual_sync_refusal(self, source_model: "ExternalDataSource") -> str | None:
+        """Why a user can't start a sync of the source's schemas now, as a message for the user, or None
+        when they can. For a source whose inputs can't run a sync yet, such as one that waits for a file."""
+        return None
+
+    def uploaded_file_name(self, source_model: "ExternalDataSource") -> str | None:
+        """The name of the file the source imports, for a source that imports an uploaded file. None by default."""
+        return None
+
+
+class SourceExtractionNotImplementedError(NotImplementedError):
+    """A source class carries no `source_for_pipeline` of its own, so only the base stub is left.
+
+    Reaching this in a sync means the worker runs an older build than the web code that created
+    the source: a scaffolded source is only connectable once its implementation ships. Kept
+    distinct from a plain `NotImplementedError`, which a source implementation raises for a real
+    defect the pipeline must keep reporting.
+    """
+
 
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        raise NotImplementedError()
+        raise SourceExtractionNotImplementedError(f"{type(self).__name__} does not implement source_for_pipeline")
 
 
 class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData]):
     """Base class for sources that support resumable full-refresh imports."""
 
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        """Whether this source's resume mechanism covers a run of this shape.
+
+        Only the retry budget reads this. A run it covers gets the resumable allowance, which is much
+        larger than the incremental one and far larger than the full-load one, on the grounds that
+        each attempt continues rather than restarting. A run it does not cover falls through to the
+        ordinary budgets, because extra attempts would each redo the whole read.
+
+        Default True: a REST source paginates the same way whichever sync type it runs. A source
+        whose mechanism is narrower than its class — keyset seeking is a full-load path, a specific
+        endpoint cannot checkpoint, or a seek gated behind a retry fallback covers almost nothing —
+        narrows it here. ``schema_name`` identifies the endpoint when that distinction matters.
+        """
+        return True
+
     def source_for_pipeline(
         self, config: ConfigType, resumable_source_manager: ResumableSourceManager[ResumableData], inputs: SourceInputs
     ) -> SourceResponse:
-        raise NotImplementedError()
+        raise SourceExtractionNotImplementedError(f"{type(self).__name__} does not implement source_for_pipeline")
 
     @abstractmethod
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ResumableData]:
@@ -425,7 +809,7 @@ class WebhookDeletionResult:
     error: str | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class ExternalWebhookInfo:
     """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
 
@@ -435,7 +819,21 @@ class ExternalWebhookInfo:
     status: str | None = None
     description: str | None = None
     created_at: str | None = None
+    # The vendor API version the endpoint delivers at, for the providers that pin one per
+    # endpoint. None means the provider has no such concept or the endpoint carries no pin, in
+    # which case the provider renders payloads at the account default and the shape can drift
+    # away from the version this source reads.
+    api_version: str | None = None
     error: str | None = None
+
+
+def _serialized_input_has_value(serialized: dict[str, Any] | None) -> bool:
+    # A set secret is redacted to `{"secret": True}`, so the marker is the only proof it has a value.
+    if not serialized:
+        return False
+    if serialized.get("secret"):
+        return True
+    return serialized.get("value") not in (None, "")
 
 
 class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
@@ -463,6 +861,32 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook payload versions often key off it).
         """
         raise NotImplementedError()
+
+    def webhook_creation_blocked_reason(self, config: ConfigType, team_id: int) -> str | None:
+        """Why this connection can never create the provider-side webhook, or ``None``.
+
+        Some connections are known ahead of time to lack the grant `create_webhook` needs — an
+        OAuth app installation can only hold permissions the app itself requests, so no amount of
+        reconnecting will earn it. Returning a reason lets the UI offer the manual setup steps
+        instead of a button whose only outcome is a permission error.
+
+        ``None`` means "not known to be blocked", not "will succeed": it is the answer for every
+        credential whose grants can't be introspected (API keys, tokens), so a real denial still
+        surfaces from `create_webhook`.
+        """
+        return None
+
+    def missing_webhook_inputs(self, inputs: dict[str, Any]) -> list[str]:
+        """Names of required ``webhookFields`` the hog function has no value for, from its serialized inputs.
+
+        While one is missing the webhook accepts and drops every delivery. Override where the
+        provider stores the credential under another input, so a configured webhook is not reported.
+        """
+        return [
+            field.name
+            for field in (self.get_source_config.webhookFields or [])
+            if getattr(field, "required", False) and not _serialized_input_has_value(inputs.get(field.name))
+        ]
 
     def get_desired_webhook_events(self, config: ConfigType, eligible_schema_names: list[str]) -> list[str] | None:
         """Events the webhook should subscribe to. ``None`` when the source has no

@@ -320,7 +320,7 @@ fn create_group_identify_event(
         session_id: None,
         ip: "".to_string(),
         data: serde_json::to_string(&raw_event)?,
-        now: timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+        now: Utc::now().to_rfc3339(),
         sent_at: None,
         token: context.token.clone(),
         event: "$groupidentify".to_string(),
@@ -1907,9 +1907,8 @@ mod tests {
         assert_eq!(group_identify_data["event"], "$groupidentify");
         assert_eq!(group_identify_data["timestamp"], specific_timestamp);
 
-        // Verify the timestamp is not a "now" timestamp
-        let now = chrono::Utc::now();
-        assert_ne!(group_identify_data["timestamp"], now.to_rfc3339());
+        // The event timestamp is customer-supplied; `now` is the trusted server capture time.
+        assert_ne!(group_identify_event.inner.now, "2023-10-15 14:30:00.000");
 
         // Check original event also has the same timestamp
         let original_event = &result[1];

@@ -1,18 +1,23 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { Suspense, useState } from 'react'
+import React, { Suspense, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useInView } from 'react-intersection-observer'
 
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
-import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import {
+    DashboardWidgetPlacementMenus,
+    type DashboardWidgetPlacementMenusProps,
+} from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 import {
     DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER,
@@ -24,6 +29,7 @@ import {
 } from '../../widget_types/catalog'
 import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
 import {
+    userCanMutateConversationsTicketsOnDashboard,
     userCanMutateErrorTrackingIssuesOnDashboard,
     userHasDashboardWidgetProductAccess,
 } from '../../widgetProductAccess'
@@ -43,7 +49,8 @@ import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../WidgetCard/
 import { WidgetRuntimeAvailabilityGuard } from '../WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 
 type DashboardWidgetItemProps = {
-    tile: DashboardTile<QueryBasedInsightModel>
+    onConfigPublished?: () => void
+    tile: DashboardTile
     placement: DashboardPlacement
     dashboardId?: number | null
     canEditDashboard?: boolean
@@ -77,23 +84,25 @@ type DashboardWidgetItemProps = {
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     /** Injected by react-grid-layout / react-resizable — must render inside the card root. */
     children?: React.ReactNode
-} & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>
+} & Pick<DashboardWidgetPlacementMenusProps, 'tileGroupMoveOptions' | 'onMoveToTileGroup'> &
+    Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>
 
 type DashboardWidgetItemContentProps = Omit<
     DashboardWidgetItemProps,
     'children' | 'className' | 'style' | 'showResizeHandles' | 'canEnterEditModeFromEdge' | 'onEnterEditModeFromEdge'
 > & {
-    widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
+    widget: NonNullable<DashboardTile['widget']>
     definition: DashboardWidgetDefinition | undefined
     headerCatalogEntry: ResolvedDashboardWidgetCatalogEntry
     isUnknownWidgetType: boolean
     copyToDestinations: ReturnType<typeof useValues<typeof dashboardWidgetMenusLogic>>['copyToDestinations']
     editOpen: boolean
     setEditOpen: (open: boolean) => void
+    showBody: boolean
 }
 
 type DashboardWidgetItemBodyProps = {
-    widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
+    widget: NonNullable<DashboardTile['widget']>
     definition: DashboardWidgetDefinition | undefined
     componentProps: DashboardWidgetComponentProps
     dashboardId?: number | null
@@ -144,6 +153,7 @@ function DashboardWidgetItemContent({
     onRefreshWidgetData,
     onApplyWidgetIssueMetadataChange,
     onUpdateWidgetTile,
+    onConfigPublished,
     toggleShowDescription,
     onDragHandleMouseDown,
     showEditingControls,
@@ -153,9 +163,12 @@ function DashboardWidgetItemContent({
     onRemove,
     onMoveToDashboard,
     onCopyToDashboard,
+    tileGroupMoveOptions,
+    onMoveToTileGroup,
     copyToDestinations,
     editOpen,
     setEditOpen,
+    showBody,
 }: DashboardWidgetItemContentProps): JSX.Element {
     const widgetTypeLabel = getDashboardWidgetGroupLabel(headerCatalogEntry.groupId)
     const defaultTitle = headerCatalogEntry.headerTitle ?? widgetTypeLabel
@@ -188,16 +201,19 @@ function DashboardWidgetItemContent({
               }
             : undefined,
         canMutateErrorTrackingIssues: userCanMutateErrorTrackingIssuesOnDashboard(!!canEditDashboard),
+        canMutateConversationsTickets: userCanMutateConversationsTicketsOnDashboard(!!canEditDashboard),
         onUpdateConfig: canUpdateWidgetTileConfig
             ? async (config) => {
                   await onUpdateWidgetTile({ config })
               }
             : undefined,
+        onConfigPublished: canUpdateWidgetTileConfig ? onConfigPublished : undefined,
     }
 
     const TileFilters = definition?.TileFilters
     const { isAvailable: showTileFilters } = useWidgetAvailability(headerCatalogEntry.availability)
     const EditModal = definition?.EditModal
+    const MenuItems = definition?.MenuItems
 
     const hasDashboardSectionActions =
         !!(onMoveToDashboard || onCopyToDashboard || onRemove) ||
@@ -236,6 +252,11 @@ function DashboardWidgetItemContent({
                 refreshControl={refreshControl}
                 moreButtonOverlay={
                     <>
+                        {!showSharedPlaceholder && hasProductAccess && MenuItems && (
+                            <Suspense fallback={null}>
+                                <MenuItems {...componentProps} />
+                            </Suspense>
+                        )}
                         {titleHref && (
                             <LemonButton to={titleHref} fullWidth>
                                 View
@@ -276,6 +297,8 @@ function DashboardWidgetItemContent({
                                         placementDestinations={copyToDestinations ?? []}
                                         onMoveToDashboard={onMoveToDashboard}
                                         onCopyToDashboard={onCopyToDashboard}
+                                        tileGroupMoveOptions={tileGroupMoveOptions}
+                                        onMoveToTileGroup={onMoveToTileGroup}
                                     />
                                 )}
                                 {onRemove && (
@@ -318,26 +341,31 @@ function DashboardWidgetItemContent({
                 />
             ) : (
                 <WidgetCardBody
+                    padding={definition?.bodyPadding}
                     locked={!hasProductAccess}
                     error={!isUnknownWidgetType && hasProductAccess ? error : undefined}
                     onRefresh={isUnknownWidgetType ? undefined : onRefresh}
                     refreshing={isUnknownWidgetType ? false : loading}
                 >
-                    <ErrorBoundary
-                        className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
-                        exceptionProps={{
-                            feature: 'dashboard_widget',
-                            widget_type: widget.widget_type,
-                            tile_id: tile.id,
-                        }}
-                    >
-                        <DashboardWidgetItemBody
-                            widget={widget}
-                            definition={definition}
-                            componentProps={componentProps}
-                            dashboardId={dashboardId}
-                        />
-                    </ErrorBoundary>
+                    {showBody ? (
+                        <ErrorBoundary
+                            className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
+                            exceptionProps={{
+                                feature: 'dashboard_widget',
+                                widget_type: widget.widget_type,
+                                tile_id: tile.id,
+                            }}
+                        >
+                            <DashboardWidgetItemBody
+                                widget={widget}
+                                definition={definition}
+                                componentProps={componentProps}
+                                dashboardId={dashboardId}
+                            />
+                        </ErrorBoundary>
+                    ) : (
+                        <LemonSkeleton className="min-h-0 w-full flex-1" active={false} />
+                    )}
                 </WidgetCardBody>
             )}
             {EditModal &&
@@ -378,6 +406,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onRefreshWidgetData,
             onApplyWidgetIssueMetadataChange,
             onUpdateWidgetTile,
+            onConfigPublished,
             toggleShowDescription,
             showResizeHandles,
             canEnterEditModeFromEdge,
@@ -388,6 +417,8 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onRemove,
             onMoveToDashboard,
             onCopyToDashboard,
+            tileGroupMoveOptions,
+            onMoveToTileGroup,
             children,
             className,
             style,
@@ -397,12 +428,31 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
     ): JSX.Element | null {
         const widget = tile.widget
         const [editOpen, setEditOpen] = useState(false)
+        const exportPlacement = placement === DashboardPlacement.Export
+        const { ref: visibilityRef, inView } = useInView({
+            rootMargin: '500px',
+            triggerOnce: true,
+            initialInView: exportPlacement,
+            skip: exportPlacement,
+        })
+        const mergedRef = useCallback(
+            (node: HTMLDivElement | null): void => {
+                visibilityRef(node)
+                if (typeof ref === 'function') {
+                    ref(node)
+                } else if (ref) {
+                    ref.current = node
+                }
+            },
+            [ref, visibilityRef]
+        )
+        const gridClasses = className?.split(' ') ?? []
+        const interactionActive = gridClasses.includes('resizing') || gridClasses.includes('react-draggable-dragging')
 
         const { copyToDestinations } = useValues(
             dashboardWidgetMenusLogic({
                 instanceKey: widget ? `widget-${widget.id}` : `widget-tile-${tile.id}`,
                 dashboardId,
-                dashboards: undefined,
                 dashboard_tiles: widget?.dashboard_tiles,
             })
         )
@@ -419,12 +469,13 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
         const headerCatalogEntry =
             catalogEntryOrUndefined ?? getUnknownDashboardWidgetCatalogFallback(widget.widget_type)
         const isUnknownWidgetType = catalogEntryOrUndefined === undefined
+        const showBody = inView || exportPlacement || interactionActive || editOpen || !!headerCatalogEntry.live
 
         // react-grid-layout injects className/style via cloneElement — WidgetCard must be the root node
         // so decorative resize handles and RGL's .react-resizable-handle siblings share a parent (see InsightCard).
         return (
             <WidgetCard
-                ref={ref}
+                ref={mergedRef}
                 className={clsx('min-h-0', className)}
                 style={style}
                 {...divProps}
@@ -449,6 +500,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onRefreshWidgetData={onRefreshWidgetData}
                     onApplyWidgetIssueMetadataChange={onApplyWidgetIssueMetadataChange}
                     onUpdateWidgetTile={onUpdateWidgetTile}
+                    onConfigPublished={onConfigPublished}
                     canEditDashboard={canEditDashboard}
                     toggleShowDescription={toggleShowDescription}
                     isDashboardEditMode={isDashboardEditMode}
@@ -458,9 +510,12 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onRemove={onRemove}
                     onMoveToDashboard={onMoveToDashboard}
                     onCopyToDashboard={onCopyToDashboard}
+                    tileGroupMoveOptions={tileGroupMoveOptions}
+                    onMoveToTileGroup={onMoveToTileGroup}
                     copyToDestinations={copyToDestinations}
                     editOpen={editOpen}
                     setEditOpen={setEditOpen}
+                    showBody={showBody}
                 />
             </WidgetCard>
         )

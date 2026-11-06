@@ -232,6 +232,16 @@ export function PlanApprovalSelector({
         onReject(rejectOption.optionId, text)
     }
 
+    // The composer hides while an approval shows, so its focus falls to the page body. The run's Escape
+    // boundary ignores body focus in the side panel and after a click elsewhere in the main chat, so the
+    // card takes focus to keep "Esc to cancel" working. Focus that rests on a visible element stays.
+    useEffect(() => {
+        const active = document.activeElement
+        if (!active || active === document.body || active.closest('[hidden]')) {
+            containerRef.current?.focus({ preventScroll: true })
+        }
+    }, [])
+
     const moveSelection = (delta: number): void => {
         selectRow((selectedIndex + delta + rowCount) % rowCount)
     }
@@ -251,7 +261,10 @@ export function PlanApprovalSelector({
     // any element outside the card keeps native Tab/Enter behavior.
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent): void => {
-            if (rejectSelected || e.defaultPrevented) {
+            if (e.key === 'Escape' && containerRef.current?.closest('[data-run-escape-scope]')) {
+                return
+            }
+            if (responding || rejectSelected || e.defaultPrevented) {
                 return
             }
             const target = e.target
@@ -350,7 +363,7 @@ export function PlanApprovalSelector({
     const approveActive = selectedIndex === 0 || hoveredIndex === 0
 
     return (
-        <div ref={containerRef} className="rounded border bg-surface-primary p-3">
+        <div ref={containerRef} tabIndex={-1} className="rounded border bg-surface-primary p-3">
             <div className="flex flex-col gap-2">
                 <span className="font-medium text-[13px] text-accent">Implementation Plan</span>
 
@@ -417,6 +430,7 @@ export function PlanApprovalSelector({
                                             onEscape={() => {
                                                 setFeedback('')
                                                 selectRow(0)
+                                                containerRef.current?.focus()
                                             }}
                                             onSubmit={submitReject}
                                         />

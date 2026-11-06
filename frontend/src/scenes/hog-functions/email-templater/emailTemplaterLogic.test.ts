@@ -1,13 +1,21 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { Realm } from '~/types'
+
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import {
     EMAIL_TYPE_SUPPORTED_FIELDS,
     EditorRef,
     EmailTemplate,
     EmailTemplaterLogicProps,
+    buildHtmlWrapDesign,
+    buildPersonPropertyMergeValue,
     emailTemplaterLogic,
 } from './emailTemplaterLogic'
 
@@ -31,6 +39,21 @@ function makeProps(overrides?: Partial<EmailTemplaterLogicProps>): EmailTemplate
 
 const ADVANCED_FIELDS = EMAIL_TYPE_SUPPORTED_FIELDS.native_email.filter((f) => f.isAdvancedField)
 const NON_ADVANCED_FIELDS = EMAIL_TYPE_SUPPORTED_FIELDS.native_email.filter((f) => !f.isAdvancedField)
+
+const renderAround = (block: string): string =>
+    `<html><head><style>#u_body a { color: #00e; }</style></head><body class="clean-body u_body"><!--[if mso]><table><tr><td><![endif]--><table id="u_body"><tbody><tr><td><div class="u-row">${block}</div></td></tr></tbody></table></body></html>`
+const RENDER_OF_OLD = renderAround('<p>old</p>')
+const RENDER_WITH_FOOTER = renderAround('<p>old</p><p>P.S.</p>')
+const RENDERED_PAGE = renderAround('<p>page</p>')
+const RENDERED_PAGE_WITH_FOOTER = `<div>${RENDERED_PAGE}<p>footer</p></div>`
+const RENDER_WITH_IMAGE = renderAround('<p>old</p><img src="https://example.com/offer.png">')
+const UNLAYER_COLUMN_OPEN =
+    '<!--[if (mso)|(IE)]><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center"><![endif]--><!--[if (!mso)&(!IE)]><!--><div style="height: 100%;"><!--<![endif]-->'
+const UNLAYER_COLUMN_CLOSE =
+    '<!--[if (!mso)&(!IE)]><!--></div><!--<![endif]--><!--[if (mso)|(IE)]></td></tr></table><![endif]-->'
+const RENDER_IN_OUTLOOK_COLUMN = renderAround(`${UNLAYER_COLUMN_OPEN}<p>old</p>${UNLAYER_COLUMN_CLOSE}`)
+const RENDER_WITH_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if mso]><p>footer</p><![endif]-->')
+const RENDER_WITH_NON_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if !mso]><!--><p>footer</p><!--<![endif]-->')
 
 describe('emailTemplaterLogic', () => {
     let logic: ReturnType<typeof emailTemplaterLogic.build>
@@ -130,6 +153,66 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('email media library', () => {
+        it.each([
+            {
+                description: 'identifies the project to Unlayer in the native editor',
+                type: 'native_email',
+                identified: true,
+            },
+            { description: 'leaves the destination editor untouched', type: 'email', identified: false },
+        ] as const)('$description', ({ type, identified }) => {
+            preflightLogic.mount()
+            preflightLogic.actions.loadPreflightSuccess({ realm: Realm.Cloud } as any)
+
+            logic = emailTemplaterLogic(makeProps({ type }))
+            logic.mount()
+
+            expect(logic.values.unlayerEditorUser?.id.startsWith('project-') ?? false).toBe(identified)
+        })
+    })
+
+    describe('merge tags', () => {
+        beforeEach(() => {
+            useMocks({ get: { '/api/projects/:team_id/property_definitions/': { results: [{ name: 'email' }] } } })
+        })
+
+        it.each([
+            { type: 'native_email_template', variables: undefined, expected: ['email'] },
+            {
+                type: 'native_email_transactional_template',
+                variables: { variables: { first_name: '', reset_link: '' } },
+                expected: ['variables.first_name', 'variables.reset_link'],
+            },
+        ] as const)('$type offers $expected', async ({ type, variables, expected }) => {
+            logic = emailTemplaterLogic(makeProps({ type, variables }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const offered = Object.keys(logic.values.mergeTags).filter((key) => !key.startsWith('unsubscribe'))
+            expect(offered).toEqual(expected)
+        })
+
+        it('pushes a newly added variable into the open editor', async () => {
+            const setMergeTags = jest.fn()
+            const props = makeProps({ type: 'native_email_transactional_template', variables: { variables: {} } })
+            logic = emailTemplaterLogic(props)
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { setMergeTags, addEventListener: jest.fn(), loadDesign: jest.fn() },
+            } as any)
+            logic.actions.onEmailEditorReady()
+
+            emailTemplaterLogic({ ...props, variables: { variables: { code: '' } } })
+
+            expect(setMergeTags).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    'variables.code': expect.objectContaining({ value: '{{ variables.code }}' }),
+                })
+            )
+        })
+    })
+
     describe('modal content tab default', () => {
         it.each([
             {
@@ -168,6 +251,92 @@ describe('emailTemplaterLogic', () => {
             logic.actions.setIsModalOpen(false)
             await expectLogic(logic).toMatchValues({ isTemplatePickerOpen: false })
         })
+
+        it("applying a transactional template keeps the email's own sender and reply-to", async () => {
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, from: { integrationId: 1 }, replyTo: 'team@example.com' },
+                })
+            )
+            logic.mount()
+
+            logic.actions.applyTemplate({
+                id: 'template-1',
+                name: 'Password reset',
+                content: {
+                    templating: 'liquid',
+                    email: {
+                        ...DEFAULT_EMAIL_TEMPLATE,
+                        subject: 'Reset your password',
+                        from: { integrationId: 2, name: 'PostHog Security' },
+                        replyTo: 'security@example.com',
+                    },
+                },
+            } as MessageTemplate)
+
+            await expectLogic(logic).toMatchValues({
+                emailTemplate: expect.objectContaining({
+                    subject: 'Reset your password',
+                    from: { integrationId: 1 },
+                    replyTo: 'team@example.com',
+                }),
+            })
+        })
+
+        it('applying a text-only template clears the previous html body and design', async () => {
+            const onChange = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: {
+                        ...DEFAULT_EMAIL_TEMPLATE,
+                        html: '<p>Hello from PostHog!</p>',
+                        design: {} as EmailTemplate['design'],
+                    },
+                    onChange,
+                })
+            )
+            logic.mount()
+
+            logic.actions.applyTemplate({
+                id: 'template-2',
+                name: 'Plain receipt',
+                content: {
+                    templating: 'liquid',
+                    email: { subject: 'Your receipt', text: 'Thanks for your order.' },
+                },
+            } as MessageTemplate)
+
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    subject: 'Your receipt',
+                    text: 'Thanks for your order.',
+                    html: '',
+                    design: null,
+                })
+            )
+        })
+
+        it('applying a template whose stored wrap is stale loads its current html', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+            loadDesign.mockClear()
+
+            logic.actions.applyTemplate({
+                id: 'template-3',
+                name: 'Newsletter',
+                content: {
+                    templating: 'liquid',
+                    email: { subject: 'News', html: '<p>new</p>', design: buildHtmlWrapDesign('<p>old</p>') },
+                },
+            } as MessageTemplate)
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
+        })
     })
 
     describe('html-only emails', () => {
@@ -188,6 +357,50 @@ describe('emailTemplaterLogic', () => {
                 type: 'html',
                 values: { html: '<p>raw</p>' },
             })
+        })
+
+        it.each([
+            ['the html was rewritten', '<p>old</p>', '<p>new</p>', '<p>new</p>'],
+            ['copy was appended to the block', '<p>old</p>', '<p>old</p><p>footer</p>', '<p>old</p><p>footer</p>'],
+            ['copy was appended inside its Unlayer render', '<p>old</p>', RENDER_WITH_FOOTER, RENDER_WITH_FOOTER],
+            [
+                'the block itself is an Unlayer page that got a footer',
+                RENDERED_PAGE,
+                RENDERED_PAGE_WITH_FOOTER,
+                RENDERED_PAGE_WITH_FOOTER,
+            ],
+            ['an image was added inside its Unlayer render', '<p>old</p>', RENDER_WITH_IMAGE, RENDER_WITH_IMAGE],
+            [
+                'an Outlook-only footer was added inside its Unlayer render',
+                '<p>old</p>',
+                RENDER_WITH_OUTLOOK_FOOTER,
+                RENDER_WITH_OUTLOOK_FOOTER,
+            ],
+            [
+                'a footer hidden from Outlook was added inside its Unlayer render',
+                '<p>old</p>',
+                RENDER_WITH_NON_OUTLOOK_FOOTER,
+                RENDER_WITH_NON_OUTLOOK_FOOTER,
+            ],
+            ['the html is the Unlayer render of the wrap', '<p>old</p>', RENDER_OF_OLD, '<p>old</p>'],
+            [
+                'the html is the Unlayer render of the wrap in Outlook column wrappers',
+                '<p>old</p>',
+                RENDER_IN_OUTLOOK_COLUMN,
+                '<p>old</p>',
+            ],
+        ])('when %s, the canvas loads a wrap of the right html', (_name, blockHtml, html, expectedBlockHtml) => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, design: buildHtmlWrapDesign(blockHtml), html } })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign(expectedBlockHtml))
         })
 
         it('does not load anything when there is neither design nor html', () => {
@@ -354,5 +567,291 @@ describe('emailTemplaterLogic', () => {
 
             expect(onChange).not.toHaveBeenCalled()
         })
+    })
+
+    describe('live changes in the modal layout', () => {
+        let onChange: jest.Mock
+        let loadDesign: jest.Mock
+        let editorListeners: Record<string, () => void>
+        let editorDesign: Record<string, any>
+
+        const DESIGN_STORED = { body: { id: 'stored', rows: [{ id: 'r1' }] } }
+        // What unlayer exports after normalizing DESIGN_STORED (it rewrites ids/defaults on load).
+        const DESIGN_NORMALIZED = { body: { id: 'stored', rows: [{ id: 'r1' }], values: { normalized: true } } }
+        const DESIGN_EDITED = { body: { id: 'edited', rows: [{ id: 'r2' }] } }
+        const DESIGN_EXTERNAL = { body: { id: 'external', rows: [{ id: 'r3' }] } }
+
+        const value = (overrides?: Partial<EmailTemplate>): EmailTemplate => ({
+            ...DEFAULT_EMAIL_TEMPLATE,
+            design: DESIGN_STORED,
+            ...overrides,
+        })
+
+        const fakeEditorRef = (): EditorRef =>
+            ({
+                editor: {
+                    loadDesign,
+                    addEventListener: (event: string, callback: () => void) => {
+                        editorListeners[event] = callback
+                    },
+                    exportHtml: (callback: (data: any) => void) =>
+                        callback({ html: '<p>edited</p>', design: editorDesign }),
+                    exportPlainText: (callback: (data: any) => void) => callback({ text: 'edited' }),
+                },
+            }) as unknown as EditorRef
+
+        const updateProps = (overrides?: Partial<EmailTemplate>): void => {
+            // The logic is unkeyed: rebuilding with new props updates the mounted instance and
+            // fires propsChanged, like a parent re-render would.
+            emailTemplaterLogic(makeProps({ value: value(overrides), onChange, liveChanges: true }))
+        }
+
+        beforeEach(async () => {
+            onChange = jest.fn()
+            loadDesign = jest.fn()
+            editorListeners = {}
+            editorDesign = DESIGN_NORMALIZED
+            logic = emailTemplaterLogic(makeProps({ value: value(), onChange, liveChanges: true }))
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+            logic.actions.setEmailEditorRef(fakeEditorRef())
+            logic.actions.onEmailEditorReady()
+            // The load echo rebaselines to the editor's normalized export.
+            editorListeners['design:loaded']?.()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(loadDesign).toHaveBeenCalledTimes(1)
+        })
+
+        it('propagates canvas edits while the modal is open', async () => {
+            // Without liveChanges the modal layout never attaches this listener.
+            expect(editorListeners['design:updated']).toBeTruthy()
+
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
+        })
+
+        it('propagates meta field edits while the modal is open', async () => {
+            logic.actions.setEmailTemplateValue('subject', 'Updated subject')
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ subject: 'Updated subject' })
+        })
+
+        it('a plain-text edit replaces the html body, like the modal save does', async () => {
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', 'Plain words')
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ text: 'Plain words', html: '' })
+        })
+
+        it('browser back mid-debounce flushes the pending canvas edit through the same path', async () => {
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            // Back button: the URL loses the param and urlToAction drives the close.
+            router.actions.push(router.values.location.pathname, {})
+            await jest.advanceTimersByTimeAsync(0)
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED })
+            expect(logic.values.isModalOpen).toBe(false)
+
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(onChange).toHaveBeenCalledTimes(1)
+        })
+
+        it('closing mid-debounce flushes the pending canvas edit instead of dropping it', async () => {
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            // Close before the 500ms debounce fires - the last edit must still propagate.
+            logic.actions.closeWithConfirmation()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
+            expect(logic.values.isModalOpen).toBe(false)
+
+            // The debounced export still fires afterwards; the flush must have rebaselined so it
+            // does not propagate the same edit twice.
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(onChange).toHaveBeenCalledTimes(1)
+        })
+
+        it('loads an externally changed design into the mounted canvas', async () => {
+            updateProps({ design: DESIGN_EXTERNAL })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDesign).toHaveBeenCalledTimes(2)
+            expect(loadDesign).toHaveBeenLastCalledWith(DESIGN_EXTERNAL)
+        })
+
+        it.each([
+            ['as exported', DESIGN_EDITED],
+            [
+                'after a save drops undefined keys',
+                { body: { ...DESIGN_EDITED.body, values: { fontFamily: undefined } } },
+            ],
+        ])('does not reload the canvas when our own edit echoes back through the parent %s', async (_, exported) => {
+            jest.useFakeTimers()
+            editorDesign = exported
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(onChange).toHaveBeenCalledTimes(1)
+
+            updateProps({ design: JSON.parse(JSON.stringify(exported)) })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDesign).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not clobber a canvas edit whose debounce has not flushed with an external design', async () => {
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+
+            // The external design lands inside the 500ms debounce window.
+            updateProps({ design: DESIGN_EXTERNAL })
+            expect(loadDesign).toHaveBeenCalledTimes(1)
+
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The user's in-flight edit still propagates and wins.
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED })
+        })
+
+        it('does not reload the same external design when an unrelated field changes', async () => {
+            updateProps({ design: DESIGN_EXTERNAL })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(loadDesign).toHaveBeenCalledTimes(2)
+
+            updateProps({ design: DESIGN_EXTERNAL, subject: 'Changed elsewhere' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDesign).toHaveBeenCalledTimes(2)
+        })
+
+        it('reloads an external design we once pushed if it returns after a local edit', async () => {
+            updateProps({ design: DESIGN_EXTERNAL })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(loadDesign).toHaveBeenCalledTimes(2)
+
+            // The user edits the canvas away from the external design...
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+            // ...and the parent echoes that edit back into props...
+            updateProps({ design: DESIGN_EDITED })
+            await expectLogic(logic).toFinishAllListeners()
+
+            // ...so a later revert to that design elsewhere must load again, not be skipped
+            // as already applied.
+            updateProps({ design: DESIGN_EXTERNAL })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDesign).toHaveBeenCalledTimes(3)
+            expect(loadDesign).toHaveBeenLastCalledWith(DESIGN_EXTERNAL)
+        })
+    })
+
+    describe('editor URL sync', () => {
+        it('opening pushes ?editor=email and closing strips it', async () => {
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.searchParams.editor).toBe('email')
+
+            logic.actions.setIsModalOpen(false)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.searchParams.editor).toBeUndefined()
+        })
+
+        it('removing the param from the url (browser back) closes the editor', async () => {
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            router.actions.push(router.values.location.pathname, {})
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isModalOpen).toBe(false)
+        })
+
+        it('a url already carrying the param opens the editor on mount', async () => {
+            router.actions.push('/some-page', { editor: 'email' })
+
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isModalOpen).toBe(true)
+        })
+
+        it('unmounting while open strips the param, so the next editor does not auto-open', async () => {
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.searchParams.editor).toBe('email')
+
+            // Switching nodes or closing the step panel unmounts the templater without closing it.
+            logic.unmount()
+            expect(router.values.searchParams.editor).toBeUndefined()
+
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isModalOpen).toBe(false)
+        })
+
+        it('the inline layout neither writes nor reads the param', async () => {
+            router.actions.push('/some-page', { editor: 'email' })
+
+            logic = emailTemplaterLogic(makeProps({ layout: 'inline' }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isModalOpen).toBe(false)
+
+            logic.actions.setIsModalOpen(true)
+            router.actions.push('/some-page', {})
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isModalOpen).toBe(true)
+        })
+    })
+})
+
+describe('buildPersonPropertyMergeValue', () => {
+    // Never emit double quotes: they end an HTML attribute like a link href, and entity-encoded they
+    // render an empty value. A bare identifier uses dot access; everything else uses single-quoted
+    // brackets.
+    it.each([
+        ['first_name', '{{person.properties.first_name}}'],
+        ['$browser', "{{person.properties['$browser']}}"],
+        ['renews on', "{{person.properties['renews on']}}"],
+        ['a.b', "{{person.properties['a.b']}}"],
+        ["it's", "{{person.properties['it\\'s']}}"],
+    ])('builds %s as %s', (name, expected) => {
+        expect(buildPersonPropertyMergeValue(name)).toBe(expected)
     })
 })

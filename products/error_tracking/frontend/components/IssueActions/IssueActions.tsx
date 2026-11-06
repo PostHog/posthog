@@ -34,6 +34,7 @@ export interface IssueActionsProps {
 
 export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.Element {
     const { mergeIssues, assignIssues, resolveIssues, suppressIssues, activateIssues } = useActions(issueActionsLogic)
+    const { mergeInFlight } = useValues(issueActionsLogic)
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
     const { setSelectedIssueIds } = useActions(bulkSelectLogic)
@@ -88,7 +89,8 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
     const mergeButton = (
         <Button
             variant="outline"
-            disabled={!hasAtLeastTwoIssues}
+            disabled={!hasAtLeastTwoIssues || mergeInFlight}
+            loading={mergeInFlight}
             onClick={() =>
                 LemonDialog.open({
                     title: 'Merge Issues',

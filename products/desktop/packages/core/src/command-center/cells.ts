@@ -1,21 +1,65 @@
 import type { AgentSession, WorkspaceMode } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { narrowFullTask } from "../sidebar/buildSidebarData";
 import {
+  getCanvasCellId,
   getTerminalCellCwd,
   getTerminalCellId,
   isBrainrotCell,
+  isCanvasCell,
   isTerminalCell,
 } from "./grid";
-import { type CellStatus, deriveStatus, getRepoName } from "./status";
+import {
+  type CellStatus,
+  deriveStatus,
+  deriveTaskCellStatus,
+  getRepoName,
+  trackLatestStopReason,
+} from "./status";
+
+export type CommandCenterSession = Pick<
+  AgentSession,
+  | "taskRunId"
+  | "status"
+  | "cloudStatus"
+  | "isPromptPending"
+  | "pendingPermissions"
+  | "agentIdleForRunId"
+> & { lastStopReason?: string };
+
+const projectedSessions = new WeakMap<AgentSession, CommandCenterSession>();
+
+export function selectCommandCenterSession(
+  session: AgentSession | undefined,
+): CommandCenterSession | undefined {
+  if (!session) return undefined;
+  const cached = projectedSessions.get(session);
+  if (cached) return cached;
+  const projected: CommandCenterSession = {
+    taskRunId: session.taskRunId,
+    status: session.status,
+    cloudStatus: session.cloudStatus,
+    isPromptPending: session.isPromptPending,
+    pendingPermissions: session.pendingPermissions,
+    agentIdleForRunId: session.agentIdleForRunId,
+    lastStopReason: session.isPromptPending
+      ? undefined
+      : trackLatestStopReason(session.events),
+  };
+  projectedSessions.set(session, projected);
+  return projected;
+}
 
 export interface CommandCenterCellData {
   cellIndex: number;
   taskId: string | null;
   task: Task | undefined;
-  session: AgentSession | undefined;
+  session: CommandCenterSession | undefined;
   status: CellStatus;
   repoName: string | null;
   workspaceMode: WorkspaceMode | null;
+  // Canvas: an embedded PostHog canvas rather than a task.
+  canvasId: string | null;
   // Brainrot: a looping video slot rather than a task.
   isBrainrot: boolean;
   // Standalone terminal slot, independent of any agent run.
@@ -25,7 +69,7 @@ export interface CommandCenterCellData {
 
 export interface BuildCellsInput {
   taskById: Map<string, Task>;
-  sessionByTaskId: Map<string, AgentSession>;
+  sessionByTaskId: Map<string, CommandCenterSession>;
   workspaces: Record<string, { mode: WorkspaceMode } | undefined> | undefined;
 }
 
@@ -36,6 +80,7 @@ const EMPTY_CELL_DATA = {
   status: "idle" as const,
   repoName: null,
   workspaceMode: null,
+  canvasId: null,
   isBrainrot: false,
   terminalId: null,
   terminalCwd: null,
@@ -51,6 +96,14 @@ export function buildCommandCenterCells(
       return { ...EMPTY_CELL_DATA, cellIndex, isBrainrot: true };
     }
 
+    if (isCanvasCell(cellValue)) {
+      return {
+        ...EMPTY_CELL_DATA,
+        cellIndex,
+        canvasId: getCanvasCellId(cellValue),
+      };
+    }
+
     if (isTerminalCell(cellValue)) {
       return {
         ...EMPTY_CELL_DATA,
@@ -63,7 +116,11 @@ export function buildCommandCenterCells(
     const taskId = cellValue;
     const task = taskId ? taskById.get(taskId) : undefined;
     const session = taskId ? sessionByTaskId.get(taskId) : undefined;
-    const status = taskId ? deriveStatus(session) : "idle";
+    const status = task
+      ? deriveTaskCellStatus(narrowFullTask(task), session)
+      : taskId
+        ? deriveStatus(session)
+        : "idle";
     const repoName = task ? getRepoName(task) : null;
     const workspaceMode = (taskId ? workspaces?.[taskId]?.mode : null) ?? null;
 

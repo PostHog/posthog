@@ -1,0 +1,384 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Return claim extraction and duplicate-case matching at Boxwood Returns",
+  "scenario": "Boxwood Returns processes online retail return and warranty claims. An OTel-instrumented Gemini pipeline on Vertex AI first extracts structured claim data from a customer's scanned claim form PDF, then checks the new case against recent prior cases to catch duplicate filings for the same incident.",
+  "summary": {
+    "events": {
+      "$ai_span": 4,
+      "$ai_generation": 2
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "otel"
+    ],
+    "providers": [
+      "gcp.vertex_ai",
+      "vertex_ai"
+    ],
+    "frameworks": [],
+    "models": [
+      "gemini-3.7-flash"
+    ],
+    "content_types": [
+      "blob",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "ed4a15e6c0c38d3c",
+        "$ai_span_id": "993647706d656652",
+        "$ai_trace_id": "81e66e33791886dc9284ac4ec1ec82b5",
+        "$geoip_disable": true,
+        "buyer_id": "2473c9f5-5a7b-7e49-9710-3c6d8249e247",
+        "app.build_commit": "a1c9f3e7d2b6",
+        "app.cluster_id": "gemini-worker-pool-03",
+        "cloud.provider": "gcp",
+        "cloud.region": "eu-L7DekOmp",
+        "deployment.environment.name": "production",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "cmpl-8f2a1c9d3e4b5f6",
+        "app.vertex_ai_thinking_token_count": 436,
+        "gen_ai.usage.total_tokens": 1925,
+        "app.model_family": "gemini-3-flash",
+        "app.deployment_uuid": "e70ea1d3-cf0c-7164-9180-8ce4ede03cd6",
+        "service.name": "claims",
+        "session_id": "sess_4b1e7a2c-9f3d-4e21-8a6b-7c2d9e5f1a30",
+        "retry_count": 1,
+        "task_id": "433324c3-78e8-7cb3-fa51-992853c0fc09",
+        "upload_id": "UPLOAD_s2BAbXyo0L",
+        "app.is_retry_attempt": false,
+        "app.rate_limit_retry_count": 0,
+        "app.document_pages_processed": 1,
+        "app.vertex_ai_grounding_metadata_tokens": 402,
+        "app.document_context_attached": true,
+        "app.gemini_usage_prompt_token_count": 1087,
+        "app.gemini_cached_token_count": 0,
+        "app.vertex_ai_effective_prompt_tokens": 1087,
+        "app.tier_code": "pro",
+        "app.return_case_id": "ticket_6UVddrdD",
+        "$ai_input_tokens": 1087,
+        "$ai_output_tokens": 838,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_model": "gemini-3.7-flash",
+        "$ai_provider": "gcp.vertex_ai",
+        "$ai_span_name": "gemini.process_case_document",
+        "$ai_latency": 5.733363219
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "9edf94b959f12870",
+        "$ai_span_id": "ed4a15e6c0c38d3c",
+        "$ai_trace_id": "81e66e33791886dc9284ac4ec1ec82b5",
+        "$geoip_disable": true,
+        "buyer_id": "2473c9f5-5a7b-7e49-9710-3c6d8249e247",
+        "app.build_commit": "a1c9f3e7d2b6",
+        "app.cluster_id": "gemini-worker-pool-03",
+        "cloud.provider": "gcp",
+        "cloud.region": "eu-L7DekOmp",
+        "deployment.environment.name": "production",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "cmpl-8f2a1c9d3e4b5f6",
+        "app.vertex_ai_thinking_token_count": 436,
+        "gen_ai.usage.total_tokens": 1925,
+        "app.model_family": "gemini-3-flash",
+        "app.deployment_uuid": "e70ea1d3-cf0c-7164-9180-8ce4ede03cd6",
+        "service.name": "claims",
+        "session_id": "sess_4b1e7a2c-9f3d-4e21-8a6b-7c2d9e5f1a30",
+        "retry_count": 1,
+        "task_id": "433324c3-78e8-7cb3-fa51-992853c0fc09",
+        "upload_id": "UPLOAD_s2BAbXyo0L",
+        "app.is_retry_attempt": false,
+        "app.rate_limit_retry_count": 0,
+        "app.vertex_ai_grounding_metadata_tokens": 402,
+        "app.gemini_usage_prompt_token_count": 1087,
+        "app.gemini_cached_token_count": 0,
+        "app.vertex_ai_effective_prompt_tokens": 1087,
+        "app.tier_code": "pro",
+        "app.return_case_id": "ticket_6UVddrdD",
+        "$ai_input_tokens": 1087,
+        "$ai_output_tokens": 838,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_model": "gemini-3.7-flash",
+        "$ai_provider": "gcp.vertex_ai",
+        "$ai_span_name": "gemini.generate_content",
+        "$ai_latency": 5.733656879,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You are Boxwood Returns' document extraction assistant.\nExtract structured claim data from the attached PDF.\nReturn valid JSON matching the claim schema exactly.\nBe precise about item condition and the reported defect."
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "content": "Order number: BW-88213\nItem: Canvas tote bag (Olive)\nQuantity: 1\nMaterial: Waxed canvas, leather trim\nReason: Damaged in transit\nDefect: Strap seam torn near the buckle attachment\nDefect location: Left strap\nSeverity: Minor, cosmetic and structural\nPhotos attached: Yes (2)\nPhoto quality: Clear, both angles legible\nPurchase date: 2026-08-14\nCase: ticket_6UVddrdD\nBuyer tier: pro\nWarranty status: Within 90-day window\nRequested resolution: Replacement\nRecommended action: Approve replacement\nNotes: Wear pattern consistent with normal use, not misuse\nSignature present: Yes\nForm legibility: Good, no illegible fields\nConfidence: High"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 32,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "993647706d656652",
+        "$ai_span_id": "a3e77aff2865fe4e",
+        "$ai_trace_id": "81e66e33791886dc9284ac4ec1ec82b5",
+        "$geoip_disable": true,
+        "buyer_id": "2473c9f5-5a7b-7e49-9710-3c6d8249e247",
+        "app.build_commit": "a1c9f3e7d2b6",
+        "app.cluster_id": "gemini-worker-pool-03",
+        "cloud.provider": "gcp",
+        "cloud.region": "eu-L7DekOmp",
+        "deployment.environment.name": "production",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "cmpl-8f2a1c9d3e4b5f6",
+        "app.vertex_ai_thinking_token_count": 436,
+        "app.model_family": "gemini-3-flash",
+        "app.deployment_uuid": "e70ea1d3-cf0c-7164-9180-8ce4ede03cd6",
+        "service.name": "claims",
+        "session_id": "sess_4b1e7a2c-9f3d-4e21-8a6b-7c2d9e5f1a30",
+        "retry_count": 1,
+        "task_id": "433324c3-78e8-7cb3-fa51-992853c0fc09",
+        "upload_id": "UPLOAD_s2BAbXyo0L",
+        "app.tier_code": "pro",
+        "app.return_case_id": "ticket_6UVddrdD",
+        "$ai_input_tokens": 1087,
+        "$ai_output_tokens": 838,
+        "$ai_model": "gemini-3.7-flash",
+        "$ai_provider": "vertex_ai",
+        "$ai_base_url": "aiplatform.googleapis.com",
+        "$ai_span_name": "gemini.process_case_document",
+        "$ai_latency": 5.700259252,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You are Boxwood Returns' document extraction assistant.\nExtract structured claim data from the attached PDF.\nReturn valid JSON matching the claim schema exactly.\nBe precise about item condition and the reported defect."
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "mime_type": "application/pdf",
+                "modality": "application",
+                "content": "data:application/octet-stream;base64,⟦media:otel_vertex_blob_parts_claims__M577777.pdf⟧",
+                "type": "blob"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "content": "Order number: BW-88213\nItem: Canvas tote bag (Olive)\nQuantity: 1\nMaterial: Waxed canvas, leather trim\nReason: Damaged in transit\nDefect: Strap seam torn near the buckle attachment\nDefect location: Left strap\nSeverity: Minor, cosmetic and structural\nPhotos attached: Yes (2)\nPhoto quality: Clear, both angles legible\nPurchase date: 2026-08-14\nCase: ticket_6UVddrdD\nBuyer tier: pro\nWarranty status: Within 90-day window\nRequested resolution: Replacement\nRecommended action: Approve replacement\nNotes: Wear pattern consistent with normal use, not misuse\nSignature present: Yes\nForm legibility: Good, no illegible fields\nConfidence: High",
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 5991,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "b4d02384503f47c9",
+        "$ai_span_id": "12e04fc75102905a",
+        "$ai_trace_id": "81e66e33791886dc9284ac4ec1ec82b5",
+        "$geoip_disable": true,
+        "buyer_id": "2473c9f5-5a7b-7e49-9710-3c6d8249e247",
+        "app.build_commit": "a1c9f3e7d2b6",
+        "app.cluster_id": "gemini-worker-pool-03",
+        "cloud.provider": "gcp",
+        "cloud.region": "eu-L7DekOmp",
+        "deployment.environment.name": "production",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "cmpl-7a91d2e5c8f3a1",
+        "app.vertex_ai_thinking_token_count": 478,
+        "gen_ai.usage.total_tokens": 1507,
+        "app.model_family": "gemini-3-flash",
+        "app.deployment_uuid": "e70ea1d3-cf0c-7164-9180-8ce4ede03cd6",
+        "service.name": "claims",
+        "session_id": "sess_4b1e7a2c-9f3d-4e21-8a6b-7c2d9e5f1a30",
+        "retry_count": 1,
+        "task_id": "433324c3-78e8-7cb3-fa51-992853c0fc09",
+        "upload_id": "UPLOAD_s2BAbXyo0L",
+        "app.is_retry_attempt": false,
+        "app.rate_limit_retry_count": 0,
+        "app.document_pages_processed": 1,
+        "app.vertex_ai_grounding_metadata_tokens": 10,
+        "app.document_context_attached": true,
+        "app.gemini_usage_prompt_token_count": 1019,
+        "app.gemini_cached_token_count": 0,
+        "app.vertex_ai_effective_prompt_tokens": 1019,
+        "app.tier_code": "pro",
+        "app.return_case_id": "ticket_6UVddrdD",
+        "$ai_input_tokens": 1019,
+        "$ai_output_tokens": 488,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_model": "gemini-3.7-flash",
+        "$ai_provider": "gcp.vertex_ai",
+        "$ai_span_name": "gemini.process_case_document",
+        "$ai_latency": 3.980404696
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 5991,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "9edf94b959f12870",
+        "$ai_span_id": "b4d02384503f47c9",
+        "$ai_trace_id": "81e66e33791886dc9284ac4ec1ec82b5",
+        "$geoip_disable": true,
+        "buyer_id": "2473c9f5-5a7b-7e49-9710-3c6d8249e247",
+        "app.build_commit": "a1c9f3e7d2b6",
+        "app.cluster_id": "gemini-worker-pool-03",
+        "cloud.provider": "gcp",
+        "cloud.region": "eu-L7DekOmp",
+        "deployment.environment.name": "production",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "cmpl-7a91d2e5c8f3a1",
+        "app.vertex_ai_thinking_token_count": 478,
+        "gen_ai.usage.total_tokens": 1507,
+        "app.model_family": "gemini-3-flash",
+        "app.deployment_uuid": "e70ea1d3-cf0c-7164-9180-8ce4ede03cd6",
+        "service.name": "claims",
+        "session_id": "sess_4b1e7a2c-9f3d-4e21-8a6b-7c2d9e5f1a30",
+        "retry_count": 1,
+        "task_id": "433324c3-78e8-7cb3-fa51-992853c0fc09",
+        "upload_id": "UPLOAD_s2BAbXyo0L",
+        "app.is_retry_attempt": false,
+        "app.rate_limit_retry_count": 0,
+        "app.vertex_ai_grounding_metadata_tokens": 10,
+        "app.gemini_usage_prompt_token_count": 1019,
+        "app.gemini_cached_token_count": 0,
+        "app.vertex_ai_effective_prompt_tokens": 1019,
+        "app.tier_code": "pro",
+        "app.return_case_id": "ticket_6UVddrdD",
+        "$ai_input_tokens": 1019,
+        "$ai_output_tokens": 488,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_model": "gemini-3.7-flash",
+        "$ai_provider": "gcp.vertex_ai",
+        "$ai_span_name": "gemini.generate_content",
+        "$ai_latency": 3.980830316,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You are Boxwood Returns' duplicate-claim detector. Some customers file more than one return or warranty claim for what is actually the same underlying incident, sometimes under a different order number or with a slightly reworded defect description, to receive a second replacement or refund on top of the first one.\n\nYou will receive the new case's summary, followed by a list of recent prior cases from the same buyer or for similar items. Compare the new case against each prior case on:\n- Same buyer tier and account, when shown\n- Same or closely related item, color and material\n- Same or very similar defect description, even if reworded or shortened\n- Purchase or filing dates close enough together to be suspicious, generally within a few months\n\nIf you find a strong match, meaning a prior case that is very likely describing the same physical item or incident, return that prior case's ID. If there is no strong match, return null rather than guessing based on a weak resemblance.\n\nReturn a single JSON object with exactly one field:\n- prior_match_id: the matched prior case's ID as a string, or null if no case matches closely enough\n\nBe conservative: a customer legitimately returning two different damaged items of the same product line is common and is not a duplicate on its own, and neither is a customer who bought the same item twice for different reasons. Only flag a match when the defect description, item, and timing together suggest the same claim being filed twice under different paperwork. A gap of many months between filings should lower your confidence even if the defect wording is similar, since normal wear can independently produce a similar-sounding defect later. When a match is genuinely ambiguous, prefer null over a low-confidence guess, since a false accusation of double-dipping costs us more in support escalations than a missed duplicate costs us in refund abuse. Output only the JSON object, with no surrounding commentary or explanation."
+          },
+          {
+            "role": "user",
+            "content": "New case: ticket_6UVddrdD, buyer pro, item Canvas tote bag (Olive), defect 'strap seam torn near buckle', order BW-88213, filed 2026-09-24\n\nCandidate prior cases from the same buyer and similar items in the last two quarters:\nMATCH_9fQkLmZop2: buyer pro, item Wool trench coat, defect faded lining, order BW-51290, filed 2026-03-11\nMATCH_S26wWtudKalr5: buyer pro, item Canvas tote bag (Olive), defect 'seam splitting near strap buckle', order BW-71042, filed 2026-06-02\nMATCH_7hTnBcVux9: buyer standard, item Leather belt, defect buckle tarnish, order BW-60318, filed 2026-05-20\nMATCH_3mWpXeYrt4: buyer pro, item Canvas tote bag (Sand), defect zipper stuck, order BW-64901, filed 2026-07-15\nMATCH_5kLpQrSte8: buyer pro, item Wool scarf, defect color bleeding after wash, order BW-58210, filed 2026-04-02\nMATCH_2jHnMdWov6: buyer pro, item Canvas tote bag (Olive), defect handle stitching loose, order BW-45118, filed 2026-01-28"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "content": "{\"prior_match_id\": \"MATCH_S26wWtudKalr5\"}"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 6025,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "12e04fc75102905a",
+        "$ai_span_id": "c2aad6fd7d7b710e",
+        "$ai_trace_id": "81e66e33791886dc9284ac4ec1ec82b5",
+        "$geoip_disable": true,
+        "buyer_id": "2473c9f5-5a7b-7e49-9710-3c6d8249e247",
+        "app.build_commit": "a1c9f3e7d2b6",
+        "app.cluster_id": "gemini-worker-pool-03",
+        "cloud.provider": "gcp",
+        "cloud.region": "eu-L7DekOmp",
+        "deployment.environment.name": "production",
+        "app.match_decision": "dupe",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "cmpl-7a91d2e5c8f3a1",
+        "app.vertex_ai_thinking_token_count": 478,
+        "app.model_family": "gemini-3-flash",
+        "app.deployment_uuid": "e70ea1d3-cf0c-7164-9180-8ce4ede03cd6",
+        "service.name": "claims",
+        "session_id": "sess_4b1e7a2c-9f3d-4e21-8a6b-7c2d9e5f1a30",
+        "retry_count": 1,
+        "task_id": "433324c3-78e8-7cb3-fa51-992853c0fc09",
+        "upload_id": "UPLOAD_s2BAbXyo0L",
+        "app.tier_code": "pro",
+        "app.return_case_id": "ticket_6UVddrdD",
+        "$ai_input_tokens": 1019,
+        "$ai_output_tokens": 488,
+        "$ai_model": "gemini-3.7-flash",
+        "$ai_provider": "vertex_ai",
+        "$ai_base_url": "aiplatform.googleapis.com",
+        "$ai_span_name": "gemini.process_case_document",
+        "$ai_latency": 3.945346868,
+        "$ai_input": [
+          {
+            "role": "system",
+            "content": "You are Boxwood Returns' duplicate-claim detector. Some customers file more than one return or warranty claim for what is actually the same underlying incident, sometimes under a different order number or with a slightly reworded defect description, to receive a second replacement or refund on top of the first one.\n\nYou will receive the new case's summary, followed by a list of recent prior cases from the same buyer or for similar items. Compare the new case against each prior case on:\n- Same buyer tier and account, when shown\n- Same or closely related item, color and material\n- Same or very similar defect description, even if reworded or shortened\n- Purchase or filing dates close enough together to be suspicious, generally within a few months\n\nIf you find a strong match, meaning a prior case that is very likely describing the same physical item or incident, return that prior case's ID. If there is no strong match, return null rather than guessing based on a weak resemblance.\n\nReturn a single JSON object with exactly one field:\n- prior_match_id: the matched prior case's ID as a string, or null if no case matches closely enough\n\nBe conservative: a customer legitimately returning two different damaged items of the same product line is common and is not a duplicate on its own, and neither is a customer who bought the same item twice for different reasons. Only flag a match when the defect description, item, and timing together suggest the same claim being filed twice under different paperwork. A gap of many months between filings should lower your confidence even if the defect wording is similar, since normal wear can independently produce a similar-sounding defect later. When a match is genuinely ambiguous, prefer null over a low-confidence guess, since a false accusation of double-dipping costs us more in support escalations than a missed duplicate costs us in refund abuse. Output only the JSON object, with no surrounding commentary or explanation."
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "content": "New case: ticket_6UVddrdD, buyer pro, item Canvas tote bag (Olive), defect 'strap seam torn near buckle', order BW-88213, filed 2026-09-24\n\nCandidate prior cases from the same buyer and similar items in the last two quarters:\nMATCH_9fQkLmZop2: buyer pro, item Wool trench coat, defect faded lining, order BW-51290, filed 2026-03-11\nMATCH_S26wWtudKalr5: buyer pro, item Canvas tote bag (Olive), defect 'seam splitting near strap buckle', order BW-71042, filed 2026-06-02\nMATCH_7hTnBcVux9: buyer standard, item Leather belt, defect buckle tarnish, order BW-60318, filed 2026-05-20\nMATCH_3mWpXeYrt4: buyer pro, item Canvas tote bag (Sand), defect zipper stuck, order BW-64901, filed 2026-07-15\nMATCH_5kLpQrSte8: buyer pro, item Wool scarf, defect color bleeding after wash, order BW-58210, filed 2026-04-02\nMATCH_2jHnMdWov6: buyer pro, item Canvas tote bag (Olive), defect handle stitching loose, order BW-45118, filed 2026-01-28",
+                "type": "text"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "content": "{\"prior_match_id\": \"MATCH_S26wWtudKalr5\"}",
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

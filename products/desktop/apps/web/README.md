@@ -85,7 +85,7 @@ All are Vite build-time vars (`import.meta.env.*`), baked in at build time.
 
 | Var | Required | Purpose |
 | --- | --- | --- |
-| `VITE_POSTHOG_API_KEY` | Recommended | Real `phc_…` project key. Enables posthog-js analytics, error/rejection capture, session recording, and real feature flags. The guard in `main.tsx` requires the `phc_` prefix; without it posthog stays uninitialized and the tracker/analytics service no-op, leaving only the host-forced `SYNC_CLOUD_TASKS_FLAG` on (every other flag reads `false`). |
+| `VITE_POSTHOG_API_KEY` | Recommended | Real `phc_…` project key. Enables posthog-js analytics, error/rejection capture, session recording, and real feature flags. The guard in `main.tsx` requires the `phc_` prefix; without it posthog stays uninitialized, the tracker/analytics service no-op and every flag reads `false`. |
 | `VITE_POSTHOG_API_HOST` | No | posthog-js ingestion host. Default `https://internal-c.posthog.com`. |
 | `VITE_POSTHOG_UI_HOST` | No | posthog-js UI host. Default `https://us.i.posthog.com`. |
 | `VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE` | No | Dev/test only: a static access token that bypasses the OAuth flow (`AUTH_TOKEN_OVERRIDE`). Leave unset in production. |
@@ -98,7 +98,7 @@ gated to non-dev (production) builds (`capture_exceptions` in
 ### OAuth redirect URI registration — required for sign-in
 
 The web host reuses the Code ("Array") OAuth application client ids
-(`packages/shared/src/oauth.ts`). Each region stores its app's `redirect_uris`
+(`packages/agent/packages/agent-contracts/src/oauth.ts`). Each region stores its app's `redirect_uris`
 as database rows (Django admin → OAuth applications), and they must include:
 
 - `https://<web-origin>/callback` for the deployed host. `http` is rejected for
@@ -111,8 +111,8 @@ as database rows (Django admin → OAuth applications), and they must include:
   sign in to the region, check whether the registered localhost URI is portless
   or pinned to `:8237`.
 
-A CIMD client (the `raycast_metadata.py` / `wizard_metadata.py` pattern in
-`posthog/api/oauth/`) is NOT suitable: CIMD registrations are capped to
+A CIMD client (like the first-party documents under
+`https://posthog.com/.well-known/oauth/<app>/client-metadata.json`) is NOT suitable: CIMD registrations are capped to
 unprivileged scopes, and Code requires `scope=*` like the desktop app.
 
 ### S3 artifact-bucket CORS — required for attachment uploads

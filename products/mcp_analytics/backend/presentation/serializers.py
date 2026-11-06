@@ -1,9 +1,69 @@
+import json
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
+
+import pydantic
 from rest_framework import serializers
 
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from posthog.schema import (
+    AnyPropertyFilterDiscriminated,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    SessionPropertyFilter,
+)
+
+from products.mcp_analytics.backend.facade.constants import (
+    HARNESS_LABELS,
+    MARKED_CLIENT_NAMES,
+    MAX_CUSTOM_HARNESSES,
+    UNIDENTIFIED_HARNESS_LABEL,
+)
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+_PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
+    list[AnyPropertyFilterDiscriminated]
+)
+_ALLOWED_PROPERTY_FILTERS = (EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter)
+
+PROPERTIES_HELP_TEXT = (
+    "Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of "
+    "event, person, or session property filters, each with key, value, operator, and type. Example: "
+    '[{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", '
+    '"type": "event"}]'
+)
+
+FILTER_TEST_ACCOUNTS_HELP_TEXT = (
+    "Whether to also apply the project's internal and test user filters (its test_account_filters "
+    "setting) on top of `properties`."
+)
+
+
+class PropertyFiltersField(serializers.CharField):
+    """A JSON-encoded list of property filters in a query string, validated into schema types.
+
+    Follows the `properties` query-param convention of the person and cohort actor endpoints.
+    Subclasses CharField so drf-spectacular keeps advertising the plain string a query string can
+    carry, while the view receives the parsed filters.
+    """
+
+    def run_validation(self, data: Any = serializers.empty) -> list[AnyPropertyFilterDiscriminated]:
+        raw = super().run_validation(data)
+        if not raw:
+            return []
+        try:
+            filters = _PROPERTY_FILTERS_ADAPTER.validate_python(json.loads(raw))
+        except (json.JSONDecodeError, ValueError, pydantic.ValidationError) as error:
+            raise serializers.ValidationError(f"Properties are unparsable: {error}")
+        if any(not isinstance(property_filter, _ALLOWED_PROPERTY_FILTERS) for property_filter in filters):
+            raise serializers.ValidationError("Only event, person, and session property filters are supported.")
+        return filters
+
 
 MAX_GOAL_LENGTH = 500
 MAX_SUMMARY_LENGTH = 5_000
@@ -185,6 +245,26 @@ class MCPSessionListQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
     )
+    has_errors = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Filter by session outcome. true keeps sessions with at least one errored tool call "
+            "($mcp_is_error), false keeps sessions with none. Omit to list both."
+        ),
+    )
+    properties = PropertyFiltersField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=PROPERTIES_HELP_TEXT,
+    )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=FILTER_TEST_ACCOUNTS_HELP_TEXT,
+    )
     limit = serializers.IntegerField(
         required=False,
         default=MCP_SESSION_LIST_DEFAULT_LIMIT,
@@ -229,6 +309,17 @@ class MCPSessionToolCallsQuerySerializer(serializers.Serializer):
             "older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
         ),
     )
+    properties = PropertyFiltersField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=PROPERTIES_HELP_TEXT,
+    )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=FILTER_TEST_ACCOUNTS_HELP_TEXT,
+    )
     limit = serializers.IntegerField(
         required=False,
         default=MCP_TOOL_CALLS_DEFAULT_LIMIT,
@@ -257,6 +348,13 @@ class MCPSessionSerializer(serializers.Serializer):
     )
     tool_calls = serializers.IntegerField(
         read_only=True, help_text="Total number of $mcp_tool_call events in the session."
+    )
+    error_calls = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Number of the session's $mcp_tool_call events with $mcp_is_error true, "
+            "counted over the same properties / filter_test_accounts matches as tool_calls."
+        ),
     )
     session_start = serializers.DateTimeField(
         read_only=True, help_text="Timestamp of the first $mcp_tool_call event in the session."
@@ -412,6 +510,25 @@ class MCPActivityRecentCallSerializer(serializers.Serializer):
     )
     client_name = serializers.CharField(
         read_only=True, allow_null=True, help_text="Agent client name ($mcp_client_name) when captured."
+    )
+
+
+class MCPActivityOverviewQuerySerializer(serializers.Serializer):
+    properties = PropertyFiltersField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=PROPERTIES_HELP_TEXT,
+    )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=FILTER_TEST_ACCOUNTS_HELP_TEXT,
+    )
+    refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Compute the overview again instead of serving the cached result, at most once every 5 seconds. The fresh result replaces the cached one.",
     )
 
 
@@ -758,3 +875,83 @@ class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializ
         default=True,
         help_text="Whether the missing capability blocked the user's progress.",
     )
+
+
+DUPLICATE_MATCH_PATTERN_ERROR = "A custom harness already uses this pattern."
+_BUILT_IN_HARNESS_LABELS = frozenset(
+    label.lower() for label in (*HARNESS_LABELS, *MARKED_CLIENT_NAMES, UNIDENTIFIED_HARNESS_LABEL)
+)
+
+
+class MCPCustomHarnessSerializer(serializers.ModelSerializer):
+    match_pattern = serializers.CharField(
+        max_length=100,
+        help_text=(
+            "Text to look for in the client name or User-Agent product that the harness reports. "
+            "Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`."
+        ),
+    )
+
+    class Meta:
+        model = MCPCustomHarness
+        fields = ["id", "name", "match_pattern", "icon", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "name": {"help_text": "Name to show for calls from this harness."},
+            "icon": {
+                "help_text": (
+                    "Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image "
+                    "with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows "
+                    "in one color, like the built-in harness logos. An empty string means no icon."
+                )
+            },
+        }
+
+    def _other_team_harnesses(self) -> "QuerySet[MCPCustomHarness]":
+        others = MCPCustomHarness.objects.for_team(self.context["get_team"]().id)
+        return others.exclude(pk=self.instance.pk) if self.instance is not None else others
+
+    def validate_name(self, value: str) -> str:
+        name = value.strip()
+        if self.instance is not None and name == self.instance.name:
+            return name
+        # The dashboard shows its own logo for a built-in label, so a team rule with that name would lose its icon.
+        if name.lower() in _BUILT_IN_HARNESS_LABELS:
+            raise serializers.ValidationError(f"{name} is a built-in label. Choose another name.")
+        # The dashboard finds a harness icon by name, so two rules with one name would share one icon.
+        if self._other_team_harnesses().filter(name__iexact=name).exists():
+            raise serializers.ValidationError("Another custom harness already uses this name.")
+        return name
+
+    def validate_match_pattern(self, value: str) -> str:
+        pattern = value.strip().lower()
+        try:
+            MCPCustomHarness._meta.get_field("match_pattern").run_validators(pattern)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages)
+        return pattern
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        others = self._other_team_harnesses()
+        if "match_pattern" in attrs and others.filter(match_pattern=attrs["match_pattern"]).exists():
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
+        if self.instance is None and others.count() >= MAX_CUSTOM_HARNESSES:
+            raise serializers.ValidationError(f"A project can have at most {MAX_CUSTOM_HARNESSES} custom harnesses.")
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> MCPCustomHarness:
+        # validate() already checked for a duplicate pattern, but a concurrent request can still
+        # win the race and insert first. The atomic block keeps the IntegrityError from poisoning
+        # an outer transaction, so the view can still return a normal 400.
+        try:
+            with transaction.atomic():
+                return MCPCustomHarness.objects.create(team_id=self.context["get_team"]().id, **validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
+
+    def update(self, instance: MCPCustomHarness, validated_data: dict[str, Any]) -> MCPCustomHarness:
+        try:
+            with transaction.atomic():
+                return super().update(instance, validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})

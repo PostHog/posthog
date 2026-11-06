@@ -1,6 +1,6 @@
 ---
 name: survey-sdk-audit
-description: Audit PostHog survey SDK features and version requirements
+description: Audit PostHog survey SDK features and version requirements, and implement survey changes across the backend, UI, and SDK repositories.
 ---
 
 # Surveys SDK Feature Audit Skill
@@ -8,6 +8,9 @@ description: Audit PostHog survey SDK features and version requirements
 Use this skill when auditing survey feature support across PostHog SDKs for `surveyVersionRequirements.ts`.
 
 **Feature to audit:** $ARGUMENTS
+
+For survey feature work, read [Contributing survey changes](references/contributing-surveys.md).
+For customer diagnosis without a repository checkout, use the published `debugging-surveys` skill.
 
 ## Setup Check (Run First)
 

@@ -2,10 +2,11 @@ import posthog from 'posthog-js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
+import { MessageTemplate, parseSandboxQuestions } from 'products/posthog_ai/frontend/api/primitives'
 
 import { CompatMessage } from '../types'
 import {
@@ -18,6 +19,7 @@ import {
     getInternalTagName,
     isInternalToolResultUserMessage,
     isToolStepItem,
+    parseToolArgumentsForDisplay,
 } from '../utils'
 
 // Roles that carry no user-visible content in a chat-app view. System prompts
@@ -25,6 +27,9 @@ import {
 // visible through the assistant's behavior, and the full message tree is still
 // one click away via "Show steps".
 const HIDDEN_ROLES = new Set<string>(['system', AVAILABLE_TOOLS_ROLE])
+
+// Unknown roles like `developer` pass through the normalizer unchanged.
+const CONVERSATION_ROLES = new Set<string>(['user', 'assistant'])
 
 function isUnrenderableContentItem(item: unknown): boolean {
     return extractTextContent(item) === undefined && !isToolStepItem(item)
@@ -154,7 +159,85 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
     return labels.length > 0 && AGENT_SIDE_LABELS.has(labels[0]) ? 'left' : 'right'
 }
 
+// Only a tool we know asks the user may render its payload as speech, because routine trailing
+// calls like git_commit(message=…) can carry text-like arguments too. Exact names, so nothing
+// over-fires; an unknown ask tool keeps the hidden pill until its name is added here. The
+// normalization makes one entry cover the camelCase, snake_case, and kebab-case spellings.
+const ASK_TOOL_NAMES = new Set(['askuserquestion', 'askfollowupquestion', 'askhuman', 'askuser', 'requestuserinput'])
+
+function isAskLikeToolName(name: unknown): boolean {
+    return typeof name === 'string' && ASK_TOOL_NAMES.has(name.toLowerCase().replace(/[^a-z0-9]/g, ''))
+}
+
+function hasAskLikeCall(message: CompatMessage): boolean {
+    return (message.tool_calls ?? []).some((call) => isAskLikeToolName(call.function?.name))
+}
+
+function askQuestionText(message: CompatMessage): string {
+    return (message.tool_calls ?? [])
+        .filter((call) => isAskLikeToolName(call.function?.name))
+        .map((call) => parseToolArgumentsForDisplay(call.function?.arguments))
+        .flatMap((parsed) => (parsed.kind === 'parsed' ? parseSandboxQuestions(parsed.value) : []))
+        .map((question) => question.question.trim())
+        .filter((text) => text.length > 0)
+        .join('\n\n')
+}
+
+function isPlainAssistant(message: CompatMessage): boolean {
+    return message.role === 'assistant' && getInternalLabel(message) === undefined
+}
+
+// Trailing messages that do not end the turn. A tool result does end it, because it means the
+// call was answered and the turn moved on.
+function isTailSkippable(message: CompatMessage): boolean {
+    if (isToolResultEntry(message)) {
+        return false
+    }
+    if (HIDDEN_ROLES.has(message.role) || getInternalLabel(message) !== undefined) {
+        return true
+    }
+    return extractText(message).trim().length === 0 && !hasNonTextContent(message) && !isToolCallMessage(message)
+}
+
+interface TrailingAsk {
+    anchorIndex: number
+    text: string
+    consumedIndices: Set<number>
+}
+
+// A turn that ends on an ask-like call is the assistant handing the turn to the user, which
+// makes it the turn's content. Providers split one turn into different message shapes, so the
+// unit is the whole trailing run: spoken words win, the ask call's arguments are the fallback.
+function findTrailingAsk(messages: CompatMessage[]): TrailingAsk | null {
+    const tailStart = messages.findLastIndex((message) => !isPlainAssistant(message) && !isTailSkippable(message)) + 1
+    const assistantEntries = messages
+        .slice(tailStart)
+        .map((message, offset) => ({ message, index: tailStart + offset }))
+        .filter(({ message }) => isPlainAssistant(message))
+    if (!assistantEntries.some(({ message }) => hasAskLikeCall(message))) {
+        return null
+    }
+    const spoken = assistantEntries
+        .map(({ message }) => extractText(message).trim())
+        .filter((text) => text.length > 0)
+        .join('\n\n')
+    const text =
+        spoken || assistantEntries.map(({ message }) => askQuestionText(message)).find((t) => t.length > 0) || ''
+    if (!text) {
+        return null
+    }
+    const consumed = assistantEntries.filter(
+        ({ message }) => hasAskLikeCall(message) || extractText(message).trim().length > 0
+    )
+    return {
+        anchorIndex: consumed[consumed.length - 1].index,
+        text,
+        consumedIndices: new Set(consumed.map(({ index }) => index)),
+    }
+}
+
 function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
+    const trailingAsk = findTrailingAsk(messages)
     const result: SessionEntry[] = []
     for (let i = 0; i < messages.length; i++) {
         const message = messages[i]
@@ -164,6 +247,14 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
         const internalLabel = getInternalLabel(message)
         if (internalLabel !== undefined) {
             result.push({ kind: 'internal', message, label: internalLabel })
+            continue
+        }
+        if (trailingAsk !== null && i === trailingAsk.anchorIndex) {
+            // nonText stays false: the ask is rendered, so the unrenderable capture would misfire.
+            result.push({ kind: 'bubble', message, text: trailingAsk.text, nonText: false })
+            continue
+        }
+        if (trailingAsk?.consumedIndices.has(i)) {
             continue
         }
         const text = extractText(message)
@@ -228,15 +319,27 @@ export function buildStreamItems(messages: CompatMessage[]): StreamItem[] {
 export function TranscriptBubbleStream({
     inputs,
     outputs,
+    hideInternal = false,
 }: {
     inputs: CompatMessage[]
     outputs: CompatMessage[]
+    hideInternal?: boolean
 }): JSX.Element | null {
-    const items = useMemo(() => buildStreamItems([...inputs, ...outputs]), [inputs, outputs])
+    // Keys come from the unfiltered index so toggling `hideInternal` does not hand one
+    // bubble's expanded state to its neighbor.
+    const items = useMemo(
+        () =>
+            buildStreamItems([...inputs, ...outputs])
+                .map((item, key) => ({ item, key }))
+                .filter(
+                    ({ item }) => !hideInternal || (item.kind === 'bubble' && CONVERSATION_ROLES.has(item.message.role))
+                ),
+        [inputs, outputs, hideInternal]
+    )
 
     const capturedRef = useRef<Set<string>>(new Set())
     useEffect(() => {
-        for (const item of items) {
+        for (const { item } of items) {
             if (item.kind === 'bubble' && item.nonText) {
                 captureUnrenderableMessageOnce(item.message, capturedRef.current)
             }
@@ -249,24 +352,58 @@ export function TranscriptBubbleStream({
 
     return (
         <div className="flex flex-col gap-1.5">
-            {items.map((item, i) =>
+            {items.map(({ item, key }) =>
                 item.kind === 'bubble' ? (
                     <MessageTemplate
-                        key={i}
+                        key={key}
                         type={item.message.role === 'user' ? 'human' : 'ai'}
                         wrapperClassName="max-w-[75%]"
                         // Same user-message fill the Trace page uses, so the two sides don't blend together
                         boxClassName={item.message.role === 'user' ? 'bg-fill-tertiary' : undefined}
                     >
-                        {item.text && (
-                            <LemonMarkdown className="whitespace-pre-wrap break-words">{item.text}</LemonMarkdown>
-                        )}
+                        {item.text && <CollapsibleBubbleText text={item.text} />}
                         {item.nonText && <div className="italic text-muted text-xs mt-1">(has attachments)</div>}
                     </MessageTemplate>
                 ) : (
-                    <InternalGroupPill key={i} messages={item.messages} labels={item.labels} role={item.role} />
+                    <InternalGroupPill key={key} messages={item.messages} labels={item.labels} role={item.role} />
                 )
             )}
+        </div>
+    )
+}
+
+// Character count approximates rendered height without measuring the DOM.
+const LONG_MESSAGE_CHARS = 1500
+const LONG_MESSAGE_LINES = 20
+
+function isLongMessage(text: string): boolean {
+    return text.length > LONG_MESSAGE_CHARS || text.split('\n').length > LONG_MESSAGE_LINES
+}
+
+function CollapsibleBubbleText({ text }: { text: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    // Trace content is untrusted, so external images must not auto-load.
+    const markdown = (
+        <LemonMarkdown className="whitespace-pre-wrap break-words" disableImages>
+            {text}
+        </LemonMarkdown>
+    )
+    if (!isLongMessage(text)) {
+        return markdown
+    }
+    const collapsed = !expanded
+    return (
+        <div className="flex flex-col gap-1">
+            <div className={collapsed ? 'max-h-60 overflow-hidden' : undefined}>{markdown}</div>
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                className="self-start"
+                onClick={() => setExpanded((v) => !v)}
+                data-attr="llm-session-toggle-long-message"
+            >
+                {collapsed ? 'Show more' : 'Show less'}
+            </LemonButton>
         </div>
     )
 }

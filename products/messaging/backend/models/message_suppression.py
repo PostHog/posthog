@@ -11,31 +11,37 @@ class SuppressionSource(models.TextChoices):
     BOUNCE = "BOUNCE"
     # Added by a user via the Suppression list tab / API.
     MANUAL = "MANUAL"
+    # Added automatically after the recipient reported a message as spam (a mailbox provider
+    # complaint relayed through the SES webhook path).
+    COMPLAINT = "COMPLAINT"
 
 
 class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     """
     Per-team list of email addresses we should not send to because they can't (or shouldn't)
-    receive mail. Two ways an address lands here:
+    receive mail. Three ways an address lands here:
 
     - Automatically, when it soft-bounces (`Transient`) on `transient_bounce_count` consecutive
       sends without a successful delivery in between. A single soft bounce is not enough — the
       recipient server may just be briefly down — so we count and only suppress once the count
       crosses a configurable threshold. Any successful delivery resets the count.
+    - Automatically, when the recipient reports a message as spam and the mailbox provider
+      relays the complaint through the SES webhook. A single complaint suppresses immediately.
     - Manually, when a user adds it in the Suppression list UI.
 
     The pre-send path consults this list (see the Node `EmailSuppressionService`) and skips
-    matching recipients. Unlike opt-outs, a suppression is a deliverability signal, not a
-    messaging preference, so it applies regardless of message category (including transactional).
+    matching recipients. Transactional messages skip only addresses that hard-bounced, because
+    only a hard bounce proves the address can't receive mail. A complaint, a manual entry or a
+    run of soft bounces (for example a full inbox) still lets transactional messages through.
     """
 
     # db_constraint=False on these hot-table FKs so CreateModel takes no lock on
     # posthog_team / posthog_user (see HotTableAlterPolicy / safe-django-migrations).
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     deleted = models.BooleanField(default=False)
 
@@ -51,6 +57,9 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     last_bounce_at = models.DateTimeField(null=True, blank=True)
     # Last SMTP diagnostic we saw, kept for visibility in the UI (e.g. the "Message expired" text).
     last_bounce_diagnostic = models.TextField(null=True, blank=True)
+    # When the address last hard-bounced. Set on every row, manual entries included, and cleared when a
+    # user removes the suppression. A suppressed row with this set also blocks transactional messages.
+    hard_bounced_at = models.DateTimeField(null=True, blank=True)
 
     # Whether the address is actively suppressed. A row can exist while still only counting
     # bounces (suppressed=False) before it crosses the threshold.

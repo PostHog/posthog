@@ -8,7 +8,7 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
-from posthog.schema import NativeMarketingSource, SourceMap
+from posthog.schema import MarketingAnalyticsDrillDownLevel, NativeMarketingSource, SourceMap
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -20,6 +20,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.pinterest_ads i
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
+from products.marketing_analytics.backend.services.native_integrations import is_native_source_enabled
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 from ..constants import (
@@ -30,6 +31,8 @@ from ..constants import (
     build_fallback_empty_query_ast,
 )
 from ..utils import map_url_to_provider
+from .amazon_ads import AmazonAdsAdapter
+from .apple_search_ads import AppleSearchAdsAdapter
 from .base import (
     BingAdsConfig,
     ExternalConfig,
@@ -45,8 +48,12 @@ from .base import (
     TikTokAdsConfig,
 )
 from .bigquery import BigQueryAdapter
+from .file_source import FileSourceAdapter
 from .google_ads import GoogleAdsAdapter
+from .openai_ads import OpenAIAdsAdapter
+from .rokt_ads import RoktAdsAdapter
 from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
+from .twitter_ads import TwitterAdsAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -57,10 +64,14 @@ def _extract_schema_name(table_suffix: str, source_type: str) -> str:
     Table names follow the format: {user_prefix}{source_type}_{schema_name}
     Exclusions should only match against the schema part, not user prefixes.
     For example: 'analytics_pinterestads_campaigns' -> 'campaigns'
+
+    The user prefix is free text, so it can contain the marker itself
+    ('googleads_googleads_campaign'). Take the last occurrence: no schema name
+    contains the marker, so the last one is always the real boundary.
     """
     source_type_lower = source_type.lower()
     marker = f"{source_type_lower}_"
-    idx = table_suffix.find(marker)
+    idx = table_suffix.rfind(marker)
     if idx != -1:
         return table_suffix[idx + len(marker) :]
     return table_suffix
@@ -72,6 +83,11 @@ class MarketingSourceFactory:
     # Registry of adapter classes
     _adapter_registry: dict[str, type[MarketingSourceAdapter]] = {
         # Native adapters
+        "AmazonAds": AmazonAdsAdapter,
+        "AppleSearchAds": AppleSearchAdsAdapter,
+        "OpenAIAds": OpenAIAdsAdapter,
+        "RoktAds": RoktAdsAdapter,
+        "TwitterAds": TwitterAdsAdapter,
         "GoogleAds": GoogleAdsAdapter,
         "LinkedinAds": LinkedinAdsAdapter,
         "RedditAds": RedditAdsAdapter,
@@ -82,6 +98,11 @@ class MarketingSourceFactory:
         "PinterestAds": PinterestAdsAdapter,
         # Non-native adapters
         "BigQuery": BigQueryAdapter,
+        "AmazonS3": FileSourceAdapter,
+        "GoogleCloudStorage": FileSourceAdapter,
+        "AzureBlob": FileSourceAdapter,
+        "CloudflareR2": FileSourceAdapter,
+        "FileUpload": FileSourceAdapter,
         # Self-managed adapters
         "aws": AWSAdapter,
         "google-cloud": GoogleCloudAdapter,
@@ -92,6 +113,11 @@ class MarketingSourceFactory:
     # A new native source needs an entry here, in TABLE_PATTERNS (constants.py), and
     # optionally in NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES if it has ad-group / ad tables.
     _native_source_specs: dict[str, tuple[NativeMarketingSource, type[HierarchicalNativeAdsConfig]]] = {
+        "AmazonAds": (NativeMarketingSource.AMAZON_ADS, HierarchicalNativeAdsConfig),
+        "AppleSearchAds": (NativeMarketingSource.APPLE_SEARCH_ADS, HierarchicalNativeAdsConfig),
+        "OpenAIAds": (NativeMarketingSource.OPEN_AI_ADS, HierarchicalNativeAdsConfig),
+        "RoktAds": (NativeMarketingSource.ROKT_ADS, HierarchicalNativeAdsConfig),
+        "TwitterAds": (NativeMarketingSource.TWITTER_ADS, HierarchicalNativeAdsConfig),
         "GoogleAds": (NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig),
         "LinkedinAds": (NativeMarketingSource.LINKEDIN_ADS, LinkedinAdsConfig),
         "RedditAds": (NativeMarketingSource.REDDIT_ADS, RedditAdsConfig),
@@ -179,7 +205,7 @@ class MarketingSourceFactory:
         """Register a new adapter type for a marketing source"""
         cls._adapter_registry[source_type] = adapter_class
 
-    def create_adapters(self) -> list[MarketingSourceAdapter]:
+    def create_adapters(self, *, raise_on_error: bool = False) -> list[MarketingSourceAdapter]:
         """Discover all available marketing sources and create adapters for them."""
         try:
             adapters = []
@@ -191,6 +217,8 @@ class MarketingSourceFactory:
 
         except Exception as e:
             self.logger.exception("Error creating marketing source adapters", error=str(e))
+            if raise_on_error:
+                raise
             return []
 
     def _create_native_adapters(self) -> list[MarketingSourceAdapter]:
@@ -200,6 +228,8 @@ class MarketingSourceFactory:
 
         for source in self._external_sources:
             if source.source_type not in VALID_NATIVE_MARKETING_SOURCES:
+                continue
+            if not is_native_source_enabled(source.source_type, self.context.team):
                 continue
 
             tables = self._tables_by_source_id.get(str(source.id), [])
@@ -255,14 +285,15 @@ class MarketingSourceFactory:
             table_suffix = table.name.split(".")[-1].lower()
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
+            # Exact schema-name match: a keyword match also claims unrelated schemas that
+            # merely contain it, such as Google Ads `campaign_budget`, which has none of
+            # the campaign columns the adapter goes on to reference.
+            if schema_name == patterns["campaign_table_name"]:
                 campaign_table = table
+                if schema_name in patterns["stats_table_keywords"]:
+                    campaign_stats_table = table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
-            # Exact schema-name match (not keyword) so ad-group / ad tables don't
-            # collide with the campaign keyword.
             elif schema_name == hierarchy_names.get("adset_table"):
                 adset_table = table
                 if adset_unified:
@@ -314,14 +345,17 @@ class MarketingSourceFactory:
                 continue
 
             for table in tables:
-                source_map = self._get_source_map_for_table(table, str(source.id))
-                if not source_map:
+                source_map_key = self._get_source_map_key_for_table(table, str(source.id))
+                if source_map_key is None:
                     continue
+                source_map = self._sources_map[source_map_key]
 
                 # For non-native: use schema ID to match frontend (table.schema?.id || table.source?.id || table.id).
                 # Iterate the prefetched set — `.first()` issues a fresh query and bypasses the prefetch cache.
                 schema = next(iter(table.externaldataschema_set.all()), None)
-                source_id = str(schema.id) if schema else str(table.id)
+                # A self-managed table that a source adopts keeps its id, so its mapping stays under the
+                # table id. The frontend then uses the table id too, so the ids must agree.
+                source_id = str(schema.id) if schema and source_map_key != str(table.id) else str(table.id)
 
                 config = ExternalConfig(
                     table=table,
@@ -375,23 +409,19 @@ class MarketingSourceFactory:
 
     def _get_source_map_for_table(self, table: DataWarehouseTable, source_id: str | None = None) -> Optional[SourceMap]:
         """Get source map for a table"""
+        key = self._get_source_map_key_for_table(table, source_id)
+        return self._sources_map[key] if key is not None else None
+
+    def _get_source_map_key_for_table(self, table: DataWarehouseTable, source_id: str | None = None) -> str | None:
+        """Get the sources_map key that holds the mapping of a table"""
         if source_id and table.external_data_source and table.external_data_source.source_type:
-            # Managed table
-            table_id = str(table.id)
-            schema_id = self._get_schema_id_for_table(table)
-
-            # Try schema_id, table_id, then source_id
-            for key in [schema_id, table_id, source_id]:
-                if key and key in self._sources_map:
-                    return self._sources_map[key]
+            # Managed table: try schema_id, table_id, then source_id
+            keys = [self._get_schema_id_for_table(table), str(table.id), source_id]
         else:
-            if str(table.id) in self._sources_map:
-                # Self-managed table
-                return self._sources_map[str(table.id)]
-            else:
-                return None
+            # Self-managed table
+            keys = [str(table.id)]
 
-        return None
+        return next((key for key in keys if key and key in self._sources_map), None)
 
     def get_valid_adapters(self, adapters: list[MarketingSourceAdapter]) -> list[MarketingSourceAdapter]:
         """Filter adapters to only return valid ones"""
@@ -403,6 +433,31 @@ class MarketingSourceFactory:
             except Exception as e:
                 self.logger.exception("Error validating adapter", source_type=adapter.get_source_type(), error=str(e))
         return valid_adapters
+
+    @staticmethod
+    def build_materialization_queries(
+        adapters: list[MarketingSourceAdapter], grain: MarketingAnalyticsDrillDownLevel
+    ) -> dict[str, ast.SelectQuery | None]:
+        return {
+            str(adapter.get_source_id()): adapter.build_materialization_query(adapter.get_source_id())
+            for adapter in adapters
+            if adapter.supports_level(grain)
+        }
+
+    def get_validation_errors(self, adapters: list[MarketingSourceAdapter]) -> dict[str, list[str]]:
+        errors_by_source: dict[str, list[str]] = {}
+        for adapter in adapters:
+            try:
+                result = adapter.validate()
+                if not result.is_valid:
+                    errors_by_source[adapter.config.source_id] = [
+                        error if not error.startswith("Validation error:") else "Source validation failed."
+                        for error in result.errors
+                    ] or ["Source validation failed."]
+            except Exception:
+                self.logger.exception("Error validating adapter", source_type=adapter.get_source_type())
+                errors_by_source[adapter.config.source_id] = ["Source validation failed."]
+        return errors_by_source
 
     def build_union_query_ast(self, adapters: list[MarketingSourceAdapter]) -> ast.SelectQuery | ast.SelectSetQuery:
         """Build union query AST from all valid adapters.

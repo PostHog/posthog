@@ -1,6 +1,6 @@
 """Persists person-property sync/backfill run outcomes.
 
-Registered as the data-import pipeline's run recorder (see apps.ready). Called from the warehouse
+Registered as the warehouse pipeline's run recorder (see apps.ready). Called from the warehouse
 sync/backfill activities, outside request context, so it scopes explicitly with ``for_team``. Writes
 a ``CustomPropertySyncRun`` row and folds the outcome back onto the source's status fields so the
 account-path ``sourceSyncStatus`` UI helper works for person sources too.
@@ -8,22 +8,31 @@ account-path ``sourceSyncStatus`` UI helper works for person sources too.
 
 from datetime import datetime
 
+from django.db import transaction
+from django.db.models import F
+from django.db.models.functions import Greatest
+
 import structlog
 
 from posthog.exceptions_capture import capture_exception
 
+from products.customer_analytics.backend.logic.custom_property_source_health import (
+    record_sync_failure,
+    record_sync_success,
+)
 from products.customer_analytics.backend.models import (
     CustomPropertySource,
     CustomPropertySyncRun,
     SyncStatus,
     SyncTrigger,
 )
-from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncRunRecord
+from products.warehouse_sources.backend.facade.hooks import (
+    BINDING_KIND_SAVED_QUERY,
+    PersonPropertySyncProgress,
+    PersonPropertySyncRunRecord,
+)
 
 logger = structlog.get_logger(__name__)
-
-# Auto-disable a source after this many consecutive failures, matching the account sync path.
-MAX_CONSECUTIVE_SYNC_FAILURES = 5
 
 # A run row is reconciled only within its own pipeline: the backfill path reads the whole table from
 # S3, the sync path rides a warehouse import job. Keeping them apart means a scheduled sync can't
@@ -35,6 +44,19 @@ _SYNC_TRIGGERS = frozenset({SyncTrigger.SCHEDULED.value, SyncTrigger.SYNC.value}
 # row created by "Sync now" keeps its own trigger when the terminal record lands on it.
 _USER_TRIGGERS = frozenset({SyncTrigger.SYNC.value, SyncTrigger.MANUAL.value})
 
+_PROGRESS_COUNTS = ("existing", "produced")
+# A retry diffs again everything not yet delivered, so the first attempt's totals are the run's totals.
+# Missing persons are never delivered, so each attempt skips them again.
+_ATTEMPT_TOTALS = ("rows_read", "changed", "skipped_missing_person")
+
+
+def _binding_fields(record: PersonPropertySyncRunRecord | PersonPropertySyncProgress) -> dict[str, str | None]:
+    """The run row's binding columns. Both are kept nullable and only one is ever set, so a run stays
+    readable after the schema or view it read is deleted."""
+    if record.binding_kind == BINDING_KIND_SAVED_QUERY:
+        return {"schema_id": None, "saved_query_id": record.binding_id or None}
+    return {"schema_id": record.binding_id or None, "saved_query_id": None}
+
 
 def _parse_iso(value: str | None) -> datetime | None:
     if not value:
@@ -45,7 +67,9 @@ def _parse_iso(value: str | None) -> datetime | None:
         return None
 
 
-def _find_reconcilable_run(team_id: int, source, record: PersonPropertySyncRunRecord):
+def _find_reconcilable_run(
+    team_id: int, source: CustomPropertySource, job_id: str | None, trigger: str
+) -> CustomPropertySyncRun | None:
     """The existing row this record belongs to, or None to insert a new one.
 
     Scheduled runs ride a warehouse import job whose activity retries up to 3 times, so they dedup on
@@ -53,111 +77,153 @@ def _find_reconcilable_run(team_id: int, source, record: PersonPropertySyncRunRe
     the failure) each attempt. Otherwise the record reconciles the newest in-progress row from its own
     pipeline — either a placeholder the UI created on "Sync now"/"Backfill" (progress + double-submit
     guard) or the row the activity opened when it started."""
-    runs = CustomPropertySyncRun.objects.for_team(team_id).filter(source=source)
-    if record.job_id:
-        run = runs.filter(job_id=record.job_id).order_by("-created_at").first()
+    runs = CustomPropertySyncRun.objects.for_team(team_id).select_for_update().filter(source=source)
+    if job_id:
+        run = runs.filter(job_id=job_id).order_by("-created_at").first()
         if run is not None:
             return run
-    triggers = _BACKFILL_TRIGGERS if record.trigger in _BACKFILL_TRIGGERS else _SYNC_TRIGGERS
-    return runs.filter(status=SyncStatus.RUNNING.value, trigger__in=triggers).order_by("-created_at").first()
+    triggers = _BACKFILL_TRIGGERS if trigger in _BACKFILL_TRIGGERS else _SYNC_TRIGGERS
+    in_progress = runs.filter(status=SyncStatus.RUNNING.value, trigger__in=triggers)
+    if job_id:
+        # Only a row nobody has claimed yet: another job's running row keeps its own counts.
+        in_progress = in_progress.filter(job_id__isnull=True)
+    return in_progress.order_by("-created_at").first()
 
 
 def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
-    """Create or reconcile the run row and update the source's status fields. A ``running`` record
-    only opens the row — the source's status fields are folded in when the run reaches a terminal
-    state. Swallows its own errors: run bookkeeping must never fail the sync that produced it."""
     log = logger.bind(
         team_id=record.team_id,
         source_id=record.source_id,
-        schema_id=record.schema_id,
+        binding_kind=record.binding_kind,
+        binding_id=record.binding_id,
         trigger=record.trigger,
         status=record.status,
     )
     try:
-        source = CustomPropertySource.objects.for_team(record.team_id).filter(id=record.source_id).first()
-        if source is None:
-            # The source was deleted between the run starting and finishing — nothing to record.
-            log.info("person-property run recorder: source no longer exists, skipping")
-            return
-
-        finished_at = _parse_iso(record.finished_at)
-        succeeded = record.status == SyncStatus.COMPLETED.value
-
-        run = _find_reconcilable_run(record.team_id, source, record)
-        # Captured before the row is overwritten below: an activity retry re-recording the same
-        # already-failed job must not increment consecutive_failures again (that would auto-disable
-        # the source from retry noise rather than distinct failed syncs).
-        already_failed = run is not None and run.status == SyncStatus.FAILED.value
-
-        fields = {
-            "schema_id": record.schema_id or None,
-            "job_id": record.job_id,
-            "trigger": record.trigger,
-            "status": record.status,
-            "started_at": _parse_iso(record.started_at),
-            "finished_at": finished_at,
-            "rows_read": record.rows_read,
-            "changed": record.changed,
-            "existing": record.existing,
-            "produced": record.produced,
-            "skipped_missing_person": record.skipped_missing_person,
-            "error": record.error,
-        }
-        if run is not None:
-            # The pipeline reports every import-driven run as "scheduled"; don't relabel a row the
-            # user started that way.
-            if run.trigger in _USER_TRIGGERS:
-                fields.pop("trigger")
-            for attr, value in fields.items():
-                setattr(run, attr, value)
-            run.save()
-        else:
-            CustomPropertySyncRun.objects.for_team(record.team_id).create(
-                team_id=record.team_id, source=source, **fields
+        with transaction.atomic():
+            source = (
+                CustomPropertySource.objects.for_team(record.team_id)
+                .select_for_update()
+                .filter(id=record.source_id)
+                .first()
             )
+            if source is None:
+                log.info("person-property run recorder: source no longer exists, skipping")
+                return
 
-        if record.status == SyncStatus.RUNNING.value:
-            # The run has only opened — nothing to fold onto the source until it settles, and
-            # clearing the last error here would hide a still-relevant failure.
-            log.info("person-property run recorded: running")
-            return
+            finished_at = _parse_iso(record.finished_at)
+            succeeded = record.status == SyncStatus.COMPLETED.value
+            run = _find_reconcilable_run(record.team_id, source, record.job_id, record.trigger)
+            already_failed = run is not None and run.status == SyncStatus.FAILED.value
 
-        if succeeded:
-            # Idempotent: safe to fold onto the source again if a prior attempt failed then a retry
-            # succeeded — resets the failure streak and stamps the last-synced time.
-            source.last_synced_at = finished_at
-            source.last_sync_error = None
-            source.consecutive_failures = 0
-            source.save(update_fields=["last_synced_at", "last_sync_error", "consecutive_failures", "updated_at"])
-            log.info(
-                "person-property run recorded: completed",
-                rows_read=record.rows_read,
-                changed=record.changed,
-                existing=record.existing,
-                produced=record.produced,
-                skipped_missing_person=record.skipped_missing_person,
-            )
-        else:
-            if not already_failed:
-                source.consecutive_failures = (source.consecutive_failures or 0) + 1
-            source.last_sync_error = record.error
-            auto_disabled = source.consecutive_failures >= MAX_CONSECUTIVE_SYNC_FAILURES
-            if auto_disabled:
-                source.is_enabled = False
-            source.save(update_fields=["consecutive_failures", "last_sync_error", "is_enabled", "updated_at"])
-            log.warning(
-                "person-property run recorded: failed",
-                consecutive_failures=source.consecutive_failures,
-                auto_disabled=auto_disabled,
-                error=record.error,
-            )
-            if auto_disabled:
-                log.error(
-                    "person-property source auto-disabled after consecutive failures",
-                    consecutive_failures=source.consecutive_failures,
+            fields: dict = {
+                **_binding_fields(record),
+                "job_id": record.job_id,
+                "trigger": record.trigger,
+                "status": record.status,
+                "started_at": _parse_iso(record.started_at),
+                "finished_at": finished_at,
+                "rows_read": record.rows_read,
+                "changed": record.changed,
+                "existing": record.existing,
+                "produced": record.produced,
+                "skipped_missing_person": record.skipped_missing_person,
+                "error": record.error,
+            }
+            if run is not None:
+                if run.trigger in _USER_TRIGGERS:
+                    fields.pop("trigger")
+                # Chunk progress has already added up what every attempt delivered, and the first
+                # attempt saw the most rows. This record holds only the last attempt's counts, so it
+                # can raise these but never lower them.
+                for count in (*_PROGRESS_COUNTS, *_ATTEMPT_TOTALS):
+                    fields[count] = Greatest(F(count), fields[count])
+                # A backfill retry re-reads the table, so it can find rows the first attempt never saw.
+                # Deliveries already counted must not outgrow the changed total.
+                fields["changed"] = Greatest(F("changed"), record.changed, F("existing"), record.existing)
+                for attr, value in fields.items():
+                    setattr(run, attr, value)
+                run.save()
+            else:
+                run = CustomPropertySyncRun.objects.for_team(record.team_id).create(
+                    team_id=record.team_id, source=source, **fields
                 )
-    except Exception as e:
-        # Run bookkeeping must never fail the sync/backfill that produced it, but the failure itself
-        # is worth surfacing — a persistently failing recorder means the UI silently drifts from reality.
+
+            if record.status == SyncStatus.RUNNING.value:
+                log.info("person-property run recorded: running")
+                return
+
+            if succeeded:
+                record_sync_success(source, finished_at=finished_at)
+                log.info(
+                    "person-property run recorded: completed",
+                    rows_read=record.rows_read,
+                    changed=record.changed,
+                    existing=record.existing,
+                    produced=record.produced,
+                    skipped_missing_person=record.skipped_missing_person,
+                )
+            else:
+                auto_disabled = record_sync_failure(
+                    source,
+                    error=record.error,
+                    disable_event_id=record.job_id or str(run.id),
+                    count_failure=record.count_failure and not already_failed,
+                )
+                log.warning(
+                    "person-property run recorded: failed",
+                    consecutive_failures=source.consecutive_failures,
+                    auto_disabled=auto_disabled,
+                    error=record.error,
+                )
+                if auto_disabled:
+                    log.error(
+                        "person-property source auto-disabled after consecutive failures",
+                        consecutive_failures=source.consecutive_failures,
+                    )
+    except Exception as error:
         log.exception("person-property run recorder failed")
-        capture_exception(e)
+        capture_exception(error)
+
+
+def record_sync_progress(progress: PersonPropertySyncProgress) -> None:
+    """Add one produced chunk's counts to the run row the terminal record will reconcile to."""
+    log = logger.bind(
+        team_id=progress.team_id,
+        source_id=progress.source_id,
+        binding_kind=progress.binding_kind,
+        binding_id=progress.binding_id,
+        trigger=progress.trigger,
+    )
+    try:
+        with transaction.atomic():
+            source = CustomPropertySource.objects.for_team(progress.team_id).filter(id=progress.source_id).first()
+            if source is None:
+                log.info("person-property progress recorder: source no longer exists, skipping")
+                return
+            run = _find_reconcilable_run(progress.team_id, source, progress.job_id, progress.trigger)
+            if run is None:
+                CustomPropertySyncRun.objects.for_team(progress.team_id).create(
+                    team_id=progress.team_id,
+                    source=source,
+                    **_binding_fields(progress),
+                    job_id=progress.job_id,
+                    trigger=progress.trigger,
+                    status=SyncStatus.RUNNING.value,
+                    rows_read=progress.rows_read,
+                    changed=progress.changed,
+                    existing=progress.existing,
+                    produced=progress.produced,
+                    skipped_missing_person=progress.skipped_missing_person,
+                )
+                return
+            CustomPropertySyncRun.objects.for_team(progress.team_id).filter(id=run.id).update(
+                rows_read=Greatest(F("rows_read"), progress.rows_read),
+                changed=Greatest(F("changed"), progress.changed, F("existing") + progress.existing),
+                existing=F("existing") + progress.existing,
+                produced=F("produced") + progress.produced,
+                skipped_missing_person=Greatest(F("skipped_missing_person"), progress.skipped_missing_person),
+            )
+    except Exception as error:
+        log.exception("person-property progress recorder failed")
+        capture_exception(error)

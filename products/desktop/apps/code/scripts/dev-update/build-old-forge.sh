@@ -26,7 +26,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"          # apps/code
 REPO_ROOT="$(cd "$APP_DIR/../.." && pwd)"
 
-OLD_REF="${OLD_FORGE_REF:-cb0ca68db}"               # v0.55.132, last Forge release
+OLD_REF="${OLD_FORGE_REF:-cb0ca68dbeb49cc979dbcc887e007b9d1916a32a}"  # v0.55.132, last Forge release
+OLD_FORGE_REMOTE="${OLD_FORGE_REMOTE:-https://github.com/PostHog/code.git}"
 OLD_VERSION="${OLD_VERSION:-1.0.0}"
 WORKTREE="${OLD_FORGE_WORKTREE:-$REPO_ROOT/.old-forge-worktree}"
 OUT_APP_DIR="$APP_DIR/out/old-forge"
@@ -47,6 +48,18 @@ log "old Forge ref: $OLD_REF (version $OLD_VERSION)"
 # 1. Isolated worktree at the pinned tag. Separate node_modules + build output,
 #    so the current branch checkout is untouched.
 cleanup_worktree
+# The last Forge release predates the monorepo import, so its commit lives only in
+# the archived standalone repository. GitHub serves a fetch by full commit SHA, so
+# pull the one object in instead of cloning the archive.
+if ! git -C "$REPO_ROOT" cat-file -e "${OLD_REF}^{commit}" 2>/dev/null; then
+  log "fetching $OLD_REF from $OLD_FORGE_REMOTE"
+  for attempt in 1 2 3; do
+    git -C "$REPO_ROOT" fetch --no-tags "$OLD_FORGE_REMOTE" "$OLD_REF" && break
+    [ "$attempt" -lt 3 ] || { echo "FAIL: could not fetch $OLD_REF from $OLD_FORGE_REMOTE after $attempt attempts"; exit 1; }
+    log "fetch attempt $attempt failed, retrying"
+    sleep $((attempt * 10))
+  done
+fi
 git -C "$REPO_ROOT" worktree add --force --detach "$WORKTREE" "$OLD_REF"
 trap cleanup_worktree EXIT
 

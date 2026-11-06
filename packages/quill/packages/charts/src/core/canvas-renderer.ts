@@ -10,6 +10,7 @@ import type {
     ChartTheme,
     DrawHoverResult,
     ResolvedSeries,
+    ScatterMarkerShape,
 } from './types'
 
 export interface DrawContext {
@@ -21,24 +22,47 @@ export interface DrawContext {
     /** Smooth the line/area with monotone-cubic interpolation instead of straight segments. */
     smooth?: boolean
     /** Largest drawable y (px) for line/area strokes. Charts drawing an x-axis line pass the
-     *  baseline minus half their stroke width, so a baseline-hugging stroke rests exactly on the
-     *  axis line instead of straddling it. Pure draw-time clamp — scales and ticks are untouched. */
+     *  baseline minus half the default stroke width, and `drawLineSeriesLayer` raises it per series
+     *  for a wider stroke, so a baseline-hugging stroke rests exactly on the axis line instead of
+     *  straddling it. Pure draw-time clamp — scales and ticks are untouched. */
     yFloor?: number
+    /** Draw across missing values instead of breaking the line and area at them. */
+    connectNulls?: boolean
 }
 
-/** Stroke width of series lines. Half of it is the stroke's overhang past a point, which the
+function isDrawablePoint({ xScale, yScale, labels }: DrawContext, data: number[], i: number): boolean {
+    return xScale(labels[i]) != null && isFinite(yScale(data[i]))
+}
+
+/** Default stroke width of series lines. Half of it is the stroke's overhang past a point, which the
  *  `yFloor`/left-clip callers use to keep strokes flush against drawn axis lines. */
 export const LINE_STROKE_WIDTH = 2
 
+/** The series' stroke width: the default when unset, 0 (no line) for a NaN or negative width. */
+function lineStrokeWidth(series: ResolvedSeries): number {
+    return Math.max(0, series.stroke?.width ?? LINE_STROKE_WIDTH) || 0
+}
+
+/** The incomplete-period dash: `stroke.partial.pattern`, else 10px dashes with an 8px visible gap.
+ *  A round cap adds half the width to each end of a dash, so the gap grows with the width to stay
+ *  open on a wide line. At the default width this is `[10, 10]`. */
+function partialDashPattern(series: ResolvedSeries): number[] {
+    return series.stroke?.partial?.pattern ?? [10, lineStrokeWidth(series) + 8]
+}
+
+/** Dot radius for a point with no line through it, e.g. a series with one value. */
+const ISOLATED_POINT_RADIUS = 3
+
 export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
-    if (data.length === 0) {
+    const width = lineStrokeWidth(series)
+    if (data.length === 0 || width === 0) {
         return
     }
 
     const { ctx } = drawCtx
     ctx.strokeStyle = series.color
-    ctx.lineWidth = LINE_STROKE_WIDTH
+    ctx.lineWidth = width
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
 
@@ -47,7 +71,8 @@ export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?:
         return
     }
 
-    for (const { start, end, pattern } of planLineStrokes(series, data.length)) {
+    const isDrawable = drawCtx.connectNulls ? (i: number) => isDrawablePoint(drawCtx, data, i) : undefined
+    for (const { start, end, pattern } of planLineStrokes(series, data.length, isDrawable)) {
         ctx.beginPath()
         ctx.setLineDash(pattern)
         tracePath(drawCtx, data, start, end)
@@ -96,7 +121,7 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
 
     // Dashed: the split pixel out to the final point.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(splitX, splitY)
     ctx.lineTo(x1, y1)
     ctx.stroke()
@@ -178,7 +203,7 @@ function drawSmoothFractionalTail(drawCtx: DrawContext, series: ResolvedSeries, 
 
     // Dashed: the split point out to the final point, along the same curve.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(split.x, split.y)
     const end = tail[tail.length - 1]
     ctx.bezierCurveTo(split.secondCp1x, split.secondCp1y, split.secondCp2x, split.secondCp2y, end.x, end.y)
@@ -197,11 +222,18 @@ interface Stroke {
  * Each entry is a contiguous index range drawn with a single dash pattern; adjacent strokes
  * share their boundary index so the visual seam between them is invisible.
  */
-function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
+function planLineStrokes(series: ResolvedSeries, length: number, isDrawable?: (i: number) => boolean): Stroke[] {
     const basePattern = series.stroke?.pattern ?? []
-    const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
-    const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
-    const to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
+    const partialPattern = partialDashPattern(series)
+    let from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
+    let to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
+    // A boundary on a bridged missing value moves to the nearest drawn point, so the bridge is dashed like the area.
+    while (isDrawable && from !== null && from > 1 && !isDrawable(from - 1)) {
+        from--
+    }
+    while (isDrawable && to !== null && to < length - 1 && !isDrawable(to)) {
+        to++
+    }
 
     // No partial dashing — one stroke covering the whole line.
     if (from === null && to === null) {
@@ -235,7 +267,7 @@ function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
  *  points since the tangents need the whole run). NaN/out-of-domain points break the line into
  *  separate subpaths. Caller owns beginPath/stroke. */
 function tracePath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
-    const { ctx, xScale, yScale, labels, smooth, yFloor } = drawCtx
+    const { ctx, xScale, yScale, labels, smooth, yFloor, connectNulls } = drawCtx
     if (smooth) {
         traceSmoothPath(drawCtx, data, start, end)
         return
@@ -245,9 +277,11 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
         const x = xScale(labels[i])
         const rawY = yScale(data[i])
         if (x == null || !isFinite(rawY)) {
-            // Reset so the next valid point starts a fresh subpath rather than
-            // connecting straight across the NaN gap.
-            started = false
+            if (!connectNulls) {
+                // Reset so the next valid point starts a fresh subpath rather than
+                // connecting straight across the NaN gap.
+                started = false
+            }
             continue
         }
         const y = yFloor != null ? Math.min(rawY, yFloor) : rawY
@@ -268,14 +302,14 @@ interface Point {
 /** Collects the drawable points of [start, end] into gap-delimited runs — a new run starts after
  *  every NaN/out-of-domain point, so each run is a contiguous subpath. `yFloor` clamps each point. */
 function collectSmoothRuns(drawCtx: DrawContext, data: number[], start: number, end: number): Point[][] {
-    const { xScale, yScale, labels, yFloor } = drawCtx
+    const { xScale, yScale, labels, yFloor, connectNulls } = drawCtx
     const runs: Point[][] = []
     let run: Point[] = []
     for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {
-            if (run.length > 0) {
+            if (run.length > 0 && !connectNulls) {
                 runs.push(run)
                 run = []
             }
@@ -392,18 +426,26 @@ function resolvePartialIndex(idx: number | undefined, length: number): number | 
 const hatchPatternCache = new Map<string, CanvasPattern>()
 
 function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
-    const cached = hatchPatternCache.get(color)
+    // The draw context is transform-scaled to device pixels, so a tile authored in CSS pixels would
+    // be upscaled and blur. Read the ratio off the backing store rather than `window.devicePixelRatio`
+    // for the reason in `clearAndPrepare`: a redraw can run at a different ratio than sized the canvas.
+    const backing = ctx.canvas
+    const dpr = backing && backing.width > 0 ? backing.width / (backing.clientWidth || backing.width) : 1
+    const scale = dpr > 0 && Number.isFinite(dpr) ? dpr : 1
+    const size = 14
+    const key = `${color}@${scale}`
+    const cached = hatchPatternCache.get(key)
     if (cached) {
         return cached
     }
-    const size = 14
     const patCanvas = document.createElement('canvas')
-    patCanvas.width = size
-    patCanvas.height = size
+    patCanvas.width = Math.max(1, Math.round(size * scale))
+    patCanvas.height = Math.max(1, Math.round(size * scale))
     const patCtx = patCanvas.getContext('2d')
     if (!patCtx) {
         return color
     }
+    patCtx.scale(scale, scale)
     patCtx.strokeStyle = color
     patCtx.lineWidth = 4
     patCtx.beginPath()
@@ -420,7 +462,15 @@ function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPa
     patCtx.stroke()
     const pattern = ctx.createPattern(patCanvas, 'repeat')
     if (pattern) {
-        hatchPatternCache.set(color, pattern)
+        // Undo the backing scale so one bitmap pixel lands on one device pixel.
+        if (scale !== 1 && typeof pattern.setTransform === 'function' && typeof DOMMatrix === 'function') {
+            pattern.setTransform(new DOMMatrix([1 / scale, 0, 0, 1 / scale, 0, 0]))
+        }
+        // Per-bar colors and each browser zoom level add a key, so evict the oldest past a cap.
+        if (hatchPatternCache.size >= 64) {
+            hatchPatternCache.delete(hatchPatternCache.keys().next().value!)
+        }
+        hatchPatternCache.set(key, pattern)
         return pattern
     }
     return color
@@ -438,7 +488,7 @@ export function drawArea(
     yValues?: number[],
     bottomValues?: number[]
 ): void {
-    const { ctx, xScale, yScale, labels, dimensions, smooth, yFloor } = drawCtx
+    const { ctx, xScale, yScale, labels, dimensions, smooth, yFloor, connectNulls } = drawCtx
     const data = yValues ?? series.data
     const opacity = series.fill?.opacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
@@ -459,7 +509,9 @@ export function drawArea(
         const x = xScale(labels[i])
         const rawTop = yScale(data[i])
         if (x == null || !isFinite(rawTop)) {
-            breakSegment()
+            if (!connectNulls) {
+                breakSegment()
+            }
             continue
         }
         // Clamped like the line stroke so the area's top edge stays under it; the bottom edge
@@ -469,7 +521,9 @@ export function drawArea(
             const rawBottom = bottomValues[i]
             const yBot = rawBottom == null ? NaN : yScale(rawBottom)
             if (!isFinite(yBot)) {
-                breakSegment()
+                if (!connectNulls) {
+                    breakSegment()
+                }
                 continue
             }
             currentTop.push({ x, y: yTop, dataIndex: i })
@@ -569,13 +623,13 @@ function fillAreaPath(ctx: CanvasRenderingContext2D, top: Point[], bottom: Point
 }
 
 export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
-    const { ctx, xScale, yScale, labels } = drawCtx
+    const { ctx, xScale, yScale, labels, connectNulls } = drawCtx
     const data = yValues ?? series.data
-    const radius = series.points?.radius ?? 0
-
-    if (radius <= 0) {
-        return
-    }
+    const radius = series.points?.radius
+    const isDrawable = (i: number): boolean => i >= 0 && i < data.length && isDrawablePoint(drawCtx, data, i)
+    const drawableCount = connectNulls ? data.filter((_, i) => isDrawable(i)).length : 0
+    const isIsolated = (i: number): boolean =>
+        connectNulls ? drawableCount === 1 : !isDrawable(i - 1) && !isDrawable(i + 1)
 
     ctx.fillStyle = series.color
 
@@ -585,9 +639,49 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
         if (x == null || !isFinite(y)) {
             continue
         }
+        // No line passes through a point without drawable neighbors, so it needs a dot to be visible.
+        const r = radius ?? (isIsolated(i) ? ISOLATED_POINT_RADIUS : 0)
+        if (r <= 0) {
+            continue
+        }
         ctx.beginPath()
-        ctx.arc(x, y, radius, 0, Math.PI * 2)
+        ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fill()
+    }
+}
+
+/** Trace a scatter marker's outline at (x, y) without painting it, so the caller can fill it
+ *  translucently and stroke it opaquely from one traced path. `radius` is the glyph's half-extent,
+ *  so every shape spans the same width as a circle of that radius. `cross` traces two open strokes
+ *  and can only be stroked. */
+export function traceScatterMarker(
+    ctx: CanvasRenderingContext2D,
+    shape: ScatterMarkerShape,
+    x: number,
+    y: number,
+    radius: number
+): void {
+    ctx.beginPath()
+    switch (shape) {
+        case 'square':
+            ctx.rect(x - radius, y - radius, radius * 2, radius * 2)
+            return
+        case 'triangle':
+            // Base at half the radius, which puts the centroid rather than the bounding box on the
+            // data point, so the glyph's visual weight sits where the value is.
+            ctx.moveTo(x, y - radius)
+            ctx.lineTo(x + radius, y + radius * 0.5)
+            ctx.lineTo(x - radius, y + radius * 0.5)
+            ctx.closePath()
+            return
+        case 'cross':
+            ctx.moveTo(x - radius, y - radius)
+            ctx.lineTo(x + radius, y + radius)
+            ctx.moveTo(x + radius, y - radius)
+            ctx.lineTo(x - radius, y + radius)
+            return
+        default:
+            ctx.arc(x, y, radius, 0, Math.PI * 2)
     }
 }
 
@@ -617,7 +711,10 @@ export interface DrawAxesOptions {
 
 /** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
  *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
-export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): void {
+export function drawAxes(
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions },
+    options: DrawAxesOptions = {}
+): void {
     const { ctx, dimensions } = drawCtx
     const { xLine = true, yLine = true } = options
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
@@ -706,6 +803,8 @@ export interface DrawGridOptions {
     orientation?: 'vertical' | 'horizontal'
     /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
+    /** Value-axis ticks for a `yScale` with no `.ticks()`, such as the core's `ChartScales.y`. */
+    valueTicks?: number[]
 }
 
 /** Draws the grid lines and the full plot-area frame.
@@ -717,14 +816,18 @@ export interface DrawGridOptions {
  * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
  * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
  */
-export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): void {
+export function drawGrid(
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions; yScale: (value: number) => number },
+    options: DrawGridOptions = {}
+): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
     const orientation = options.orientation ?? 'vertical'
     const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
     const categoryTicks = options.categoryTicks ?? []
 
-    const valueTicks = (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
+    const valueTicks =
+        options.valueTicks ?? (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
     const frame = options.frame ?? true
 
     ctx.strokeStyle = gridColor
@@ -968,25 +1071,30 @@ export interface LineSeriesLayerOptions {
      *  past it. Pass the chart's `showAxisLines` — without an axis line the overhang is invisible
      *  and edge line caps are left whole. */
     clipLeftEdge?: boolean
+    connectNulls?: boolean
 }
 
 /** Draw a line/area layer (clipped vertically) — the per-series area/line/points orchestration shared
  *  by LineChart and ComboChart. Callers supply the y-value source (raw vs stacked tops), the fill
  *  predicate, and the z-order; the loop, clip, and primitive calls live here. */
 export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
-    const { ctx, dimensions, labels, series, xScale, resolveYScale, smooth, yFloor, clipLeftEdge } = options
+    const { ctx, dimensions, labels, series, xScale, resolveYScale, smooth, yFloor, clipLeftEdge, connectNulls } =
+        options
     const yValuesFor = options.yValuesFor ?? (() => undefined)
     const bottomFor = options.bottomFor ?? ((s: ResolvedSeries) => s.fill?.lowerData)
     const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
     const zOrder = options.zOrder ?? 'per-series'
     const visible = series.filter((s) => !s.visibility?.excluded)
+    // `yFloor` is set for the default stroke; a wider stroke rests higher so it still sits on the axis.
+    const floorFor = (s: ResolvedSeries): number | undefined =>
+        yFloor == null ? undefined : yFloor - (lineStrokeWidth(s) - LINE_STROKE_WIDTH) / 2
 
     const paintArea = (s: ResolvedSeries): void => {
         if (!shouldFill(s)) {
             return
         }
         drawArea(
-            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor },
+            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor: floorFor(s), connectNulls },
             s,
             yValuesFor(s),
             bottomFor(s)
@@ -996,7 +1104,16 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
         if (s.fill?.lowerData) {
             return
         }
-        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor }
+        const drawCtx: DrawContext = {
+            ctx,
+            dimensions,
+            labels,
+            xScale,
+            yScale: resolveYScale(s),
+            smooth,
+            yFloor: floorFor(s),
+            connectNulls,
+        }
         drawLine(drawCtx, s, yValuesFor(s))
         drawPoints(drawCtx, s, yValuesFor(s))
     }
@@ -1120,11 +1237,33 @@ export function drawBars(
         // The hatch keeps the bar's own resolved color (per-bar override included) so a
         // flagged bar still reads as belonging to its series. Pattern lookups are cached.
         const barColor = barColorAt(series, bar.dataIndex)
-        ctx.fillStyle = useHatch ? getHatchPattern(ctx, barColor) : makeBarFill(ctx, barColor, bar, fillStyle)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
+        if (useHatch) {
+            drawHatchedBarFill(ctx, barColor)
+            continue
+        }
+        ctx.fillStyle = makeBarFill(ctx, barColor, bar, fillStyle)
         ctx.fill()
     }
+}
+
+// Deliberately higher than the `BAR_TRACK_*` pair above, which the same construction uses. A track
+// is a backdrop meant to recede, whereas a flagged bar carries the bucket's actual count, so at
+// track alpha it would read as an empty bucket rather than one that is still filling.
+const HATCHED_BAR_BASE_ALPHA = 0.25
+const HATCHED_BAR_HATCH_ALPHA = 0.65
+
+/** Fills the already-traced path as a hatched bar. Owns save/restore. */
+function drawHatchedBarFill(ctx: CanvasRenderingContext2D, color: string): void {
+    ctx.save()
+    ctx.globalAlpha = HATCHED_BAR_BASE_ALPHA
+    ctx.fillStyle = color
+    ctx.fill()
+    ctx.globalAlpha = HATCHED_BAR_HATCH_ALPHA
+    ctx.fillStyle = getHatchPattern(ctx, color)
+    ctx.fill()
+    ctx.restore()
 }
 
 // Tracks render as a tinted base under hatched stripes — same construction as the legacy
@@ -1159,8 +1298,8 @@ export function clipToRoundedRects(ctx: CanvasRenderingContext2D, rects: BarRect
     ctx.clip()
 }
 
-/** Paints each track rect as a single solid colour — the neutral "remainder of the whole"
- *  backdrop for funnel-style stacked bars (one track per band behind the stack), as opposed
+/** Paints each track rect as a single solid colour: the neutral "remainder of the whole"
+ *  backdrop for `bars.track: 'solid'` (one track per band behind every bar in it), as opposed
  *  to {@link drawBarTracks}'s per-series tinted+hatched treatment for grouped layouts. */
 export function drawSolidBarTracks(
     ctx: CanvasRenderingContext2D,
@@ -1243,22 +1382,37 @@ export interface DrawBoxOptions {
     color: string
     /** Box fill — typically the series color at reduced alpha. */
     fillColor: string
+    /** Whisker stem and cap color. Defaults to `color`. */
+    whiskerColor?: string
     /** Optional explicit median stroke color. Defaults to `color`. */
     medianColor?: string
     /** Optional mean marker fill. Defaults to `fillColor`. */
     meanFillColor?: string
+    /** Box corner radius in CSS pixels, clamped to half the box size. Defaults to 3. */
+    cornerRadius?: number
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
     /** Line width for the box outline, whiskers, and median. Defaults to 1.5. */
     lineWidth?: number
     /** Width of the whisker caps (as a fraction of the box width). Defaults to 0.6. */
     whiskerCapRatio?: number
+    /** The boxes lie along a horizontal value axis: `x`/`width` are band pixels on y, and the value
+     *  fields are pixels on x. Defaults to false. */
+    horizontal?: boolean
 }
 
-/** Paint a whole series of box-and-whiskers, batching path operations so the number of
- *  `beginPath`/`stroke` pairs is `4 + N` instead of `5N` (whisker stems, caps, box outlines,
- *  and medians are each one shared path; mean markers stay per-box since each needs both
- *  fill and stroke). Pure: takes pre-laid-out {@link BoxRect}s; no scale access. */
+/** Swap the canvas x and y axes, so geometry laid out for vertical boxes draws horizontally. The
+ *  transpose is a reflection, so line widths and marker radii keep their size. */
+function transposeAxes(ctx: CanvasRenderingContext2D): void {
+    ctx.transform(0, 1, 1, 0, 0, 0)
+}
+
+const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
+const DEFAULT_BOX_CORNER_RADIUS = 3
+
+/** Paint a whole series of box-and-whiskers. Whisker stems, caps, and medians are each one
+ *  shared path; boxes and mean markers stay per-box since each needs its own fill and stroke.
+ *  Pure: takes pre-laid-out {@link BoxRect}s; no scale access. */
 export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], options: DrawBoxOptions): void {
     if (boxes.length === 0) {
         return
@@ -1266,15 +1420,22 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
     const {
         color,
         fillColor,
+        whiskerColor = color,
         medianColor = color,
         meanFillColor = fillColor,
         meanRadius = 3,
         lineWidth = 1.5,
         whiskerCapRatio = 0.6,
+        horizontal = false,
+        cornerRadius = DEFAULT_BOX_CORNER_RADIUS,
     } = options
 
+    ctx.save()
+    if (horizontal) {
+        transposeAxes(ctx)
+    }
     ctx.lineWidth = lineWidth
-    ctx.strokeStyle = color
+    ctx.strokeStyle = whiskerColor
     ctx.setLineDash([])
 
     // 1. Whisker stems — only emit a stem when the whisker extends past the box edge.
@@ -1310,19 +1471,23 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
     }
     ctx.stroke()
 
-    // 3. Box rectangles (p25 → p75) — fill then outline. `fillRect` / `strokeRect` are
-    //    already optimal — no `beginPath` accumulation needed.
+    // 3. Rounded boxes (p25 → p75) — fill then outline. Each box is its own rounded path.
     ctx.fillStyle = fillColor
+    ctx.strokeStyle = color
     for (const box of boxes) {
         const boxHeight = Math.max(0, box.bottom - box.top)
-        if (boxHeight > 0 && box.width > 0) {
-            ctx.fillRect(box.x, box.top, box.width, boxHeight)
-            ctx.strokeRect(box.x, box.top, box.width, boxHeight)
+        if (boxHeight <= 0 || box.width <= 0) {
+            continue
         }
+        ctx.beginPath()
+        traceRoundedBarPath(ctx, box.x, box.top, box.width, boxHeight, cornerRadius, ALL_CORNERS)
+        ctx.fill()
+        ctx.stroke()
     }
 
-    // 4. Median lines.
+    // 4. Median lines — thicker than the outline so the median stands out.
     ctx.strokeStyle = medianColor
+    ctx.lineWidth = lineWidth * 3
     ctx.beginPath()
     for (const box of boxes) {
         const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
@@ -1330,6 +1495,7 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         ctx.lineTo(box.x + box.width, medianClamped)
     }
     ctx.stroke()
+    ctx.lineWidth = lineWidth
 
     // 5. Mean markers — filled circle outlined in the series color. Stays per-box because
     //    each marker requires both a fill and a stroke pass.
@@ -1341,17 +1507,31 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         ctx.fill()
         ctx.stroke()
     }
+    ctx.restore()
 }
 
 /** Translucent highlight overlay for a hovered box. Drawn on the overlay canvas so it
  *  composites over the static box without disturbing it — mirrors {@link drawBarHighlight}. */
-export function drawBoxHighlight(ctx: CanvasRenderingContext2D, box: BoxRect, overlayColor: string): void {
+export function drawBoxHighlight(
+    ctx: CanvasRenderingContext2D,
+    box: BoxRect,
+    overlayColor: string,
+    horizontal = false,
+    cornerRadius = DEFAULT_BOX_CORNER_RADIUS
+): void {
     const boxHeight = Math.max(0, box.bottom - box.top)
     if (box.width <= 0 || boxHeight <= 0) {
         return
     }
+    ctx.save()
+    if (horizontal) {
+        transposeAxes(ctx)
+    }
     ctx.fillStyle = overlayColor
-    ctx.fillRect(box.x, box.top, box.width, boxHeight)
+    ctx.beginPath()
+    traceRoundedBarPath(ctx, box.x, box.top, box.width, boxHeight, cornerRadius, ALL_CORNERS)
+    ctx.fill()
+    ctx.restore()
 }
 
 type DrawHoverFn = (args: ChartDrawArgs) => DrawHoverResult
@@ -1365,10 +1545,7 @@ interface ComposeDrawHoverOptions {
 }
 
 // Crosshair drawn first so the chart-type's highlight rings render on top.
-export function composeDrawHoverWithCrosshair(
-    getDrawHover: () => DrawHoverFn,
-    options: ComposeDrawHoverOptions
-): DrawHoverFn {
+export function composeDrawHoverWithCrosshair(drawHover: DrawHoverFn, options: ComposeDrawHoverOptions): DrawHoverFn {
     const { crosshairColor, crosshairDash, showCrosshair, axisOrientation = 'vertical', labelToCoord } = options
     return (args) => {
         if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
@@ -1378,7 +1555,7 @@ export function composeDrawHoverWithCrosshair(
                 drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation, crosshairDash)
             }
         }
-        return getDrawHover()(args)
+        return drawHover(args)
     }
 }
 

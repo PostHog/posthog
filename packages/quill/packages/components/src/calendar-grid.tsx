@@ -215,7 +215,7 @@ export function Calendar({
                         }
                     }}
                 >
-                    <SelectTrigger size="sm" aria-label="Month and year" className="h-6 px-2 text-xs">
+                    <SelectTrigger size="sm" aria-label="Month and year">
                         <SelectValue>{(v: number) => `${MONTH_NAMES[v % 12]} ${Math.floor(v / 12)}`}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>

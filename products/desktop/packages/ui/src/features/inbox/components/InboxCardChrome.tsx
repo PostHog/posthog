@@ -7,6 +7,10 @@ import type { ReactNode } from "react";
  * [body | actions rail] row from `@lg` up. Requires an `@container` ancestor,
  * which the list shells own. The card root is `relative` so the timestamp and
  * top-right badge slots can pin to its corners in the row layout.
+ *
+ * The background comes from the `--inbox-row-surface` variable, because the
+ * overlapping reviewer avatars ring themselves in the current surface color.
+ * A background set directly here makes them merge on hover and on selection.
  */
 export function inboxCardClassName(options: {
   dashed?: boolean;
@@ -15,13 +19,13 @@ export function inboxCardClassName(options: {
 }): string {
   return cn(
     "group relative flex w-full flex-col gap-2.5 @lg:flex-row @lg:items-stretch @lg:gap-3",
-    "rounded-(--radius-2) border bg-(--color-panel-solid) px-4 py-3.5 transition duration-150 hover:bg-(--gray-2)",
+    "rounded-(--radius-2) border bg-(--inbox-row-surface) px-4 py-3.5 transition duration-150 [--inbox-row-surface:var(--color-panel-solid)] hover:[--inbox-row-surface:var(--gray-2)]",
     options.dashed
       ? "border-(--gray-6) border-dashed hover:border-(--gray-7)"
       : "border-border hover:border-(--gray-6) hover:shadow-sm",
     options.dimmed && "opacity-90",
     options.isSelected &&
-      "border-(--accent-8) bg-(--accent-2) ring-(--accent-8) ring-2 ring-inset",
+      "border-(--accent-8) ring-(--accent-8) ring-2 ring-inset [--inbox-row-surface:var(--accent-2)]",
   );
 }
 

@@ -22,9 +22,10 @@ products/
     backend/                # Django app
       __init__.py
       apps.py
+      checks.py             # optional: Django system checks, imported from apps.py ready()
       models.py
       logic.py              # business logic
-      routes.py             # API routes: register_routes(routers), auto-discovered from INSTALLED_APPS
+      routes.py             # API routes: register_routes(routers) + api_urlpatterns/webhook_urlpatterns, auto-discovered
       migrations/
       facade/               # cross-product Python interface
         __init__.py
@@ -49,7 +50,7 @@ products/
       logics/
       generated/            # OpenAPI-generated TypeScript types
     mcp/                    # MCP tool definitions (tools.yaml) and UI apps — most products
-    skills/                 # agent skills for the product — many products
+    skills/                 # published agent skills for the product — many products
     services/               # optional: a service this product deploys
     packages/               # optional: a library/CLI this product owns
 ```
@@ -92,6 +93,15 @@ Use `bin/hogli product:bootstrap <name>` to scaffold a new product with this str
 
 This avoids circular imports and keeps migrations/app labels stable.
 
+- Put the product's Django system checks in `backend/checks.py`.
+  A system check catches a wrong setting at startup instead of in user traffic.
+  `hogli product:lint` enforces three rules:
+  - `apps.py` `ready()` imports `backend/checks.py`. Django never runs a check whose module nobody imported.
+  - No other product module registers a check.
+  - Every check ID starts with `posthog.<product>.`, for example `posthog.canvas.E001`.
+
+  Register each check with `register_check` from `posthog/checks.py`, which documents the ID scheme. `product:bootstrap` does not create the file.
+
 ## Frontend conventions
 
 - Each `frontend/` directory contains the frontend app for the product.
@@ -112,7 +122,7 @@ Keep shared code minimal to avoid tight coupling.
 Beyond `backend/` + `frontend/` + `manifest.tsx` + `package.json`, most products also carry:
 
 - `mcp/` — MCP tool definitions (`tools.yaml`) and UI apps (the majority of products expose these)
-- `skills/` — agent skills for the product (many products)
+- `skills/` — published agent skills for the product (many products). A skill that needs a repository checkout goes in `.agents/skills/` (see `/writing-skills`)
 
 And anything else attributable to a single product — nest it here rather than in a top-level dir:
 
@@ -165,6 +175,20 @@ The lint command validates:
 > [!NOTE]
 > To migrate a product to full isolation (facade + contracts + selective testing), use the `isolating-product-facade-contracts` skill. See [products/architecture.md](architecture.md) for the target architecture.
 
+### New products must be isolated
+
+`products/isolation_baseline.txt` lists every product that is not isolated, and `hogli product:lint --all` fails when the tree and that file disagree in either direction.
+A new product not on the list must be isolated; a product that seals drops off it.
+
+`hogli product:bootstrap` scaffolds a product that is already sealed — real facade, contracts, tach `[[interfaces]]`, `backend:contract-check`, narrowed `turbo.json` — so a new product should never need a line.
+Adding one exempts the product from isolation and keeps the full Django backend suite running on every change it makes, which is why the file is owned by DevEx in `.github/CODEOWNERS`.
+
+Regenerate after sealing a product:
+
+```bash
+bin/hogli product:lint --regenerate-baseline
+```
+
 ### Manual setup
 
 - Create a new folder `products/your_product_name`, keep it underscore-cased.
@@ -185,6 +209,7 @@ The lint command validates:
   - Modify `posthog/settings/web.py` and add your new product under `PRODUCTS_APPS`.
   - Modify `tach.toml` and add a new block for your product. We use `tach` to track cross-dependencies between python apps.
   - Add your API routes in `backend/routes.py` with a `register_routes(routers)` function (e.g. `routers.projects.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])`). It is auto-discovered — once the product is in `PRODUCTS_APPS`, `posthog/api/__init__.py` finds and calls `register_routes(routers)` with no edit to core. See `posthog/api/routing.py:RouterRegistry` for the available router handles (`projects`/`environments`/`organizations`/`root`).
+  - For a plain Django path no router can carry, such as an inbound webhook endpoint, add an `api_urlpatterns` or `webhook_urlpatterns` list to the same `routes.py`. Core mounts them at `api/<product>/` and `webhooks/<product>/` in one slot in `posthog/urls.py`, so the routes in each list are relative to that mount. See [docs/internal/url-routing.md](../docs/internal/url-routing.md).
   - NOTE: we will automate some of these steps in the future, but for now, please do them manually.
 
 ## Adding or moving backend models and migrations

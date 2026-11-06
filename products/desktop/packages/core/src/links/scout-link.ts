@@ -16,8 +16,8 @@ export const ScoutLinkEvent = {
 } as const;
 
 export interface ScoutLinkPayload {
-  /** Route slug for the scout (e.g. "error-tracking"). */
-  skillSlug: string;
+  /** Scout skill name from the link (e.g. "signals-scout-error-tracking"). */
+  skillName: string;
   /** Emission id to expand and scroll to, if the link carried one. */
   findingId?: string;
 }
@@ -51,31 +51,31 @@ export class ScoutLinkService extends TypedEventEmitter<ScoutLinkEvents> {
     path: string,
     searchParams: URLSearchParams,
   ): boolean {
-    const skillSlug = decodeSegment(path.split("/")[0]);
+    const skillName = decodeSegment(path.split("/")[0]);
 
-    if (!skillSlug) {
-      this.log.warn("Scout link missing skill slug");
+    if (!skillName) {
+      this.log.warn("Scout link missing skill name");
       return false;
     }
 
     const findingId = searchParams.get("finding") ?? undefined;
-    const payload: ScoutLinkPayload = { skillSlug, findingId };
+    const payload: ScoutLinkPayload = { skillName, findingId };
 
     const hasListeners = this.listenerCount(ScoutLinkEvent.OpenScout) > 0;
 
     if (hasListeners) {
       this.log.info(
-        `Emitting scout link event: skillSlug=${skillSlug} findingId=${findingId ?? "(none)"}`,
+        `Emitting scout link event: skillName=${skillName} findingId=${findingId ?? "(none)"}`,
       );
       this.emit(ScoutLinkEvent.OpenScout, payload);
     } else {
       this.log.info(
-        `Queueing scout link (renderer not ready): skillSlug=${skillSlug}`,
+        `Queueing scout link (renderer not ready): skillName=${skillName}`,
       );
       this.pendingDeepLink = payload;
     }
 
-    this.log.info("Deep link focusing window", { skillSlug });
+    this.log.info("Deep link focusing window", { skillName });
     if (this.mainWindow.isMinimized()) {
       this.mainWindow.restore();
     }
@@ -89,7 +89,7 @@ export class ScoutLinkService extends TypedEventEmitter<ScoutLinkEvents> {
     this.pendingDeepLink = null;
     if (pending) {
       this.log.info(
-        `Consumed pending scout link: skillSlug=${pending.skillSlug}`,
+        `Consumed pending scout link: skillName=${pending.skillName}`,
       );
     }
     return pending;

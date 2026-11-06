@@ -23,17 +23,24 @@ import {
     MAX_REQUEST_BYTES,
     MAX_EVENTS_PER_REQUEST,
     STREAM_COMPLETE_CONTROL_TYPE,
+    STREAM_INITIAL_GENERATION,
 } from '../lib/constants.js'
 import { validateSandboxEventIngestToken } from '../lib/jwt.js'
 import { logger } from '../lib/logging.js'
 import { TaskRunRedisStream, getStreamKey } from '../lib/redis-stream.js'
-import { heartbeatWorkflowIfNeeded } from '../lib/side-effects.js'
+import {
+    captureBudgetSteerIfNeeded,
+    captureProcessKilledIfNeeded,
+    heartbeatWorkflowIfNeeded,
+    notifyPermissionRequestIfNeeded,
+} from '../lib/side-effects.js'
 import {
     ClientDisconnected,
     EventIngestBadRequest,
     EventIngestPayloadTooLarge,
     TaskRunStreamSequenceGap,
     TaskRunStreamAlreadyCompleted,
+    TaskRunStreamGenerationMismatch,
     TaskRunStreamCompletionSequenceMismatch,
     type DisconnectClassification,
     type IngestEventLine,
@@ -42,7 +49,7 @@ import {
     type EventIngestResult,
     type SandboxEventIngestTokenPayload,
 } from '../lib/types.js'
-import { observeIngestClientDisconnect, observeStreamIngestEvents } from './metrics.js'
+import { observeIngestClientDisconnect, observeStreamIngestEvents, observeStreamWriteSkipped } from './metrics.js'
 
 // Diagnostic (temporary): records when request-body chunks arrive at the Node
 // process, to tell a live upload (chunks spread across the request lifetime)
@@ -105,7 +112,11 @@ export async function handleIngest(
 
     // NDJSON body parsing + Redis writes.
     const streamKey = getStreamKey(claims.runId)
-    const redisStream = new TaskRunRedisStream(streamKey, redis)
+    const redisStream = new TaskRunRedisStream(streamKey, redis, {
+        presenceGated: claims.presenceGated,
+        thinTail: claims.thinTail,
+        expectedGeneration: claims.streamGeneration ?? STREAM_INITIAL_GENERATION,
+    })
 
     const bodyTiming: IngestBodyTiming = {
         startedAt: Date.now(),
@@ -145,6 +156,9 @@ export async function handleIngest(
         }
         if (err instanceof EventIngestPayloadTooLarge) {
             return c.json({ error: err.message, last_accepted_seq: err.lastAcceptedSeq }, 413)
+        }
+        if (err instanceof TaskRunStreamGenerationMismatch) {
+            return c.json({ error: err.message, code: 'stream_generation_mismatch' }, 403)
         }
         if (err instanceof TaskRunStreamSequenceGap) {
             return c.json({ error: err.message, last_accepted_seq: err.lastAcceptedSeq }, 409)
@@ -244,17 +258,32 @@ async function ingestEventLines(
             }
 
             const { seq, event } = eventLine
-            const streamId = await redisStream.writeEventWithSequence(event, seq)
+            const write = await redisStream.writeEventWithSequence(event, seq)
+            captureBudgetSteerIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
 
-            if (streamId === null) {
+            if (!write.accepted) {
                 // Duplicate: advance last_accepted_seq to whatever Redis has.
                 result.duplicate++
                 result.last_accepted_seq = Math.max(result.last_accepted_seq, await redisStream.getLastSequence())
                 continue
             }
 
+            if (write.streamId === null) {
+                observeStreamWriteSkipped('ingest', claims.originProduct)
+            }
+
             result.accepted++
             result.last_accepted_seq = seq
+            captureProcessKilledIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
+            notifyPermissionRequestIfNeeded(
+                claims.runId,
+                seq,
+                event,
+                claims.taskId,
+                claims.teamId,
+                originalToken,
+                config
+            )
 
             await heartbeatWorkflowIfNeeded(
                 redisStream,

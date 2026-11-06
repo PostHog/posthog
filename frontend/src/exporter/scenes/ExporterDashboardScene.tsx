@@ -1,13 +1,12 @@
 import { useActions } from 'kea'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType } from '~/types'
 
 import { ExportType, ExportedData } from '../types'
 
@@ -16,7 +15,7 @@ function SharedDashboardAutoRefresh({
     dashboard,
 }: {
     dashboardId: number
-    dashboard: DashboardType<QueryBasedInsightModel>
+    dashboard: DashboardType
 }): JSX.Element | null {
     // Pass `dashboard` so dashboardLogic.afterMount uses the cached branch
     // (loadDashboardSuccess) instead of firing an unauthenticated loadDashboard.
@@ -59,15 +58,14 @@ export default function ExporterDashboardScene({
     type: ExportedData['type']
     themes: ExportedData['themes']
 }): JSX.Element {
-    const queryBasedDashboard = useMemo(() => getQueryBasedDashboard(dashboard)!, [dashboard])
     return (
         <>
             {type !== ExportType.Image && (
-                <SharedDashboardAutoRefresh dashboardId={dashboard.id} dashboard={queryBasedDashboard} />
+                <SharedDashboardAutoRefresh dashboardId={dashboard.id} dashboard={dashboard} />
             )}
             <Dashboard
                 id={String(dashboard.id)}
-                dashboard={queryBasedDashboard}
+                dashboard={dashboard}
                 placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 themes={themes}
             />

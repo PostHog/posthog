@@ -1,4 +1,5 @@
-import { ReplayScanner } from './types'
+import { ScannerCreationMethodEnumApi } from '../generated/api.schemas'
+import { ScannerFormValues } from './types'
 
 const DRAFT_STORAGE_KEY = 'replay-vision.new-scanner-draft'
 const DRAFT_VERSION = 1
@@ -8,17 +9,54 @@ interface StoredScannerDraft {
     version: number
     teamId: number
     savedAt: number
-    scanner: ReplayScanner
+    scanner: ScannerFormValues
+    // The experiment the wizard was entered from. Optional, so drafts saved without it still read.
+    linkedExperimentId?: number | null
+    provenance?: ScannerDraftProvenance
+}
+
+/** How the form was built, so a resumed draft still reports its creation path and its AI-drafted baseline. */
+export interface ScannerDraftProvenance {
+    creationMethod: ScannerCreationMethodEnumApi
+    goalDraftBaseline: ScannerFormValues | null
 }
 
 export interface ScannerDraft {
-    scanner: ReplayScanner
+    scanner: ScannerFormValues
     savedAt: number
+    linkedExperimentId: number | null
+    provenance: ScannerDraftProvenance | null
 }
 
-export function writeScannerDraft(teamId: number, scanner: ReplayScanner): number | null {
+function readProvenance(value: unknown): ScannerDraftProvenance | null {
+    if (!value || typeof value !== 'object') {
+        return null
+    }
+    const { creationMethod, goalDraftBaseline } = value as Partial<ScannerDraftProvenance>
+    if (!Object.values(ScannerCreationMethodEnumApi).includes(creationMethod as ScannerCreationMethodEnumApi)) {
+        return null
+    }
+    return {
+        creationMethod: creationMethod as ScannerCreationMethodEnumApi,
+        goalDraftBaseline: goalDraftBaseline && typeof goalDraftBaseline === 'object' ? goalDraftBaseline : null,
+    }
+}
+
+export function writeScannerDraft(
+    teamId: number,
+    scanner: ScannerFormValues,
+    linkedExperimentId: number | null = null,
+    provenance: ScannerDraftProvenance | null = null
+): number | null {
     const savedAt = Date.now()
-    const draft: StoredScannerDraft = { version: DRAFT_VERSION, teamId, savedAt, scanner }
+    const draft: StoredScannerDraft = {
+        version: DRAFT_VERSION,
+        teamId,
+        savedAt,
+        scanner,
+        linkedExperimentId,
+        ...(provenance ? { provenance } : {}),
+    }
     try {
         localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
         return savedAt
@@ -43,7 +81,12 @@ export function readScannerDraft(teamId: number): ScannerDraft | null {
         ) {
             return null
         }
-        return { scanner: draft.scanner, savedAt: draft.savedAt }
+        return {
+            scanner: draft.scanner,
+            savedAt: draft.savedAt,
+            linkedExperimentId: typeof draft.linkedExperimentId === 'number' ? draft.linkedExperimentId : null,
+            provenance: readProvenance(draft.provenance),
+        }
     } catch {
         return null
     }

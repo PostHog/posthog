@@ -5,7 +5,23 @@ export const TOKEN_CHAR_LIMIT = 4 * 12_000
 
 type JSONSchema = Record<string, unknown>
 
-interface SummarizedProperty {
+/**
+ * Scalar constraints copied through from the JSON Schema as-is. Without them an
+ * agent in exec mode learns a string cap only from the rejection after it sent
+ * too much.
+ */
+interface ScalarConstraints {
+    minLength?: number
+    maxLength?: number
+    minimum?: number
+    maximum?: number
+    exclusiveMinimum?: number
+    exclusiveMaximum?: number
+    pattern?: string
+    format?: string
+}
+
+interface SummarizedProperty extends ScalarConstraints {
     type?: string
     description?: string
     enum?: unknown[]
@@ -22,10 +38,11 @@ interface SummarizedProperty {
  * nodes) so callers can read it unconditionally; `items` (arrays) and `variants`
  * (unions) carry the recursive shape that the old object-only summarizer dropped.
  */
-interface NodeSummary {
+interface NodeSummary extends ScalarConstraints {
     type: string
     title?: string
     required?: string[]
+    requiredWhenSet?: Record<string, string[]>
     properties: Record<string, SummarizedProperty>
     items?: NodeSummary
     variants?: NodeSummary[]
@@ -33,6 +50,75 @@ interface NodeSummary {
     enum?: unknown[]
     const?: unknown
     default?: unknown
+}
+
+const NUMERIC_CONSTRAINT_KEYS = [
+    'minLength',
+    'maxLength',
+    'minimum',
+    'maximum',
+    'exclusiveMinimum',
+    'exclusiveMaximum',
+] as const satisfies readonly (keyof ScalarConstraints)[]
+const STRING_CONSTRAINT_KEYS = ['pattern', 'format'] as const satisfies readonly (keyof ScalarConstraints)[]
+
+/**
+ * A `pattern` longer than this is a generated regex (zod's ISO date-time pattern is
+ * 310 characters) that an agent cannot act on; its `format` says the same in a word.
+ * Copying every one would grow the catalogue's summaries by about 6%.
+ */
+const MAX_PATTERN_CHARS = 80
+
+function copyConstraints(from: JSONSchema, to: ScalarConstraints): void {
+    for (const key of NUMERIC_CONSTRAINT_KEYS) {
+        const value = from[key]
+        if (typeof value === 'number') {
+            to[key] = value
+        }
+    }
+    for (const key of STRING_CONSTRAINT_KEYS) {
+        const value = from[key]
+        if (typeof value !== 'string') {
+            continue
+        }
+        if (key === 'pattern' && (typeof from.format === 'string' || value.length > MAX_PATTERN_CHARS)) {
+            continue
+        }
+        to[key] = value
+    }
+}
+
+/**
+ * zod renders `.nullable()` as `anyOf: [variant, {type: 'null'}]` and puts the
+ * field's `description` and `default` on that wrapper, not on the variant. Whoever
+ * collapses the wrapper to its variant has to carry those two across or the summary
+ * loses them.
+ */
+function carryWrapperMetadata(wrapper: JSONSchema, variant: JSONSchema): JSONSchema {
+    return {
+        ...variant,
+        ...(wrapper.description !== undefined ? { description: wrapper.description } : {}),
+        ...(wrapper.default !== undefined ? { default: wrapper.default } : {}),
+    }
+}
+
+/**
+ * A nullable field (`anyOf: [{type: 'string', maxLength: 3000}, {type: 'null'}]`) is
+ * its one non-null variant for the caller's purposes. Returns that variant, with the
+ * wrapper's description and default, so its type, enum, constraints, fields and
+ * drill-down hint are summarized instead of the union wrapper, which carried none of
+ * them. Anything else comes back unchanged.
+ */
+function unwrapNullable(schema: JSONSchema): JSONSchema {
+    const variants = (schema.anyOf || schema.oneOf) as JSONSchema[] | undefined
+    if (!variants) {
+        return schema
+    }
+    const nonNull = variants.filter((v) => v.type !== 'null')
+    if (nonNull.length !== 1) {
+        return schema
+    }
+    return carryWrapperMetadata(schema, nonNull[0]!)
 }
 
 /**
@@ -150,6 +236,55 @@ function describeItems(items: JSONSchema): string {
 // schemas are finite trees, but array/union unwrapping recurses — cap it anyway.
 const MAX_SUMMARY_DEPTH = 6
 
+/** A tool-level control the executor strips before dispatch, so it doesn't count
+ *  as one of the tool's own parameters when deciding whether a field is the sole
+ *  wrapper. */
+const TOOL_CONTROL_PROPERTIES = new Set(['output_format'])
+
+/**
+ * Whether a field is the wrapper a tool's whole payload sits under — the single
+ * required top-level object on `query-logs`, `query-apm-spans`, `read-data-schema`
+ * and their siblings.
+ *
+ * Callers flatten these: they send `{dateRange, limit}` where `{query: {dateRange,
+ * limit}}` was wanted, because the fields they know about are the nested ones and
+ * the drill-down hint alone never says the wrapper is mandatory. Naming it on the
+ * field keeps the nesting in the summarized schema, which is all a caller sees once
+ * the full schema overflows the token budget.
+ *
+ * Being the tool's ONLY parameter is what makes "everything goes inside it" true.
+ * A required object sitting beside other top-level fields — `query-retention`'s
+ * `retentionFilter`, `view-create`'s `query` next to `name` — is a component of the
+ * payload, not the envelope, and saying otherwise would flatten calls that were
+ * already correct.
+ */
+function isPayloadWrapper(
+    name: string,
+    prop: JSONSchema,
+    schema: JSONSchema,
+    requiredFields: readonly string[],
+    fieldPath: string | undefined
+): boolean {
+    // Nested paths describe a field the caller already reached through the wrapper.
+    if (fieldPath !== undefined || !requiredFields.includes(name)) {
+        return false
+    }
+    const siblings = Object.keys((schema.properties || {}) as Record<string, unknown>).filter(
+        (field) => field !== name && !TOOL_CONTROL_PROPERTIES.has(field)
+    )
+    if (siblings.length > 0) {
+        return false
+    }
+    if (prop.type === 'object' && prop.properties) {
+        return true
+    }
+    // A wrapper keyed by a discriminator (`read-data-schema`'s `query`) arrives as a
+    // union of object variants, and gets flattened just as often.
+    const variants = (prop.anyOf || prop.oneOf) as JSONSchema[] | undefined
+    const nonNull = variants?.filter((variant) => variant.type !== 'null') ?? []
+    return nonNull.length > 0 && nonNull.every((variant) => variant.type === 'object' && !!variant.properties)
+}
+
 /**
  * Summarize an object's top-level properties: field names, types, descriptions,
  * and drill-down hints for complex fields. Intentionally does NOT recurse into a
@@ -162,7 +297,8 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
     const result: Record<string, SummarizedProperty> = {}
     const pathPrefix = fieldPath ? `${fieldPath}.` : ''
 
-    for (const [name, prop] of Object.entries(properties)) {
+    for (const [name, rawProp] of Object.entries(properties)) {
+        const prop = unwrapNullable(rawProp)
         const entry: SummarizedProperty = {}
         entry.type = getTypeString(prop)
 
@@ -178,6 +314,7 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
         if (prop.const !== undefined) {
             entry.const = prop.const
         }
+        copyConstraints(prop, entry)
         if (requiredFields.includes(name)) {
             entry.required = true
         }
@@ -197,6 +334,9 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
         // the directive lives on the field the model is about to populate.
         if (isComplex(prop)) {
             entry.hint = `DO NOT GUESS — you MUST run \`schema ${toolName} ${pathPrefix}${name}\` before populating this field`
+            if (isPayloadWrapper(name, prop, schema, requiredFields, fieldPath)) {
+                entry.hint += `. Every parameter goes inside it — send {"${name}": {...}}, not the fields at the top level`
+            }
         }
 
         result[name] = entry
@@ -205,6 +345,10 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
     const summary: NodeSummary = {
         type: (schema.type as string) || 'object',
         ...(requiredFields.length > 0 ? { required: requiredFields } : {}),
+        // Before `properties`, so a caller whose output gets cut off still sees the conditional rule.
+        ...(schema['x-required-when-set']
+            ? { requiredWhenSet: schema['x-required-when-set'] as Record<string, string[]> }
+            : {}),
         properties: result,
     }
     if (typeof schema.title === 'string') {
@@ -231,6 +375,7 @@ function summarizeLeaf(schema: JSONSchema): NodeSummary {
     if (schema.default !== undefined) {
         summary.default = schema.default
     }
+    copyConstraints(schema, summary)
     return summary
 }
 
@@ -264,9 +409,10 @@ function summarizeNode(
             return { type: getTypeString(schema), properties: {} }
         }
         if (nonNull.length === 1) {
-            // Unwrap a nullable wrapper. Count it against `depth` so a pathological
-            // chain of nested nullable unions still terminates at MAX_SUMMARY_DEPTH.
-            return summarizeNode(nonNull[0]!, toolName, fieldPath, depth + 1)
+            // Unwrap a nullable wrapper, keeping its description and default. Count it
+            // against `depth` so a pathological chain of nested nullable unions still
+            // terminates at MAX_SUMMARY_DEPTH.
+            return summarizeNode(carryWrapperMetadata(schema, nonNull[0]!), toolName, fieldPath, depth + 1)
         }
         return {
             type: getTypeString(schema),

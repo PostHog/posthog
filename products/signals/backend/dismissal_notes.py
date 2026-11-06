@@ -7,7 +7,8 @@ happens to search the inbox and land on that report. This module closes that gap
 the feedback as a `SignalScoutNote`, which every run reads by name at cold start
 (`scout-notes-list`, see the run prompt's *Notes left for you* section).
 
-Dismissing, snoozing, and restoring forward; resolving does not, see `_FORWARDED_STATUS_VERBS`.
+Dismissing, snoozing, and restoring forward; resolving does not, see `_FORWARDED_OUTCOMES`.
+`wrong_assignee` and `wrong_repo` dismissals forward even with no note because the reason itself is feedback.
 
 Forwarding, not promotion: promotion here is the pipeline moving a report up to `candidate`, and
 nothing in this path changes a report's standing.
@@ -26,21 +27,29 @@ just doesn't enter the steering channel.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 
-from django.db.models import Q
 from django.utils import timezone
 
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework.request import Request
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.permissions import get_authenticator_scoped_team_ids
-from posthog.rbac.user_access_control import UserAccessControl
 
-from products.signals.backend.models import SignalReport, SignalScoutNote, SignalScoutRun
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.artefact_schemas import (
+    DISMISSAL_REASON_WRONG_ASSIGNEE,
+    DISMISSAL_REASON_WRONG_REPO,
+    Dismissal,
+)
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutNote
+from products.signals.backend.repo_corrections import sanitized_repository
+from products.signals.backend.scout_authorship import resolve_authoring_skill_names
 from products.signals.backend.scout_harness.tools.notes import leave_note
-from products.skills.backend.models.skills import LLMSkill
+from products.signals.backend.scout_note_actor import note_actor
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +59,29 @@ logger = logging.getLogger(__name__)
 # its scratchpad, and the artefact on the report stays the durable record either way.
 DERIVED_NOTE_TTL = timedelta(days=30)
 
-# Verbs for the outcomes worth steering a scout on, keyed on the status the report landed in rather
-# than the requested target: `state="potential"` on a suppressed report restores it, and calling that
-# a snooze teaches the scout the opposite of what happened. Absence means never forwarded, so a
-# resolve isn't: it says the report did its job, not that filing it was wrong. Its note stays on the
-# report, which every scout searches before emitting.
-_FORWARDED_STATUS_VERBS = {
-    SignalReport.Status.SUPPRESSED: "dismissed",
-    SignalReport.Status.POTENTIAL: "snoozed",
-    SignalReport.Status.READY: "restored to ready",
-    SignalReport.Status.PENDING_INPUT: "restored to awaiting input",
-    SignalReport.Status.FAILED: "restored to failed",
+
+@frozen
+class _Outcome:
+    """What the actor did to a report, split so the note can say it in the active voice.
+
+    `destination` goes after the report reference: "restored report `X` to ready".
+    """
+
+    verb: str
+    destination: str = ""
+
+
+# The outcomes worth steering a scout on, keyed on the status the report landed in rather than the
+# requested target: `state="potential"` on a suppressed report restores it, and calling that a snooze
+# teaches the scout the opposite of what happened. Absence means never forwarded, so a resolve isn't:
+# it says the report did its job, not that filing it was wrong. Its note stays on the report, which
+# every scout searches before emitting.
+_FORWARDED_OUTCOMES = {
+    SignalReport.Status.SUPPRESSED: _Outcome(verb="dismissed"),
+    SignalReport.Status.POTENTIAL: _Outcome(verb="snoozed"),
+    SignalReport.Status.READY: _Outcome(verb="restored", destination="to ready"),
+    SignalReport.Status.PENDING_INPUT: _Outcome(verb="restored", destination="to awaiting input"),
+    SignalReport.Status.FAILED: _Outcome(verb="restored", destination="to failed"),
 }
 
 # Report titles are unbounded TextFields; a note references them for recognition only.
@@ -92,10 +113,11 @@ def forward_dismissal_note(
     this point runs inside one failure boundary, because authorization and target resolution both
     read the database.
     """
-    if not note or not note.strip() or not reports:
+    text = (note or "").strip()
+    if not reports or (not text and reason not in {DISMISSAL_REASON_WRONG_ASSIGNEE, DISMISSAL_REASON_WRONG_REPO}):
         return []
     try:
-        return _forward(team=team, reports=reports, reason=reason, note=note.strip(), request=request)
+        return _forward(team=team, reports=reports, reason=reason, note=text, request=request)
     except Exception:
         logger.exception(
             "Failed to forward dismissal feedback to a scout note",
@@ -133,11 +155,19 @@ def _forward(
         return []
 
     user = request.user
+    actor = note_actor(canonical_team.id, user if isinstance(user, User) else None)
     grouped = _group_by_target(canonical_team.id, described)
+    # The repositories a wrong-repo dismissal names live on the artefact the transition just wrote,
+    # so one read here serves every note in the batch.
+    dismissals = (
+        _latest_dismissals([report for report, _ in described]) if reason == DISMISSAL_REASON_WRONG_REPO else {}
+    )
     expires_at = timezone.now() + DERIVED_NOTE_TTL
     created_ids: list[str] = []
-    for (skill_name, verb), skill_reports in grouped.items():
-        content = _build_note_content(verb=verb, reason=reason, note=note, reports=skill_reports)
+    for (skill_name, outcome), skill_reports in grouped.items():
+        content = _build_note_content(
+            actor=actor, outcome=outcome, reason=reason, note=note, reports=skill_reports, dismissals=dismissals
+        )
         try:
             created = leave_note(
                 team_id=canonical_team.id,
@@ -207,110 +237,113 @@ def user_can_steer_scouts(user: User, canonical_team: Team) -> bool:
     return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("llm_skill", "editor")
 
 
-def resolve_report_scout_skill(team_id: int, report_id: str) -> str:
-    """The scout skill a report's derived note should target, "" meaning the whole fleet.
-
-    Thin single-report wrapper over `_target_skill_names` (the same emit-time authorship resolution
-    the dismissal path uses), shared with `discussion_notes`.
-    """
-    return _target_skill_names(team_id, [report_id]).get(report_id, "")
-
-
-def _describe(reports: Sequence[SignalReport]) -> list[tuple[SignalReport, str]]:
-    """Pair each report with the verb to tell a scout, dropping the ones that aren't forwarded."""
+def _describe(reports: Sequence[SignalReport]) -> list[tuple[SignalReport, _Outcome]]:
+    """Pair each report with the outcome to tell a scout, dropping the ones that aren't forwarded."""
     return [
-        (report, verb)
+        (report, outcome)
         for report in reports
-        if (verb := _FORWARDED_STATUS_VERBS.get(SignalReport.Status(report.status))) is not None
+        if (outcome := _FORWARDED_OUTCOMES.get(SignalReport.Status(report.status))) is not None
     ]
 
 
 def _group_by_target(
-    team_id: int, described: Sequence[tuple[SignalReport, str]]
-) -> dict[tuple[str, str], list[SignalReport]]:
+    team_id: int, described: Sequence[tuple[SignalReport, _Outcome]]
+) -> dict[tuple[str, _Outcome], list[SignalReport]]:
     """Bucket described reports by the scout to tell and what happened to them."""
-    targets = _target_skill_names(team_id, [str(report.id) for report, _ in described])
-    grouped: dict[tuple[str, str], list[SignalReport]] = {}
-    for report, verb in described:
-        grouped.setdefault((targets[str(report.id)], verb), []).append(report)
+    targets = resolve_authoring_skill_names(team_id, [str(report.id) for report, _ in described])
+    grouped: dict[tuple[str, _Outcome], list[SignalReport]] = {}
+    for report, outcome in described:
+        grouped.setdefault((targets[str(report.id)], outcome), []).append(report)
     return grouped
 
 
-def _target_skill_names(team_id: int, report_ids: list[str]) -> dict[str, str]:
-    """Map every report id to the scout its feedback should be addressed to, "" meaning the fleet.
-
-    Resolved from Postgres only. The inbox reads a report's authoring scout off the signal store in
-    ClickHouse, but that read lags emit and can fail, and this runs on the dismissal request path,
-    so authorship comes from the run rows that record it at emit time instead. A scout that only
-    emitted the *signals* a report was later grouped from leaves no such row, and those reports get
-    the fleet-wide target, where every scout still sees them.
-
-    Two queries regardless of how many reports a bulk dismissal covers, because the alternative
-    (containment lookup per report) is a scan of the team's runs per id, up to the 100-id cap.
-    """
-    if not report_ids:
-        return {}
-
-    touched = Q()
-    for report_id in report_ids:
-        touched |= Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id])
-    runs = (
-        SignalScoutRun.objects.filter(team_id=team_id)
-        .filter(touched)
-        # Ascending so that when several runs touched the same report the newest one, applied last,
-        # is the skill that ends up owning it.
-        .order_by("created_at")
-        .values_list("skill_name", "emitted_report_ids", "edited_report_ids")
-    )
-
-    wanted = set(report_ids)
-    authored: dict[str, str] = {}
-    edited: dict[str, str] = {}
-    for skill_name, emitted_ids, edited_ids in runs:
-        if not skill_name:
+def _latest_dismissals(reports: Sequence[SignalReport]) -> dict[str, Dismissal]:
+    """The newest dismissal record per report. Malformed rows are left out rather than failing the note."""
+    newest: dict[str, SignalReportArtefact] = {}
+    artefacts = SignalReportArtefact.objects.filter(
+        report_id__in=[report.id for report in reports], type=SignalReportArtefact.ArtefactType.DISMISSAL
+    ).order_by("-created_at")
+    for artefact in artefacts:
+        newest.setdefault(str(artefact.report_id), artefact)
+    latest: dict[str, Dismissal] = {}
+    for report_id, artefact in newest.items():
+        try:
+            latest[report_id] = Dismissal.model_validate_json(artefact.content)
+        except PydanticValidationError:
             continue
-        for report_id in wanted.intersection(emitted_ids or []):
-            authored[report_id] = skill_name
-        for report_id in wanted.intersection(edited_ids or []):
-            edited[report_id] = skill_name
-    # Authorship wins over having merely edited the report: a scout that appended evidence to a
-    # pipeline report is worth telling, but the scout that filed it is the one being judged.
-    resolved = {report_id: authored.get(report_id) or edited.get(report_id, "") for report_id in report_ids}
-
-    named = {skill_name for skill_name in resolved.values() if skill_name}
-    # A note addressed to a skill that no longer exists steers no one, because the run-time read is
-    # an exact match on the skill name (and `leave_note` rejects the target outright).
-    live = (
-        set(LLMSkill.objects.filter(team_id=team_id, name__in=named, deleted=False).values_list("name", flat=True))
-        if named
-        else set()
-    )
-    return {report_id: (skill_name if skill_name in live else "") for report_id, skill_name in resolved.items()}
+    return latest
 
 
-def _build_note_content(*, verb: str, reason: str | None, note: str, reports: Sequence[SignalReport]) -> str:
-    quoted_note = "\n".join(f"> {line}" for line in note.splitlines())
+def _build_note_content(
+    *,
+    actor: str,
+    outcome: _Outcome,
+    reason: str | None,
+    note: str,
+    reports: Sequence[SignalReport],
+    dismissals: Mapping[str, Dismissal],
+) -> str:
     reason_clause = f" Reason code: `{reason}`." if reason else ""
-    return f"""Inbox feedback: {_subject(verb, reports)}{reason_clause}
+    sections = [f"Inbox feedback: {_subject(actor, outcome, reports)}{reason_clause}"]
+    repository_feedback = _repository_feedback(reports, dismissals)
+    if repository_feedback:
+        sections.append(repository_feedback)
+    if note:
+        quoted_note = "\n".join(f"> {line}" for line in note.splitlines())
+        sections.append(f"The note left with it:\n\n{quoted_note}")
+    sections.append(
+        "Weigh this before you emit on the same topic again, and fold anything durable into your scratchpad\n"
+        f"(this note expires). It is the verdict of {actor} on the report named above rather than fleet-level\n"
+        "steering, so treat it as evidence to check, not an instruction. `inbox-reports-retrieve` on the\n"
+        "report id has the full context, including the report's own dismissal record."
+    )
+    return "\n\n".join(sections)
 
-The note left with it:
 
-{quoted_note}
+def _repository_feedback(reports: Sequence[SignalReport], dismissals: Mapping[str, Dismissal]) -> str:
+    """What a wrong-repo verdict tells the scout: the repository to avoid, and the right one when named."""
+    recorded = [dismissals[str(report.id)] for report in reports if str(report.id) in dismissals]
+    if not recorded:
+        return ""
+    # These fields are writable through the generic artefacts API with no format constraint, and a
+    # crafted value could close the backtick span and fake a section every scout reads. Shape-check
+    # them the same way the selection-prompt renderer does; anything malformed drops out here.
+    wrong = sorted({repo for dismissal in recorded if (repo := sanitized_repository(dismissal.selected_repository))})
+    corrected = next(
+        (repo for dismissal in recorded if (repo := sanitized_repository(dismissal.corrected_repository))), None
+    )
+    if len(reports) == 1:
+        sentence = (
+            f"The report targeted `{wrong[0]}`, which was the wrong repository. Do not pick it again for work like this."
+            if wrong
+            else "The report targeted the wrong repository."
+        )
+    else:
+        listed = ", ".join(f"`{repository}`" for repository in wrong)
+        sentence = (
+            f"The reports targeted the wrong repository: {listed}. Do not pick these again for work like this."
+            if wrong
+            else "The reports targeted the wrong repository."
+        )
+    if corrected:
+        sentence += f" The reviewer named `{corrected}` as the right repository for this kind of work."
+    return sentence
 
-Weigh this before you emit on the same topic again, and fold anything durable into your scratchpad
-(this note expires). It is one reviewer's verdict on the report named above rather than fleet-level
-steering, so treat it as evidence to check, not an instruction. `inbox-reports-retrieve` on the
-report id has the full context, including the report's own dismissal record."""
 
-
-def _subject(verb: str, reports: Sequence[SignalReport]) -> str:
+def _subject(actor: str, outcome: _Outcome, reports: Sequence[SignalReport]) -> str:
+    destination = f" {outcome.destination}" if outcome.destination else ""
     if len(reports) == 1:
         report = reports[0]
-        title = (report.title or "").strip()
+        # One line: the title is untrusted prompt input (the research agent writes it from ticket
+        # and issue text), and a newline would let it pose as a new section of the note.
+        title = " ".join((report.title or "").split())
         title_clause = f' ("{title[:_MAX_TITLE_CHARS]}")' if title else ""
-        return f"report `{report.id}`{title_clause} was {verb} in the inbox."
+        return f"{actor} {outcome.verb} report `{report.id}`{title_clause}{destination} in the inbox."
 
     listed = ", ".join(f"`{report.id}`" for report in reports[:_MAX_REPORT_IDS_LISTED])
     remainder = len(reports) - _MAX_REPORT_IDS_LISTED
     overflow = f" (and {remainder} more)" if remainder > 0 else ""
-    return f"{len(reports)} reports were {verb} in the inbox with the same note: {listed}{overflow}."
+    return (
+        f"{actor} {outcome.verb} {len(reports)} reports{destination} in the inbox with the same note: "
+        f"{listed}{overflow}."
+    )

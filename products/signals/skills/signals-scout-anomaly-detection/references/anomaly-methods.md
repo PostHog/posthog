@@ -1,7 +1,7 @@
 # Anomaly detection methods
 
 How to score the latest bucket of an insight, choose the right cadence, and avoid the two
-false-positive traps (weekly seasonality and low-count noise). Two scorers: PostHog's own
+false-positive traps (weekly seasonality and low-count noise). Two scorers: PostHog's built-in
 anomaly-detection **simulator** for saved time-series insights (primary), and a hand-rolled
 robust z-score for everything else (fallback).
 
@@ -17,10 +17,11 @@ behind PostHog's shipped anomaly alerts, so lean on it rather than reinvent z-sc
 **Pick the detector that fits the series — don't be dogmatic.** The menu: `zscore`, `mad`,
 `iqr`, `copod`, `ecod`, `hbos`, `isolation_forest`, `knn`, `lof`, `ocsvm`, `pca`, and
 `ensemble` (combine several with `and`/`or`). Each takes a `threshold`, a `window` (rolling
-history length), and a `preprocessing` block (`diffs_n`, `lags_n`, `smooth_n`). The config
-proven across PostHog's own working alert inventories is an `or`-ensemble of `zscore`
-(`diffs_n: 1`, `smooth_n: 3`) + `isolation_forest` (`smooth_n: 3`) at `window` 336 hourly /
-~90 daily — a good starting point, not a mandate. For battle-tested, metric-shape-specific
+history length), and a `preprocessing` block (`diffs_n`, `lags_n`, `smooth_n`). A config
+that holds up across typical alert inventories is an `or`-ensemble of `zscore`
+(`diffs_n: 1`, `smooth_n: 3`) + `isolation_forest` (`smooth_n: 3`), each carrying its own
+`window` of 336 hourly / ~90 daily — a good starting point, not a mandate. Put the `window`
+on both members, never on the ensemble alone: see the first gotcha below. For battle-tested, metric-shape-specific
 configs and a detector-selection guide, read the `anomaly-alerts`, `signals-alerts`, and
 `llma-alerts` skills (via `/phs`).
 

@@ -63,7 +63,7 @@ describe('ClientWarningsPipeline', () => {
     const runPipeline = async (messages: Message[]): Promise<void> => {
         const pipeline = createClientWarningsPipeline<{ message: Message }, { message: Message }>(config)
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        await pipeline.feed(batch)
+        await pipeline.feed(batch, {})
         let result = await pipeline.next()
         while (result !== null) {
             // The pipeline handles its own side effects; none may leak to drivers.
@@ -91,6 +91,7 @@ describe('ClientWarningsPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -101,6 +102,7 @@ describe('ClientWarningsPipeline', () => {
 
         mockEventFilterManager = {
             getFilter: jest.fn().mockReturnValue(undefined),
+            dropsAllEvents: jest.fn().mockReturnValue(false),
         } as unknown as jest.Mocked<EventFilterManager>
 
         promiseScheduler = new PromiseScheduler()
@@ -124,6 +126,7 @@ describe('ClientWarningsPipeline', () => {
             }),
             topHog: createNoopTopHog(),
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,
             promiseScheduler,

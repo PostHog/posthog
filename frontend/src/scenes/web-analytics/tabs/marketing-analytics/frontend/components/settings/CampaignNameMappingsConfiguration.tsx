@@ -7,14 +7,14 @@ import { LemonButton, LemonInputSelect, LemonSelect, LemonTag, LemonTextArea, To
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 
-import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
+import { MatchField, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
     getGlobalCampaignMapping,
     parseCommaSeparatedValues,
     removeCampaignFromMappings,
-} from '../NonIntegratedConversionsTable/mappingUtils'
+} from '../CampaignMapping/mappingUtils'
 import { CampaignSuggestion, findCampaignSuggestions } from './stringSimilarity'
 
 export interface CampaignNameMappingsConfigurationProps {
@@ -155,9 +155,7 @@ export function CampaignNameMappingsConfiguration({
         updateCampaignNameMappings(newMappings)
     }
 
-    const availableSources = externalDataSources.filter((source) =>
-        VALID_NATIVE_MARKETING_SOURCES.includes(source as any)
-    )
+    const availableSources = VALID_NATIVE_MARKETING_SOURCES
 
     return (
         <div className="space-y-4">

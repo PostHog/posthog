@@ -1,26 +1,63 @@
+import json
 import importlib
-from datetime import timedelta
-from typing import ClassVar
-from uuid import uuid4
+import threading
+from dataclasses import replace
+from datetime import datetime, timedelta
+from typing import Any, ClassVar
+from uuid import UUID, uuid4
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.apps import apps
+from django.db import close_old_connections, transaction
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
+from rest_framework.exceptions import ValidationError
 
-from posthog.models import Integration, Organization, Team
+from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
+from posthog.constants import AvailableFeature
+from posthog.models import Integration, Organization, OrganizationMembership, Team
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import Channel, SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
+from products.tasks.backend.facade.profiles import (
+    ContractCheck,
+    DrivePolicy,
+    Read,
+    Repository,
+    SourceKind,
+    TaskProfileError,
+    TaskRunOptions,
+    TaskSource,
+    get_task_profile,
+)
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
+from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    Channel,
+    ChannelMembership,
+    SandboxCustomImage,
+    SandboxEnvironment,
+    SandboxSession,
+    Task,
+    TaskRun,
+    TaskWorkflowDispatch,
+)
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
+from products.tasks.backend.run_options import run_options_record
+
+REPORT_ID = "0f7a6c1e-3b8d-4f2a-9c5e-1d2b3a4c5e6f"
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -32,11 +69,10 @@ FACADE_MODULES = [
     "products.tasks.backend.facade.streams",
     "products.tasks.backend.facade.temporal",
     "products.tasks.backend.facade.max_tools",
-    "products.tasks.backend.facade.webhooks",
 ]
 
 
-class TestFacadeImports(TestCase):
+class TestFacadeImports(SimpleTestCase):
     @parameterized.expand([(m,) for m in FACADE_MODULES])
     def test_module_imports_and_all_symbols_resolve(self, module_path):
         module = importlib.import_module(module_path)
@@ -48,6 +84,222 @@ class TestFacadeImports(TestCase):
         self.assertIs(facade.TaskRunEnvironment, TaskRun.Environment)
         self.assertIs(facade.TaskOriginProduct, Task.OriginProduct)
         self.assertIs(facade.SandboxNetworkAccessLevel, SandboxEnvironment.NetworkAccessLevel)
+
+
+class TestTaskHandoffConcurrency(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.owner = User.objects.create_user(email="owner@example.com", first_name="Owner", password="password")
+        self.recipient = User.objects.create_user(
+            email="recipient@example.com", first_name="Recipient", password="password"
+        )
+        self.organization.members.add(self.owner, self.recipient)
+        self.task = Task.objects.create(
+            team=self.team,
+            title="Race task",
+            description="Run later",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.owner,
+        )
+
+    def test_delayed_bootstrap_cannot_create_run_after_handoff(self) -> None:
+        create_reached = threading.Event()
+        handoff_finished = threading.Event()
+        results: list[contracts.TaskRunCreateResult | None] = []
+        errors: list[BaseException] = []
+        original_create_run = Task.create_run
+
+        def delayed_create_run(
+            task: Task,
+            environment: TaskRun.Environment | None = None,
+            mode: str = "background",
+            extra_state: dict | None = None,
+            branch: str | None = None,
+            acting_user_id: int | None = None,
+        ) -> TaskRun:
+            create_reached.set()
+            if not handoff_finished.wait(timeout=10):
+                raise TimeoutError("handoff did not finish")
+            return original_create_run(
+                task,
+                environment=environment,
+                mode=mode,
+                extra_state=extra_state,
+                branch=branch,
+                acting_user_id=acting_user_id,
+            )
+
+        def bootstrap() -> None:
+            close_old_connections()
+            try:
+                results.append(facade.bootstrap_task_run(self.task.id, self.team.id, self.owner.id, validated_data={}))
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        with patch.object(Task, "create_run", new=delayed_create_run):
+            thread = threading.Thread(target=bootstrap)
+            thread.start()
+            self.assertTrue(create_reached.wait(timeout=10))
+            handoff = facade.handoff_task(
+                self.task.id,
+                self.team.id,
+                self.owner.id,
+                target_user_id=self.recipient.id,
+            )
+            handoff_finished.set()
+            thread.join(timeout=10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(handoff)
+        self.assertEqual(results, [None])
+        self.assertFalse(TaskRun.objects.filter(task=self.task).exists())
+
+    def test_handoff_waits_for_in_flight_task_update(self) -> None:
+        update_at_save = threading.Event()
+        allow_update_save = threading.Event()
+        update_saved = threading.Event()
+        handoff_finished = threading.Event()
+        errors: list[BaseException] = []
+        original_save = Task.save
+
+        def delayed_save(task: Task, *args: Any, **kwargs: Any) -> None:
+            if task.id == self.task.id and task.title == "Updated title" and not update_saved.is_set():
+                update_at_save.set()
+                if not allow_update_save.wait(timeout=10):
+                    raise TimeoutError("update save was not released")
+                result = original_save(task, *args, **kwargs)
+                update_saved.set()
+                return result
+            return original_save(task, *args, **kwargs)
+
+        def update() -> None:
+            close_old_connections()
+            try:
+                facade.update_task(
+                    self.task.id,
+                    self.team.id,
+                    self.owner.id,
+                    validated_data={"title": "Updated title"},
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        def handoff() -> None:
+            close_old_connections()
+            try:
+                facade.handoff_task(
+                    self.task.id,
+                    self.team.id,
+                    self.owner.id,
+                    target_user_id=self.recipient.id,
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                handoff_finished.set()
+                close_old_connections()
+
+        with patch.object(Task, "save", new=delayed_save):
+            update_thread = threading.Thread(target=update)
+            update_thread.start()
+            self.assertTrue(update_at_save.wait(timeout=10))
+            handoff_thread = threading.Thread(target=handoff)
+            handoff_thread.start()
+            self.assertFalse(handoff_finished.wait(timeout=1))
+            allow_update_save.set()
+            update_thread.join(timeout=10)
+            handoff_thread.join(timeout=10)
+
+        self.assertFalse(update_thread.is_alive())
+        self.assertFalse(handoff_thread.is_alive())
+        self.assertEqual(errors, [])
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.title, "Updated title")
+        self.assertEqual(self.task.created_by_id, self.recipient.id)
+
+
+class TestUpsertInternalSandboxEnvConcurrency(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def test_concurrent_upsert_reuses_the_row_another_caller_created(self) -> None:
+        results: list[UUID] = []
+        errors: list[BaseException] = []
+        finished = threading.Event()
+
+        def upsert() -> None:
+            close_old_connections()
+            try:
+                results.append(
+                    facade.upsert_internal_sandbox_env(
+                        self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+                    )
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+                close_old_connections()
+
+        with transaction.atomic():
+            first_id = facade.upsert_internal_sandbox_env(
+                self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+            )
+            thread = threading.Thread(target=upsert)
+            thread.start()
+            self.assertFalse(finished.wait(timeout=1))
+        thread.join(timeout=10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(results, [first_id])
+        self.assertEqual(
+            list(
+                SandboxEnvironment.objects.filter(team_id=self.team.id, name="SIGNALS_X").values_list("id", flat=True)
+            ),
+            [first_id],
+        )
+
+
+class TestBootstrapTaskRun(TestCase):
+    def test_invalid_cloud_origin_returns_validation_error(self) -> None:
+        organization = Organization.objects.create(name="Legacy task org")
+        team = Team.objects.create(organization=organization, name="Legacy task team")
+        user = User.objects.create(email="legacy-task@example.com")
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Legacy task",
+            description="Run later",
+            origin_product="automation",
+        )
+
+        result = facade.bootstrap_task_run(
+            task.id,
+            team.id,
+            user.id,
+            validated_data={"environment": TaskRun.Environment.CLOUD},
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(
+            result.error,
+            contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                attr="origin_product",
+            ),
+        )
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
 
 class TestFacadeReadsAndMappers(TestCase):
@@ -72,6 +324,65 @@ class TestFacadeReadsAndMappers(TestCase):
         }
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
+
+    @parameterized.expand(
+        [
+            ("the_sandbox", True, True),
+            ("a_human_reader", False, True),
+            ("a_human_reader_of_a_creatorless_task", False, False),
+        ]
+    )
+    def test_run_detail_filters_state_for_human_and_sandbox_readers(self, _name, include_agent_state, has_creator):
+        # The agent reads initial_prompt_override off this payload to build its first
+        # message; dropping it strips it silently and the run falls back to
+        # task.description. But it embeds the triggering event wholesale (for a Slack
+        # trigger, a private channel's content) and workflow tasks are team-readable,
+        # so human readers must not receive it.
+        task = self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW, created_by=self.user if has_creator else None
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={
+                "initial_prompt_override": "framed prompt",
+                "end_run_when_done": True,
+                "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
+                "store_skills_bridge": True,
+                "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
+                "sandbox_jwt_kid": "secret",
+                "unknown_server_context": {"title": "Saved context"},
+                "posthog_mcp_scopes": "read_only",
+                "task_summary": "Private workflow context",
+                "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["request-1"]}}},
+                "compute_cost": 2,
+                "token_cost_incomplete": True,
+                "unprocessed_request_ids": ["request-2"],
+                "task_tags": ["private-tag"],
+            },
+        )
+
+        detail = facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=include_agent_state)
+
+        assert detail is not None
+        expected = "framed prompt" if include_agent_state else None
+        assert detail.state.get("initial_prompt_override") == expected
+        # The finish-tool gate reads this key at agent boot; a filter that drops it makes
+        # every unbound workflow run idle out instead of ending itself.
+        assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
+        # The agent writes these into its skill roots at boot; dropped, it installs none.
+        assert ("store_skills" in detail.state) is include_agent_state
+        assert ("store_skills_bridge" in detail.state) is include_agent_state
+        assert ("systemPrompt" in detail.state) is include_agent_state
+        assert "sandbox_jwt_kid" not in detail.state
+        assert "unknown_server_context" not in detail.state
+        assert "posthog_mcp_scopes" not in detail.state
+        assert {"token_cost", "compute_cost", "token_cost_incomplete", "unprocessed_request_ids"}.isdisjoint(
+            detail.state
+        )
+        assert detail.task_summary == ("Private workflow context" if include_agent_state else None)
+        assert detail.task_tags == (["private-tag"] if include_agent_state else [])
 
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()
@@ -107,14 +418,441 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNone(facade.get_task_run(run.id, team_id=other_team.id))
         self.assertIsNone(facade.get_task_run("00000000-0000-0000-0000-000000000000"))
 
-    def test_task_exists_and_visibility(self):
+    def test_resume_in_cloud_rejects_run_from_previous_owner(self):
+        task = self._make_task(state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"})
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={})
+
+        outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
+            run.id,
+            task.id,
+            self.team.id,
+            self.user.id,
+        )
+
+        self.assertEqual(outcome, "ownership_changed")
+        self.assertIsNone(resumed_run)
+
+    def test_resume_in_cloud_rejects_invalid_origin(self):
+        task = self._make_task(origin_product="automation")
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
+            run.id,
+            task.id,
+            self.team.id,
+            self.user.id,
+        )
+
+        self.assertEqual(outcome, "invalid_origin")
+        self.assertIsNone(resumed_run)
+
+    @override_settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=True)
+    def test_resume_in_cloud_logs_a_restart_beside_a_live_run(self):
         task = self._make_task()
+        live = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.QUEUED
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "bot"},
+        )
+
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
+            outcome, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+
+        self.assertEqual(outcome, "resumed")
+        log_started.assert_called_once_with(run, [live.id])
+        run.refresh_from_db()
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+
+    @parameterized.expand([(Task.OriginProduct.SIGNAL_REPORT,), (Task.OriginProduct.SIGNALS_SCOUT,)])
+    def test_resume_in_cloud_cannot_reopen_automated_spend(self, origin_product: str) -> None:
+        task = self._make_task(origin_product=origin_product)
+        run = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.COMPLETED
+        )
+        with self.assertRaisesMessage(ValidationError, "Start a new run"):
+            facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.COMPLETED
+        assert run.state == {}
+
+    @parameterized.expand(
+        [
+            ("old_columns", "old", "old"),
+            ("new_columns", "new", "new"),
+            ("old_column_then_new_columns", "old", "new"),
+            ("kind_without_id", "kind_only", "kind_only"),
+        ]
+    )
+    def test_list_workflow_last_runs_uses_each_workflows_newest_listed_task(
+        self, _name: str, older_columns: str, newer_columns: str
+    ):
+        def flow_columns(flow_id: UUID, columns: str) -> dict:
+            columns_by_name: dict[str, dict] = {
+                "old": {"hog_flow_id": flow_id},
+                "new": {"source_kind": "hog_flow", "source_id": str(flow_id)},
+                "kind_only": {"source_kind": "hog_flow", "hog_flow_id": flow_id},
+            }
+            return columns_by_name[columns]
+
+        now = django_timezone.now()
+        flow_with_runs, flow_without_run, flow_not_asked = uuid4(), uuid4(), uuid4()
+        older = self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_with_runs, older_columns)
+        )
+        newer = self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW,
+            archived=True,
+            **flow_columns(flow_with_runs, newer_columns),
+        )
+        Task.objects.filter(pk=older.pk).update(created_at=now - timedelta(hours=2))
+        Task.objects.filter(pk=newer.pk).update(created_at=now - timedelta(hours=1))
+        TaskRun.objects.create(task=older, team=self.team, status=TaskRun.Status.COMPLETED)
+        earlier_run = TaskRun.objects.create(task=newer, team=self.team, status=TaskRun.Status.COMPLETED)
+        newest_run = TaskRun.objects.create(task=newer, team=self.team, status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(pk=earlier_run.pk).update(created_at=now - timedelta(minutes=50))
+        TaskRun.objects.filter(pk=newest_run.pk).update(created_at=now - timedelta(minutes=30))
+        # Run history hides internal tasks, so the newest task here must not count as the last run.
+        self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW,
+            internal=True,
+            **flow_columns(flow_with_runs, newer_columns),
+        )
+        not_started = self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_without_run, newer_columns)
+        )
+        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_not_asked, newer_columns))
+
+        last_runs = facade.list_workflow_last_runs(self.team.id, self.user.id, [flow_with_runs, flow_without_run])
+
+        assert last_runs == {
+            flow_with_runs: contracts.WorkflowLastRunDTO(
+                hog_flow_id=flow_with_runs,
+                task_id=newer.id,
+                status="failed",
+                ran_at=now - timedelta(minutes=30),
+            ),
+            flow_without_run: contracts.WorkflowLastRunDTO(
+                hog_flow_id=flow_without_run,
+                task_id=not_started.id,
+                status="not_started",
+                ran_at=not_started.created_at,
+            ),
+        }
+
+    @parameterized.expand(
+        [
+            ("ordinary", False),
+            ("scout_trial", True),
+            ("scout_judge", True, "scout-trial-judge:"),
+            ("scout_trial_new_column", True, "scout-trial:", "idempotency_key"),
+            ("scout_judge_new_column", True, "scout-trial-judge:", "idempotency_key"),
+        ]
+    )
+    def test_task_exists_and_visibility(
+        self, _name: str, is_trial: bool, prefix: str = "scout-trial:", key_column: str = "origin_key"
+    ) -> None:
+        task = self._make_task(
+            **{
+                "origin_product": Task.OriginProduct.SIGNALS_SCOUT,
+                key_column: f"{prefix}{uuid4()}:{uuid4()}",
+            }
+            if is_trial
+            else {}
+        )
         self.assertTrue(facade.task_exists(task.id, self.team.id))
         self.assertFalse(facade.task_exists(task.id, self.team.id + 999))
         # Creator can control it; an unrelated user cannot.
         self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
+        self.assertFalse(facade.task_visible(task.id, self.team.id, other_user.id))
+        if is_trial:
+            self.assertIsNone(facade.get_task_detail(task.id, self.team.id, other_user.id, bypass_visibility=True))
+            self.assertFalse(
+                facade.task_accessible_for_run_view(task.id, self.team.id, other_user.id, bypass_visibility=True)
+            )
+            self.assertTrue(
+                facade.task_accessible_for_run_view(
+                    task.id, self.team.id, other_user.id, bypass_visibility=True, sandbox_task_id=task.id
+                )
+            )
+
+    @parameterized.expand(
+        [
+            ("ordinary", False, False, False, True),
+            ("owner", True, False, False, True),
+            ("bound", True, True, True, True),
+            ("sibling", True, True, False, False),
+            ("legacy", True, True, None, False),
+            ("owner_new_column", True, False, False, True, "idempotency_key"),
+            ("sibling_new_column", True, True, False, False, "idempotency_key"),
+        ]
+    )
+    def test_run_authorization_classifies_trial_in_one_lookup(
+        self,
+        _name: str,
+        is_trial: bool,
+        sandbox: bool,
+        bound: bool | None,
+        allowed: bool,
+        key_column: str = "origin_key",
+    ) -> None:
+        task = self._make_task(
+            **{"origin_product": Task.OriginProduct.SIGNALS_SCOUT, key_column: f"scout-trial:{uuid4()}"}
+            if is_trial
+            else {}
+        )
+        reset_query_tags()
+        try:
+            with self.assertNumQueries(1):
+                result = facade.task_accessible_for_run_view(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    bypass_visibility=bool(bound),
+                    sandbox_request=sandbox,
+                    sandbox_task_id=(task.id if bound else uuid4()) if bound is not None and sandbox else None,
+                )
+            assert result is allowed
+            assert (get_query_tags().is_scout_experiment is True) == is_trial
+        finally:
+            reset_query_tags()
+
+    @parameterized.expand([("read", False), ("control", True)])
+    def test_run_authorization_checks_all_private_channel_members(self, _name: str, for_control: bool) -> None:
+        other_user = User.objects.create(email="channel-member@example.com", distinct_id="channel-member")
+        outsider = User.objects.create(email="channel-outsider@example.com", distinct_id="channel-outsider")
+        channel = Channel.objects.for_team(self.team.id).create(
+            team=self.team, name="Private", channel_type=Channel.ChannelType.PRIVATE, created_by=other_user
+        )
+        ChannelMembership.objects.for_team(self.team.id).bulk_create(
+            [
+                ChannelMembership(team=self.team, channel=channel, user=other_user),
+                ChannelMembership(team=self.team, channel=channel, user=self.user),
+            ]
+        )
+        task = self._make_task(channel=channel, created_by=self.user if for_control else other_user)
+
+        with self.assertNumQueries(1):
+            assert facade.task_accessible_for_run_view(task.id, self.team.id, self.user.id, for_control=for_control)
+        assert not facade.task_accessible_for_run_view(task.id, self.team.id, outsider.id, for_control=for_control)
+
+    @parameterized.expand(
+        [
+            ("run_view_in_log_mode", "run_view", DrivePolicy.NONE, frozenset(), True, False, True),
+            ("run_view_enforced", "run_view", DrivePolicy.NONE, frozenset({ContractCheck.DRIVE}), True, False, False),
+            (
+                "run_view_enforced_for_reading",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                False,
+                False,
+                True,
+            ),
+            (
+                "run_view_enforced_for_the_owner",
+                "run_view",
+                DrivePolicy.OWNER,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                True,
+            ),
+            (
+                "run_view_enforced_for_a_sandbox",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                True,
+                True,
+            ),
+            (
+                "run_view_with_another_check_enforced",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.RUNTIMES}),
+                True,
+                False,
+                True,
+            ),
+            ("task_visible_in_log_mode", "task_visible", DrivePolicy.NONE, frozenset(), True, False, True),
+            (
+                "task_visible_enforced",
+                "task_visible",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                False,
+            ),
+            (
+                "task_visible_enforced_for_reading",
+                "task_visible",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                False,
+                False,
+                True,
+            ),
+            (
+                "task_visible_enforced_for_the_owner",
+                "task_visible",
+                DrivePolicy.OWNER,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                True,
+            ),
+        ]
+    )
+    def test_control_gates_apply_the_profile_drive_policy(
+        self,
+        _name: str,
+        gate: str,
+        drive: DrivePolicy,
+        enforced: frozenset[ContractCheck],
+        for_control: bool,
+        bypass_visibility: bool,
+        allowed: bool,
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.drive", drive=drive, enforced_checks=enforced
+        )
+        task = self._make_task(profile=profile.key)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if gate == "run_view":
+                with self.assertNumQueries(1):
+                    result = facade.task_accessible_for_run_view(
+                        task.id,
+                        self.team.id,
+                        self.user.id,
+                        for_control=for_control,
+                        bypass_visibility=bypass_visibility,
+                    )
+            else:
+                result = facade.task_visible(task.id, self.team.id, self.user.id, for_control=for_control)
+
+        self.assertIs(result, allowed)
+
+    @parameterized.expand(
+        [
+            ("token_bound_to_this_task", True, "own", True),
+            ("token_bound_to_another_task", True, "other", False),
+            ("token_without_a_bound_task", True, None, False),
+            ("no_sandbox_token", False, None, False),
+        ]
+    )
+    def test_only_a_sandbox_token_bound_to_the_task_skips_the_drive_policy(
+        self, _name: str, sandbox_request: bool, bound: str | None, allowed: bool
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"),
+            key="test.drive_sandbox",
+            drive=DrivePolicy.NONE,
+            enforced_checks=frozenset({ContractCheck.DRIVE}),
+        )
+        task = self._make_task(profile=profile.key)
+        sandbox_task_id = {"own": task.id, "other": uuid4(), None: None}[bound]
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            result = facade.task_accessible_for_run_view(
+                task.id,
+                self.team.id,
+                self.user.id,
+                for_control=True,
+                sandbox_request=sandbox_request,
+                sandbox_task_id=sandbox_task_id,
+            )
+
+        self.assertIs(result, allowed)
+
+    @parameterized.expand(
+        [
+            (f"{gate}_{mode}", gate, drive, enforced, refused)
+            for gate in ("prepare_artifacts", "finalize_artifacts", "warm_resume", "update", "delete", "handoff")
+            for mode, drive, enforced, refused in (
+                ("none_policy_in_log_mode", DrivePolicy.NONE, frozenset(), False),
+                ("none_policy_enforced", DrivePolicy.NONE, frozenset({ContractCheck.DRIVE}), True),
+                ("owner_policy_enforced", DrivePolicy.OWNER, frozenset({ContractCheck.DRIVE}), False),
+            )
+        ]
+    )
+    def test_control_gates_outside_the_run_views_apply_the_drive_policy(
+        self, _name: str, gate: str, drive: DrivePolicy, enforced: frozenset[ContractCheck], refused: bool
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.drive_steering", drive=drive, enforced_checks=enforced
+        )
+        task = self._make_task(profile=profile.key)
+        sample = {"check": ContractCheck.DRIVE.value, "profile": profile.key}
+        before = REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0
+        if gate == "handoff":
+            recipient = User.objects.create(email="recipient@example.com", distinct_id="recipient-distinct")
+            self.organization.members.add(recipient)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if gate == "prepare_artifacts":
+                refused_by_gate = (
+                    facade.prepare_task_staged_artifacts(
+                        task.id, self.team.id, self.user.id, artifacts=[], upload_expiration_seconds=60
+                    )
+                    is None
+                )
+            elif gate == "finalize_artifacts":
+                refused_by_gate = (
+                    facade.finalize_task_staged_artifacts(task.id, self.team.id, self.user.id, artifacts=[]) is None
+                )
+            elif gate == "update":
+                refused_by_gate = (
+                    facade.update_task(task.id, self.team.id, self.user.id, validated_data={"title": "Renamed"}) is None
+                )
+            elif gate == "delete":
+                refused_by_gate = not facade.soft_delete_task(task.id, self.team.id, self.user.id)
+            elif gate == "handoff":
+                refused_by_gate = (
+                    facade.handoff_task(task.id, self.team.id, self.user.id, target_user_id=recipient.id) is None
+                )
+            else:
+                refused_by_gate = (
+                    facade.warm_task_resume_sandbox(task.id, self.team.id, self.user.id, resume_from_run_id=uuid4())
+                    is None
+                )
+
+        counted = (REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0) - before
+        self.assertEqual(counted, 1 if drive == DrivePolicy.NONE else 0)
+        if gate != "warm_resume":
+            self.assertEqual(refused_by_gate, refused)
+
+    def test_task_control_runtime_and_origin_uses_control_predicate(self):
+        task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
+        self.assertEqual(
+            facade.task_control_runtime_and_origin(task.id, self.team.id, self.user.id),
+            facade.ControlVisibleTask(
+                runtime=Task.Runtime.PI.value, origin_product=Task.OriginProduct.POSTHOG_AI.value
+            ),
+        )
+
+        # An experiments task is readable across the team but only its creator may drive it, so the
+        # warm gate must use the control predicate, not the read predicate.
+        other_user = User.objects.create(email="control-origin@test.com", distinct_id="control-origin")
+        experiments_task = self._make_task(origin_product=Task.OriginProduct.EXPERIMENTS)
+        self.assertIsNotNone(facade.get_task_detail(experiments_task.id, self.team.id, other_user.id))
+        self.assertIsNone(facade.task_control_runtime_and_origin(experiments_task.id, self.team.id, other_user.id))
+
+        self.assertIsNone(facade.task_control_runtime_and_origin(uuid4(), self.team.id, self.user.id))
 
     def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
         # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:
@@ -206,18 +944,100 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(handle.task_id, older_task.id)
         self.assertEqual(handle.run_id, active.id)
 
-    def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
+    def test_get_latest_active_internal_task_run_for_organization_uses_trusted_markers(self):
+        active_task = self._make_task(internal=True)
+        active = TaskRun.objects.create(
+            task=active_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+        terminal_task = self._make_task(internal=True)
+        terminal = TaskRun.objects.create(
+            task=terminal_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+        untrusted_task = self._make_task(internal=False)
+        TaskRun.objects.create(
+            task=untrusted_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+        wrong_stage_task = self._make_task(internal=True)
+        TaskRun.objects.create(
+            task=wrong_stage_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "another-server-flow"},
+        )
+        other_organization = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_organization, name="Other team")
+        other_task = self._make_task(team=other_team, internal=True)
+        TaskRun.objects.create(
+            task=other_task,
+            team=other_team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+            state={"ai_stage": "context-layer-dream"},
+        )
+
+        result = facade.get_latest_active_internal_task_run_for_organization(
+            self.organization.id, ai_stage="context-layer-dream"
+        )
+
+        assert result is not None
+        self.assertEqual(result.id, active.id)
+        latest = facade.get_latest_internal_task_run_for_organization(
+            self.organization.id, ai_stage="context-layer-dream"
+        )
+        assert latest is not None
+        self.assertEqual(latest.id, terminal.id)
+        TaskRun.objects.filter(id=active.id).update(created_at=terminal.created_at + timedelta(seconds=1))
+        latest_terminal = facade.get_latest_internal_task_run_for_organization(
+            self.organization.id, ai_stage="context-layer-dream", terminal_only=True
+        )
+        assert latest_terminal is not None
+        self.assertEqual(latest_terminal.id, terminal.id)
+
+    def test_get_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
         other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        colleague = User.objects.create(email="colleague@test.com", distinct_id="colleague-distinct")
+        outsider = User.objects.create(email="outsider@test.com", distinct_id="outsider-distinct")
 
-        live_task = self._make_task(github_integration=integration)
-        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        colleague_task = self._make_task(github_integration=integration, title="Colleague's task", created_by=colleague)
+        TaskRun.objects.create(task=colleague_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=colleague_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        own_task = self._make_task(github_integration=integration, title="Own task")
+        TaskRun.objects.create(task=own_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         other_task = self._make_task(github_integration=other_integration)
         TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id, integration.id), 1)
-        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id + 999, integration.id), 0)
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id, colleague.id),
+            contracts.InProgressGithubRunsDTO(
+                count=2, oldest_task_id=colleague_task.id, oldest_task_title="Colleague's task"
+            ),
+        )
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id, self.user.id),
+            contracts.InProgressGithubRunsDTO(count=2, oldest_task_id=own_task.id, oldest_task_title="Own task"),
+        )
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id, outsider.id),
+            contracts.InProgressGithubRunsDTO(count=2),
+        )
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id + 999, integration.id, self.user.id),
+            contracts.InProgressGithubRunsDTO(count=0),
+        )
 
     def test_get_latest_pr_url_and_run_by_task(self):
         task = self._make_task()
@@ -236,6 +1056,305 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(facade.get_latest_pr_url_by_task([]), {})
 
+    def test_get_prior_pr_output_by_task_picks_the_newest_pr_carrying_run(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/1"}
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": ["https://x/pull/2"]}
+        )
+        # A resume opens no PR of its own, so it must not hide the run that did.
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        no_pr_task = self._make_task()
+        TaskRun.objects.create(task=no_pr_task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id, no_pr_task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_urls": ["https://x/pull/2"]}})
+        self.assertEqual(facade.get_prior_pr_output_by_task(self.team.id, []), {})
+
+    def test_task_detail_keeps_the_pr_on_latest_run_across_a_resume(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={
+                "pr_url": "https://x/pull/7",
+                "pr_urls": ["https://x/pull/7"],
+                "pr_state": "open",
+                "commit_push": {"repository": "posthog/posthog"},
+            },
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"final_message": "done"}
+        )
+
+        # The runs this path prefetches already carry the earlier PR, so finding it costs
+        # no second trip to the database. One of the four is the read exclusion PostHog AI registers.
+        with self.assertNumQueries(4):
+            dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+
+        assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
+        output = dto.latest_run.output
+        self.assertEqual(output["pr_url"], "https://x/pull/7")
+        self.assertEqual(output["pr_urls"], ["https://x/pull/7"])
+        self.assertEqual(output["pr_state"], "open")
+        self.assertEqual(output["final_message"], "done")
+        # Only the PR travels; the rest of an earlier run's output stays where it was written.
+        self.assertNotIn("commit_push", output)
+
+    def test_task_detail_leaves_a_run_that_opened_its_own_pr_alone(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/1"}
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/2"}
+        )
+
+        dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+
+        assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
+        self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/2")
+
+    def test_get_prior_pr_output_by_task_skips_an_empty_pr_urls_entry(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/1"}
+        )
+        # Storable, carries no PR, and so must not shadow the older run that has one.
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": [""]})
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_url": "https://x/pull/1"}})
+
+    def test_get_prior_pr_output_by_task_matches_a_later_non_empty_pr_url(self):
+        task = self._make_task()
+        # `read_pr_urls` drops the empty entry and still yields a usable URL, so the SQL
+        # predicate has to agree with it rather than looking only at the first entry.
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["", "https://x/pull/2"]},
+        )
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_urls": ["", "https://x/pull/2"]}})
+
+    def test_list_tasks_pr_state_filter_matches_a_later_non_empty_pr_url(self):
+        task = self._make_task(title="empty first entry")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["", "https://x/pull/2"], "pr_state": "open"},
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        open_ids = [dto.id for dto in facade.list_tasks(self.team.id, self.user.id, filters={"pr_state": "open"})]
+
+        self.assertEqual(open_ids, [task.id])
+
+    def test_task_detail_fills_pr_url_from_an_array_only_prior_output(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": ["https://x/pull/9"]}
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+
+        # Readers that look only at `pr_url` (the feed's `has_pr`, `get_latest_pr_url_by_task`)
+        # have to see the PR too.
+        assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
+        self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/9")
+        self.assertEqual(dto.latest_run.output["pr_urls"], ["https://x/pull/9"])
+
+    def test_list_tasks_pr_state_filter_matches_an_inherited_pr(self):
+        resumed = self._make_task(title="resumed open pr")
+        TaskRun.objects.create(
+            task=resumed,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://x/pull/1", "pr_state": "open"},
+        )
+        TaskRun.objects.create(task=resumed, team=self.team, status=TaskRun.Status.COMPLETED)
+        merged = self._make_task(title="resumed merged pr")
+        TaskRun.objects.create(
+            task=merged,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            # Legacy merge: the pr_merged flag, no pr_state.
+            output={"pr_url": "https://x/pull/2", "pr_merged": True},
+        )
+        TaskRun.objects.create(task=merged, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        # The filter and `latest_run.output` have to answer the same way about the same task.
+        open_ids = [dto.id for dto in facade.list_tasks(self.team.id, self.user.id, filters={"pr_state": "open"})]
+        merged_ids = [dto.id for dto in facade.list_tasks(self.team.id, self.user.id, filters={"pr_state": "merged"})]
+
+        self.assertEqual(open_ids, [resumed.id])
+        self.assertEqual(merged_ids, [merged.id])
+
+    @patch("products.tasks.backend.facade.api._task_run_log_url", return_value="https://presigned/log")
+    def test_task_detail_inherits_a_pr_without_restoring_a_suppressed_log_url(self, _mock_log_url):
+        """The degraded `start_task_run` fallback omits the log URL, and inheriting a PR must keep it out.
+
+        The backfill rebuilds the run DTO, so the caller's gate has to be applied where that DTO is
+        built rather than at the `latest_run` keyword, or the fallback silently regains the
+        presigned-URL I/O it exists to avoid.
+        """
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/4"}
+        )
+        latest = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        suppressed = facade._task_detail_to_dto(task, latest_run=latest, include_latest_run_log_url=False)
+        allowed = facade._task_detail_to_dto(task, latest_run=latest)
+
+        assert suppressed.latest_run is not None and suppressed.latest_run.output is not None
+        self.assertIsNone(suppressed.latest_run.log_url)
+        self.assertEqual(suppressed.latest_run.output["pr_url"], "https://x/pull/4")
+        # The open-gate call proves the assertion above isn't passing for want of a URL to begin with.
+        assert allowed.latest_run is not None
+        self.assertEqual(allowed.latest_run.log_url, "https://presigned/log")
+
+    def test_get_prior_pr_output_by_task_skips_a_non_string_pr_url(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/real"}
+        )
+        # `output` is free-form JSON, and `read_pr_urls` reads only strings. A newest run whose
+        # `pr_url` is a number must not win the pick and strand the older run that holds the PR.
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": 123})
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_url": "https://x/pull/real"}})
+
+    def test_list_tasks_never_reports_a_non_string_pr_url(self):
+        task = self._make_task(title="junk pr_url")
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/real"}
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": True})
+
+        listed = next(dto for dto in facade.list_tasks(self.team.id, self.user.id, filters={}) if dto.id == task.id)
+
+        # The list and the detail response have to agree, and neither may hand a client a
+        # non-string where a URL belongs.
+        assert listed.latest_run is not None and listed.latest_run.output is not None
+        self.assertEqual(listed.latest_run.output["pr_url"], "https://x/pull/real")
+
+    def test_get_latest_pr_url_by_task_reads_an_array_only_output(self):
+        array_only = self._make_task(title="array only")
+        TaskRun.objects.create(
+            task=array_only,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["https://x/pull/7"]},
+        )
+        junk = self._make_task(title="junk only")
+        TaskRun.objects.create(task=junk, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": 5})
+
+        urls = facade.get_latest_pr_url_by_task([array_only.id, junk.id])
+
+        # Slack App Home reads this helper, so a run that recorded only `pr_urls` still has a link.
+        self.assertEqual(urls, {str(array_only.id): "https://x/pull/7"})
+
+    def test_task_summaries_inherit_the_pr_across_a_resume(self):
+        task = self._make_task(title="resumed")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://x/pull/9", "pr_state": "open"},
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        own_pr = self._make_task(title="own pr")
+        TaskRun.objects.create(
+            task=own_pr,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://x/pull/1", "pr_state": "closed"},
+        )
+
+        dtos, _ = facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id, own_pr.id])
+        summaries = {dto.title: dto.latest_run for dto in dtos}
+
+        # The sidebar reads summaries while the task view reads the detail DTO; both have to show
+        # the same PR for the same task.
+        assert summaries["resumed"] is not None
+        self.assertEqual(summaries["resumed"].pr_url, "https://x/pull/9")
+        self.assertEqual(summaries["resumed"].pr_state, "open")
+        # A run that opened its own PR keeps it rather than inheriting an older one.
+        assert summaries["own pr"] is not None
+        self.assertEqual(summaries["own pr"].pr_url, "https://x/pull/1")
+        self.assertEqual(summaries["own pr"].pr_state, "closed")
+
+    def test_task_summaries_read_an_array_only_pr_url(self):
+        own = self._make_task(title="own array")
+        TaskRun.objects.create(
+            task=own,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["https://x/pull/3"], "pr_state": "open"},
+        )
+        inherited = self._make_task(title="inherited array")
+        TaskRun.objects.create(
+            task=inherited, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": ["https://x/pull/4"]}
+        )
+        TaskRun.objects.create(task=inherited, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        dtos, _ = facade.get_task_summaries(self.team.id, self.user.id, ids=[own.id, inherited.id])
+        summaries = {dto.title: dto.latest_run for dto in dtos}
+
+        # `pr_url` is the flat field clients read, so a run that recorded only the array still
+        # reports its first usable entry there — whether that run is the latest or an earlier one.
+        assert summaries["own array"] is not None and summaries["inherited array"] is not None
+        self.assertEqual(summaries["own array"].pr_url, "https://x/pull/3")
+        self.assertEqual(summaries["own array"].pr_state, "open")
+        self.assertEqual(summaries["inherited array"].pr_url, "https://x/pull/4")
+
+    def test_task_summaries_report_no_pr_when_the_task_never_opened_one(self):
+        task = self._make_task(title="no pr")
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        dtos, _ = facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id])
+        summary = dtos[0].latest_run
+
+        assert summary is not None
+        self.assertIsNone(summary.pr_url)
+        self.assertIsNone(summary.pr_state)
+
+    def test_list_tasks_resolves_inherited_prs_in_one_query(self):
+        tasks = [self._make_task(title=f"pr-task-{i}") for i in range(4)]
+        for index, task in enumerate(tasks):
+            TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                status=TaskRun.Status.COMPLETED,
+                output={"pr_url": f"https://x/pull/{index}"},
+            )
+            TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        # The page costs one inherited-PR query, whatever the number of tasks on it. One of the
+        # seven is the read exclusion PostHog AI registers.
+        with self.assertNumQueries(7):
+            dtos = facade.list_tasks(self.team.id, self.user.id, filters={})
+
+        by_title = {dto.title: dto for dto in dtos}
+        for index, task in enumerate(tasks):
+            latest_run = by_title[task.title].latest_run
+            assert latest_run is not None and latest_run.output is not None
+            self.assertEqual(latest_run.output["pr_url"], f"https://x/pull/{index}")
+
     def test_get_conversation_task_dtos_carries_latest_run_id_not_nested_run(self):
         task = self._make_task(title="Conversation task")
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
@@ -243,7 +1362,7 @@ class TestFacadeReadsAndMappers(TestCase):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         TaskRun.objects.create(task=task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
 
-        dtos = facade.get_conversation_task_dtos([task.id], self.team.id)
+        dtos = facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id)
 
         self.assertEqual(set(dtos.keys()), {task.id})
         dto = dtos[task.id]
@@ -253,29 +1372,40 @@ class TestFacadeReadsAndMappers(TestCase):
         # The nested run payload stays excluded (no presigned log URLs); only the id is carried.
         self.assertIsNone(dto.latest_run)
         self.assertEqual(dto.latest_run_id, latest.id)
-        self.assertEqual(facade.get_conversation_task_dtos([task.id], other_team.id), {})
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], other_team.id, self.user.id), {})
 
     def test_get_conversation_task_dtos_latest_run_id_none_without_runs(self):
         task = self._make_task(title="No runs")
 
-        dto = facade.get_conversation_task_dtos([task.id], self.team.id)[task.id]
+        dto = facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id)[task.id]
 
         self.assertIsNone(dto.latest_run_id)
+
+    def test_get_conversation_task_dtos_excludes_soft_deleted_task(self):
+        task = self._make_task(title="Deleted conversation task")
+        task.soft_delete()
+
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id), {})
 
     def test_get_conversation_task_dtos_is_cheap_for_many_tasks(self):
         tasks = [self._make_task(title=f"task-{i}") for i in range(5)]
         for task in tasks:
             TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
-        # A single query with the latest-run-id subquery — no per-task run lookup, no N+1.
-        with self.assertNumQueries(1):
-            dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id)
+        # One task query with the latest-run-id subquery plus one narrow team prefetch, so no
+        # per-task run lookup and no N+1.
+        with self.assertNumQueries(2):
+            dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id, self.user.id)
             for task in tasks:
                 self.assertIsNotNone(dtos[task.id].latest_run_id)
 
     @patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False)
-    def test_warm_task_run_returns_contract(self, _mock_quota, mock_workflow):
+    @patch(
+        "products.tasks.backend.logic.services.warm.get_posthog_ai_access_decision",
+        return_value=PostHogAIAccessDecision.GRANDFATHERED,
+    )
+    def test_warm_task_run_returns_contract(self, _mock_access, _mock_quota, mock_workflow):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI)
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -382,7 +1512,7 @@ class TestFacadeReadsAndMappers(TestCase):
             },
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -400,6 +1530,156 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_external_id", new_run.state)
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
+
+    def test_run_task_pi_resume_carries_the_prior_summary(self):
+        task = self._make_task(runtime=Task.Runtime.PI)
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"task_summary": "Reviewing the API"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(new_run.state.get("prior_run_summary"), "Reviewing the API")
+
+    def test_a_registered_read_exclusion_hides_a_task_from_reads(self):
+        hidden = self._make_task()
+        shown = self._make_task()
+        exclusions = {"test": lambda team_id, user_id: [hidden.id]}
+
+        with patch.dict("products.tasks.backend.facade.task_run_signals._task_read_exclusions", exclusions, clear=True):
+            assert facade.get_task_detail(hidden.id, self.team.id, self.user.id) is None
+            assert facade.get_task_detail(shown.id, self.team.id, self.user.id) is not None
+            assert (
+                facade.run_task(hidden.id, self.team.id, self.user.id, validated_data={"mode": "interactive"}) is None
+            )
+
+    def test_run_task_refuses_when_a_start_guard_objects(self):
+        task = self._make_task()
+        guards = {"test": lambda task_id, team_id, user_id: "Not yet"}
+
+        with (
+            patch.dict("products.tasks.backend.facade.task_run_signals._task_run_start_guards", guards, clear=True),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow") as trigger,
+        ):
+            result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "interactive"})
+
+        assert result is not None and result.error is not None
+        self.assertEqual(result.error.detail, "Not yet")
+        trigger.assert_not_called()
+        assert not task.runs.exists()
+
+    @parameterized.expand(
+        [
+            ("user_immediate", "user", False),
+            ("user_scheduled", "user", True),
+            ("org_immediate", "org", False),
+        ]
+    )
+    def test_run_task_at_the_active_session_cap(self, _name: str, scope: str, scheduled: bool) -> None:
+        caps = ActiveSessionCaps(per_user=2, per_org=3)
+        holder = self.user
+        if scope == "org":
+            holder = User.objects.create_and_join(self.organization, "busy@posthog.com", None)
+        busy_run = TaskRun.objects.create(
+            task=self._make_task(created_by=holder), team=self.team, status=TaskRun.Status.IN_PROGRESS
+        )
+        now = django_timezone.now()
+        for i in range(caps.per_user if scope == "user" else caps.per_org):
+            SandboxSession.objects.unscoped().create(
+                team=self.team,
+                task_run=busy_run,
+                sandbox_id=f"sb-busy-{i}",
+                cpu_cores=4.0,
+                memory_gb=16.0,
+                ttl_seconds=3600,
+                ttl_expires_at=now + timedelta(hours=1),
+                user_attributed_at=now,
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        task = self._make_task()
+        validated_data: dict[str, Any] = {"mode": "interactive"}
+        if scheduled:
+            validated_data["scheduled_at"] = now + timedelta(hours=2)
+
+        with (
+            patch.dict(SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS, {Task.OriginProduct.USER_CREATED: caps}),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None) as trigger,
+        ):
+            result = facade.run_task(task.id, self.team.id, self.user.id, validated_data=validated_data)
+
+        assert result is not None
+        if scheduled:
+            assert result.error is None
+            assert task.runs.count() == 1
+        else:
+            assert result.error is not None
+            self.assertEqual(
+                result.error.detail,
+                "You already have 2 cloud sandboxes running. Wait for one to finish or stop one, then try again."
+                if scope == "user"
+                else "Your organization already has 3 cloud sandboxes running. "
+                "Wait for one to finish or stop one, then try again.",
+            )
+            assert result.error.code == "active_session_cap"
+            trigger.assert_not_called()
+            assert not task.runs.exists()
+
+    def test_run_task_resumed_from_an_import_run_marks_the_new_run(self):
+        task = self._make_task()
+        import_run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={"imported_from": "conversation"}
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(import_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=import_run.id).get()
+        assert new_run.state["resume_from_import_run"] is True
+        assert "imported_from" not in new_run.state
+
+    def test_run_task_resume_exposes_pending_prompt_to_agent(self):
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": str(previous_run.id),
+                    "pending_user_message": "Continue with the refactor",
+                    "pending_user_artifact_ids": [],
+                },
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        detail = facade.get_task_run_detail(new_run.id, task.id, self.team.id)
+        assert detail is not None
+        self.assertEqual(detail.state["pending_user_message"], "Continue with the refactor")
 
     @parameterized.expand(
         [
@@ -426,7 +1706,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"custom_image_id": str(image.id)},
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -441,7 +1721,14 @@ class TestFacadeReadsAndMappers(TestCase):
         else:
             self.assertNotIn("custom_image_id", new_run.state)
 
-    def test_run_task_resume_carries_self_driving_head_branch(self):
+    @parameterized.expand(
+        [
+            ("self_driving_head_branch", "posthog-self-driving/fix-abc123"),
+            ("stack_base_branch", "posthog-self-driving/schema-abc123"),
+            ("github_access_repositories", ["acme/api", "acme/assets"]),
+        ]
+    )
+    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str | list[str]):
         # The signals review carve-out binds a PR to its run by matching the PR head ref against the
         # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
         # stamp must be copied forward or the carve-out stops matching the successor — the receiver
@@ -453,10 +1740,10 @@ class TestFacadeReadsAndMappers(TestCase):
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
-            state={"self_driving_head_branch": "posthog-self-driving/fix-abc123"},
+            state={state_key: branch},
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -466,7 +1753,64 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
-        self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+        self.assertEqual(new_run.state.get(state_key), branch)
+
+    @parameterized.expand(
+        [
+            ("manual_implementation", False, "implementation", "implementation", None, True),
+            ("pipeline_after_manual", True, "implementation", None, "implementation", True),
+            ("pipeline_after_ui_task", True, "implementation", None, "implementation", False),
+            ("pipeline_discussion", True, "discussion", "implementation", None, True),
+        ]
+    )
+    def test_run_task_resume_of_a_pipeline_task_stamps_only_requested_pipeline_runs(
+        self,
+        _name: str,
+        pipeline_rerun: bool,
+        relationship: str,
+        previous_stage: str | None,
+        expected_stage: str | None,
+        internal: bool,
+    ):
+        from products.signals.backend.models import SignalReport, SignalSpend
+        from products.signals.backend.task_run_artefacts import record_report_task
+
+        report = SignalReport.objects.create(team=self.team)
+        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=internal)
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
+        )
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"ai_stage": previous_stage} if previous_stage else {},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+                pipeline_rerun=pipeline_rerun,
+                free_trial_enabled=False,
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(new_run.state.get("ai_stage"), expected_stage)
+        self.assertEqual(new_run.state.get("billing_product"), None if expected_stage else "posthog_ai")
+        spend = SignalSpend.objects.for_team(self.team.id).filter(task_run_id=new_run.id).first()
+        if expected_stage:
+            assert spend is not None
+            assert spend.kind == SignalSpend.Kind.REVIEWER_TRIGGERED_IMPLEMENTATION
+            assert spend.report_id == report.id
+            assert spend.signal_id is None
+        else:
+            assert spend is None
+        task.refresh_from_db()
+        self.assertEqual(task.origin_product, Task.OriginProduct.SIGNAL_REPORT)
 
     @parameterized.expand(
         [
@@ -487,7 +1831,7 @@ class TestFacadeReadsAndMappers(TestCase):
         SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"autostart_base_branches": overrides})
         task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.SIGNAL_REPORT)
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -508,7 +1852,7 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.USER_CREATED)
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -518,6 +1862,24 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None and result.error is None
         self.assertIsNone(task.runs.get().branch)
+
+    def test_run_task_returns_validation_error_for_invalid_cloud_origin(self):
+        task = self._make_task(origin_product="automation")
+
+        result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={})
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(
+            result.error,
+            contracts.TaskValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                attr="origin_product",
+            ),
+        )
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
@@ -538,6 +1900,39 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         self.assertIn(ancient.id, hard_capped)
         self.assertNotIn(resuming.id, hard_capped)
+
+    def test_cloud_sweep_guard_uses_dispatch_enqueue_time(self):
+        task = self._make_task()
+        now = django_timezone.now()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        TaskRun.objects.filter(pk=run.pk).update(
+            created_at=now - timedelta(hours=50), updated_at=now - timedelta(hours=2)
+        )
+        dispatch = TaskWorkflowDispatch.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=run,
+            workflow_id=run.workflow_id,
+            dispatch_kind=TaskWorkflowDispatch.Kind.RESTART,
+            payload={},
+            enqueued_at=now - timedelta(minutes=5),
+        )
+        TaskWorkflowDispatch.objects.for_team(self.team.id).filter(pk=dispatch.pk).update(
+            created_at=now - timedelta(hours=50)
+        )
+
+        stale_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24),
+            limit=100,
+            created_hard_cap=timedelta(hours=48),
+            environment=TaskRun.Environment.CLOUD,
+        )
+
+        self.assertNotIn(run.id, stale_ids)
 
     def test_update_task_run_state(self):
         task = self._make_task()
@@ -679,6 +2074,160 @@ class TestFacadeReadsAndMappers(TestCase):
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
 
+    @parameterized.expand(
+        [
+            (
+                "create_and_run_task_origin",
+                "create_and_run_task",
+                {"origin_product": facade.TaskOriginProduct.BUSINESS_KNOWLEDGE, "internal": True},
+                ("business_knowledge", True, None),
+            ),
+            (
+                "create_and_run_task_profile",
+                "create_and_run_task",
+                {"profile": get_task_profile("business_knowledge")},
+                ("business_knowledge", True, "business_knowledge"),
+            ),
+            (
+                "create_task_without_run_origin",
+                "create_task_without_run",
+                {"origin_product": facade.TaskOriginProduct.BUSINESS_KNOWLEDGE},
+                ("business_knowledge", False, None),
+            ),
+            (
+                "create_task_without_run_profile",
+                "create_task_without_run",
+                {"profile": get_task_profile("business_knowledge")},
+                ("business_knowledge", True, "business_knowledge"),
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_facade_creates_a_task_from_an_origin_or_a_profile(
+        self, _name: str, entry: str, origin_kwargs: dict, expected: tuple[str, bool, str | None], _mock_workflow
+    ) -> None:
+        created = getattr(facade, entry)(
+            team=self.team, title="t", description="d", user_id=self.user.id, **origin_kwargs
+        )
+
+        task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
+        self.assertEqual((task.origin_product, task.internal, task.profile), expected)
+
+    @parameterized.expand([("create_and_run_task",), ("create_task_without_run",)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_facade_applies_and_stores_run_options(self, entry: str, _mock_workflow) -> None:
+        Integration.objects.create(team=self.team, kind="github", config={})
+        options = TaskRunOptions(repositories=(Repository(name="posthog/posthog"),))
+
+        created = getattr(facade, entry)(
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=self.user.id,
+            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            options=options,
+        )
+
+        task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
+        self.assertEqual((task.repositories, task.options), (["posthog/posthog"], run_options_record(options)))
+
+    @parameterized.expand([("create_and_run_task",), ("create_task_without_run",)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_facade_stores_the_task_source(self, entry: str, _mock_workflow) -> None:
+        flow_id = uuid4()
+
+        created = getattr(facade, entry)(
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=self.user.id,
+            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            source=TaskSource(kind=SourceKind.HOG_FLOW, id=str(flow_id)),
+        )
+
+        task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
+        self.assertEqual(task.hog_flow_id, flow_id)
+        self.assertEqual((task.source_kind, task.source_id), ("hog_flow", str(flow_id)))
+
+    @parameterized.expand(
+        [
+            ("create_and_run_task_neither", "create_and_run_task", {}),
+            ("create_and_run_task_internal_only", "create_and_run_task", {"internal": True}),
+            ("create_and_run_task_empty_origin", "create_and_run_task", {"origin_product": ""}),
+            ("create_task_without_run_neither", "create_task_without_run", {}),
+            ("create_task_without_run_empty_origin", "create_task_without_run", {"origin_product": ""}),
+        ]
+    )
+    def test_facade_refuses_a_task_with_no_profile_or_origin(self, _name: str, entry: str, origin_kwargs: dict) -> None:
+        with self.assertRaises(TaskProfileError):
+            getattr(facade, entry)(team=self.team, title="t", description="d", user_id=self.user.id, **origin_kwargs)
+
+        self.assertFalse(Task.objects.filter(team=self.team, title="t").exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_slack_report_link_is_idempotent_and_does_not_claim_implementation(self, _mock_workflow):
+        from products.signals.backend.models import (
+            SignalReport,
+            SignalReportAction,
+            SignalReportArtefact,
+            SignalReportTask,
+        )
+
+        report = SignalReport.objects.create(team=self.team, title="Report", summary="Summary")
+        created = facade.create_and_run_task(
+            team=self.team,
+            title="Started from a Slack thread",
+            description="desc",
+            origin_product=facade.TaskOriginProduct.SLACK,
+            user_id=self.user.id,
+        )
+        for _ in range(2):
+            facade.link_slack_task_to_report(
+                team_id=self.team.id, task_id=str(created.task_id), report_id=str(report.id), user_id=self.user.id
+            )
+        assert Task.objects.get(id=created.task_id).signal_report_id == report.id
+        assert SignalReportArtefact.objects.filter(report_id=report.id, task_id=created.task_id).count() == 1
+        assert (
+            SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id, user_id=self.user.id).count == 1
+        )
+        assert not SignalReportTask.objects.filter(report_id=report.id).exists()
+
+    @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
+    def test_create_task_names_from_naming_source_keeping_description_bare(self, mock_title):
+        # When a client pastes text (stored as an attachment), it sends the pasted content as
+        # naming_source so the title reads well, while description stays the bare prompt the
+        # agent — and the reload transcript dedup — expect.
+        mock_title.side_effect = lambda text: f"title:{text}"
+        dto = facade.create_task(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            validated_data={
+                "description": "Attached files: pasted-text.txt",
+                "naming_source": "Deploy blocks on a stale lockfile",
+                "origin_product": Task.OriginProduct.USER_CREATED,
+            },
+        )
+        task = Task.objects.get(id=dto.id)
+        self.assertEqual(task.description, "Attached files: pasted-text.txt")
+        self.assertEqual(task.title, "title:Deploy blocks on a stale lockfile")
+        self.assertFalse(task.title_manually_set)
+        mock_title.assert_called_once_with("Deploy blocks on a stale lockfile")
+
+    @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
+    def test_create_task_falls_back_to_description_without_naming_source(self, mock_title):
+        mock_title.side_effect = lambda text: f"title:{text}"
+        dto = facade.create_task(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            validated_data={
+                "description": "Fix the login redirect",
+                "origin_product": Task.OriginProduct.USER_CREATED,
+            },
+        )
+        task = Task.objects.get(id=dto.id)
+        self.assertEqual(task.title, "title:Fix the login redirect")
+        mock_title.assert_called_once_with("Fix the login redirect")
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_persists_dispatch_params_for_reconcile(self, _mock_workflow):
         # The reconciler re-dispatches lost runs from the row alone, so the dispatch params
@@ -742,7 +2291,63 @@ class TestFacadeReadsAndMappers(TestCase):
             repository="posthog/posthog",
             channel_id=channel_id,
         )
-        self.assertEqual(Task.objects.get(id=created.task_id).channel_id, channel_id if expect_filed else None)
+        task = Task.objects.select_related("channel").get(id=created.task_id)
+        if expect_filed:
+            self.assertEqual(task.channel_id, channel_id)
+        else:
+            assert task.channel is not None
+            self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
+            self.assertEqual(task.channel.created_by_id, self.user.id)
+
+    @parameterized.expand(
+        [
+            ("with_run_team_readable", True, Read.TEAM, False),
+            ("with_run_creator_readable", True, Read.CREATOR, True),
+            ("without_run_team_readable", False, Read.TEAM, False),
+            ("without_run_creator_readable", False, Read.CREATOR, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_profiled_task_files_a_personal_channel_by_its_profile_read(
+        self, _name, with_run: bool, read: Read, expect_personal: bool, _mock_workflow
+    ):
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.listed", listed=True, read_without_channel=read
+        )
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if with_run:
+                task_id = facade.create_and_run_task(
+                    team=self.team, title="Profiled", description="desc", user_id=self.user.id, profile=profile
+                ).task_id
+            else:
+                task_id = facade.create_task_without_run(team=self.team, user_id=self.user.id, profile=profile)
+
+        channel = Task.objects.select_related("channel").get(id=task_id).channel
+        self.assertEqual(channel is not None and channel.channel_type == Channel.ChannelType.PERSONAL, expect_personal)
+
+    @parameterized.expand(
+        [
+            ("public", lambda self: self._make_channel().id, True),
+            ("unknown", lambda _self: uuid4(), False),
+            # Same rule as create_and_run_task above: someone else's "#me" is private,
+            # so filing into it must be refused, not just team-filtered.
+            ("other_users_personal", lambda self: self._make_teammates_personal_channel().id, False),
+        ]
+    )
+    def test_create_channel_task_respects_channel_visibility(self, _name, make_channel_id, expect_filed):
+        channel_id = make_channel_id(self)
+
+        if expect_filed:
+            task_id = facade.create_channel_task(
+                self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+            )
+            self.assertEqual(Task.objects.get(id=task_id).channel_id, channel_id)
+        else:
+            with self.assertRaises(ValueError):
+                facade.create_channel_task(
+                    self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+                )
 
     def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
         # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.
@@ -756,6 +2361,12 @@ class TestFacadeReadsAndMappers(TestCase):
                 .values_list("id", flat=True)
             ),
             [first],
+        )
+        # Callers outside Desktop file tasks through here, so an unstamped system space
+        # would escape from this path.
+        self.assertEqual(
+            Channel.objects.unscoped().get(id=first).system_role,
+            Channel.SystemRole.PERSONAL,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -802,7 +2413,50 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
 
 
-class TestAppendLogAgentActivity(TestCase):
+def _tool_update(tool_response: object) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "t1",
+                    "rawOutput": "out",
+                    "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": tool_response}},
+                }
+            },
+        },
+    }
+
+
+class TestThreadViewOfLogContent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("output_copy_dropped", {"stdout": "x" * 500, "stderr": ""}, None),
+            (
+                "denial_fields_kept",
+                {"decisionReason": "Denied", "message": "No", "stdout": "x"},
+                {"decisionReason": "Denied", "message": "No"},
+            ),
+            ("non_object_dropped", "plain text", None),
+        ]
+    )
+    def test_reduces_the_tool_response_copy(self, _name: str, tool_response: object, expected: object) -> None:
+        other = {"type": "notification", "notification": {"method": "_posthog/run_started", "params": {}}}
+        content = "\n".join([json.dumps(other), json.dumps(_tool_update(tool_response)), "not json", ""])
+
+        lines = facade.thread_view_of_log_content(content).split("\n")
+
+        self.assertEqual(lines[0], json.dumps(other))
+        self.assertEqual(lines[2:], ["not json", ""])
+        update = json.loads(lines[1])["notification"]["params"]["update"]
+        self.assertEqual(update["rawOutput"], "out")
+        self.assertEqual(update["_meta"]["claudeCode"].get("toolResponse"), expected)
+        self.assertEqual(update["_meta"]["claudeCode"]["toolName"], "Bash")
+
+
+class TestAppendLogAgentActivity(SimpleTestCase):
     # Guards the self-sustaining heartbeat loop: infra log lines (credential refresh ->
     # _posthog/console) heartbeating with agent_active=True reset the workflow's inactivity
     # timer on every write, so a run whose agent went silent could never time out.
@@ -855,6 +2509,96 @@ class TestAppendLogAgentActivity(TestCase):
             run.reset_mock()
             facade.append_task_run_log("r", "t", 1, entries=[{"notification": {"method": "session/update"}}])
             run.heartbeat_workflow.assert_called_once_with(agent_active=True)
+
+    def test_append_task_run_log_retires_followups_the_entries_echo(self):
+        run = MagicMock()
+        entries = [{"notification": {"method": "session/prompt", "params": {"prompt": []}}}]
+        with (
+            patch.object(facade, "_get_visible_run", return_value=run),
+            patch.object(facade, "_task_run_detail_to_dto", return_value=None),
+        ):
+            facade.append_task_run_log("r", "t", 1, entries=entries)
+
+        run.clear_echoed_followup_messages.assert_called_once_with(entries)
+
+
+class TestSignalTaskRunUserMessage(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Signal Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Signal Team")
+        cls.user = User.objects.create(email="signal@test.com", distinct_id="signal-distinct")
+
+    def _run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="A task",
+            description="desc",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            repository="posthog/posthog",
+        )
+        return TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+    def _signal(self, run: TaskRun, **kwargs) -> bool | None:
+        defaults: dict[str, Any] = {"content": "check the paste path", "artifact_ids": [], "message_id": "m1"}
+        with patch("products.tasks.backend.temporal.client.signal_task_followup_message"):
+            return facade.signal_task_run_user_message(run.id, run.task_id, self.team.id, **{**defaults, **kwargs})
+
+    @parameterized.expand([(None,), (True,), (False,)])
+    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self, subscription_owner):
+        run = self._run()
+        if subscription_owner is not None:
+            run.state = {"claude_model_access": "own-subscription", "claude_subscription_user_id": self.user.id}
+            run.save(update_fields=["state"])
+        if subscription_owner is False:
+            with self.assertRaises(facade.PermissionDenied):
+                self._signal(run, actor_user_id=self.user.id + 1)
+            run.refresh_from_db()
+            self.assertNotIn("pending_followup_messages", run.state)
+            return
+
+        self.assertTrue(self._signal(run, actor_user_id=self.user.id))
+
+        run.refresh_from_db()
+        recorded = run.state["pending_followup_messages"]
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["id"], "m1")
+        self.assertEqual(recorded[0]["content"], "check the paste path")
+
+    def test_the_recorded_time_predates_the_signal(self):
+        run = self._run()
+        signalled_at: list[datetime] = []
+
+        with patch(
+            "products.tasks.backend.temporal.client.signal_task_followup_message",
+            side_effect=lambda *args, **kwargs: signalled_at.append(django_timezone.now()),
+        ):
+            facade.signal_task_run_user_message(
+                run.id,
+                run.task_id,
+                self.team.id,
+                content="check the paste path",
+                artifact_ids=[],
+                message_id="m1",
+            )
+
+        run.refresh_from_db()
+        recorded_at = datetime.fromisoformat(run.state["pending_followup_messages"][0]["ts"])
+        self.assertLessEqual(recorded_at, signalled_at[0])
+
+    @parameterized.expand([("no message id", {"message_id": None}), ("no content", {"content": "  "})])
+    def test_records_nothing_without_an_identifiable_message(self, _name, overrides):
+        run = self._run()
+
+        self.assertTrue(self._signal(run, **overrides))
+
+        run.refresh_from_db()
+        self.assertNotIn("pending_followup_messages", run.state or {})
 
 
 class TestRecentWizardCloudRunTimes(TestCase):
@@ -953,7 +2697,16 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
             return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
         )
 
-    def test_create_and_run_task_blocked_for_self_driving_origin_when_enforced(self):
+    @parameterized.expand(
+        [
+            ("no_report", {}, None),
+            ("report_id", {"signal_report_id": REPORT_ID}, REPORT_ID),
+            ("source", {"source": TaskSource(kind=SourceKind.SIGNAL_REPORT, id=REPORT_ID)}, REPORT_ID),
+        ]
+    )
+    def test_create_and_run_task_blocked_for_self_driving_origin_when_enforced(
+        self, _name: str, report_kwargs: dict, expected_report_id: str | None
+    ) -> None:
         # The implementation task is the step that leads to the billable PR; over-quota teams
         # must not get one through the facade regardless of caller.
         from posthog.exceptions import QuotaLimitExceeded
@@ -970,12 +2723,14 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
                 user_id=self.user.id,
                 repository="posthog/posthog",
+                **report_kwargs,
             )
         self.assertFalse(Task.objects.filter(team=self.team).exists())
         # The facade gate keeps its own stage: its main caller is the auto-start pipeline, whose
         # over-quota hits must not pollute the manual-path (`manual_create`) telemetry bucket.
         self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
         self.assertTrue(capture_mock.call_args.kwargs["enforced"])
+        self.assertEqual(capture_mock.call_args.kwargs["report_id"], expected_report_id)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_allows_non_pr_sessions_when_enforced(self, _mock_workflow):
@@ -992,6 +2747,21 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 user_id=self.user.id,
                 repository="posthog/posthog",
                 create_pr=False,
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_admitted_implementation_continues_after_limit_is_reached(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self._enforced_gate():
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: accepted report",
+                description="Finish the accepted pipeline",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+                continue_admitted_pipeline=True,
             )
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
 
@@ -1037,36 +2807,27 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
 
     @parameterized.expand([(None,), ("implementation",), ("discussion",)])
-    def test_create_task_blocked_for_manual_report_creation_when_enforced(self, relationship):
-        # The inbox "start work from report" path (write serializer binds `signal_report`).
-        # Every relationship label is gated: the label is client-selected and manual tasks run
-        # PR-capable by default, so a "discussion" label must not dodge the limit.
-        from django.apps import apps
-
-        from posthog.exceptions import QuotaLimitExceeded
-
-        SignalReport = apps.get_model("signals", "SignalReport")
-        report = SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
-        with (
-            self._enforced_gate(),
-            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
-            self.assertRaises(QuotaLimitExceeded),
-        ):
-            facade.create_task(
+    def test_manual_report_creation_uses_phai_instead_of_self_driving_quota(self, relationship):
+        report = apps.get_model("signals", "SignalReport").objects.create(team=self.team, status="ready")
+        apps.get_model("signals", "SignalReportArtefact").objects.create(
+            team=self.team,
+            report=report,
+            type="repo_selection",
+            content='{"repository": "example/repository", "reason": "Matches the example application"}',
+        )
+        with self._enforced_gate():
+            dto = facade.create_task(
                 self.team.id,
                 self.user.id,
                 validated_data={
-                    "title": "Implementation: t",
+                    "title": "Implementation",
                     "description": "d",
                     "origin_product": Task.OriginProduct.SIGNAL_REPORT,
                     "signal_report": report,
                     "signal_report_task_relationship": relationship,
                 },
             )
-        self.assertFalse(Task.objects.filter(team=self.team).exists())
-        # Genuinely manual creations keep the `manual_create` stage, distinct from the facade
-        # backstop's `task_create`.
-        self.assertEqual(capture_mock.call_args.kwargs["stage"], "manual_create")
+        self.assertEqual(Task.objects.get(id=dto.id).signal_report_id, report.id)
 
 
 class TestSelfDrivingQuotaRefreshDispatch(TestCase):
@@ -1140,3 +2901,415 @@ class TestSelfDrivingQuotaRefreshDispatch(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             facade._refresh_self_driving_quota_for_pr(run, None)
         task_mock.delay.assert_not_called()
+
+
+class TestApplyTaskRunModelConfig(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Config Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Config Team")
+        cls.user = User.objects.create(email="config@test.com", distinct_id="config-distinct")
+
+    def _run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="A task",
+            description="desc",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            repository="posthog/posthog",
+        )
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "sandbox_url": "https://sandbox"},
+        )
+
+    def _apply(self, run: TaskRun, **kwargs) -> bool:
+        return facade.apply_task_run_model_config(run.id, run.task_id, self.team.id, **kwargs)
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_sends_the_model_before_the_effort_and_records_both(self, send_mock):
+        # Which efforts exist depends on the model, so the agent-server has to see the
+        # model change first or it validates the effort against the outgoing one.
+        send_mock.return_value = MagicMock(success=True)
+        run = self._run()
+
+        applied = self._apply(run, model="claude-fable-5", reasoning_effort="xhigh")
+
+        self.assertTrue(applied)
+        self.assertEqual(
+            [(c.args[1], c.args[2]) for c in send_mock.call_args_list],
+            [("model", "claude-fable-5"), ("effort", "xhigh")],
+        )
+        run.refresh_from_db()
+        self.assertEqual(run.state["model"], "claude-fable-5")
+        self.assertEqual(run.state["reasoning_effort"], "xhigh")
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_rejected_model_leaves_the_effort_alone(self, send_mock):
+        # The agent-server rejects a model its harness can't drive. Sending the effort
+        # anyway would half-apply a single request onto the model the author didn't ask for.
+        send_mock.return_value = MagicMock(success=False, error="Invalid value for config option model")
+        run = self._run()
+
+        applied = self._apply(run, model="gpt-5.6-sol", reasoning_effort="xhigh")
+
+        self.assertFalse(applied)
+        self.assertEqual(send_mock.call_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.state["model"], "claude-sonnet-4-6")
+        self.assertNotIn("reasoning_effort", run.state)
+
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value="'x' is not available.")
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_gated_model_never_reaches_the_sandbox(self, send_mock, _access_mock):
+        run = self._run()
+
+        self.assertFalse(self._apply(run, model="claude-fable-5", actor_user_id=self.user.id))
+        send_mock.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_nothing_to_change_is_not_a_sandbox_call(self, send_mock):
+        self.assertFalse(self._apply(self._run()))
+        send_mock.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_pinned_sandbox_refuses_a_model_outside_its_pin(self, send_mock, _access_mock):
+        run = self._run()
+        TaskRun.objects.filter(id=run.id).update(state={**run.state, "ai_gateway_product": "slack_app"})
+
+        self.assertFalse(self._apply(run, model="zai-org/glm-5.3"))
+        send_mock.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_pinned_sandbox_still_switches_within_its_pin(self, send_mock, _access_mock):
+        send_mock.return_value = MagicMock(success=True)
+        run = self._run()
+        TaskRun.objects.filter(id=run.id).update(state={**run.state, "ai_gateway_product": "slack_app"})
+
+        self.assertTrue(self._apply(run, model="claude-opus-5"))
+
+
+class TestDesktopUsersInTeam(TestCase):
+    def test_someone_who_left_the_organization_is_not_welcomed(self) -> None:
+        organization = Organization.objects.create(name="Members Org")
+        team = Team.objects.create(organization=organization, name="Project")
+        arriving = User.objects.create(email="arriving@test.com", distinct_id="arriving")
+        staying = User.objects.create(email="staying@test.com", distinct_id="staying")
+        leaving = User.objects.create(email="leaving@test.com", distinct_id="leaving")
+        for user in (arriving, staying, leaving):
+            OrganizationMembership.objects.create(organization=organization, user=user)
+            with team_scope(team.id):
+                facade.provision_default_channels(team.id, user.id)
+
+        OrganizationMembership.objects.filter(organization=organization, user=leaving).delete()
+
+        with team_scope(team.id):
+            names = facade.desktop_users_in_team(team, arriving.id)
+
+        assert names == ["staying"]
+
+    def test_a_space_from_before_system_role_still_counts_as_a_member(self) -> None:
+        organization = Organization.objects.create(name="Legacy Org")
+        team = Team.objects.create(organization=organization, name="Project")
+        arriving = User.objects.create(email="arriving2@test.com", distinct_id="arriving2")
+        settled = User.objects.create(email="settled@test.com", distinct_id="settled")
+        for user in (arriving, settled):
+            OrganizationMembership.objects.create(organization=organization, user=user)
+            with team_scope(team.id):
+                facade.provision_default_channels(team.id, user.id)
+        # system_role is stamped lazily, so a space nobody has opened Desktop on since the field
+        # landed still carries NULL.
+        with team_scope(team.id):
+            Channel.objects.filter(team_id=team.id, created_by=settled).update(system_role=None)
+
+        with team_scope(team.id):
+            names = facade.desktop_users_in_team(team, arriving.id)
+
+        assert names == ["settled"]
+
+    def test_someone_without_private_project_access_is_not_welcomed(self) -> None:
+        organization = Organization.objects.create(name="Private Project Org")
+        team = Team.objects.create(organization=organization, name="Private Project")
+        arriving = User.objects.create(email="arriving-private@test.com", distinct_id="arriving-private")
+        revoked = User.objects.create(email="revoked@test.com", distinct_id="revoked")
+        for user in (arriving, revoked):
+            OrganizationMembership.objects.create(organization=organization, user=user)
+            with team_scope(team.id):
+                facade.provision_default_channels(team.id, user.id)
+
+        organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        organization.save(update_fields=["available_product_features"])
+        OrganizationMembership.objects.filter(organization=organization, user=arriving).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        AccessControl.objects.create(
+            team=team,
+            resource="project",
+            resource_id=str(team.id),
+            access_level="none",
+        )
+
+        with team_scope(team.id):
+            names = facade.desktop_users_in_team(team, arriving.id)
+
+        assert names == []
+
+
+class TestOrganizationHasContext(TestCase):
+    organization: ClassVar[Organization]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.organization = Organization.objects.create(name="Context Org")
+        cls.user = User.objects.create(email="context@test.com", distinct_id="context-distinct")
+
+    def _team(self, name: str) -> Team:
+        return Team.objects.create(organization=self.organization, name=name)
+
+    def _provision_general(self, team: Team) -> UUID:
+        with team_scope(team.id):
+            facade.provision_default_channels(team.id, self.user.id)
+            channel_id = facade.find_general_channel_id(team.id)
+        assert channel_id is not None
+        return channel_id
+
+    def _publish_general(self, team: Team, content: str) -> None:
+        channel_id = self._provision_general(team)
+        with team_scope(team.id):
+            facade.publish_channel_instructions(channel_id, team.id, self.user.id, content=content)
+
+    def test_a_general_space_from_before_system_role_still_carries_context(self) -> None:
+        team = self._team("Legacy project")
+        self._publish_general(team, "We make climbing gear.")
+        # Same lazy stamping as personal spaces: an org-wide read that only matched the stamped
+        # shape would rescrape and re-ask a company that has already answered.
+        with team_scope(team.id):
+            Channel.objects.filter(team_id=team.id).update(system_role=None)
+
+        self.assertTrue(facade.organization_has_context(self.organization.id))
+
+    @parameterized.expand([("no_general_space", False), ("blank_general_space", True)])
+    def test_context_in_one_team_answers_for_the_whole_org(self, _name: str, provision_sibling: bool) -> None:
+        # The context-less project is created first so the scan reaches it before the one
+        # holding the context: a per-project answer would stop there and report "no".
+        sibling = self._team("Project A")
+        if provision_sibling:
+            self._provision_general(sibling)
+        self._publish_general(self._team("Project B"), "We make climbing gear.")
+
+        self.assertTrue(facade.organization_has_context(self.organization.id))
+
+    @parameterized.expand(
+        [
+            ("no_general_space", "none"),
+            ("general_space_never_published", "provisioned"),
+            ("published_instructions_are_blank", "blank"),
+        ]
+    )
+    def test_returns_false_without_usable_instructions(self, _name: str, setup: str) -> None:
+        team = self._team("Project A")
+        if setup == "provisioned":
+            self._provision_general(team)
+        elif setup == "blank":
+            self._publish_general(team, "   \n")
+
+        self.assertFalse(facade.organization_has_context(self.organization.id))
+
+    def test_another_organizations_context_does_not_count(self) -> None:
+        self._provision_general(self._team("Project A"))
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Project")
+        with team_scope(other_team.id):
+            facade.provision_default_channels(other_team.id, self.user.id)
+            other_channel = facade.find_general_channel_id(other_team.id)
+            assert other_channel is not None
+            facade.publish_channel_instructions(other_channel, other_team.id, self.user.id, content="They make bikes.")
+
+        self.assertFalse(facade.organization_has_context(self.organization.id))
+        self.assertTrue(facade.organization_has_context(other_org.id))
+
+
+class TestSelfDrivingFreeTrialFacadeGates(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Trial Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Trial Team")
+        cls.user = User.objects.create(email="trial-facade@test.com", distinct_id="trial-facade-distinct")
+
+    def _on_trial(self):
+        return patch("products.signals.backend.free_trial.self_driving_free_trial_enabled", return_value=True)
+
+    def _report(self):
+        SignalReport = apps.get_model("signals", "SignalReport")
+        return SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
+
+    @parameterized.expand([(None,), ("implementation",)])
+    def test_create_task_refuses_create_pr_from_report_on_trial(self, relationship):
+        from products.signals.backend.free_trial import FreeTrialPullRequestRefused
+
+        report = self._report()
+        with (
+            self._on_trial(),
+            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            self.assertRaises(FreeTrialPullRequestRefused) as raised,
+        ):
+            facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Implementation: t",
+                    "description": "d",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": relationship,
+                },
+            )
+        self.assertEqual(raised.exception.get_codes(), "self_driving_free_trial")
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+        self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "manual_create"})
+
+    def test_create_task_allows_discussion_from_report_on_trial(self):
+        report = self._report()
+        with self._on_trial():
+            dto = facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Discuss: t",
+                    "description": "d",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": "discussion",
+                },
+            )
+        self.assertTrue(Task.objects.filter(id=dto.id).exists())
+
+    @parameterized.expand(
+        [("implementation", True, True), ("implementation", False, True), ("discussion", False, False)]
+    )
+    def test_run_task_refuses_report_implementation_on_trial(self, relationship, pipeline_rerun, expect_refusal):
+        from products.signals.backend.free_trial import FreeTrialPullRequestRefused
+        from products.signals.backend.task_run_artefacts import record_report_task
+
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation: t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report_id=report.id,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
+        )
+
+        with (
+            self._on_trial(),
+            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
+        ):
+            if expect_refusal:
+                with self.assertRaises(FreeTrialPullRequestRefused) as raised:
+                    facade.run_task(
+                        task.id,
+                        self.team.id,
+                        self.user.id,
+                        validated_data={"mode": "background"},
+                        pipeline_rerun=pipeline_rerun,
+                    )
+                self.assertEqual(raised.exception.get_codes(), "self_driving_free_trial")
+                self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "task_run"})
+            else:
+                result = facade.run_task(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    validated_data={"mode": "background"},
+                    pipeline_rerun=pipeline_rerun,
+                )
+                assert result is not None and result.error is None
+        self.assertEqual(task.runs.exists(), not expect_refusal)
+
+    def test_create_and_run_task_refuses_pr_session_on_trial(self):
+        # The facade backstop behind every PR-opening self-driving caller, with its own stage.
+        from products.signals.backend.free_trial import FreeTrialPullRequestRefused
+
+        with (
+            self._on_trial(),
+            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            self.assertRaises(FreeTrialPullRequestRefused),
+        ):
+            facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+            )
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
+
+    def test_create_and_run_task_takes_a_pre_resolved_free_trial_verdict(self):
+        # Auto-start resolves the flag before it takes the report row lock, so the create-time gate
+        # must use the verdict it is given instead of making its own flag request under the lock.
+        with self._on_trial() as flag_mock:
+            dto = facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                free_trial_enabled=False,
+                start_workflow=False,
+            )
+        flag_mock.assert_not_called()
+        self.assertTrue(Task.objects.filter(id=dto.task_id).exists())
+
+    def test_run_task_takes_a_pre_resolved_free_trial_verdict(self):
+        from products.signals.backend.task_run_artefacts import record_report_task
+
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation: t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report_id=report.id,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+
+        with (
+            self._on_trial() as flag_mock,
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
+        ):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "background"},
+                free_trial_enabled=False,
+            )
+        flag_mock.assert_not_called()
+        assert result is not None and result.error is None
+        self.assertTrue(task.runs.exists())

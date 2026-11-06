@@ -10,9 +10,11 @@ import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 
 import { logsViewerModalLogic } from './logsViewerModalLogic'
+import { LogsViewerModalOpenedFrom } from './LogsViewerModalOpenedFrom'
 
 export function LogsViewerModal(): JSX.Element | null {
-    const { isOpen, viewerId, fullScreen, initialFilters } = useValues(logsViewerModalLogic)
+    const { isOpen, viewerId, fullScreen, initialFilters, pinnedFilters, personId, sessionId } =
+        useValues(logsViewerModalLogic)
     const { closeLogsViewerModal } = useActions(logsViewerModalLogic)
     const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
     const floatingContainerRef = useCallback((el: HTMLDivElement | null) => setFloatingContainer(el), [])
@@ -36,7 +38,8 @@ export function LogsViewerModal(): JSX.Element | null {
             maxWidth={fullScreen ? undefined : 1600}
         >
             <FloatingContainerContext.Provider value={floatingContainer}>
-                <div className="flex items-center justify-end border-b px-1 py-0.5">
+                <div className="flex items-center justify-end gap-2 border-b px-1 py-0.5">
+                    <LogsViewerModalOpenedFrom />
                     <LemonButton icon={<IconX />} size="small" onClick={closeLogsViewerModal} tooltip="Close" />
                 </div>
                 <LemonModal.Content embedded className="flex flex-col flex-1 min-h-0 overflow-x-hidden">
@@ -45,6 +48,9 @@ export function LogsViewerModal(): JSX.Element | null {
                             id={viewerId}
                             showFullScreenButton={false}
                             initialFilters={initialFilters ?? undefined}
+                            pinnedFilters={pinnedFilters ?? undefined}
+                            personId={personId ?? undefined}
+                            sessionId={sessionId ?? undefined}
                         />
                     </div>
                 </LemonModal.Content>

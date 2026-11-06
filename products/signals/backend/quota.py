@@ -14,14 +14,14 @@ from temporalio import activity
 from posthog.event_usage import groups
 from posthog.temporal.common.metrics import get_metric_meter
 
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited, self_driving_quota_resource
 
 if TYPE_CHECKING:
     from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
-# Enforcement kill switch for the pipeline quota gates (promotion, summary stages, auto-start).
+# Enforcement kill switch for new report/scout pipelines and manual work.
 # While the flag is off the gates still run and emit `signal_report_quota_paused` telemetry with
 # `enforced=false`, but never block, so the would-block volume is measurable before rollout.
 SELF_DRIVING_QUOTA_ENFORCEMENT_FLAG = "self-driving-quota-enforcement"
@@ -40,7 +40,7 @@ def record_quota_check_failed_open() -> None:
     ).add(1)
 
 
-def is_team_signals_quota_limited(team_api_token: str) -> bool:
+def is_team_signals_quota_limited(team_api_token: str, resource: QuotaResource) -> bool:
     """Whether a team is currently over its Signals credits quota.
 
     Fails open on a quota-limiter read error so an infra blip lets work through rather than stalling.
@@ -48,9 +48,7 @@ def is_team_signals_quota_limited(team_api_token: str) -> bool:
     Synchronous (Redis read); wrap in `sync_to_async` when calling from async code.
     """
     try:
-        return is_team_limited(
-            team_api_token, QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        )
+        return is_team_limited(team_api_token, resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
     except Exception:
         logger.warning("signals_quota_check_failed_open", exc_info=True)
         record_quota_check_failed_open()
@@ -102,9 +100,16 @@ def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
     paths pay a single cached Redis read. Blocking network I/O; wrap in `sync_to_async` from
     async code.
     """
-    if not is_team_signals_quota_limited(team.api_token):
+    if not is_team_signals_quota_limited(team.api_token, self_driving_quota_resource(team.organization)):
         return SelfDrivingQuotaGate(limited=False, enforced=False)
     return SelfDrivingQuotaGate(limited=True, enforced=self_driving_quota_enforcement_enabled(team))
+
+
+def self_driving_limit_name(team: "Team") -> str:
+    """Use the same cutover for customer-facing limit units and enforcement."""
+    if self_driving_quota_resource(team.organization) == QuotaResource.SIGNALS_SPEND_CREDITS:
+        return "spending limit"
+    return "pull request limit"
 
 
 def capture_signal_report_quota_paused(team: "Team", *, report_id: str | None, stage: str, enforced: bool) -> None:
@@ -129,3 +134,44 @@ def capture_signal_report_quota_paused(team: "Team", *, report_id: str | None, s
         logger.exception(
             "Failed to capture signal_report_quota_paused", report_id=report_id, team_id=team.id, stage=stage
         )
+
+
+def notify_scout_quota_paused(team: "Team") -> None:
+    """Tell the org its self-driving credits quota is now blocking scout runs.
+
+    The quota gate skips runs with no run row and no visible state, so without this a team's
+    scouts read as silently dead until the next billing period. Idempotent per limiting episode:
+    the key carries the org's `quota_limited_until` and limit, so a new episode (period rollover,
+    or a raised limit that the org then exceeds again) notifies again. Best-effort: a failed send
+    must never fail the gate that called it. Requires `team.organization` to be loaded.
+    """
+    try:
+        resource = self_driving_quota_resource(team.organization)
+        usage = (team.organization.usage or {}).get(resource.value) or {}
+        limit_name = self_driving_limit_name(team)
+        quota_limited_until = usage.get("quota_limited_until") or 0
+        limit = usage.get("limit") or 0
+        from products.notifications.backend.facade.api import (  # noqa: PLC0415 (keeps the heavy dep off the import path)
+            NotificationData,
+            NotificationType,
+            TargetType,
+            create_notification,
+        )
+
+        create_notification(
+            NotificationData(
+                team_id=team.id,
+                notification_type=NotificationType.USAGE_SPIKE,
+                title=f"New scout runs paused: self-driving {limit_name} reached",
+                body=(
+                    f"This project reached its self-driving {limit_name}. New scout runs are paused "
+                    "until the limit lifts. Work already underway will finish. Usage and limits: Settings > Billing."
+                ),
+                target_type=TargetType.TEAM,
+                target_id=str(team.id),
+                source_url="/organization/billing",
+                idempotency_key=f"signals_scout_quota_paused:{team.organization_id}:{resource.value}:{quota_limited_until}:{limit}",
+            )
+        )
+    except Exception:
+        logger.warning("signals_scout_quota_notification_failed", team_id=team.id, exc_info=True)

@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { CommentWithRepliesType } from 'scenes/comments/commentsLogic'
+import { CommentWithRepliesType } from 'lib/components/Comments/commentsLogic'
 
 import type { CommentType } from '~/types'
 import { ActivityScope } from '~/types'

@@ -2,7 +2,7 @@ import uuid
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.schema import (
@@ -34,7 +34,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """Create events for testing with session IDs."""
 
         for distinct_id, timestamp, session_id, event_properties in data:
-            with freeze_time(timestamp):
+            with time_machine.travel(timestamp, tick=False):
                 # Add session_id to event properties
                 properties = {**event_properties, "$session_id": session_id}
                 _create_event(
@@ -59,7 +59,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
         # Query to get all
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             query = EventsQuery(
                 kind="EventsQuery",
                 select=["*"],
@@ -93,7 +93,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("user4", "2025-01-11T15:00:01Z", self.session_4_id, {"page": "/signup"}),
             ]
         )
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             # Create query for sessions 1, 2, and 3 (excluding session_4)
             query = create_session_batch_events_query(
                 session_ids=[self.session_1_id, self.session_2_id, self.session_3_id],
@@ -140,7 +140,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
             ]
         )
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             # Query for multiple sessions, but only one has events
             query = create_session_batch_events_query(
                 session_ids=[self.session_1_id, self.session_2_id, self.session_3_id],
@@ -167,7 +167,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
         # Create a feature flag event that should be ignored by default
-        with freeze_time("2025-01-11T12:01:00Z"):
+        with time_machine.travel("2025-01-11T12:01:00Z", tick=False):
             _create_event(
                 team=self.team,
                 event="$feature_flag_called",
@@ -177,7 +177,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
         # Query the events with and without ignoring the feature flag event
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             for ignore_status in [True, False]:
                 if ignore_status:
                     # Use default ignore settings
@@ -218,7 +218,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("user2", "2025-01-11T13:00:01Z", self.session_2_id, {"page": "/about"}),
             ]
         )
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             # Create query with group_by_session=False
             query = SessionBatchEventsQuery(
                 session_ids=[self.session_1_id, self.session_2_id],
@@ -247,7 +247,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             ]
         )
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             # Query with custom field selection
             query = create_session_batch_events_query(
                 session_ids=[self.session_1_id],
@@ -275,7 +275,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
             ]
         )
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             query = create_session_batch_events_query(
                 session_ids=[self.session_1_id],
                 before="2025-01-12T00:00:00",
@@ -311,7 +311,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("user2", "2025-01-11T13:00:01Z", self.session_2_id, {"page": "/about"}),
             ]
         )
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             query = create_session_batch_events_query(
                 session_ids=[self.session_1_id, self.session_2_id],
                 before="2025-01-12T00:00:00",
@@ -342,7 +342,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
             ]
         )
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             query = SessionBatchEventsQuery(
                 session_ids=[self.session_1_id],
                 select=["event", "timestamp", "properties.$session_id"],
@@ -373,7 +373,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ("user1", "2025-01-11T12:04:00Z", session_id, {"page": "/page5"}),
             ]
         )
-        with freeze_time("2025-01-11T16:00:00"):
+        with time_machine.travel("2025-01-11T16:00:00", tick=False):
             all_events = []
             # Test first page with limit=2, offset=0
             query = create_session_batch_events_query(

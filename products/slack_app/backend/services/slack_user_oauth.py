@@ -27,18 +27,42 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
+from django.db.models import QuerySet
 
 import structlog
 from pydantic import BaseModel, ValidationError
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError, SlackClientError
 
-from posthog.models.instance_setting import get_instance_settings
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 logger = structlog.get_logger(__name__)
+
+
+def _slack_links(*, slack_user_id: str, slack_team_id: str) -> QuerySet[UserIntegration]:
+    """Links of active PostHog users to this Slack identity, most recently linked first."""
+    return UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.SLACK,
+        integration_id=slack_user_id,
+        config__slack_team_id=slack_team_id,
+        user__is_active=True,
+    ).order_by("-created_at")
+
+
+def linked_posthog_user_ids(*, slack_user_id: str, slack_team_id: str) -> list[int]:
+    """Active PostHog users linked to this Slack identity, most recently linked first.
+
+    Unlike ``find_linked_posthog_user`` this keeps every link, for a caller that picks the account
+    by project, such as a pull request command.
+    """
+    return list(
+        _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).values_list("user_id", flat=True)
+    )
 
 
 def find_linked_posthog_user(
@@ -56,7 +80,11 @@ def find_linked_posthog_user(
     **most-recently-linked** one — they just authenticated, presumably with
     intent — and emit a warn-log so the rare collision is visible in prod.
 
-    Returns ``None`` when no link exists or none of the linked users are
+    Deactivated accounts are dropped before that pick, so an offboarded person
+    can't be reached through a Slack identity that still points at them, and a
+    stale link of theirs can't hide a colleague's older active one.
+
+    Returns ``None`` when no link exists or none of the linked users are active
     members of a connected org. Caller still owns the access-level
     (``effective_membership_level``) check on the resolved user.
     """
@@ -69,15 +97,7 @@ def find_linked_posthog_user(
     # a different database (which `User` does in PostHog's deployment), so a
     # straight-line equivalent keeps the query portable across routers.
     try:
-        links = list(
-            UserIntegration.objects.filter(
-                kind=UserIntegration.IntegrationKind.SLACK,
-                integration_id=slack_user_id,
-                config__slack_team_id=slack_team_id,
-            )
-            .select_related("user")
-            .order_by("-created_at")
-        )
+        links = list(_slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).select_related("user"))
         if not links:
             return None
         # Org-scope filter as a set lookup so we keep the per-row iteration
@@ -267,9 +287,15 @@ def _credentials() -> tuple[str, str]:
     """Resolve Slack app credentials at call time so dev/test overrides via
     instance settings work the same way the workspace install flow does.
     """
-    from_settings = get_instance_settings(["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"])
-    client_id = from_settings.get("SLACK_APP_CLIENT_ID") or ""
-    client_secret = from_settings.get("SLACK_APP_CLIENT_SECRET") or ""
+    try:
+        from_settings = get_many_or_instance_settings(
+            ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"], CredentialsCaller.INTEGRATIONS
+        )
+    except CredentialsServiceFailure as exc:
+        # The views catch SlackUserOAuthError and redirect back to settings, rather than answering 500.
+        raise SlackUserOAuthError("Slack app credentials temporarily unavailable") from exc
+    client_id = from_settings["SLACK_APP_CLIENT_ID"]
+    client_secret = from_settings["SLACK_APP_CLIENT_SECRET"]
     if not client_id or not client_secret:
         raise SlackUserOAuthError("Slack app credentials not configured")
     return client_id, client_secret
@@ -307,7 +333,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
     """
     client_id, client_secret = _credentials()
     try:
-        token_response = WebClient().openid_connect_token(
+        token_response = WebClient(source="slack_user_oauth", app_id="posthog").openid_connect_token(
             client_id=client_id,
             client_secret=client_secret,
             code=code,
@@ -325,7 +351,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
         raise SlackUserOAuthError("Slack OIDC token response missing access_token")
 
     try:
-        userinfo = WebClient(token=user_token).openid_connect_userInfo()
+        userinfo = WebClient(token=user_token, source="slack_user_oauth", app_id="posthog").openid_connect_userInfo()
     except SlackApiError as exc:
         error = exc.response.get("error") if exc.response else None
         logger.warning("slack_app_user_link_oidc_userinfo_failed", error=error)

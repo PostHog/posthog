@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, cast
 
 import pymysql
-import sqlparse
 from opentelemetry import trace
 from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE
 from sqlparse import tokens as sqlparse_tokens
@@ -9,9 +8,9 @@ from sqlparse.sql import Statement
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError
 
 if TYPE_CHECKING:
@@ -96,8 +95,7 @@ def _raw_mysql_token_values(statement: Statement) -> list[str]:
 
 
 def ensure_read_only_raw_mysql_statement(sql: str) -> str:
-    sql = ensure_single_direct_statement(sql)
-    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    statements = parse_direct_statements(sql, dialect="mysql")
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
 
@@ -131,7 +129,7 @@ class MySQLAdapter:
             raise ExposedHogQLError("Invalid direct MySQL connection.")
 
         mysql_source = cast(MySQLSource, SourceRegistry.get_source(ExternalDataSourceType.MYSQL))
-        config = mysql_source.parse_config(source.job_inputs or {})
+        config = parse_direct_source_config(mysql_source, source)
 
         is_ssh_valid, ssh_valid_errors = mysql_source.ssh_tunnel_is_valid(config, team.pk)
         if not is_ssh_valid:
@@ -150,6 +148,11 @@ class MySQLAdapter:
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         source = request.source
+        from products.warehouse_sources.backend.facade.source_management import (
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
+        )
+
         mysql_implementation, source_config = self.validate_source_config(source, request.team)
         settings = request.settings
         statement_timeout_seconds = max(
@@ -163,7 +166,9 @@ class MySQLAdapter:
 
         try:
             with request.timings.measure("mysql_execute"):
-                with mysql_implementation.connect(source_config, read_timeout=statement_timeout_seconds) as connection:
+                with mysql_implementation.connect(
+                    source_config, read_timeout=statement_timeout_seconds, team_id=request.team.pk
+                ) as connection:
                     with connection.cursor() as cursor:
                         try:
                             # MySQL 8 only and SELECT-only; MariaDB uses a different variable.
@@ -177,7 +182,13 @@ class MySQLAdapter:
                         )
                         results = cursor.fetchall()
                         description = cursor.description or []
-        except (pymysql.MySQLError, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
+        except (
+            pymysql.MySQLError,
+            BaseSSHTunnelForwarderError,
+            ExposedHogQLError,
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
+        ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=mysql_error_to_message(error))

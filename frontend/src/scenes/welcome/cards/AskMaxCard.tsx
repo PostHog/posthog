@@ -15,7 +15,7 @@ export function AskMaxCard(): JSX.Element {
 
     const handleActivate = (): void => {
         trackCardClick('next_steps', 'sidepanel:max')
-        closeDialog()
+        closeDialog('ask_max_card')
         openSidePanel(SidePanelTab.Max)
     }
 

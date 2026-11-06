@@ -1,6 +1,10 @@
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, NamedTuple
+from datetime import UTC, datetime, timedelta
+from functools import cached_property
+from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
+
+from django.db import models
 
 from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
@@ -13,7 +17,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
 
@@ -29,6 +32,8 @@ MAX_EXECUTION_TIME = 60
 DEFAULT_GROUP_LIMIT = 100
 MAX_GROUP_LIMIT = 500
 
+RESULT_CACHE_SECONDS = 60
+
 # Cap on combined group-by dimensions: each extra dimension multiplies group cardinality
 # and widens the GROUP BY tuple, while the scan cost stays roughly flat.
 MAX_GROUP_DIMENSIONS = 4
@@ -38,11 +43,20 @@ MAX_GROUP_DIMENSIONS = 4
 # base64-encoded; hex is what users see in trace UIs.
 GROUPABLE_COLUMNS: dict[str, str] = {
     "severity_level": "severity_text",
+    "service_name": "service_name",
     "trace_id": "hex(tryBase64Decode(trace_id))",
     "span_id": "hex(tryBase64Decode(span_id))",
+    "pattern": "pattern",
 }
 
-GROUP_SOURCES = ("log", "resource", "column")
+
+class LogsGroupBySource(models.TextChoices):
+    LOG = "log", "log"
+    RESOURCE = "resource", "resource"
+    COLUMN = "column", "column"
+
+
+GROUP_SOURCES = tuple(LogsGroupBySource.values)
 ORDER_FIELDS = ("log_count", "error_count", "last_seen")
 
 
@@ -74,9 +88,9 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
     collecting `groupArray(N)` + `count()` + `sum()` in the outer select — the same
     shape LogAttributesQueryRunner uses for its keys-only path.
 
-    The group-by parameters are runner constructor args, not query-model fields, so the
-    runner must be invoked via `calculate()` (which the logs API does) — never through
-    the caching `run()` path, where the cache key is derived from the query model alone.
+    The group-by parameters are runner constructor args, not query-model fields, so
+    `get_cache_payload` adds them to the cache key. Cached results go stale after
+    RESULT_CACHE_SECONDS, whatever the window.
     """
 
     query: LogsQuery
@@ -114,9 +128,27 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         # Defensive: this runner is invoked directly via the logs API, never through the generic
         # /api/projects/:id/query/ endpoint. Mirror LogsQueryRunner and refuse user-initiated
         # generic-query access so it can't silently bypass that gate if ever registered.
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("logs", "viewer")
+
+    def get_cache_payload(self) -> dict[str, Any]:
+        return {
+            **super().get_cache_payload(),
+            "group_bys": [list(dimension) for dimension in self.group_bys],
+            "order_groups_by": self.order_groups_by,
+            "group_limit": self.group_limit,
+        }
+
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
+        if last_refresh is None:
+            return None
+        return last_refresh + timedelta(seconds=RESULT_CACHE_SECONDS)
+
+    def _is_stale(self, last_refresh: datetime | None, lazy: bool = False) -> bool:
+        if last_refresh is None:
+            return True
+        return datetime.now(UTC) > last_refresh + timedelta(seconds=RESULT_CACHE_SECONDS)
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
@@ -185,6 +217,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
                 {", ".join(scan_cols)},
                 count() AS log_count,
                 countIf(lower(severity_text) IN ('error', 'fatal')) AS error_count,
+                min(timestamp) AS first_seen,
                 max(timestamp) AS last_seen
             FROM logs
             WHERE {{where}}
@@ -232,6 +265,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
                     {", ".join(grouped_cols)},
                     sum(agg.log_count) AS log_count,
                     sum(agg.error_count) AS error_count,
+                    min(agg.first_seen) AS first_seen,
                     max(agg.last_seen) AS last_seen
                 FROM ({scan_sql}) AS agg
                 {" ".join(join_sql_parts)}
@@ -244,12 +278,12 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         query = parse_select(
             f"""
             SELECT
-                groupArray({self.group_limit})((tuple({", ".join(aliases)}), log_count, error_count, last_seen)) AS groups,
+                groupArray({self.group_limit})((tuple({", ".join(aliases)}), log_count, error_count, first_seen, last_seen)) AS groups,
                 coalesce(any(group_count), 0) AS total_groups,
                 coalesce(any(log_count_sum), 0) AS total_logs
             FROM (
                 SELECT
-                    {", ".join(aliases)}, log_count, error_count, last_seen,
+                    {", ".join(aliases)}, log_count, error_count, first_seen, last_seen,
                     {_TOTALS_WINDOW}
                 FROM ({grouped_sql})
                 ORDER BY {{order_field}} DESC, {", ".join(f"{alias} ASC" for alias in aliases)}
@@ -277,7 +311,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
 
     def _calculate(self) -> LogsQueryResponse:
         # The group-by templates only reference posthog-native tables (logs, log_attributes)
-        # and the grouping key is a bound constant, so hand the executor a plain posthog-only
+        # and the grouping key is a bound constant, so hand the executor a posthog-tables-only
         # Database up front. Without it, the `{filters}` placeholder LogsFilterBuilder.where()
         # always emits makes the executor run the full per-query database build — warehouse
         # tables, saved queries, endpoints: several Postgres round trips this query never uses.
@@ -285,7 +319,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
             team_id=self.team.pk,
             team=self.team,
             enable_select_queries=True,
-            database=Database(timezone=self.team.timezone, week_start_day=self.team.week_start_day),
+            database=Database.create_for_posthog_tables(self.team, modifiers=self.modifiers),
         )
         response = execute_hogql_query(
             query_type="LogsQuery",
@@ -308,9 +342,10 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
                 "values": list(values),
                 "log_count": int(log_count),
                 "error_count": int(error_count),
+                "first_seen": first_seen.replace(tzinfo=ZoneInfo("UTC")).isoformat(),
                 "last_seen": last_seen.replace(tzinfo=ZoneInfo("UTC")).isoformat(),
             }
-            for values, log_count, error_count, last_seen in groups_raw
+            for values, log_count, error_count, first_seen, last_seen in groups_raw
         ]
         return LogsQueryResponse(
             results={

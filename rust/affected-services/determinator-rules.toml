@@ -28,10 +28,19 @@ mark-changed = "all"
 globs = [".sqlx/**"]
 mark-changed = "all"
 
-# Proto files trigger the two build-script crates that read them.
+# Proto files trigger every build-script crate that reads them. The
+# proto_build_scripts_are_in_determinator_rules test fails if a crate compiles
+# protos and is missing here, so keep this list complete rather than counted.
 [[path-rule]]
 globs = ["../proto/**"]
-mark-changed = ["personhog-proto", "kafka-assigner-proto", "cymbal-proto"]
+mark-changed = [
+    "personhog-proto",
+    "kafka-assigner-proto",
+    "cymbal-proto",
+    "ingestion-worker-proto",
+    "prometheus-rw-proto",
+    "usage-ingestion-proto",
+]
 
 # Hypercache contract: Python serializer changes may break Rust deserialization.
 # Must come BEFORE the catch-all rule below.
@@ -42,6 +51,21 @@ globs = [
     "../posthog/models/feature_flag/feature_flag.py",
 ]
 mark-changed = ["feature-flags", "hypercache-server", "common-hypercache"]
+
+# common-cohort-team-access tests its query against the table that these migrations build.
+# Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../products/cohorts/backend/migrations/**"]
+mark-changed = ["common-cohort-team-access"]
+
+# replay-core-v4's tests read the encryption vectors the Node writers pin.
+# Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = [
+    "../nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json",
+    "../nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json",
+]
+mark-changed = ["replay-core-v4"]
 
 # Django migrations and test environment setup — needed for Rust integration tests.
 [[path-rule]]
@@ -62,17 +86,36 @@ globs = [
     "../bin/download-mmdb",
     "../.github/workflows/ci-rust.yml",
     "../.github/actions/setup-protoc/**",
+    "../.github/actions/setup-rust/**",
     "../.github/actions/setup-sccache/**",
     "../.github/actions/setup-sqlx-cli/**",
     "../.github/actions/rust-compute-affected/**",
 ]
 mark-changed = "all"
 
+# The out-of-band domain list: common-dns mirrors it, and a parity test in that crate
+# fails when the two differ. Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../posthog/security/crosslang/**"]
+mark-changed = ["common-dns"]
+
+# The AI event limits: capture mirrors them, and a parity test in that crate fails when
+# the two differ. Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../products/ai_observability/shared/crosslang/**"]
+mark-changed = ["capture"]
+
 # Catch-all for files outside the rust workspace (Python, frontend, CI, docs,
 # etc.) — these are not crate source and should not trigger rust rebuilds.
 # Must come AFTER all specific rules for files outside the workspace.
 [[path-rule]]
 globs = ["../**"]
+mark-changed = []
+
+# An unmatched workspace-root file marks every crate, and the default rules
+# do not match AGENTS.md.
+[[path-rule]]
+globs = ["AGENTS.md"]
 mark-changed = []
 
 # Migration directories are not cargo crates. Tell the determinator to
@@ -82,7 +125,6 @@ mark-changed = []
 globs = [
     "persons_migrations/**",
     "behavioral_cohorts_migrations/**",
-    "cyclotron-core/migrations/**",
     "cyclotron-node-migrations/**",
     "flags_read_store_migrations/**",
     "bin/migrate-*",
@@ -96,8 +138,9 @@ mark-changed = []
 # runs against those changes.
 #
 # The merge queue needs the same edge to keep a harness change out of a lane
-# parallel to one of these services, so it is mirrored in RUNTIME_SPAWN_EDGES in
-# .github/scripts/trunk-impacted-targets.js. Change both; a test compares them.
+# parallel to one of these services. It gets it from here: the lane script
+# (.github/scripts/trunk-impacted-targets.js) takes this binary's affected set
+# as its rust:crate: answer, so this rule is the edge's only home.
 [[package-rule]]
 on-affected = [
     "personhog-replica",

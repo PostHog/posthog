@@ -8,6 +8,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardBasicType } from '~/types'
 
+import * as generatedApi from 'products/dashboards/frontend/generated/api'
+import type { DashboardBulkDeleteResponseApi } from 'products/dashboards/frontend/generated/api.schemas'
+
 import { dashboardsModel, mergeTileTextUpdatesIntoDashboard, nameCompareFunction } from './dashboardsModel'
 
 const dashboards: Partial<DashboardBasicType>[] = [
@@ -101,6 +104,53 @@ describe('the dashboards model', () => {
         logic.mount()
     })
 
+    it('does not load dashboards until a consumer requests them', () => {
+        expect(logic.values.pagedDashboards).toBeNull()
+        expect(logic.values.pagedDashboardsLoading).toBe(false)
+    })
+
+    it('loads dashboards when a consumer requests them', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadDashboardsIfNeeded()
+        }).toDispatchActions(['loadDashboardsSuccess'])
+    })
+
+    it('reloads every page after a failed bulk deletion', async () => {
+        await expectLogic(logic, () => logic.actions.loadDashboards()).toDispatchActions(['loadDashboardsSuccess'])
+        let failRequest: (error: Error) => void
+        const request = new Promise<DashboardBulkDeleteResponseApi>((_, reject) => {
+            failRequest = reject
+        })
+        const deleteSpy = jest.spyOn(generatedApi, 'dashboardsBulkDeleteCreate').mockReturnValueOnce(request)
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': ({ request }) => {
+                    const offset = new URL(request.url).searchParams.get('offset')
+                    return [
+                        200,
+                        {
+                            count: 2,
+                            results: [{ ...basicDashboard, id: offset === '0' ? 5 : 6 }],
+                            next: offset === '0' ? '/api/projects/1/dashboards/?offset=1' : null,
+                            previous: null,
+                        },
+                    ]
+                },
+            },
+        })
+        try {
+            logic.actions.bulkDeleteDashboards({ ids: [3], onStillSelected: jest.fn() })
+            await expectLogic(logic, () => failRequest!(new Error('Lost response'))).toDispatchActions([
+                'bulkDeleteDashboardsFailure',
+                'reloadDashboardsSuccess',
+            ])
+            expect(Object.keys(logic.values.rawDashboards).sort()).toEqual(['5', '6'])
+            expect(logic.values.pagingDashboardsCompleted).toBe(true)
+        } finally {
+            deleteSpy.mockRestore()
+        }
+    })
+
     describe('sorting dashboards', () => {
         it('can sort dashboards correctly', async () => {
             await expectLogic(logic, () => {
@@ -186,6 +236,51 @@ describe('the dashboards model', () => {
         })
     })
 
+    describe('updating folders after a move', () => {
+        beforeEach(async () => {
+            await expectLogic(logic, () => logic.actions.loadDashboards()).toFinishAllListeners()
+        })
+
+        it('files a dashboard at its new path, and derives the folder from it', async () => {
+            logic.actions.patchDashboardFolders({ 1: 'Revenue/Q3/Growth', 2: 'At the root' })
+            expect(logic.values.rawDashboards[1].file_system_path).toEqual('Revenue/Q3/Growth')
+            expect(logic.values.rawDashboards[1].folder).toEqual('Revenue/Q3')
+            // A dashboard at the project root has no folder above it
+            expect(logic.values.rawDashboards[2].folder).toEqual('')
+        })
+
+        it('ignores ids it does not hold', async () => {
+            const before = logic.values.rawDashboards
+            logic.actions.patchDashboardFolders({ 99999: 'Revenue/Missing' })
+            expect(logic.values.rawDashboards).toBe(before)
+        })
+
+        it('re-parents everything under a moved folder, sparing similarly named siblings', async () => {
+            logic.actions.patchDashboardFolders({
+                1: 'Revenue/One',
+                2: 'Revenue/Q3/Two',
+                3: 'Revenue archive/Three',
+            })
+            logic.actions.reparentDashboardFolders('Revenue', 'Finance/Revenue')
+            expect(logic.values.rawDashboards[1].folder).toEqual('Finance/Revenue')
+            expect(logic.values.rawDashboards[2].folder).toEqual('Finance/Revenue/Q3')
+            // 'Revenue archive' merely starts with the moved folder's name, so it stays put
+            expect(logic.values.rawDashboards[3].folder).toEqual('Revenue archive')
+        })
+
+        it('keeps the path in step with the folder, so a second move starts from the right place', async () => {
+            logic.actions.patchDashboardFolders({ 1: 'Revenue/Growth' })
+            logic.actions.reparentDashboardFolders('Revenue', 'Finance/Revenue')
+            expect(logic.values.rawDashboards[1].file_system_path).toEqual('Finance/Revenue/Growth')
+        })
+
+        it('leaves the map alone when nothing sits under the moved folder', async () => {
+            const before = logic.values.rawDashboards
+            logic.actions.reparentDashboardFolders('Nowhere', 'Elsewhere')
+            expect(logic.values.rawDashboards).toBe(before)
+        })
+    })
+
     it('clears primary_dashboard from team when deleting the primary dashboard', async () => {
         const primaryDashboardId = 42
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })
@@ -246,7 +341,7 @@ describe('the dashboards model', () => {
 })
 
 describe('mergeTileTextUpdatesIntoDashboard', () => {
-    it('updates only text body and preserves server metadata', () => {
+    it('updates editable text fields and preserves server metadata', () => {
         const dashboard = {
             id: 123,
             tiles: [
@@ -254,6 +349,7 @@ describe('mergeTileTextUpdatesIntoDashboard', () => {
                     id: 1,
                     text: {
                         body: 'server body',
+                        agent_context: 'server context',
                         last_modified_at: '2026-03-17T10:00:00Z',
                     },
                 },
@@ -265,12 +361,14 @@ describe('mergeTileTextUpdatesIntoDashboard', () => {
                 id: 1,
                 text: {
                     body: 'client body',
+                    agent_context: 'client context',
                     last_modified_at: 'stale-client-value',
                 },
             },
         ])
 
         expect(merged.tiles?.[0]?.text?.body).toEqual('client body')
+        expect(merged.tiles?.[0]?.text?.agent_context).toEqual('client context')
         expect(merged.tiles?.[0]?.text?.last_modified_at).toEqual('2026-03-17T10:00:00Z')
     })
 })

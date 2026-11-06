@@ -3,7 +3,8 @@ import {
   MCP_CATEGORIES,
   type McpRecommendedServer,
 } from "@posthog/api-client/posthog-client";
-import { Badge, Button, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Badge, Button, Flex, Text } from "@radix-ui/themes";
 import { ServerIcon } from "./icons";
 
 interface ServerCardProps {
@@ -94,7 +95,7 @@ export function ServerCard({
             onClick={onConnect}
             disabled={isInstalling}
           >
-            {isInstalling ? <Spinner size="1" /> : null}
+            {isInstalling ? <Spinner size="sm" /> : null}
             Connect
           </Button>
         )}

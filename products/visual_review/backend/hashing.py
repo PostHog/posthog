@@ -21,6 +21,8 @@ import io
 from blake3 import blake3
 from PIL import Image
 
+from .facade.contracts import SNAPSHOT_IMAGE_FORMATS
+
 # Cap decoded pixel count to bound memory. A 7000×7000 RGBA image is ~196 MB —
 # plenty for screenshots, well under Pillow's default DecompressionBombWarning.
 # Pillow raises DecompressionBombError above this (instead of just warning).
@@ -40,6 +42,6 @@ def hash_image(png_bytes: bytes) -> str:
     """Decode PNG to RGBA pixels and return the BLAKE3 hex digest."""
     if len(png_bytes) > _MAX_PNG_BYTES:
         raise ImageTooLargeError(f"PNG is {len(png_bytes)} bytes, exceeds {_MAX_PNG_BYTES} limit")
-    img = Image.open(io.BytesIO(png_bytes))
+    img = Image.open(io.BytesIO(png_bytes), formats=SNAPSHOT_IMAGE_FORMATS)
     img.load()
     return blake3(img.convert("RGBA").tobytes()).hexdigest()

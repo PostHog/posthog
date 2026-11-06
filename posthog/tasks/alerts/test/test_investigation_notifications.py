@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -15,12 +15,13 @@ from posthog.tasks.alerts.investigation_notifications import (
 )
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
-from products.product_analytics.backend.models.insight import Insight
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.product_analytics.backend.facade.models import Insight
 
 NOW = datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC)
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestInvestigationNotificationSafetyNet(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -46,6 +47,7 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         notification_suppressed_by_agent: bool = False,
         targets_notified: dict | None = None,
         state: str = AlertState.FIRING,
+        triggered_metadata: dict | None = None,
     ) -> AlertCheck:
         check = AlertCheck.objects.create(
             alert_configuration=self.alert,
@@ -55,6 +57,7 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
             notification_sent_at=notification_sent_at,
             notification_suppressed_by_agent=notification_suppressed_by_agent,
             targets_notified=targets_notified or {},
+            triggered_metadata=triggered_metadata,
         )
         # `created_at` is auto_now_add — bypass with an UPDATE so the parametrized
         # ages drive the safety-net's cutoff predicate.
@@ -122,17 +125,17 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         ]
     )
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
-    @patch("posthog.tasks.alerts.investigation_notifications.record_alert_delivery")
     def test_grace_period_predicate(
         self,
         _name: str,
         age_minutes: int,
         investigation_status: str | None,
         expected_dispatched: bool,
-        mock_record: object,
         mock_dispatch: object,
     ) -> None:
-        mock_dispatch.return_value = ["test@posthog.com"]  # type: ignore[attr-defined]
+        mock_dispatch.return_value = [  # type: ignore[attr-defined]
+            AlertDelivery(channel="email", target="alerts@example.com", at="2026-08-11T00:00:00+00:00")
+        ]
 
         check = self._make_check(age_minutes=age_minutes, investigation_status=investigation_status)
         notified = run_investigation_notification_safety_net()
@@ -148,6 +151,23 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
             mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
 
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
+    def test_zero_accept_dispatch_stamps_without_counting(self, mock_dispatch: object) -> None:
+        # Nothing accepted: the stamp must still land (sweep idempotency), but the
+        # check does not count as notified.
+        mock_dispatch.return_value = []  # type: ignore[attr-defined]
+
+        check = self._make_check(
+            age_minutes=INVESTIGATION_NOTIFY_GRACE_MINUTES + 60,
+            investigation_status=InvestigationStatus.DONE,
+        )
+        notified = run_investigation_notification_safety_net()
+
+        check.refresh_from_db()
+        assert notified == 0
+        assert check.notification_sent_at is not None
+        mock_dispatch.assert_called_once()  # type: ignore[attr-defined]
+
+    @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
     def test_skips_legacy_delivered_check(self, mock_dispatch: object) -> None:
         # Pre-PR-3 `notify_alert` populated targets_notified without setting
         # notification_sent_at. The safety net must not double-dispatch these.
@@ -155,6 +175,17 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
             age_minutes=INVESTIGATION_RUNNING_GRACE_MINUTES + 60,
             investigation_status=None,
             targets_notified={"users": ["legacy@posthog.com"]},
+        )
+        notified = run_investigation_notification_safety_net()
+        assert notified == 0
+        mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
+
+    @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
+    def test_skips_evaluation_skipped_check(self, mock_dispatch: object) -> None:
+        self._make_check(
+            age_minutes=INVESTIGATION_RUNNING_GRACE_MINUTES + 60,
+            investigation_status=None,
+            triggered_metadata={"skipped_reason": "Not enough completed intervals after the evaluation delay."},
         )
         notified = run_investigation_notification_safety_net()
         assert notified == 0
@@ -193,6 +224,26 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         notified = run_investigation_notification_safety_net()
         assert notified == 0
         mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
+
+    @patch("posthog.tasks.alerts.investigation_notifications.prepare_alert_insight_chart_url")
+    @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
+    def test_chart_is_rendered_outside_the_row_lock(self, mock_dispatch: object, mock_prepare: object) -> None:
+        # The render blocks for up to RENDER_TIMEOUT. Doing it under the select_for_update
+        # below would stall the workflow's own dispatcher for the same check.
+        mock_prepare.return_value = "https://export/chart.png?token=abc"  # type: ignore[attr-defined]
+        mock_dispatch.return_value = [  # type: ignore[attr-defined]
+            AlertDelivery(channel="email", target="alerts@example.com", at="2026-08-11T00:00:00+00:00")
+        ]
+        self._make_check(
+            age_minutes=INVESTIGATION_NOTIFY_GRACE_MINUTES + 60,
+            investigation_status=InvestigationStatus.DONE,
+        )
+
+        run_investigation_notification_safety_net()
+
+        kwargs = mock_dispatch.call_args.kwargs  # type: ignore[attr-defined]
+        assert kwargs["render_chart"] is False
+        assert kwargs["extra_properties"] == {"insight_chart_url": "https://export/chart.png?token=abc"}
 
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
     def test_skips_non_agent_alert(self, mock_dispatch: object) -> None:

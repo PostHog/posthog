@@ -1,6 +1,6 @@
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -21,7 +21,7 @@ _INCREMENTAL_FIELD_PREFERENCE = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SourceSchema:
     name: str
     supports_incremental: bool
@@ -60,6 +60,28 @@ class SourceSchema:
     # The SQL sources' location keys above (source_catalog/source_schema/source_table_name)
     # stay separate: their persistence is gated on column-selection/direct-query paths.
     schema_metadata: dict[str, Any] | None = None
+    # Keeps full refresh as the default sync type for a table that also supports incremental or
+    # append. Sources set it when only a full refresh keeps the table equal to the origin, for
+    # example file imports, where the other sync types keep the rows of files deleted upstream.
+    prefers_full_refresh: bool = False
+
+
+def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[IncrementalField]:
+    """Stable-sort candidate cursor fields so update-tracking columns come first.
+
+    Several surfaces default to the first candidate (the schema picker response, the sync
+    settings modal), so for sources with arbitrary user columns the leading candidate must
+    be one that advances on writes rather than whichever column comes first in the table
+    definition. Fields not in the preference list keep their original relative order.
+    """
+
+    def preference(field: IncrementalField) -> int:
+        name = (field.get("field") or "").lower()
+        if name in _INCREMENTAL_FIELD_PREFERENCE:
+            return _INCREMENTAL_FIELD_PREFERENCE.index(name)
+        return len(_INCREMENTAL_FIELD_PREFERENCE)
+
+    return sorted(incremental_fields, key=preference)
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:
@@ -78,12 +100,15 @@ def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     """Default sync settings for one discovered table.
 
     Picks ``incremental`` when the source supports it and a tracking column exists (cheapest
-    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never picks ``cdc``
+    ongoing sync), else ``append`` when supported, else ``full_refresh``. A table that sets
+    ``prefers_full_refresh`` always gets ``full_refresh``. Never picks ``cdc``
     or ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and
     explicit opt-in.
     """
     chosen = _select_incremental_field(source_schema.incremental_fields)
-    if source_schema.supports_incremental and chosen is not None:
+    if source_schema.prefers_full_refresh:
+        sync_type = "full_refresh"
+    elif source_schema.supports_incremental and chosen is not None:
         sync_type = "incremental"
     elif source_schema.supports_append and chosen is not None:
         sync_type = "append"
@@ -101,7 +126,9 @@ def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     return settings
 
 
-def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
+def build_default_schemas(
+    source_schemas: list[SourceSchema], permission_errors: Mapping[str, str | None] | None = None
+) -> list[dict]:
     """Build a default ``schemas`` payload for one-shot source creation.
 
     Enables every discovered table the source marks as default-on, with each table's sync
@@ -112,10 +139,15 @@ def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
     ``should_sync_default=False`` also start disabled: sources use it for tables whose sync
     needs grants beyond what source creation validated, and the schema picker already honors
     it, so one-shot setup must not force-enable what the picker would leave off.
+
+    ``permission_errors`` maps table name to the reason its credentials can't read it (the same
+    per-table probe the schema picker renders). A table with a reason starts disabled however it
+    is otherwise defaulted: enabling it would queue a sync that can only ever 403.
     """
+    denied = {name for name, reason in (permission_errors or {}).items() if reason}
     schemas: list[dict] = []
     for source_schema in source_schemas:
-        if source_schema.webhook_only or not source_schema.should_sync_default:
+        if source_schema.webhook_only or not source_schema.should_sync_default or source_schema.name in denied:
             schemas.append({"name": source_schema.name, "should_sync": False})
             continue
 
@@ -147,6 +179,7 @@ def build_endpoint_schemas(
     descriptions: Mapping[str, str] | None = None,
     should_sync_default: Mapping[str, bool] | None = None,
     supports_webhooks: Collection[str] = (),
+    default_incremental_lookback_seconds: Mapping[str, int] | None = None,
 ) -> list[SourceSchema]:
     """Build the ``SourceSchema`` list for a static endpoint-catalog source's ``get_schemas``.
 
@@ -157,11 +190,14 @@ def build_endpoint_schemas(
     - ``append_only``: endpoints that support append but not incremental merge.
     - ``merge_only``: endpoints that support incremental merge but not append.
     - ``descriptions`` / ``should_sync_default`` / ``supports_webhooks``: per-endpoint metadata.
+    - ``default_incremental_lookback_seconds``: per-endpoint default overlap re-read window, for
+      endpoints whose recent rows get restated upstream (see ``SourceSchema``'s field doc).
 
     ``names`` (the schema-picker filter) keeps only the requested endpoints when set.
     """
     descriptions = descriptions or {}
     should_sync_default = should_sync_default or {}
+    default_incremental_lookback_seconds = default_incremental_lookback_seconds or {}
     schemas = []
     for name in endpoints:
         fields = incremental_fields.get(name) or []
@@ -177,6 +213,7 @@ def build_endpoint_schemas(
                 description=descriptions.get(name),
                 should_sync_default=should_sync_default.get(name, True),
                 supports_webhooks=name in supports_webhooks,
+                default_incremental_lookback_seconds=default_incremental_lookback_seconds.get(name),
             )
         )
 
@@ -185,3 +222,28 @@ def build_endpoint_schemas(
         schemas = [s for s in schemas if s.name in names_set]
 
     return schemas
+
+
+_ResourceSchema = TypeVar("_ResourceSchema")
+
+# Marks a resource the running worker has no schema definition for. Matched by
+# `import_data_sync` to classify the failure as retryable.
+UNKNOWN_RESOURCE_PREFIX = "This table is not available on this worker yet:"
+
+
+class UnknownResourceError(Exception):
+    """The worker's resource catalog holds no schema for the table being synced."""
+
+
+def schema_for_resource(schemas: Mapping[str, _ResourceSchema], resource_name: str) -> _ResourceSchema:
+    """Look up a resource's schema definition, with a clear error when the worker doesn't know it.
+
+    The web pods and the data-import workers deploy separately, so for up to about an hour after a
+    new resource ships the schema picker offers a table the worker cannot resolve yet. A bare
+    ``KeyError`` there reports as a bug and shows the customer a raw Python error; this named error
+    is classified retryable instead, so the sync recovers once the rollout finishes.
+    """
+    try:
+        return schemas[resource_name]
+    except KeyError:
+        raise UnknownResourceError(f"{UNKNOWN_RESOURCE_PREFIX} {resource_name}") from None

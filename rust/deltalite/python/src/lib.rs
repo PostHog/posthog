@@ -12,11 +12,13 @@ use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use arrow_array::{new_empty_array, Array, RecordBatch};
 use arrow_schema::SchemaRef;
 use deltalake::writer::RecordBatchWriter;
-use deltalake::DeltaTable;
 use deltalite_core::errors::Error;
-use deltalite_core::limits::ProcessLimits;
+use deltalite_core::handle::TableHandle;
+use deltalite_core::history::HistoryUpsertOptions;
+use deltalite_core::limits::{Budget, ProcessLimits};
+use deltalite_core::probecache::ProbeCache;
 use deltalite_core::schema::import_column;
-use deltalite_core::table::{open_table, open_table_multipart, MultipartConfig};
+use deltalite_core::table::{open_table, table_exists, MultipartConfig};
 use deltalite_core::upsert::{PruneStrategy, UpsertOptions};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -30,6 +32,7 @@ create_exception!(deltalite, DeltaLiteSchemaMismatchError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteTableNotFoundError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteUnsupportedTableError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteSourceTooLargeError, DeltaLiteError);
+create_exception!(deltalite, DeltaLiteTimeoutError, DeltaLiteError);
 
 /// Map a core error onto the matching Python exception class.
 fn to_py_err(e: Error) -> PyErr {
@@ -40,6 +43,7 @@ fn to_py_err(e: Error) -> PyErr {
         Error::Unsupported(_) => DeltaLiteUnsupportedTableError::new_err(msg),
         Error::Conflict(_) => DeltaLiteCommitConflictError::new_err(msg),
         Error::SourceTooLarge(_) => DeltaLiteSourceTooLargeError::new_err(msg),
+        Error::Timeout(_) => DeltaLiteTimeoutError::new_err(msg),
         Error::Generic(_) => DeltaLiteError::new_err(msg),
     }
 }
@@ -152,6 +156,8 @@ pub struct UpsertStats {
     #[pyo3(get)]
     pub files_probed: usize,
     #[pyo3(get)]
+    pub files_probe_cached: usize,
+    #[pyo3(get)]
     pub rows_updated: usize,
     #[pyo3(get)]
     pub rows_inserted: usize,
@@ -166,7 +172,21 @@ pub struct UpsertStats {
     #[pyo3(get)]
     pub rewrite_ms: u64,
     #[pyo3(get)]
+    pub probe_ms: u64,
+    #[pyo3(get)]
     pub commit_ms: u64,
+    #[pyo3(get)]
+    pub columns_relaxed: usize,
+    #[pyo3(get)]
+    pub open_ms: u64,
+    #[pyo3(get)]
+    pub initial_open_ms: u64,
+    #[pyo3(get)]
+    pub ingest_ms: u64,
+    #[pyo3(get)]
+    pub relax_ms: u64,
+    #[pyo3(get)]
+    pub maintenance_ms: u64,
 }
 
 #[pymethods]
@@ -174,14 +194,15 @@ impl UpsertStats {
     fn __repr__(&self) -> String {
         format!(
             "UpsertStats(version={}, partitions_touched={}, files_added={}, files_removed={}, \
-             files_carried_over={}, files_probed={}, rows_updated={}, rows_inserted={}, \
-             rows_copied={})",
+             files_carried_over={}, files_probed={}, files_probe_cached={}, rows_updated={}, \
+             rows_inserted={}, rows_copied={})",
             self.version,
             self.partitions_touched,
             self.files_added,
             self.files_removed,
             self.files_carried_over,
             self.files_probed,
+            self.files_probe_cached,
             self.rows_updated,
             self.rows_inserted,
             self.rows_copied
@@ -198,6 +219,7 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             files_added: s.files_added,
             files_carried_over: s.files_carried_over,
             files_probed: s.files_probed,
+            files_probe_cached: s.files_probe_cached,
             rows_updated: s.rows_updated,
             rows_inserted: s.rows_inserted,
             rows_copied: s.rows_copied,
@@ -205,19 +227,138 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             null_pk_rows: s.null_pk_rows,
             plan_ms: s.plan_ms,
             rewrite_ms: s.rewrite_ms,
+            probe_ms: s.probe_ms,
             commit_ms: s.commit_ms,
+            columns_relaxed: s.columns_relaxed,
+            open_ms: s.open_ms,
+            initial_open_ms: s.initial_open_ms,
+            ingest_ms: s.ingest_ms,
+            relax_ms: s.relax_ms,
+            maintenance_ms: s.maintenance_ms,
         }
     }
 }
 
-/// A handle on a Delta table for deltalite writes. Reads (schema, history, file
-/// listing) exist for parity tooling; production read paths stay on the Python
-/// `deltalake` package -- both address the same `_delta_log`.
+/// Counters describing what one `history_upsert` did.
+#[pyclass(module = "deltalite", skip_from_py_object)]
+#[derive(Clone, Debug, Default)]
+pub struct HistoryUpsertStats {
+    #[pyo3(get)]
+    pub version: i64,
+    #[pyo3(get)]
+    pub committed: bool,
+    #[pyo3(get)]
+    pub rows_in: usize,
+    #[pyo3(get)]
+    pub rows_deduped: usize,
+    #[pyo3(get)]
+    pub rows_reread: usize,
+    #[pyo3(get)]
+    pub rows_backwards: usize,
+    #[pyo3(get)]
+    pub versions_opened: usize,
+    #[pyo3(get)]
+    pub versions_closed: usize,
+    #[pyo3(get)]
+    pub chain_rows_closed: usize,
+    #[pyo3(get)]
+    pub rows_copied: usize,
+    #[pyo3(get)]
+    pub files_removed: usize,
+    #[pyo3(get)]
+    pub files_added: usize,
+    #[pyo3(get)]
+    pub files_carried_over: usize,
+    #[pyo3(get)]
+    pub files_probed: usize,
+    #[pyo3(get)]
+    pub bytes_read: u64,
+    #[pyo3(get)]
+    pub bytes_written: u64,
+    #[pyo3(get)]
+    pub plan_ms: u64,
+    #[pyo3(get)]
+    pub probe_ms: u64,
+    #[pyo3(get)]
+    pub rewrite_ms: u64,
+    #[pyo3(get)]
+    pub commit_ms: u64,
+    #[pyo3(get)]
+    pub columns_relaxed: usize,
+    #[pyo3(get)]
+    pub open_ms: u64,
+    #[pyo3(get)]
+    pub initial_open_ms: u64,
+    #[pyo3(get)]
+    pub ingest_ms: u64,
+    #[pyo3(get)]
+    pub relax_ms: u64,
+    #[pyo3(get)]
+    pub maintenance_ms: u64,
+}
+
+#[pymethods]
+impl HistoryUpsertStats {
+    fn __repr__(&self) -> String {
+        format!(
+            "HistoryUpsertStats(version={}, committed={}, rows_in={}, rows_deduped={}, \
+             rows_reread={}, rows_backwards={}, versions_opened={}, versions_closed={}, \
+             chain_rows_closed={}, files_added={}, files_removed={})",
+            self.version,
+            self.committed,
+            self.rows_in,
+            self.rows_deduped,
+            self.rows_reread,
+            self.rows_backwards,
+            self.versions_opened,
+            self.versions_closed,
+            self.chain_rows_closed,
+            self.files_added,
+            self.files_removed
+        )
+    }
+}
+
+impl From<deltalite_core::history::HistoryUpsertStats> for HistoryUpsertStats {
+    fn from(s: deltalite_core::history::HistoryUpsertStats) -> Self {
+        Self {
+            version: s.version,
+            committed: s.committed,
+            rows_in: s.rows_in,
+            rows_deduped: s.rows_deduped,
+            rows_reread: s.rows_reread,
+            rows_backwards: s.rows_backwards,
+            versions_opened: s.versions_opened,
+            versions_closed: s.versions_closed,
+            chain_rows_closed: s.chain_rows_closed,
+            rows_copied: s.rows_copied,
+            files_removed: s.files_removed,
+            files_added: s.files_added,
+            files_carried_over: s.files_carried_over,
+            files_probed: s.files_probed,
+            bytes_read: s.bytes_read,
+            bytes_written: s.bytes_written,
+            plan_ms: s.plan_ms,
+            probe_ms: s.probe_ms,
+            rewrite_ms: s.rewrite_ms,
+            commit_ms: s.commit_ms,
+            columns_relaxed: s.columns_relaxed,
+            open_ms: s.open_ms,
+            initial_open_ms: s.initial_open_ms,
+            ingest_ms: s.ingest_ms,
+            relax_ms: s.relax_ms,
+            maintenance_ms: s.maintenance_ms,
+        }
+    }
+}
+
+/// A handle on a Delta table for deltalite writes, plus snapshot reads (version, table
+/// id, schema, live files) served from the loaded state so a writer does not need a
+/// second delta-rs `DeltaTable` open for them. `history` is the one read that goes back
+/// to the log.
 #[pyclass(module = "deltalite")]
 pub struct DeltaLiteTable {
-    uri: String,
-    storage_options: HashMap<String, String>,
-    table: DeltaTable,
+    handle: TableHandle,
 }
 
 #[pymethods]
@@ -231,15 +372,10 @@ impl DeltaLiteTable {
         storage_options: Option<HashMap<String, String>>,
     ) -> PyResult<Self> {
         let so = storage_options.unwrap_or_default();
-        let so2 = so.clone();
-        let table = py
-            .detach(|| runtime().block_on(open_table(&uri, so2)))
+        let handle = py
+            .detach(|| runtime().block_on(TableHandle::open(uri, so)))
             .map_err(to_py_err)?;
-        Ok(Self {
-            uri,
-            storage_options: so,
-            table,
-        })
+        Ok(Self { handle })
     }
 
     /// Whether `uri` points at a loadable Delta table.
@@ -256,27 +392,75 @@ impl DeltaLiteTable {
             .is_ok())
     }
 
-    /// The table version this handle currently observes (-1 before any load).
-    fn version(&self) -> i64 {
-        self.table
-            .version()
-            .and_then(|v| i64::try_from(v).ok())
-            .unwrap_or(-1)
+    /// `deltalake.DeltaTable.is_deltatable`'s check. Unlike `is_deltatable`, storage errors
+    /// raise: a caller that reads "no table" can create a new table over an existing one.
+    #[staticmethod]
+    #[pyo3(signature = (uri, storage_options = None))]
+    fn table_exists(
+        py: Python<'_>,
+        uri: String,
+        storage_options: Option<HashMap<String, String>>,
+    ) -> PyResult<bool> {
+        let so = storage_options.unwrap_or_default();
+        py.detach(|| runtime().block_on(table_exists(&uri, so)))
+            .map_err(to_py_err)
     }
 
-    /// Re-read the log so this handle observes commits made elsewhere.
+    /// The table version this handle currently observes (-1 before any load).
+    fn version(&self) -> i64 {
+        self.handle.version()
+    }
+
+    /// The table id from the snapshot's metadata action.
+    fn table_id(&self) -> PyResult<String> {
+        self.handle.table_id().map_err(to_py_err)
+    }
+
+    /// The table configuration (`delta.*` properties and custom keys).
+    fn configuration(&self) -> PyResult<HashMap<String, String>> {
+        self.handle.configuration().map_err(to_py_err)
+    }
+
+    /// The Delta schema of the loaded snapshot as a JSON string, in the form
+    /// `deltalake.DeltaTable.schema().to_json()` returns.
+    fn schema_json(&self) -> PyResult<String> {
+        self.handle.schema_json().map_err(to_py_err)
+    }
+
+    /// Number of live data files in the loaded snapshot.
+    fn num_files(&self) -> PyResult<usize> {
+        self.handle.num_files().map_err(to_py_err)
+    }
+
+    /// The live data files of the loaded snapshot, one dict per file with `path`
+    /// (relative to the table root), `size`, `modification_time` (epoch ms) and
+    /// `partition_values` (`dict[str, str | None]`, empty when unpartitioned).
+    fn files(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let out = PyList::empty(py);
+        for file in self.handle.files().map_err(to_py_err)? {
+            let d = PyDict::new(py);
+            d.set_item("path", file.path)?;
+            d.set_item("size", file.size)?;
+            d.set_item("modification_time", file.modification_time)?;
+            d.set_item("partition_values", file.partition_values)?;
+            out.append(d)?;
+        }
+        Ok(out.into())
+    }
+
+    /// Re-read the log so this handle observes commits made elsewhere. Incremental --
+    /// only commits newer than the loaded version are read -- with a full re-open
+    /// fallback when the log is not reachable forward from the loaded state.
     fn reload(&mut self, py: Python<'_>) -> PyResult<()> {
-        let uri = self.uri.clone();
-        let so = self.storage_options.clone();
-        self.table = py
-            .detach(|| runtime().block_on(open_table(&uri, so)))
+        let handle = &mut self.handle;
+        py.detach(|| runtime().block_on(handle.refresh()))
             .map_err(to_py_err)?;
         Ok(())
     }
 
     /// The table's Arrow schema, as the write path will expect it.
     fn schema_arrow(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let schema = RecordBatchWriter::for_table(&self.table)
+        let schema = RecordBatchWriter::for_table(self.handle.table())
             .map_err(|e| to_py_err(Error::from(e)))?
             .arrow_schema();
         Ok(schema.to_pyarrow(py)?.into())
@@ -284,14 +468,19 @@ impl DeltaLiteTable {
 
     /// The table's partition columns (possibly empty).
     fn partition_columns(&self) -> PyResult<Vec<String>> {
-        let snapshot = self.table.snapshot().map_err(|e| to_py_err(e.into()))?;
+        let snapshot = self
+            .handle
+            .table()
+            .snapshot()
+            .map_err(|e| to_py_err(e.into()))?;
         Ok(snapshot.metadata().partition_columns().to_vec())
     }
 
     /// URIs of the live data files.
     fn file_uris(&self) -> PyResult<Vec<String>> {
         Ok(self
-            .table
+            .handle
+            .table()
             .get_file_uris()
             .map_err(|e| to_py_err(e.into()))?
             .collect::<Vec<_>>())
@@ -313,7 +502,30 @@ impl DeltaLiteTable {
     /// `max_source_bytes` guards against oversized batches (resident source + estimated
     /// PK set); `0` disables the guard, `None` uses `DELTALITE_MAX_SOURCE_BYTES` or the
     /// built-in 2 GiB default. `multipart_threshold` / `multipart_part_size` control
-    /// multipart upload of output files (`0` threshold disables).
+    /// multipart upload of output files (`0` threshold disables), and
+    /// `multipart_concurrency` sets how many parts upload at once. A ranged read of a
+    /// data file larger than `range_get_part_size` is split into requests of that size,
+    /// `range_get_concurrency` at once. A concurrency of `1` turns either off; see the
+    /// README for the defaults and environment variables.
+    ///
+    /// `read_ahead_row_groups=True` reads the next row group of a file while the
+    /// current one decodes. A reader then holds up to two row groups from the fetch
+    /// budget. Off by default.
+    ///
+    /// `max_fetch_bytes` caps the compressed row-group bytes this call's file readers
+    /// hold between fetching and decoding (`DELTALITE_PROCESS_MAX_FETCH_BYTES` caps it
+    /// per process). A row group larger than the cap still runs, alone.
+    ///
+    /// `isolate_source_rows=True` writes the batch's rows to their own output files
+    /// instead of the file that receives the copied survivors, so a later batch that
+    /// touches the same rows does not copy those survivors again. Off by default.
+    ///
+    /// `max_row_group_bytes` closes an output row group once its encoded bytes reach the
+    /// value, so a later reader fetches less per row group. `None` (the default) closes
+    /// row groups only at the encoder's row cap.
+    ///
+    /// `use_probe_cache=False` makes the probe read every candidate file from storage
+    /// instead of using the process-wide probe cache (see `set_probe_cache_max_bytes`).
     #[pyo3(signature = (
         data,
         primary_keys,
@@ -323,15 +535,23 @@ impl DeltaLiteTable {
         max_parallel_partitions = 2,
         max_parallel_files = 4,
         max_buffered_bytes = 67108864,
+        max_fetch_bytes = 134217728,
         skip_unmatched_files = true,
         prune_strategy = None,
         probe_concurrency = 8,
         commit_max_retries = 15,
         read_batch_size = 8192,
         target_file_size = None,
+        isolate_source_rows = false,
+        max_row_group_bytes = None,
         max_source_bytes = None,
         multipart_threshold = None,
         multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
+        read_ahead_row_groups = false,
+        use_probe_cache = true,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn upsert(
@@ -344,19 +564,29 @@ impl DeltaLiteTable {
         max_parallel_partitions: usize,
         max_parallel_files: usize,
         max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
         skip_unmatched_files: bool,
         prune_strategy: Option<String>,
         probe_concurrency: usize,
         commit_max_retries: usize,
         read_batch_size: usize,
         target_file_size: Option<usize>,
+        isolate_source_rows: bool,
+        max_row_group_bytes: Option<usize>,
         max_source_bytes: Option<usize>,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
+        read_ahead_row_groups: bool,
+        use_probe_cache: bool,
     ) -> PyResult<UpsertStats> {
         // Import while holding the GIL (it reads a Python object), then release it for
         // all the I/O.
+        let ingest_started = std::time::Instant::now();
         let (schema, batches) = read_pyarrow(data)?;
+        let ingest_ms = ingest_started.elapsed().as_millis() as u64;
 
         let prune_strategy = match prune_strategy.as_deref() {
             Some(s) => s.parse::<PruneStrategy>().map_err(to_py_err)?,
@@ -377,69 +607,320 @@ impl DeltaLiteTable {
             probe_concurrency,
             max_parallel_files,
             max_buffered_bytes,
+            max_fetch_bytes,
+            read_ahead_row_groups,
             commit_max_retries,
             read_batch_size,
             target_file_size,
+            isolate_source_rows,
+            max_row_group_bytes,
             max_source_bytes,
             // Shared with every other concurrent upsert in this process, so the
             // process-level memory bound holds regardless of thread count.
             limits: ProcessLimits::global().clone(),
+            probe_cache: use_probe_cache.then(|| ProbeCache::global().clone()),
         };
-        let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
 
-        let uri = self.uri.clone();
-        let so = self.storage_options.clone();
+        // Conflict retries, snapshot refreshes and the post-commit reload all live in
+        // `TableHandle::upsert` (shared with the Rust benchmarks); the handle refreshes
+        // incrementally instead of re-replaying the whole log per attempt.
+        let handle = &mut self.handle;
         let stats = py
-            .detach(|| {
-                runtime().block_on(async move {
-                    // A concurrent writer can make delta-rs reject the commit with a
-                    // "must rerun" conflict (it read data another transaction deleted).
-                    // delta-rs's own commit retries re-attempt the SAME, now-stale actions and
-                    // keep conflicting; the only fix is to re-read the table and re-plan. So on
-                    // a Conflict we re-open a fresh snapshot and re-run the whole upsert a few
-                    // times before giving up -- after which the caller falls back to the MERGE.
-                    // Re-opening each attempt also gives every try a fresh snapshot, so a
-                    // retried batch never plans against stale state.
-                    //
-                    // Only data conflicts are retried. A concurrent schema/protocol change
-                    // surfaces as Error::Unsupported (see core `errors.rs`), not Conflict, and so
-                    // breaks straight out to the MERGE fallback -- re-planning a blind rewrite
-                    // against changed metadata could null-pad a newly-added column.
-                    const CONFLICT_RETRIES: usize = 5;
-                    let mut attempt = 0usize;
-                    loop {
-                        let table = open_table_multipart(&uri, so.clone(), multipart).await?;
-                        match deltalite_core::upsert::upsert(
-                            &table,
-                            batches.clone(),
-                            schema.clone(),
-                            opts.clone(),
-                        )
-                        .await
-                        {
-                            Err(Error::Conflict(_)) if attempt < CONFLICT_RETRIES => {
-                                attempt += 1;
-                                // Short linear backoff so two upserts racing a hot table don't
-                                // live-lock re-reading each other's in-flight commit.
-                                tokio::time::sleep(std::time::Duration::from_millis(
-                                    50 * attempt as u64,
-                                ))
-                                .await;
-                            }
-                            other => break other,
-                        }
-                    }
-                })
-            })
+            .detach(|| runtime().block_on(handle.upsert(batches, schema, opts, multipart)))
             .map_err(to_py_err)?;
 
-        self.reload(py)?;
-        Ok(stats.into())
+        let mut stats: UpsertStats = stats.into();
+        stats.ingest_ms = ingest_ms;
+        Ok(stats)
+    }
+
+    /// Apply a batch of versions to an SCD2 history table in one data commit. See the
+    /// README's "History upsert" section for the rules, refusals and knobs.
+    /// `max_parallel_partitions` is accepted and has no effect.
+    #[pyo3(signature = (
+        data,
+        key_columns,
+        order_column,
+        valid_from_column,
+        valid_to_column,
+        partition_column,
+        current_partition,
+        tie_break_column,
+        *,
+        commit_metadata = None,
+        max_parallel_partitions = 1,
+        max_parallel_files = 4,
+        max_buffered_bytes = 67108864,
+        max_fetch_bytes = 134217728,
+        probe_concurrency = 8,
+        read_batch_size = 8192,
+        target_file_size = None,
+        max_row_group_bytes = None,
+        max_source_bytes = None,
+        multipart_threshold = None,
+        multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
+        read_ahead_row_groups = false,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn history_upsert(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        key_columns: Vec<String>,
+        order_column: String,
+        valid_from_column: String,
+        valid_to_column: String,
+        partition_column: String,
+        current_partition: String,
+        tie_break_column: String,
+        commit_metadata: Option<HashMap<String, String>>,
+        max_parallel_partitions: usize,
+        max_parallel_files: usize,
+        max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
+        probe_concurrency: usize,
+        read_batch_size: usize,
+        target_file_size: Option<usize>,
+        max_row_group_bytes: Option<usize>,
+        max_source_bytes: Option<usize>,
+        multipart_threshold: Option<usize>,
+        multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
+        read_ahead_row_groups: bool,
+    ) -> PyResult<HistoryUpsertStats> {
+        let _ = max_parallel_partitions;
+        let ingest_started = std::time::Instant::now();
+        let (schema, batches) = read_pyarrow(data)?;
+        let ingest_ms = ingest_started.elapsed().as_millis() as u64;
+
+        let opts = HistoryUpsertOptions {
+            key_columns,
+            order_column,
+            valid_from_column,
+            valid_to_column,
+            partition_column,
+            current_partition,
+            tie_break_column,
+            commit_metadata: commit_metadata.map(|m| {
+                m.into_iter()
+                    .map(|(k, v)| (k, Value::String(v)))
+                    .collect::<HashMap<String, Value>>()
+            }),
+            probe_concurrency,
+            max_parallel_files,
+            max_buffered_bytes,
+            max_fetch_bytes,
+            read_ahead_row_groups,
+            read_batch_size,
+            target_file_size,
+            max_row_group_bytes,
+            max_source_bytes,
+            limits: ProcessLimits::global().clone(),
+        };
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
+        let handle = &mut self.handle;
+        let stats = py
+            .detach(|| runtime().block_on(handle.history_upsert(batches, schema, opts, multipart)))
+            .map_err(to_py_err)?;
+        let mut stats: HistoryUpsertStats = stats.into();
+        stats.ingest_ms = ingest_ms;
+        Ok(stats)
+    }
+
+    /// A null-safe bucket id in `0..n` (`pyarrow.UInt32Array`) for every row of `data`,
+    /// from `key_columns` cast to this table's types. See the README.
+    fn key_buckets(
+        &mut self,
+        py: Python<'_>,
+        data: &Bound<'_, PyAny>,
+        key_columns: Vec<String>,
+        n: u32,
+    ) -> PyResult<Py<PyAny>> {
+        let (_, batches) = read_pyarrow(data)?;
+        let handle = &mut self.handle;
+        let buckets = py
+            .detach(|| handle.key_buckets(&batches, &key_columns, n))
+            .map_err(to_py_err)?;
+        Ok(buckets.to_data().to_pyarrow(py)?.unbind())
+    }
+
+    /// Compact small files the way `DeltaTable.optimize.compact` does, streaming each bin
+    /// one file and one byte-bounded batch at a time (see `deltalite_core::compact`).
+    ///
+    /// Bins are planned from the loaded log with no storage reads. A partition is
+    /// rewritten when its bins remove at least `min_partition_removable_files` more files
+    /// than they write (`1` = every partition with two neighbouring small files, as
+    /// delta-rs does). `partitions` limits the plan to those partition values.
+    /// `dry_run=True` only plans. `slot_budget_bytes` fits the decode and fetch budgets
+    /// and the in-flight output files into one memory slot by lowering
+    /// `max_parallel_bins`. Every bin lands in one OPTIMIZE commit unless
+    /// `max_bins_per_commit` is set. A concurrent commit that removed a file of a bin
+    /// drops that bin; its partition is planned again up to `max_replan_rounds` times.
+    ///
+    /// Returns a dict of deltalite stats plus the count keys delta-rs's `optimize` returns
+    /// (`numFilesAdded`, `numFilesRemoved`, `partitionsOptimized`, `numBatches`,
+    /// `totalConsideredFiles`, `totalFilesSkipped`).
+    #[pyo3(signature = (
+        *,
+        target_file_size = None,
+        max_parallel_bins = 2,
+        slot_budget_bytes = None,
+        max_buffered_bytes = 67108864,
+        max_fetch_bytes = 134217728,
+        read_batch_size = 8192,
+        decode_batch_bytes = 4194304,
+        max_decoded_file_bytes = 1073741824,
+        max_row_group_decoded_bytes = 134217728,
+        partitions = None,
+        min_partition_removable_files = 1,
+        max_bins_per_commit = None,
+        max_replan_rounds = 1,
+        commit_max_retries = 15,
+        commit_metadata = None,
+        dry_run = false,
+        multipart_threshold = None,
+        multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn compact(
+        &mut self,
+        py: Python<'_>,
+        target_file_size: Option<usize>,
+        max_parallel_bins: usize,
+        slot_budget_bytes: Option<usize>,
+        max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
+        read_batch_size: usize,
+        decode_batch_bytes: usize,
+        max_decoded_file_bytes: usize,
+        max_row_group_decoded_bytes: usize,
+        partitions: Option<Vec<String>>,
+        min_partition_removable_files: usize,
+        max_bins_per_commit: Option<usize>,
+        max_replan_rounds: usize,
+        commit_max_retries: usize,
+        commit_metadata: Option<HashMap<String, String>>,
+        dry_run: bool,
+        multipart_threshold: Option<usize>,
+        multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
+    ) -> PyResult<Py<PyAny>> {
+        let opts = deltalite_core::CompactOptions {
+            target_file_size,
+            max_parallel_bins,
+            slot_budget_bytes,
+            max_buffered_bytes,
+            max_fetch_bytes,
+            read_batch_size,
+            decode_batch_bytes,
+            max_decoded_file_bytes,
+            max_row_group_decoded_bytes,
+            partitions,
+            min_partition_removable_files,
+            max_bins_per_commit,
+            max_replan_rounds,
+            commit_max_retries,
+            commit_metadata: commit_metadata.map(|m| {
+                m.into_iter()
+                    .map(|(k, v)| (k, Value::String(v)))
+                    .collect::<HashMap<String, Value>>()
+            }),
+            dry_run,
+            limits: ProcessLimits::global().clone(),
+        };
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
+        let handle = &mut self.handle;
+        let s = py
+            .detach(|| runtime().block_on(handle.compact(opts, multipart)))
+            .map_err(to_py_err)?;
+        let d = PyDict::new(py);
+        d.set_item("files_considered", s.files_considered)?;
+        d.set_item("files_skipped", s.files_skipped)?;
+        d.set_item("partitions_compacted", s.partitions_compacted)?;
+        d.set_item("bins", s.bins)?;
+        d.set_item("files_removed", s.files_removed)?;
+        d.set_item("files_added", s.files_added)?;
+        d.set_item("bytes_removed", s.bytes_removed)?;
+        d.set_item("bytes_added", s.bytes_added)?;
+        d.set_item("rows_rewritten", s.rows_rewritten)?;
+        d.set_item("batches_read", s.batches_read)?;
+        d.set_item("parallel_bins", s.parallel_bins)?;
+        d.set_item("commits", s.commits)?;
+        d.set_item("commit_retries", s.commit_retries)?;
+        d.set_item("bins_dropped", s.bins_dropped)?;
+        d.set_item("replan_rounds", s.replan_rounds)?;
+        d.set_item("largest_bin_files", s.largest_bin_files)?;
+        d.set_item("plan_ms", s.plan_ms)?;
+        d.set_item("rewrite_ms", s.rewrite_ms)?;
+        d.set_item("commit_ms", s.commit_ms)?;
+        d.set_item("version", s.version)?;
+        d.set_item("dry_run", s.dry_run)?;
+        // The keys delta-rs's optimize returns, so a caller can log either result alike.
+        d.set_item("numFilesAdded", s.files_added)?;
+        d.set_item("numFilesRemoved", s.files_removed)?;
+        d.set_item("partitionsOptimized", s.partitions_compacted)?;
+        d.set_item("numBatches", s.batches_read)?;
+        d.set_item("totalConsideredFiles", s.files_considered)?;
+        d.set_item("totalFilesSkipped", s.files_skipped)?;
+        Ok(d.into_any().unbind())
+    }
+
+    /// Returns the keys delta-rs's `DeltaTable.restore` returns, plus the committed `version`.
+    #[pyo3(signature = (version, *, commit_metadata = None))]
+    fn restore(
+        &mut self,
+        py: Python<'_>,
+        version: u64,
+        commit_metadata: Option<HashMap<String, String>>,
+    ) -> PyResult<Py<PyAny>> {
+        let metadata = commit_metadata.map(|m| {
+            m.into_iter()
+                .map(|(k, v)| (k, Value::String(v)))
+                .collect::<HashMap<String, Value>>()
+        });
+        let handle = &mut self.handle;
+        let metrics = py
+            .detach(|| runtime().block_on(handle.restore(version, metadata)))
+            .map_err(to_py_err)?;
+        let d = PyDict::new(py);
+        d.set_item("numRemovedFile", metrics.num_removed_file)?;
+        d.set_item("numRestoredFile", metrics.num_restored_file)?;
+        d.set_item("version", self.handle.version())?;
+        Ok(d.into_any().unbind())
     }
 
     /// Commit metadata of the most recent `limit` commits, oldest first.
     fn history(&self, py: Python<'_>, limit: usize) -> PyResult<Py<PyAny>> {
-        let table = self.table.clone();
+        let table = self.handle.table().clone();
         let infos = py
             .detach(|| {
                 runtime().block_on(async move {
@@ -464,10 +945,69 @@ impl DeltaLiteTable {
     }
 }
 
+/// Set the byte cap of the process-wide probe cache, evicting entries down to it. `0`
+/// turns the cache off. The default comes from `DELTALITE_PROBE_CACHE_BYTES` (128 MiB
+/// when unset).
+#[pyfunction]
+fn set_probe_cache_max_bytes(max_bytes: usize) {
+    ProbeCache::global().set_max_bytes(max_bytes);
+}
+
+/// Drop every entry of the process-wide probe cache.
+#[pyfunction]
+fn clear_probe_cache() {
+    ProbeCache::global().clear();
+}
+
+/// Size and counters of the process-wide probe cache.
+#[pyfunction]
+fn probe_cache_stats(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let s = ProbeCache::global().stats();
+    let d = PyDict::new(py);
+    d.set_item("entries", s.entries)?;
+    d.set_item("bytes", s.bytes)?;
+    d.set_item("max_bytes", s.max_bytes)?;
+    d.set_item("hits", s.hits)?;
+    d.set_item("misses", s.misses)?;
+    d.set_item("inserts", s.inserts)?;
+    d.set_item("evictions", s.evictions)?;
+    Ok(d.into_any().unbind())
+}
+
+/// Free and total permits of each process-wide budget that every upsert and compaction
+/// of this process shares, and the acquisitions that wait for each:
+/// `{"partitions": {"available": .., "total": .., "waiters": ..}, "files": {..},
+/// "buffer_kb": {..}, "fetch_kb": {..}}`. The byte budgets count KiB. It takes no
+/// lock and does no I/O, so a caller can read it while a call of this process hangs.
+#[pyfunction]
+fn limits_snapshot(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let s = ProcessLimits::global().snapshot();
+    let d = PyDict::new(py);
+    for budget in [
+        Budget::Partitions,
+        Budget::Files,
+        Budget::Buffer,
+        Budget::Fetch,
+    ] {
+        let b = s.get(budget);
+        let entry = PyDict::new(py);
+        entry.set_item("available", b.available)?;
+        entry.set_item("total", b.total)?;
+        entry.set_item("waiters", b.waiters)?;
+        d.set_item(budget.name(), entry)?;
+    }
+    Ok(d.into_any().unbind())
+}
+
 #[pymodule]
 fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DeltaLiteTable>()?;
+    m.add_function(wrap_pyfunction!(set_probe_cache_max_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_probe_cache, m)?)?;
+    m.add_function(wrap_pyfunction!(probe_cache_stats, m)?)?;
+    m.add_function(wrap_pyfunction!(limits_snapshot, m)?)?;
     m.add_class::<UpsertStats>()?;
+    m.add_class::<HistoryUpsertStats>()?;
     m.add("DeltaLiteError", m.py().get_type::<DeltaLiteError>())?;
     m.add(
         "DeltaLiteCommitConflictError",
@@ -488,6 +1028,10 @@ fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "DeltaLiteSourceTooLargeError",
         m.py().get_type::<DeltaLiteSourceTooLargeError>(),
+    )?;
+    m.add(
+        "DeltaLiteTimeoutError",
+        m.py().get_type::<DeltaLiteTimeoutError>(),
     )?;
     Ok(())
 }

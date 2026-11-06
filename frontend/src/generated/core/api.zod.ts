@@ -10,6 +10,49 @@
 import * as zod from 'zod'
 
 /**
+ * Approve a device grant for one project. The token gets the requested scopes the person kept.
+ */
+export const oauthDeviceApproveCreateBodyUserCodeMax = 20
+
+export const OauthDeviceApproveCreateBody = /* @__PURE__ */ zod.object({
+    user_code: zod
+        .string()
+        .max(oauthDeviceApproveCreateBodyUserCodeMax)
+        .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
+    project_id: zod.number().describe('The project the token is scoped to.'),
+    scopes: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes.'
+        ),
+})
+
+/**
+ * Refuse a device grant, so the client's next poll gets `access_denied`.
+ */
+export const oauthDeviceDenyCreateBodyUserCodeMax = 20
+
+export const OauthDeviceDenyCreateBody = /* @__PURE__ */ zod.object({
+    user_code: zod
+        .string()
+        .max(oauthDeviceDenyCreateBodyUserCodeMax)
+        .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
+})
+
+/**
+ * Show what a device code asks for, so the person can check it before approving.
+ */
+export const oauthDeviceLookupCreateBodyUserCodeMax = 20
+
+export const OauthDeviceLookupCreateBody = /* @__PURE__ */ zod.object({
+    user_code: zod
+        .string()
+        .max(oauthDeviceLookupCreateBodyUserCodeMax)
+        .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
+})
+
+/**
  * Manage CIMD verification tokens for an organization.
  *
  * A partner embeds the plaintext token in their CIMD metadata document as
@@ -86,12 +129,6 @@ export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsCreateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsUpdateBodyDomainMax = 128
@@ -102,12 +139,6 @@ export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsUpdateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsUpdateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsPartialUpdateBodyDomainMax = 128
@@ -118,12 +149,6 @@ export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsPartialUpdateBodyDomainMax).optional(),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsPartialUpdateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsVerifyCreateBodyDomainMax = 128
@@ -134,15 +159,17 @@ export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsVerifyCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsVerifyCreateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const identityProviderConfigsCreateBodyNameMax = 255
+
+export const identityProviderConfigsCreateBodyOidcIssuerUrlOneMax = 512
+
+export const identityProviderConfigsCreateBodyOidcIssuerUrlTwoMax = 0
+
+export const identityProviderConfigsCreateBodyOidcClientIdMax = 512
+
+export const identityProviderConfigsCreateBodyOidcClientSecretMax = 4096
 
 export const identityProviderConfigsCreateBodySamlEntityIdMax = 512
 
@@ -160,6 +187,51 @@ export const IdentityProviderConfigsCreateBody = /* @__PURE__ */ zod.object({
         .max(identityProviderConfigsCreateBodyNameMax)
         .optional()
         .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod
+                .enum(['saml', 'oidc', 'scim', 'xaa'])
+                .describe('\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
+    oidc_issuer_url: zod
+        .union([
+            zod.url().max(identityProviderConfigsCreateBodyOidcIssuerUrlOneMax),
+            zod.string().max(identityProviderConfigsCreateBodyOidcIssuerUrlTwoMax),
+        ])
+        .optional()
+        .describe('HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document.'),
+    oidc_client_id: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyOidcClientIdMax)
+        .optional()
+        .describe("Client ID of the organization's OIDC application."),
+    oidc_client_secret: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyOidcClientSecretMax)
+        .optional()
+        .describe(
+            'OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.'
+        ),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsCreateBodySamlEntityIdMax)
@@ -195,6 +267,14 @@ export const IdentityProviderConfigsCreateBody = /* @__PURE__ */ zod.object({
 
 export const identityProviderConfigsUpdateBodyNameMax = 255
 
+export const identityProviderConfigsUpdateBodyOidcIssuerUrlOneMax = 512
+
+export const identityProviderConfigsUpdateBodyOidcIssuerUrlTwoMax = 0
+
+export const identityProviderConfigsUpdateBodyOidcClientIdMax = 512
+
+export const identityProviderConfigsUpdateBodyOidcClientSecretMax = 4096
+
 export const identityProviderConfigsUpdateBodySamlEntityIdMax = 512
 
 export const identityProviderConfigsUpdateBodySamlAcsUrlMax = 512
@@ -211,6 +291,51 @@ export const IdentityProviderConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .max(identityProviderConfigsUpdateBodyNameMax)
         .optional()
         .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod
+                .enum(['saml', 'oidc', 'scim', 'xaa'])
+                .describe('\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
+    oidc_issuer_url: zod
+        .union([
+            zod.url().max(identityProviderConfigsUpdateBodyOidcIssuerUrlOneMax),
+            zod.string().max(identityProviderConfigsUpdateBodyOidcIssuerUrlTwoMax),
+        ])
+        .optional()
+        .describe('HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document.'),
+    oidc_client_id: zod
+        .string()
+        .max(identityProviderConfigsUpdateBodyOidcClientIdMax)
+        .optional()
+        .describe("Client ID of the organization's OIDC application."),
+    oidc_client_secret: zod
+        .string()
+        .max(identityProviderConfigsUpdateBodyOidcClientSecretMax)
+        .optional()
+        .describe(
+            'OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.'
+        ),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsUpdateBodySamlEntityIdMax)
@@ -246,6 +371,14 @@ export const IdentityProviderConfigsUpdateBody = /* @__PURE__ */ zod.object({
 
 export const identityProviderConfigsPartialUpdateBodyNameMax = 255
 
+export const identityProviderConfigsPartialUpdateBodyOidcIssuerUrlOneMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyOidcIssuerUrlTwoMax = 0
+
+export const identityProviderConfigsPartialUpdateBodyOidcClientIdMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyOidcClientSecretMax = 4096
+
 export const identityProviderConfigsPartialUpdateBodySamlEntityIdMax = 512
 
 export const identityProviderConfigsPartialUpdateBodySamlAcsUrlMax = 512
@@ -262,6 +395,51 @@ export const IdentityProviderConfigsPartialUpdateBody = /* @__PURE__ */ zod.obje
         .max(identityProviderConfigsPartialUpdateBodyNameMax)
         .optional()
         .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod
+                .enum(['saml', 'oidc', 'scim', 'xaa'])
+                .describe('\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `oidc` - Oidc\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
+    oidc_issuer_url: zod
+        .union([
+            zod.url().max(identityProviderConfigsPartialUpdateBodyOidcIssuerUrlOneMax),
+            zod.string().max(identityProviderConfigsPartialUpdateBodyOidcIssuerUrlTwoMax),
+        ])
+        .optional()
+        .describe('HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document.'),
+    oidc_client_id: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyOidcClientIdMax)
+        .optional()
+        .describe("Client ID of the organization's OIDC application."),
+    oidc_client_secret: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyOidcClientSecretMax)
+        .optional()
+        .describe(
+            'OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.'
+        ),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsPartialUpdateBodySamlEntityIdMax)
@@ -299,6 +477,8 @@ export const invitesCreateBodyTargetEmailMax = 254
 
 export const invitesCreateBodyFirstNameMax = 30
 
+export const invitesCreateBodyMessageMax = 1000
+
 export const invitesCreateBodySendEmailDefault = true
 export const invitesCreateBodyCombinePendingInvitesDefault = false
 
@@ -309,7 +489,11 @@ export const InvitesCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
-    message: zod.string().nullish(),
+    message: zod
+        .string()
+        .max(invitesCreateBodyMessageMax)
+        .nullish()
+        .describe('Optional personal message in the invite email.'),
     private_project_access: zod
         .unknown()
         .optional()
@@ -322,6 +506,8 @@ export const invitesBulkCreateBodyTargetEmailMax = 254
 
 export const invitesBulkCreateBodyFirstNameMax = 30
 
+export const invitesBulkCreateBodyMessageMax = 1000
+
 export const invitesBulkCreateBodySendEmailDefault = true
 export const invitesBulkCreateBodyCombinePendingInvitesDefault = false
 
@@ -332,7 +518,11 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
-    message: zod.string().nullish(),
+    message: zod
+        .string()
+        .max(invitesBulkCreateBodyMessageMax)
+        .nullish()
+        .describe('Optional personal message in the invite email.'),
     private_project_access: zod
         .unknown()
         .optional()
@@ -365,6 +555,57 @@ export const InvitesDelegateCreateBody = /* @__PURE__ */ zod.object({
         .max(invitesDelegateCreateBodyStepAtDelegationMax)
         .optional()
         .describe('Onboarding step key the delegator was on when delegating, for analytics only.'),
+})
+
+/**
+ * Lock or unlock notification settings for members of this organization. Each affected member is notified in the app.
+ */
+export const notificationLocksBulkUpdateCreateBodyChangesItemScopeIdDefault = ``
+export const notificationLocksBulkUpdateCreateBodyChangesMax = 2000
+
+export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
+    changes: zod
+        .array(
+            zod.object({
+                user_id: zod.number().describe('Member this rule applies to.'),
+                setting: zod
+                    .enum([
+                        'approval_requested',
+                        'approval_resolved',
+                        'data_catalog_weekly_digest',
+                        'discussions_mentioned',
+                        'error_tracking_issue_assigned',
+                        'error_tracking_weekly_digest_project_enabled',
+                        'materialized_view_sync_failed',
+                        'materialized_view_sync_failed_daily',
+                        'materialized_view_sync_failed_immediate',
+                        'organization_member_join_email_disabled',
+                        'pipeline_notifications_disabled',
+                        'project_weekly_digest_disabled',
+                        'web_analytics_weekly_digest_project_enabled',
+                    ])
+                    .describe(
+                        '\* `approval_requested` - approval_requested\n\* `approval_resolved` - approval_resolved\n\* `data_catalog_weekly_digest` - data_catalog_weekly_digest\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                    )
+                    .describe(
+                        'Notification setting to lock or unlock.\n\n\* `approval_requested` - approval_requested\n\* `approval_resolved` - approval_resolved\n\* `data_catalog_weekly_digest` - data_catalog_weekly_digest\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                    ),
+                scope_id: zod
+                    .string()
+                    .default(notificationLocksBulkUpdateCreateBodyChangesItemScopeIdDefault)
+                    .describe(
+                        'Project ID for a setting that breaks down by project, organization ID for the member-join email, empty for a single switch.'
+                    ),
+                locked_value: zod
+                    .boolean()
+                    .nullable()
+                    .describe(
+                        'Value to enforce, or null to remove the rule and give the member their own setting back.'
+                    ),
+            })
+        )
+        .max(notificationLocksBulkUpdateCreateBodyChangesMax)
+        .describe('Only the entries you changed. Anything left out keeps whatever it had.'),
 })
 
 /**
@@ -447,16 +688,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Manage logs product configuration for this project's canonical environment.
- * Members can read; writing requires project admin, matching the admin-only
- * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
- * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
- */
-export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
@@ -488,6 +719,45 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
         password_required: zod.boolean().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Submit a one-column HogQL query for event deletion.
+ */
+export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
+    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
+    submission_id: zod.uuid().describe('Client-generated identifier that makes request submission idempotent.'),
+})
+
+/**
+ * Validate a one-column HogQL query and count the selected event UUIDs.
+ */
+export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object({
+    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
+})
 
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -639,7 +909,7 @@ export const FileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
 
 export const fileSystemShortcutCreateBodyTypeMax = 100
 
-export const fileSystemShortcutCreateBodyRefMax = 100
+export const fileSystemShortcutCreateBodyRefMax = 4000
 
 export const fileSystemShortcutCreateBodyOrderMin = -2147483648
 export const fileSystemShortcutCreateBodyOrderMax = 2147483647
@@ -670,7 +940,7 @@ export const FileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
 
 export const fileSystemShortcutUpdateBodyTypeMax = 100
 
-export const fileSystemShortcutUpdateBodyRefMax = 100
+export const fileSystemShortcutUpdateBodyRefMax = 4000
 
 export const fileSystemShortcutUpdateBodyOrderMin = -2147483648
 export const fileSystemShortcutUpdateBodyOrderMax = 2147483647
@@ -701,7 +971,7 @@ export const FileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
 
 export const fileSystemShortcutPartialUpdateBodyTypeMax = 100
 
-export const fileSystemShortcutPartialUpdateBodyRefMax = 100
+export const fileSystemShortcutPartialUpdateBodyRefMax = 4000
 
 export const fileSystemShortcutPartialUpdateBodyOrderMin = -2147483648
 export const fileSystemShortcutPartialUpdateBodyOrderMax = 2147483647
@@ -728,6 +998,51 @@ export const FileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(fileSystemShortcutPartialUpdateBodyOrderMax)
         .optional()
         .describe("Display order within the user's shortcut list, ascending."),
+})
+
+/**
+ * Create and delete several of the current user's shortcuts in one transaction, then return the full shortcut list in display order. Any unknown ID in `remove_ids` rejects the whole request.
+ */
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemTypeDefault = ``
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemTypeMax = 100
+
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemRefMax = 4000
+
+export const fileSystemShortcutBulkUpdateCreateBodyAddMax = 500
+
+export const fileSystemShortcutBulkUpdateCreateBodyRemoveIdsMax = 500
+
+export const FileSystemShortcutBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
+    add: zod
+        .array(
+            zod.object({
+                path: zod.string().describe('Display path of the shortcut in the sidebar.'),
+                type: zod
+                    .string()
+                    .max(fileSystemShortcutBulkUpdateCreateBodyAddItemTypeMax)
+                    .default(fileSystemShortcutBulkUpdateCreateBodyAddItemTypeDefault)
+                    .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+                ref: zod
+                    .string()
+                    .max(fileSystemShortcutBulkUpdateCreateBodyAddItemRefMax)
+                    .nullish()
+                    .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+                href: zod
+                    .string()
+                    .nullish()
+                    .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+            })
+        )
+        .max(fileSystemShortcutBulkUpdateCreateBodyAddMax)
+        .optional()
+        .describe(
+            'Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.'
+        ),
+    remove_ids: zod
+        .array(zod.uuid())
+        .max(fileSystemShortcutBulkUpdateCreateBodyRemoveIdsMax)
+        .optional()
+        .describe("IDs of the current user's shortcuts to delete."),
 })
 
 /**
@@ -883,6 +1198,10 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const propertyDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -894,7 +1213,10 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**
@@ -915,6 +1237,297 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
         password_required: zod.boolean().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Guess which filter picker tab a search belongs to, so the picker can suggest or promote it.
+ * @summary Classify a filter picker search
+ */
+export const taxonomicSearchIntentClassifyCreateBodyQueryMax = 200
+
+export const taxonomicSearchIntentClassifyCreateBodyActiveGroupTypeMax = 100
+
+export const taxonomicSearchIntentClassifyCreateBodyAvailableGroupTypesItemMax = 100
+
+export const taxonomicSearchIntentClassifyCreateBodyAvailableGroupTypesMax = 64
+
+export const taxonomicSearchIntentClassifyCreateBodySceneRegExp = new RegExp('^[A-Za-z0-9_-]{1,64}$')
+
+export const TaxonomicSearchIntentClassifyCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(taxonomicSearchIntentClassifyCreateBodyQueryMax)
+        .describe('What the person typed into the filter picker search box.'),
+    active_group_type: zod
+        .string()
+        .max(taxonomicSearchIntentClassifyCreateBodyActiveGroupTypeMax)
+        .describe('The picker tab that is open, as a taxonomic group type such as event_properties.'),
+    available_group_types: zod
+        .array(zod.string().max(taxonomicSearchIntentClassifyCreateBodyAvailableGroupTypesItemMax))
+        .max(taxonomicSearchIntentClassifyCreateBodyAvailableGroupTypesMax)
+        .describe('The taxonomic group types the picker shows. The answer is always one of these, or null.'),
+    scene: zod
+        .string()
+        .regex(taxonomicSearchIntentClassifyCreateBodySceneRegExp)
+        .nullish()
+        .describe('The id of the scene the picker is open in, such as Insight or Replay.'),
+})
+
+/**
+ * Send a WebRTC session description to another terminal in a Doom room.
+ */
+export const terminalNetplaySignalCreateBodyRoomRegExp = new RegExp('^[A-Z0-9]{4,12}$')
+export const terminalNetplaySignalCreateBodySenderRegExp = new RegExp('^[a-z0-9]{1,32}$')
+export const terminalNetplaySignalCreateBodyRecipientRegExp = new RegExp('^[a-z0-9]{1,32}$')
+export const terminalNetplaySignalCreateBodyDescriptionSdpMax = 16384
+
+export const TerminalNetplaySignalCreateBody = /* @__PURE__ */ zod.object({
+    room: zod.string().regex(terminalNetplaySignalCreateBodyRoomRegExp).describe('Room code shown by the game host.'),
+    sender: zod.string().regex(terminalNetplaySignalCreateBodySenderRegExp).describe('Peer that sent the description.'),
+    recipient: zod
+        .string()
+        .regex(terminalNetplaySignalCreateBodyRecipientRegExp)
+        .describe('Peer that receives the description.'),
+    description: zod.object({
+        type: zod
+            .enum(['offer', 'answer'])
+            .describe('\* `offer` - offer\n\* `answer` - answer')
+            .describe('WebRTC session description type.\n\n\* `offer` - offer\n\* `answer` - answer'),
+        sdp: zod
+            .string()
+            .max(terminalNetplaySignalCreateBodyDescriptionSdpMax)
+            .describe('WebRTC session description with ICE candidates.'),
+    }),
+})
+
+/**
+ *
+ *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
+ *
+ *     Uploaded media must be less than 4MB and decode as a PNG, JPEG, GIF, WebP, AVIF or BMP image — the formats
+ *     the download route will serve inline. Pass `purpose` to also add the image to a library, making it visible
+ *     to `GET ?purpose=...`.
+ *
+ */
+export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
+    image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
+    purpose: zod
+        .enum(['email', 'canvas', 'experiment'])
+        .optional()
+        .describe(
+            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).'
+        ),
+})
+
+/**
+ * Step 1 of the presigned upload flow: reserves a pending image and returns a presigned URL to POST the file to directly, bytes never pass through this API. Call complete_upload with the returned id once the upload finishes.
+ */
+export const uploadedMediaStartUploadCreateBodyNameMax = 1000
+
+export const uploadedMediaStartUploadCreateBodyPurposeMax = 100
+
+export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyNameMax)
+        .describe("The file's display name, e.g. 'logo.png'."),
+    purpose: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyPurposeMax)
+        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+})
+
+export const workloadTrustPoliciesCreateBodyNameMax = 200
+
+export const workloadTrustPoliciesCreateBodyIssuerMax = 255
+
+export const workloadTrustPoliciesCreateBodySubjectNameMax = 255
+
+export const workloadTrustPoliciesCreateBodySubjectMax = 255
+
+export const workloadTrustPoliciesCreateBodyScopesItemMax = 100
+
+export const WorkloadTrustPoliciesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(workloadTrustPoliciesCreateBodyNameMax).describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPoliciesCreateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPoliciesCreateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPoliciesCreateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPoliciesCreateBodyScopesItemMax))
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const workloadTrustPoliciesUpdateBodyNameMax = 200
+
+export const workloadTrustPoliciesUpdateBodyIssuerMax = 255
+
+export const workloadTrustPoliciesUpdateBodySubjectNameMax = 255
+
+export const workloadTrustPoliciesUpdateBodySubjectMax = 255
+
+export const workloadTrustPoliciesUpdateBodyScopesItemMax = 100
+
+export const WorkloadTrustPoliciesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(workloadTrustPoliciesUpdateBodyNameMax).describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPoliciesUpdateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPoliciesUpdateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPoliciesUpdateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPoliciesUpdateBodyScopesItemMax))
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const workloadTrustPoliciesPartialUpdateBodyNameMax = 200
+
+export const workloadTrustPoliciesPartialUpdateBodyIssuerMax = 255
+
+export const workloadTrustPoliciesPartialUpdateBodySubjectNameMax = 255
+
+export const workloadTrustPoliciesPartialUpdateBodySubjectMax = 255
+
+export const workloadTrustPoliciesPartialUpdateBodyScopesItemMax = 100
+
+export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodyIssuerMax)
+        .optional()
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodySubjectNameMax)
+        .optional()
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodySubjectMax)
+        .optional()
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPoliciesPartialUpdateBodyScopesItemMax))
+        .optional()
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const workloadTrustPolicyRequestsCreateBodyNameMax = 200
+
+export const workloadTrustPolicyRequestsCreateBodyIssuerMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodySubjectNameMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodySubjectMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodyScopesItemMax = 100
+
+export const WorkloadTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodyNameMax)
+        .describe('The name the policy gets once approved.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPolicyRequestsCreateBodyScopesItemMax))
+        .describe("The scopes the policy's tokens would carry."),
+})
+
+/**
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live. A legacy feature flags secure API key is matched through its migrated project secret API key row; it cannot be rotated automatically, so its project admins get an email to rotate it.
+ *
+ * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
+ * @summary Report and revoke a leaked PostHog API key or token
+ */
+export const revokeLeakedKeyCreateBodyTokenMax = 200
+
+export const RevokeLeakedKeyCreateBody = /* @__PURE__ */ zod.object({
+    token: zod
+        .string()
+        .max(revokeLeakedKeyCreateBodyTokenMax)
+        .describe(
+            'The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access\/refresh token to revoke.'
+        ),
+})
 
 /**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
@@ -1003,7 +1616,7 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1094,7 +1707,7 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1182,7 +1795,30 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
+        ),
+})
+
+/**
+ * Submit the `tokens` object of the `auth.json` that `codex login` wrote on the user's machine. PostHog refreshes the chain once to prove it works, stores the rotated tokens encrypted, and from then on refreshes them for the user's Codex cloud runs. Only the owning user can connect. No response carries a token.
+ * @summary Connect a ChatGPT account for Codex cloud tasks
+ */
+export const UsersIntegrationsCodexCreateBody = /* @__PURE__ */ zod.object({
+    tokens: zod
+        .object({
+            access_token: zod
+                .string()
+                .describe('The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`.'),
+            refresh_token: zod.string().describe('The single-use ChatGPT refresh token from the same `tokens` object.'),
+            id_token: zod
+                .string()
+                .nullish()
+                .describe(
+                    'The OpenID id token from the same `tokens` object, when present. Used to read the account email.'
+                ),
+        })
+        .describe(
+            'The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on.'
         ),
 })
 
@@ -1289,7 +1925,38 @@ export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Idempotent upsert: if the (user, token) pair already exists, `platform` and `last_seen_at` are refreshed. Otherwise a new row is created.
+ * Record that this user has seen one product intro.
+ *
+ * Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+ * recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+ * would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+ * here changes an account, an organization, or a profile.
+ *
+ * Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+ * other's key, which a read-modify-write of the whole map cannot avoid.
+ */
+export const usersProductIntroSeenPartialUpdateBodyProductKeyMax = 128
+
+export const usersProductIntroSeenPartialUpdateBodySeenDefault = true
+
+export const UsersProductIntroSeenPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        product_key: zod
+            .string()
+            .max(usersProductIntroSeenPartialUpdateBodyProductKeyMax)
+            .optional()
+            .describe(
+                'Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.'
+            ),
+        seen: zod
+            .boolean()
+            .default(usersProductIntroSeenPartialUpdateBodySeenDefault)
+            .describe('Whether the intro counts as seen. Send false to show it again.'),
+    })
+    .describe('Request body for PATCH \/api\/users\/@me\/product_intro_seen.')
+
+/**
+ * Register the device for the authenticated user, removing registrations for the same token belonging to other users on this instance. Re-registration refreshes `platform` and `last_seen_at`.
  * @summary Register a push notification token
  */
 export const usersPushTokensCreateBodyTokenMax = 512
@@ -1404,7 +2071,7 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1495,7 +2162,7 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1586,7 +2253,7 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1674,7 +2341,7 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1762,7 +2429,7 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1850,7 +2517,7 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1938,94 +2605,17 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
-export const usersVerifyEmailCreateBodyFirstNameMax = 150
-
-export const usersVerifyEmailCreateBodyLastNameMax = 150
-
-export const usersVerifyEmailCreateBodyEmailMax = 254
-
-export const usersVerifyEmailCreateBodyPasswordMax = 128
-
-export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
-    first_name: zod.string().max(usersVerifyEmailCreateBodyFirstNameMax).optional(),
-    last_name: zod.string().max(usersVerifyEmailCreateBodyLastNameMax).optional(),
-    email: zod.email().max(usersVerifyEmailCreateBodyEmailMax),
-    notification_settings: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project\/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.'
-        ),
-    anonymize_data: zod
-        .boolean()
-        .nullish()
-        .describe('Whether PostHog should anonymize events captured for this user when identified.'),
-    allow_impersonation: zod.boolean().nullish(),
-    toolbar_mode: zod
-        .union([
-            zod.enum(['disabled', 'toolbar']).describe('\* `disabled` - disabled\n\* `toolbar` - toolbar'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
-    set_current_organization: zod.string().optional(),
-    set_current_team: zod.string().optional(),
-    password: zod.string().max(usersVerifyEmailCreateBodyPasswordMax),
-    current_password: zod
-        .string()
-        .optional()
-        .describe(
-            "The user's current password. Required when changing `password` if the user already has a usable password set."
-        ),
-    events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().optional(),
-    theme_mode: zod
-        .union([
-            zod
-                .enum(['light', 'dark', 'system'])
-                .describe('\* `light` - Light\n\* `dark` - Dark\n\* `system` - System'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    hedgehog_config: zod.unknown().optional(),
-    allow_sidebar_suggestions: zod.boolean().nullish(),
-    shortcut_position: zod
-        .union([
-            zod
-                .enum(['above', 'below', 'hidden'])
-                .describe('\* `above` - Above\n\* `below` - Below\n\* `hidden` - Hidden'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    role_at_organization: zod
-        .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'student', 'other'])
-        .optional()
-        .describe(
-            '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
-        ),
-    passkeys_enabled_for_2fa: zod
-        .boolean()
-        .nullish()
-        .describe(
-            'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
-        ),
-    hide_mcp_hints: zod
-        .boolean()
-        .optional()
-        .describe(
-            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
-        ),
-    ui_configuration: zod
-        .unknown()
-        .optional()
-        .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
-        ),
-})
+export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod
+    .object({
+        uuid: zod.string().describe('UUID of the user whose email is being verified.'),
+        code: zod
+            .string()
+            .describe(
+                'The 6-digit verification code from the email. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
+            ),
+    })
+    .describe('Request body for POST \/api\/users\/verify_email\/.')

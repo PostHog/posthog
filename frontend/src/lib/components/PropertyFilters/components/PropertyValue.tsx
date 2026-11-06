@@ -36,6 +36,7 @@ import { toString } from 'lib/utils/strings'
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
+    PropValue,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
@@ -61,6 +62,27 @@ export interface PropertyValueProps {
     forceSingleSelect?: boolean
     validationError?: string | null
     showInlineValidationErrors?: boolean
+    /**
+     * Statically known value suggestions. When set, no values are fetched from the API,
+     * which matters for properties whose values can't be sourced from the events table
+     * (e.g. internal events, which are never ingested into ClickHouse).
+     */
+    staticValues?: PropValue[] | null
+    /** Override the globally inferred type for a polymorphic property key. */
+    propertyTypeOverride?: PropertyType
+}
+
+// A flag dependency matches a boolean result only when its value is the boolean itself. Evaluation compares
+// the string "false" with variant keys, so it never matches a boolean flag. The input returns the typed text
+// as a string when the user presses Enter before the true/false options load.
+function toFlagDependencyValue<T>(value: T): T | boolean {
+    if (value === 'true') {
+        return true
+    }
+    if (value === 'false') {
+        return false
+    }
+    return value
 }
 
 export function PropertyValue({
@@ -83,6 +105,8 @@ export function PropertyValue({
     forceSingleSelect = false,
     validationError = null,
     showInlineValidationErrors = false,
+    staticValues = null,
+    propertyTypeOverride,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -95,15 +119,13 @@ export function PropertyValue({
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
     const { isRefreshing } = useValues(propertyValueLogic({ propertyKey, type: propertyDefinitionType }))
 
-    const isDurationProperty =
-        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
+    const propertyType = propertyTypeOverride ?? describeProperty(propertyKey, propertyDefinitionType)
+    const isDurationProperty = propertyKey && propertyType === PropertyType.Duration
 
     // Assignee values come from membersLogic/rolesLogic, not from the property values API
-    const isAssigneeProperty =
-        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+    const isAssigneeProperty = propertyKey && propertyType === PropertyType.Assignee
 
-    const isNumericProperty =
-        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+    const isNumericProperty = propertyKey && propertyType === PropertyType.Numeric
     const shouldRestrictToNumericInput = isNumericProperty && !isOperatorRegex(operator)
 
     const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
@@ -131,13 +153,24 @@ export function PropertyValue({
     // options jumping around as the user types, we keep the initially loaded options
     // in state and show those first, then any new options based on user input after
     const [initialSuggestedValues, setInitialSuggestedValues] = useState<{
+        // The property these values were loaded for. The reset effect below runs after the render
+        // that changes `propertyKey`, so a reader must compare the key to know they are stale.
+        propertyKey: string
         set: Set<string>
         orderedKeys: string[]
-    }>({ set: new Set(), orderedKeys: [] })
+    }>({ propertyKey, set: new Set(), orderedKeys: [] })
     const currentSearchInput = useRef<string>('')
+    // Every value the suggestion list has offered for this property. A search replaces the
+    // loaded values, but the dropdown can still show the older list, so a value the user
+    // clicks is not always among the ones loaded now.
+    const offeredValues = useRef<Set<string>>(new Set())
 
+    const hasStaticValues = !!staticValues
     const load = useCallback(
         (newInput: string | undefined): void => {
+            if (hasStaticValues) {
+                return
+            }
             currentSearchInput.current = newInput || ''
             loadPropertyValues({
                 endpoint,
@@ -148,7 +181,7 @@ export function PropertyValue({
                 properties: [],
             })
         },
-        [loadPropertyValues, endpoint, propertyDefinitionType, propertyKey, eventNames]
+        [loadPropertyValues, endpoint, propertyDefinitionType, propertyKey, eventNames, hasStaticValues]
     )
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
@@ -204,28 +237,38 @@ export function PropertyValue({
             setInitialSuggestedValues((prev) => {
                 // Merge new keys into existing ones so that values already shown are never removed
                 // from under the user's cursor when a background refresh arrives with a different list.
-                const merged = [...prev.orderedKeys]
-                const existingSet = new Set(prev.orderedKeys)
+                // Values held for a different property are dropped instead of merged.
+                const isSameProperty = prev.propertyKey === propertyKey
+                const merged = isSameProperty ? [...prev.orderedKeys] : []
+                const existingSet = new Set(merged)
                 for (const key of newKeys) {
                     if (!existingSet.has(key)) {
                         merged.push(key)
                         existingSet.add(key)
                     }
                 }
-                return { set: existingSet, orderedKeys: merged }
+                return { propertyKey, set: existingSet, orderedKeys: merged }
             })
         }
-    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
+    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput, propertyKey])
 
-    // reset initial suggested values when propertyKey changes
+    // reset the suggested and offered values when propertyKey changes
     useEffect(() => {
-        setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
+        setInitialSuggestedValues((prev) =>
+            prev.propertyKey === propertyKey ? prev : { propertyKey, set: new Set(), orderedKeys: [] }
+        )
+        offeredValues.current = new Set()
     }, [propertyKey])
 
     // show suggested values first, then any other available options that aren't in the suggested list
     const displayOptions = useMemo(() => {
+        if (staticValues) {
+            return staticValues
+        }
         const options = propertyOptions?.values || []
-        if (initialSuggestedValues.set.size === 0) {
+        // Stale values must not become options, because the offered set below would then keep
+        // them and count them as suggestions of the new property.
+        if (initialSuggestedValues.propertyKey !== propertyKey || initialSuggestedValues.set.size === 0) {
             return options
         }
 
@@ -255,7 +298,13 @@ export function PropertyValue({
         }
 
         return [...suggestedOptions, ...otherOptions]
-    }, [propertyOptions?.values, initialSuggestedValues])
+    }, [propertyOptions?.values, initialSuggestedValues, staticValues, propertyKey])
+
+    useEffect(() => {
+        for (const option of displayOptions) {
+            offeredValues.current.add(toString(option.name))
+        }
+    }, [displayOptions, propertyKey])
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()
@@ -364,6 +413,7 @@ export function PropertyValue({
                 onChange={setValue}
                 max={10000}
                 isFixedDateMode
+                allowFutureRelativeDateOptions
                 dateOptions={[
                     {
                         key: 'Last 24 hours',
@@ -409,34 +459,40 @@ export function PropertyValue({
     // Disable comma splitting for user agent properties that contain commas in their values
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
 
-    const suggestionsLabel = PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
-        ? 'Suggested values (last 7 days)'
-        : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-          ? 'Suggested values'
-          : null
+    const suggestionsLabel = staticValues
+        ? staticValues.length > 0
+            ? 'Suggested values'
+            : null
+        : PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+          ? 'Suggested values (last 7 days)'
+          : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+            ? 'Suggested values'
+            : null
     const refreshDisabledReason =
         propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
     const titleNode = suggestionsLabel ? (
         <span className="flex justify-between items-center gap-4">
             {suggestionsLabel}
-            <LemonButton
-                size="xsmall"
-                icon={<IconRefresh />}
-                tooltip="Refresh values"
-                disabledReason={refreshDisabledReason}
-                onClick={() =>
-                    loadPropertyValues({
-                        endpoint,
-                        type: propertyDefinitionType,
-                        newInput: currentSearchInput.current || undefined,
-                        propertyKey,
-                        eventNames,
-                        properties: [],
-                        refresh: 'force_blocking',
-                    })
-                }
-                noPadding
-            />
+            {!staticValues && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconRefresh />}
+                    tooltip="Refresh values"
+                    disabledReason={refreshDisabledReason}
+                    onClick={() =>
+                        loadPropertyValues({
+                            endpoint,
+                            type: propertyDefinitionType,
+                            newInput: currentSearchInput.current || undefined,
+                            propertyKey,
+                            eventNames,
+                            properties: [],
+                            refresh: 'force_blocking',
+                        })
+                    }
+                    noPadding
+                />
+            )}
         </span>
     ) : undefined
 
@@ -445,11 +501,11 @@ export function PropertyValue({
             <LemonInputSelect
                 className={inputClassName}
                 data-attr="prop-val"
-                loading={propertyOptions?.status === 'loading' || isRefreshing}
+                loading={!staticValues && (propertyOptions?.status === 'loading' || isRefreshing)}
                 value={formattedValues}
                 mode={isMultiSelect ? 'multiple' : 'single'}
                 singleValueAsSnack
-                allowCustomValues={propertyOptions?.allowCustomValues ?? true}
+                allowCustomValues={staticValues ? true : (propertyOptions?.allowCustomValues ?? true)}
                 inputTransform={
                     shouldRestrictToNumericInput
                         ? (input: string) => {
@@ -460,12 +516,18 @@ export function PropertyValue({
                 }
                 onChange={(nextVal) => {
                     // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
-                    // doesn't silently break the filter — the snack display hides the space.
+                    // doesn't silently break the filter — the snack display hides the space. Only
+                    // what the user just typed or pasted is trimmed: a suggested value, and one
+                    // already committed, can end in a space, and flag evaluation matches exactly.
                     // Skip regex operators, where leading/trailing whitespace can be a meaningful
                     // part of the pattern (e.g. `^ foo`, `bar $`).
                     const trimmedVal = isOperatorRegex(operator)
                         ? nextVal
-                        : nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
+                        : nextVal.map((v) =>
+                              typeof v === 'string' && !offeredValues.current.has(v) && !formattedValues.includes(v)
+                                  ? v.trim()
+                                  : v
+                          )
                     const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
                         const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
@@ -479,7 +541,13 @@ export function PropertyValue({
                             had_search_input: currentSearchInput.current !== '',
                         })
                     }
-                    isMultiSelect ? setValue(trimmedVal) : setValue(trimmedVal[0])
+                    // A loaded option keeps its own type, so a variant named "true" or "false" stays a string.
+                    const typedVal = isFlagDependencyProperty
+                        ? trimmedVal.map((v) =>
+                              displayOptions.some((o) => o.name === v) ? v : toFlagDependencyValue(v)
+                          )
+                        : trimmedVal
+                    isMultiSelect ? setValue(typedVal) : setValue(typedVal[0])
                 }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}

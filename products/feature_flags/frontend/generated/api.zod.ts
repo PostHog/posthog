@@ -68,23 +68,96 @@ export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
- * Staff-only, unscoped read/write for TeamFeatureFlagsConfig (currently just
- * minimal_flag_called_events).
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
  *
- * Single-team writes only, by design: this setting is meant to be flipped one team at a time
- * after staff manually verify that team's SDK versions support the slim $feature_flag_called
- * event shape, unlike the cache tools' bulk rebuild/clear.
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode belongs to the
+ * organization, and only set_flag_evaluations_mode() writes it, for the organizations of the given
+ * teams. It uses the same helpers as the set_flag_evaluations_mode command, including the guard
+ * against lowering an organization, and it writes every organization of a request in one
+ * transaction.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
  *
  * Registered on the root router so it is not team-nested; staff act on teams they do not
  * belong to, same as staff_cache.py / staff_teams.py.
  */
+export const featureFlagsStaffTeamConfigSetCreateBodyMaxFeatureFlagsOverrideMax = 20000
+
 export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.object({
     team_id: zod.number().describe('Team id to update. Exactly one team per request.'),
     minimal_flag_called_events: zod
         .boolean()
+        .optional()
         .describe(
-            "New value for the team's minimal_flag_called_events setting. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape."
+            "New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape."
         ),
+    property_matching_version: zod
+        .union([zod.literal(1), zod.literal(2)])
+        .describe('\* `1` - Legacy\n\* `2` - Explicit')
+        .optional()
+        .describe(
+            "New property matching version for the team. Version 1 preserves legacy behavior. Version 2 uses explicit scalar and array equality. Only set version 2 after confirming that the team's local-evaluation SDK versions support it. Omit to leave it unchanged.\n\n\* `1` - Legacy\n\* `2` - Explicit"
+        ),
+    max_feature_flags_override: zod
+        .number()
+        .min(1)
+        .max(featureFlagsStaffTeamConfigSetCreateBodyMaxFeatureFlagsOverrideMax)
+        .nullish()
+        .describe(
+            'New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.'
+        ),
+})
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
+ *
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode belongs to the
+ * organization, and only set_flag_evaluations_mode() writes it, for the organizations of the given
+ * teams. It uses the same helpers as the set_flag_evaluations_mode command, including the guard
+ * against lowering an organization, and it writes every organization of a request in one
+ * transaction.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyTeamIdsMax = 50
+
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyAllowDowngradeDefault = false
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyDryRunDefault = false
+
+export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @__PURE__ */ zod.object({
+    flag_evaluations_mode: zod
+        .union([zod.literal(0), zod.literal(1), zod.literal(2)])
+        .describe(
+            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
+        ),
+    team_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyTeamIdsMax)
+        .describe(
+            'Teams whose organizations to move (max 50). The mode belongs to the organization, so the write moves every team of each organization that owns one of these teams.'
+        ),
+    allow_downgrade: zod
+        .boolean()
+        .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyAllowDowngradeDefault)
+        .describe(
+            'Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2.'
+        ),
+    dry_run: zod
+        .boolean()
+        .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyDryRunDefault)
+        .describe('Report what the write would change, and write nothing.'),
 })
 
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
@@ -147,23 +220,6 @@ export const OrganizationsProjectsEvaluationContextSuggestionsCreateBody = /* @_
 })
 
 /**
- * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
- *
- * POST hides the name; DELETE restores it. The underlying context row and any flags already
- * using it are never modified — this only controls what gets suggested.
- */
-export const environmentsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
-
-export const EnvironmentsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
-    context_name: zod
-        .string()
-        .max(environmentsEvaluationContextSuggestionsCreateBodyContextNameMax)
-        .describe(
-            "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
-        ),
-})
-
-/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
@@ -191,7 +247,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -200,7 +256,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         value: zod
                                             .unknown()
                                             .describe(
@@ -237,7 +295,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -246,7 +304,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['is_set', 'is_not_set'])
                                             .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
@@ -267,7 +327,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -276,7 +336,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
@@ -296,7 +358,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -305,24 +367,26 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum([
+                                                'semver_eq',
+                                                'semver_neq',
                                                 'semver_gt',
                                                 'semver_gte',
                                                 'semver_lt',
                                                 'semver_lte',
-                                                'semver_eq',
-                                                'semver_neq',
                                                 'semver_tilde',
                                                 'semver_caret',
                                                 'semver_wildcard',
                                             ])
                                             .describe(
-                                                '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             )
                                             .describe(
-                                                'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             ),
                                         value: zod.string().describe('Semantic version string.'),
                                     }),
@@ -333,7 +397,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -342,7 +406,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['icontains_multi', 'not_icontains_multi'])
                                             .describe(
@@ -368,7 +434,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['in', 'not_in'])
                                             .describe('\* `in` - in\n\* `not_in` - not_in')
@@ -378,6 +446,18 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         value: zod
                                             .unknown()
                                             .describe('Cohort comparison value (single or list, depending on usage).'),
+                                        cohort_deleted: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                            ),
+                                        cohort_missing: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                            ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -394,7 +474,9 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['flag_evaluates_to'])
                                             .describe('\* `flag_evaluates_to` - flag_evaluates_to')
@@ -533,7 +615,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
             ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -582,10 +663,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -595,9 +672,37 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
+export const featureFlagsPartialUpdateBodyAskRollbackReasonDefault = false
+export const featureFlagsPartialUpdateBodyRollbackReasonNoteMax = 1000
+
 export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
+export const featureFlagsPartialUpdateBodyVersionMin = 0
 
 export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    ask_rollback_reason: zod
+        .boolean()
+        .default(featureFlagsPartialUpdateBodyAskRollbackReasonDefault)
+        .describe(
+            "When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag."
+        ),
+    rollback_reason: zod
+        .union([
+            zod
+                .enum(['errors', 'metrics', 'planned', 'wrong_configuration', 'other'])
+                .describe(
+                    '\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.\n\n\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other"
+        ),
+    rollback_reason_note: zod
+        .string()
+        .max(featureFlagsPartialUpdateBodyRollbackReasonNoteMax)
+        .nullish()
+        .describe('A free-text note for `rollback_reason`. Requires `rollback_reason`.'),
     key: zod.string().optional().describe('Feature flag key.'),
     name: zod
         .string()
@@ -618,7 +723,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -627,7 +732,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         value: zod
                                             .unknown()
                                             .describe(
@@ -664,7 +771,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -673,7 +780,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['is_set', 'is_not_set'])
                                             .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
@@ -694,7 +803,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -703,7 +812,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                             .describe(
@@ -723,7 +834,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -732,24 +843,26 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum([
+                                                'semver_eq',
+                                                'semver_neq',
                                                 'semver_gt',
                                                 'semver_gte',
                                                 'semver_lt',
                                                 'semver_lte',
-                                                'semver_eq',
-                                                'semver_neq',
                                                 'semver_tilde',
                                                 'semver_caret',
                                                 'semver_wildcard',
                                             ])
                                             .describe(
-                                                '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             )
                                             .describe(
-                                                'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             ),
                                         value: zod.string().describe('Semantic version string.'),
                                     }),
@@ -760,7 +873,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                             .optional()
                                             .describe(
-                                                "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                                "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                             ),
                                         cohort_name: zod
                                             .string()
@@ -769,7 +882,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['icontains_multi', 'not_icontains_multi'])
                                             .describe(
@@ -795,7 +910,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['in', 'not_in'])
                                             .describe('\* `in` - in\n\* `not_in` - not_in')
@@ -805,6 +922,18 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         value: zod
                                             .unknown()
                                             .describe('Cohort comparison value (single or list, depending on usage).'),
+                                        cohort_deleted: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                            ),
+                                        cohort_missing: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                            ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -821,7 +950,9 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         group_type_index: zod
                                             .number()
                                             .nullish()
-                                            .describe('Group type index when using group-based filters.'),
+                                            .describe(
+                                                "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                            ),
                                         operator: zod
                                             .enum(['flag_evaluates_to'])
                                             .describe('\* `flag_evaluates_to` - flag_evaluates_to')
@@ -933,89 +1064,191 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
+    version: zod
+        .number()
+        .min(featureFlagsPartialUpdateBodyVersionMin)
+        .optional()
+        .describe(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it."
+        ),
 })
 
 /**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ * Start a read-only analysis of where the project's GitHub repository checks this flag.
  *
- * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ * An agent clones the repository, finds every check of the flag, and reports the code each outcome runs.
+ * It does not change code or the flag. Returns 400 when no repository can be chosen (see
+ * `code_analysis_target`), 403 when AI data processing is not approved or the request comes from a task
+ * sandbox, and 409 when an analysis is already running.
  */
-export const featureFlagsCreateStaticCohortForFlagCreateBodyKeyMax = 400
+export const featureFlagsAnalyzeCodeCreateBodyRepositoryMax = 255
 
-export const featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault = 0
+export const FeatureFlagsAnalyzeCodeCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(featureFlagsAnalyzeCodeCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to analyze, as `organization\/repository`. It must be connected to the project's GitHub integration. Omit it to use the repository the last analysis used, the environment's default flag cleanup repository, or the only connected repository."
+        ),
+})
 
-export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .optional()
-            .describe('contains the description for the flag (field name `name` is kept for backwards-compatibility)'),
-        key: zod.string().max(featureFlagsCreateStaticCohortForFlagCreateBodyKeyMax),
-        filters: zod.record(zod.string(), zod.unknown()).optional(),
-        deleted: zod.boolean().optional(),
-        active: zod.boolean().optional(),
-        archived: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
-            ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
-        version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
-        ensure_experience_continuity: zod.boolean().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
-        evaluation_contexts: zod.array(zod.unknown()).optional(),
-        analytics_dashboards: zod.array(zod.number()).optional(),
-        has_enriched_analytics: zod.boolean().nullish(),
-        creation_context: zod
-            .enum([
-                'feature_flags',
-                'experiments',
-                'surveys',
-                'early_access_features',
-                'web_experiments',
-                'product_tours',
-            ])
-            .describe(
-                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
-            )
-            .optional()
-            .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
-            ),
-        is_remote_configuration: zod.boolean().nullish(),
-        has_encrypted_payloads: zod.boolean().nullish(),
-        evaluation_runtime: zod
-            .union([
-                zod
-                    .enum(['server', 'client', 'all'])
-                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
-            ),
-        bucketing_identifier: zod
-            .union([
-                zod
-                    .enum(['distinct_id', 'device_id'])
-                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
-            ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
-        _create_in_folder: zod.string().optional(),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
+/**
+ * Disable a feature flag.
+ *
+ * Sets `active` to false and changes nothing else. Targeting, variants, payloads, tags and
+ * archived state are left as they are. Refused when other active flags depend on this one.
+ * An already-disabled flag is returned unchanged.
+ *
+ * A disabled flag stops evaluating for every consumer, including a linked experiment or a
+ * session replay setting. Read the full definition first to report that impact.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
+ */
+export const featureFlagsDisableCreateBodyVersionMin = 0
+
+export const FeatureFlagsDisableCreateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(featureFlagsDisableCreateBodyVersionMin)
+        .nullish()
+        .describe(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out."
+        ),
+})
+
+/**
+ * Enable a feature flag.
+ *
+ * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
+ * archived state are left as they are. An archived flag is refused: unarchive it first. A
+ * flag whose own flag dependencies are disabled or use an unsupported configuration
+ * format is also refused, as is a flag whose release conditions target a deleted cohort.
+ * An already-enabled flag is returned unchanged.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
+ */
+export const featureFlagsEnableCreateBodyVersionMin = 0
+
+export const FeatureFlagsEnableCreateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(featureFlagsEnableCreateBodyVersionMin)
+        .nullish()
+        .describe(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out."
+        ),
+})
+
+/**
+ * Open a draft pull request that removes this stale flag's checks from the code.
+ *
+ * An agent starts from the checks the latest code analysis found, keeps the code for one outcome, and
+ * opens the pull request in the repository the analysis read. It does not change the flag. Returns 400
+ * when the flag isn't stale, the analysis found no checks, or an outcome must be chosen (see
+ * `cleanup` on `code_analysis`), 403 when AI data processing is not approved or the request comes from a
+ * task sandbox, and 409 when a cleanup pull request is still being opened.
+ */
+export const featureFlagsOpenCleanupPrCreateBodyKeepOutcomeMax = 400
+
+export const FeatureFlagsOpenCleanupPrCreateBody = /* @__PURE__ */ zod.object({
+    keep_outcome: zod
+        .string()
+        .max(featureFlagsOpenCleanupPrCreateBodyKeepOutcomeMax)
+        .nullish()
+        .describe(
+            'Outcome whose code to keep: `enabled`, `disabled`, or a variant key from `cleanup.outcome_options`. Omit it to keep `cleanup.suggested_outcome`.'
+        ),
+})
+
+/**
+ * Serve a feature flag to every user.
+ *
+ * Adds a release condition with no property filters at 100% and keeps the existing
+ * conditions below it. Payloads, holdout and every other field are left as they are. On a
+ * boolean flag, removing the new condition restores the previous targeting. On a
+ * multivariate flag the variant distribution is rewritten as well, so removing the
+ * condition restores the audience but not the old split. A flag that already leads with
+ * such a condition gains no second one.
+ *
+ * This changes targeting only. A disabled flag still serves nobody, and a holdout is
+ * evaluated before release conditions, so users in one keep getting the holdout variant
+ * instead of the rollout. A flag gated on early access enrollment is refused, because that
+ * gate is evaluated before release conditions too and no targeting change gets past it.
+ *
+ * A multivariate flag needs `variant_key`, and every other flag rejects it. A release
+ * condition decides who the flag serves, not which variant they get, so rolling a
+ * multivariate flag out to everyone also gives the named variant 100% of the variant
+ * distribution and every other variant 0%. To serve everyone and keep the current split
+ * between variants, update the flag instead.
+ *
+ * Send the `version` your last read returned. A change to the flag after that version is
+ * refused with 409. Read the flag again and decide the rollout against its current
+ * definition.
+ */
+export const featureFlagsRollOutToEveryoneCreateBodyVersionMin = 0
+
+export const FeatureFlagsRollOutToEveryoneCreateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(featureFlagsRollOutToEveryoneCreateBodyVersionMin)
+        .nullable()
+        .describe(
+            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.'
+        ),
+    variant_key: zod
+        .string()
+        .nullish()
+        .describe(
+            'The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.'
+        ),
+})
+
+/**
+ * Set what percentage of one release condition's audience a feature flag is served to.
+ *
+ * Changes `rollout_percentage` on the release condition at `condition_index` and nothing
+ * else. The condition's property filters, every other condition, the variants, payloads,
+ * holdout and every remaining field are left as they are.
+ *
+ * Send the `version` your last read returned. A change to the flag after that version is
+ * refused with 409, because a condition index only names the condition you read. Read the
+ * flag again and decide the percentage against its current definition.
+ *
+ * On a multivariate flag this sets how many of the matching users get a variant at all. It
+ * does not change how the variants are split between them.
+ */
+export const featureFlagsSetReleaseConditionRolloutCreateBodyConditionIndexMin = 0
+
+export const featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMin = 0
+export const featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMax = 100
+
+export const featureFlagsSetReleaseConditionRolloutCreateBodyVersionMin = 0
+
+export const FeatureFlagsSetReleaseConditionRolloutCreateBody = /* @__PURE__ */ zod.object({
+    condition_index: zod
+        .number()
+        .min(featureFlagsSetReleaseConditionRolloutCreateBodyConditionIndexMin)
+        .describe(
+            'Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.'
+        ),
+    rollout_percentage: zod
+        .number()
+        .min(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMin)
+        .max(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMax)
+        .describe(
+            'Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.'
+        ),
+    version: zod
+        .number()
+        .min(featureFlagsSetReleaseConditionRolloutCreateBodyVersionMin)
+        .nullable()
+        .describe(
+            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.'
+        ),
+})
 
 /**
  * Test feature flag evaluation against a specific user at an optional point in time.
@@ -1051,8 +1284,9 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
  *
  * Returns same format as bulk_delete for UI compatibility.
  *
- * Uses bulk operations for efficiency: database updates are batched and cache
- * invalidation happens once at the end rather than per-flag.
+ * Config version 1 flags are deleted with batched updates, and cache invalidation
+ * runs once at the end. Config version 2 flags are deleted one at a time through
+ * ``update_flag``. Each one bumps its ``version`` and commits on its own.
  */
 
 export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
@@ -1062,9 +1296,16 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['true', 'false', 'STALE'])
                 .describe('\* `true` - true\n\* `false` - false\n\* `STALE` - STALE')
                 .optional()
-                .describe('Filter by active state.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE'),
+                .describe(
+                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE"
+                ),
             created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
-            search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
+            search: zod
+                .string()
+                .optional()
+                .describe(
+                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator.'
+                ),
             type: zod
                 .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])
                 .describe(
@@ -1147,6 +1388,10 @@ export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
  */
 export const featureFlagsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const featureFlagsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const featureFlagsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -1158,7 +1403,10 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(featureFlagsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(featureFlagsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**

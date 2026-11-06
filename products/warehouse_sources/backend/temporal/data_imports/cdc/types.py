@@ -1,31 +1,88 @@
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+import abc
+import json
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
 
 import pyarrow as pa
 
+from posthog.dataclasses import frozen
+
 ManagementMode = Literal["posthog", "self_managed"]
 
 
+class CDCJobInputsUnreadableError(Exception):
+    """`job_inputs` did not resolve to a mapping, so no CDC setting can be read from the source.
+
+    Non-retryable: the stored value replays identically on every read.
+
+    Raised instead of reading the settings as absent, because every setting would then fall back to
+    its default, the slot name included.
+    """
+
+
+def decode_job_inputs(job_inputs: Mapping[str, Any] | str | None) -> Mapping[str, Any]:
+    """`job_inputs` as a mapping, whichever shape it decrypted to.
+
+    EncryptedJSONField encrypts each leaf of a mapping separately, but it encrypts a value that was
+    assigned as a string whole. A source written that way therefore reads back as one JSON string
+    rather than a mapping, so decode it.
+    """
+    if not job_inputs:
+        return {}
+    if isinstance(job_inputs, Mapping):
+        return job_inputs
+    if not isinstance(job_inputs, str):
+        raise CDCJobInputsUnreadableError(f"job_inputs is a {type(job_inputs).__name__}, expected a mapping")
+    try:
+        decoded = json.loads(job_inputs)
+    except ValueError as e:
+        # Never name the value in the message: job_inputs holds the source's connection credentials.
+        raise CDCJobInputsUnreadableError("job_inputs is a string that does not decode as JSON") from e
+    if not isinstance(decoded, Mapping):
+        raise CDCJobInputsUnreadableError(f"job_inputs decoded to a {type(decoded).__name__}, expected a mapping")
+    return decoded
+
+
 @dataclass(frozen=True)
-class CDCConfig:
+class CDCConfig(abc.ABC):
     """Base class for engine-specific CDC configs returned by ``parse_cdc_config``.
 
-    Holds fields that apply to any change-stream engine (slot/publication-style
-    identifiers, lag thresholds, management policy). Engine adapters return their
-    own subclasses (e.g. ``PostgresCDCConfig``) and add engine-specific fields.
+    Holds fields that apply to any change-stream engine (lag thresholds, management
+    policy). Engine adapters return their own subclasses (e.g. ``PostgresCDCConfig``)
+    and add the engine's stream identifiers.
     """
 
     enabled: bool
-    slot_name: str
-    publication_name: str
     management_mode: ManagementMode
     lag_warning_threshold_mb: int
     lag_critical_threshold_mb: int
     auto_drop_slot: bool
+
+    @property
+    @abc.abstractmethod
+    def stream_name(self) -> str:
+        """Name of the engine-side change stream capture reads (PG: the replication slot), for logs
+        and messages. Empty when the source stores none, which capture refuses to read."""
+
+    @property
+    @abc.abstractmethod
+    def stream_resources_configured(self) -> bool:
+        """Whether the config names every engine-side resource PostHog may drop (PG: a slot and a
+        publication). The orphan sweeper skips a source without them."""
+
+
+@frozen
+class CDCLag:
+    """How far capture is behind the source's change stream."""
+
+    behind_bytes: int
+    # Engine cap on retained backlog in MB (PG: max_slot_wal_keep_size). None when unlimited or
+    # unknown. Past the cap the engine discards the stream itself, so safety nets act below it.
+    retention_cap_mb: int | None
 
 
 class CDCPosition(Protocol):
@@ -62,6 +119,10 @@ class ChangeEvent:
     # still hold their previous value — downstream must fill them from the last known
     # row state instead of writing NULL.
     omitted_columns: frozenset[str] = frozenset()
+    # Old values of the key columns an UPDATE changed, set only when the change stream sent the old
+    # value of every key column the reader was given (Postgres: the old key tuple, or the whole old
+    # row under REPLICA IDENTITY FULL). Capture uses them to remove the old key.
+    previous_values: Mapping[str, object] | None = None
 
 
 class CDCStreamReader(Protocol):
@@ -74,11 +135,29 @@ class CDCStreamReader(Protocol):
 
     def connect(self) -> None: ...
 
-    def read_changes(self) -> Iterator[ChangeEvent]: ...
+    def read_changes(
+        self, upto_nchanges: int | None = None, on_row: Callable[[], None] | None = None
+    ) -> Iterator[ChangeEvent]:
+        """Yield changes in commit order, stopping at the first transaction boundary at or past
+        ``upto_nchanges`` changes. ``on_row`` runs once per change consumed, including changes that
+        yield no event."""
+        ...
+
+    @property
+    def last_rows_consumed(self) -> int:
+        """Changes consumed by the last ``read_changes`` call. Reaching ``upto_nchanges`` means the
+        stream may hold more."""
+        ...
 
     def confirm_position(self, position: str) -> None: ...
 
+    def current_position(self) -> str | None: ...
+
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]: ...
+
+    def get_enforced_unique_keys(self, schema_name: str, table_names: list[str]) -> dict[str, list[frozenset[str]]]: ...
+
+    def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None: ...
 
     def get_decoder_key_columns(self, table_name: str) -> list[str]: ...
 
@@ -88,6 +167,9 @@ class CDCStreamReader(Protocol):
     def clear_truncated_tables(self) -> None: ...
 
     @property
-    def last_commit_end_lsn(self) -> str | None: ...
+    def last_commit_position(self) -> str | None:
+        """Serialized position just past the last transaction read, including one with no row
+        events (a TRUNCATE alone). Confirming it moves the stream past everything read."""
+        ...
 
     def close(self) -> None: ...

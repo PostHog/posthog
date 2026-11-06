@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   gateway: {} as Record<string, unknown>,
   setMemberAccess: vi.fn(),
+  setAgentAccess: vi.fn(),
   currentUser: null as { id: number } | null,
   refresh: vi.fn(),
 }));
@@ -50,7 +51,7 @@ vi.mock("@posthog/ui/features/mcp-gateway/hooks/useServiceAccounts", () => ({
   useServiceAccounts: () => ({
     accounts: [],
     accountsLoading: false,
-    setAccess: vi.fn(),
+    setAccess: mocks.setAgentAccess,
     setAccessPending: false,
   }),
 }));
@@ -72,6 +73,7 @@ const server = {
   docs_url: "",
   template_id: null,
   template_auth_type: null,
+  auth_type: null,
   tool_count: 0,
   connections: [
     {
@@ -190,31 +192,147 @@ describe("GatewayServerDetail", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows a single scope-aware bulk trio when a member views an agent scope", () => {
-    const serverWithAgent = {
+  it("offers one reconnect action when your connection needs reauth", async () => {
+    const user = userEvent.setup();
+    const expiredServer = {
       ...server,
-      agents: [
-        {
-          service_account_id: "sa-1",
-          name: "Deploy bot",
-          handle: "deploy-bot",
-          status: "active",
-          last_active_at: null,
-          granted_by: null,
-        },
-      ],
+      your_connection: {
+        installation_id: "installation-1",
+        is_enabled: true,
+        pending_oauth: false,
+        needs_reauth: true,
+        last_used_at: null,
+      },
     } as McpGatewayServer;
-    mocks.gateway.servers = [serverWithAgent];
+    mocks.gateway = { ...mocks.gateway, servers: [expiredServer] };
 
     render(
       <Theme>
         <GatewayServerDetail
+          serverId={expiredServer.id}
+          isAdmin={false}
+          canManageAgentAccess={false}
+          onNavigate={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByText("Reconnect required")).toBeInTheDocument();
+    const reconnectButtons = screen.getAllByRole("button", {
+      name: /Reconnect your account/,
+    });
+    expect(reconnectButtons).toHaveLength(1);
+    await user.click(reconnectButtons[0]);
+
+    expect(mocks.gateway.reconnect).toHaveBeenCalledWith({
+      installationId: "installation-1",
+      serverName: expiredServer.name,
+    });
+  });
+
+  it.each([
+    ["their own share", 7, true],
+    ["only a teammate's share", 8, false],
+  ])(
+    "offers the agent-scope bulk trio to a member viewing %s",
+    (_label, currentUserId, editable) => {
+      mocks.currentUser = { id: currentUserId };
+      const serverWithAgent = {
+        ...server,
+        your_connection: {
+          installation_id: "installation-1",
+          is_enabled: true,
+          pending_oauth: false,
+          needs_reauth: false,
+          last_used_at: null,
+        },
+        agents: [
+          {
+            service_account_id: "sa-1",
+            user: {
+              id: 7,
+              uuid: "user-7",
+              first_name: "Ada",
+              last_name: "Lovelace",
+              email: "ada@example.com",
+              hedgehog_config: null,
+            },
+            scope: "personal",
+            name: "Deploy bot",
+            handle: "deploy-bot",
+            status: "active",
+            last_active_at: null,
+            granted_by: null,
+          },
+        ],
+      } as McpGatewayServer;
+      mocks.gateway.servers = [serverWithAgent];
+
+      render(
+        <Theme>
+          <GatewayServerDetail
+            serverId={server.id}
+            initialScope={{
+              scopeType: "agent",
+              scopeServiceAccountId: "sa-1",
+              label: "Deploy bot",
+            }}
+            isAdmin={false}
+            canManageAgentAccess
+            onNavigate={vi.fn()}
+          />
+        </Theme>,
+      );
+
+      // The scope switcher carries the only bulk trio; the top-level one
+      // (label "Set all") must not render alongside it.
+      expect(screen.queryByText("Set all for Deploy bot") !== null).toBe(
+        editable,
+      );
+      expect(screen.queryByText("Set all")).not.toBeInTheDocument();
+    },
+  );
+
+  it("offers the grant scope toggle only on the caller's own agent share", async () => {
+    mocks.currentUser = { id: 7 };
+    const yourShare = {
+      service_account_id: "sa-1",
+      user: {
+        id: 7,
+        uuid: "user-7",
+        first_name: "Ada",
+        last_name: "Lovelace",
+        email: "ada@example.com",
+        hedgehog_config: null,
+      },
+      scope: "personal",
+      name: "Deploy bot",
+      handle: "deploy-bot",
+      status: "active",
+      last_active_at: null,
+      granted_by: null,
+    };
+    const teammateShare = {
+      ...yourShare,
+      user: {
+        ...yourShare.user,
+        id: 8,
+        uuid: "user-8",
+        first_name: "Grace",
+        last_name: "Hopper",
+        email: "grace@example.com",
+      },
+      scope: "team",
+    };
+    mocks.gateway.servers = [
+      { ...server, agents: [yourShare, teammateShare] } as McpGatewayServer,
+    ];
+
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <GatewayServerDetail
           serverId={server.id}
-          initialScope={{
-            scopeType: "agent",
-            scopeServiceAccountId: "sa-1",
-            label: "Deploy bot",
-          }}
           isAdmin={false}
           canManageAgentAccess
           onNavigate={vi.fn()}
@@ -222,10 +340,29 @@ describe("GatewayServerDetail", () => {
       </Theme>,
     );
 
-    // The scope switcher carries the only bulk trio; the top-level one
-    // (label "Set all") must not render alongside it.
-    expect(screen.getByText("Set all for Deploy bot")).toBeInTheDocument();
-    expect(screen.queryByText("Set all")).not.toBeInTheDocument();
+    // The teammate's team share is attributed but not editable, so exactly
+    // one toggle renders: the caller's own.
+    expect(
+      screen.getAllByRole("radiogroup", {
+        name: "Who can use this connection",
+      }),
+    ).toHaveLength(1);
+    expect(
+      screen.getByText(/shared to the team by Grace Hopper/),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("radio", { name: "Everyone in this project" }),
+    );
+
+    expect(mocks.setAgentAccess).toHaveBeenCalledWith({
+      accountId: "sa-1",
+      serverId: server.id,
+      enabled: true,
+      scope: "team",
+      successMessage:
+        "Linear shared with Deploy bot. Every Deploy bot run in this project can use your connection.",
+    });
   });
 
   it("collects credentials before connecting a custom server", async () => {

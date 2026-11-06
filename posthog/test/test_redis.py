@@ -120,6 +120,18 @@ class TestRedis(TestCase):
                 socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
             )
 
+    def test_sync_redis_client_can_use_shorter_socket_timeouts(self):
+        with patch("redis.from_url") as mock_from_url:
+            with self.settings(TEST=False, REDIS_URL="redis://mocked:6379"):
+                get_client(socket_timeout=1.0, socket_connect_timeout=1.0)
+
+            mock_from_url.assert_called_once_with(
+                "redis://mocked:6379",
+                db=0,
+                socket_timeout=1.0,
+                socket_connect_timeout=1.0,
+            )
+
     def test_same_loop_returns_cached_client_test_mode(self):
         """In test mode, calling get_async_client twice returns the same cached instance."""
 

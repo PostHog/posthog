@@ -1,0 +1,941 @@
+from typing import Any, Optional, cast
+from urllib.parse import quote
+
+from django.conf import settings
+from django.db import models, transaction
+from django.db.models import Q
+from django.utils import timezone
+
+from drf_spectacular.utils import extend_schema, extend_schema_field
+from rest_framework import serializers, status, viewsets
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.integrations import IntegrationKind, IntegrationRecord
+from posthog.integrations.fields import IntegrationReferenceField
+from posthog.models.integration import (
+    AWSRedshiftRoleBasedIntegration,
+    IntegrationError,
+    RedshiftIntegration,
+    RedshiftServerlessWorkgroup,
+    parse_redshift_host,
+    redshift_integration_from_record,
+)
+from posthog.permissions import is_service_auth
+
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
+from products.warehouse_sources.backend.facade.destination_health import resume_destination
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataDestination,
+    ExternalDataSchema,
+    ExternalDataSource,
+    ExternalDataSourceDestination,
+)
+from products.warehouse_sources.backend.presentation.destination_connect_tokens import (
+    ConnectTokenInvalidIntegration,
+    ConnectTokenNotFound,
+    ConnectTokenOtherUser,
+    DestinationConnectStatus,
+    DestinationConnectToken,
+    complete_connect_token,
+    issue_connect_token,
+    read_connect_token,
+)
+from products.warehouse_sources.backend.presentation.destination_connection_check import (
+    CONFIG_FAILURES,
+    DestinationConnectionCheckError,
+    check_postgres_destination,
+)
+from products.warehouse_sources.backend.presentation.destination_connection_testing import (
+    ConnectionTestRun,
+    DestinationConnectionTestStepStatus,
+    has_connection_test,
+    run_connection_test,
+    run_postgres_connection_test,
+)
+from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
+from products.warehouse_sources.backend.presentation.views.external_data_schema import resync_schema
+
+# Which Integration kind holds the credentials for each destination type. A type absent from
+# this map needs no integration; the PostHog warehouse is the only such type today.
+#
+# Only the types with a writer that has actually run against that warehouse appear here. The
+# `Type` enum carries the rest so the column and its data do not change as each one lands, but
+# a user cannot select one until its writer ships.
+DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
+    str(ExternalDataDestination.Type.POSTGRES): (str(IntegrationKind.POSTGRESQL),),
+    str(ExternalDataDestination.Type.REDSHIFT): (str(IntegrationKind.AWS_REDSHIFT),),
+    str(ExternalDataDestination.Type.SNOWFLAKE): (str(IntegrationKind.SNOWFLAKE),),
+    str(ExternalDataDestination.Type.DATABRICKS): (str(IntegrationKind.DATABRICKS),),
+    str(ExternalDataDestination.Type.S3): (
+        str(IntegrationKind.AWS_S3),
+        str(IntegrationKind.S3_COMPATIBLE),
+    ),
+    str(ExternalDataDestination.Type.BIGQUERY): (str(IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
+    str(ExternalDataDestination.Type.AZURE_BLOB): (str(IntegrationKind.AZURE_BLOB),),
+}
+
+# Types a user may create. The PostHog warehouse row is created by the sync itself the first
+# time a schema resolves to it, and every team has exactly one, so it is not user-managed.
+USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
+ALL_DESTINATION_INTEGRATION_KINDS = sorted({kind for kinds in DESTINATION_INTEGRATION_KINDS.values() for kind in kinds})
+
+# Built from `Type`, so the values cannot drift from the model. django-stubs only types the
+# literal form of the functional API.
+UserCreatableDestinationType = models.TextChoices(  # type: ignore[call-overload]
+    "UserCreatableDestinationType",
+    [
+        (choice.name, (choice.value, choice.label))
+        for choice in ExternalDataDestination.Type
+        if choice in USER_CREATABLE_TYPES
+    ],
+)
+
+
+class DestinationConnectLinkQuerySerializer(serializers.Serializer):
+    destination_type = serializers.ChoiceField(
+        choices=UserCreatableDestinationType.choices,
+        help_text="The destination type to connect, e.g. 'Snowflake' or 'S3'.",
+    )
+    integration_kind = serializers.CharField(
+        required=False,
+        help_text=(
+            "Which integration kind to connect when the type accepts more than one. Only S3 does: 'aws-s3' "
+            "(the default) or 's3-compatible' for MinIO, Wasabi, R2, GCS and similar."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        destination_type = attrs["destination_type"]
+        allowed_kinds = DESTINATION_INTEGRATION_KINDS[destination_type]
+        kind = attrs.get("integration_kind") or allowed_kinds[0]
+        if kind not in allowed_kinds:
+            expected = " or ".join(f"'{allowed}'" for allowed in allowed_kinds)
+            raise ValidationError(
+                {"integration_kind": f"A {destination_type} destination needs a {expected} integration."}
+            )
+        attrs["integration_kind"] = kind
+        return attrs
+
+
+class DestinationConnectLinkSerializer(serializers.Serializer):
+    destination_type = serializers.CharField(help_text="The destination type the link is for.")
+    integration_kind = serializers.CharField(help_text="The integration kind the page creates.")
+    connect_url = serializers.CharField(
+        help_text=(
+            "Full URL to share with the user. It opens the connection form for this integration kind in PostHog, "
+            "so credentials never pass through the agent or the chat."
+        )
+    )
+    connect_token = serializers.CharField(
+        help_text=(
+            "Secret token in the link. Pass it to the connect link status endpoint to learn which integration the "
+            "user saved. Only the user who asked for the link can read its status."
+        )
+    )
+    expires_at = serializers.DateTimeField(
+        help_text="When the link stops accepting a new connection. Ask for a new link after this time."
+    )
+    instructions = serializers.CharField(help_text="Next steps for the agent to relay to the user.")
+
+
+# The fields are not named `token`: PostHog reads a `token` parameter as a project API key.
+class DestinationConnectCompleteRequestSerializer(serializers.Serializer):
+    connect_token = serializers.CharField(max_length=128, help_text="The connect token from the connect link URL.")
+    integration_id = serializers.IntegerField(
+        min_value=1, help_text="Id of the integration the user saved on the connect page."
+    )
+
+
+class DestinationConnectStatusQuerySerializer(serializers.Serializer):
+    connect_token = serializers.CharField(max_length=128, help_text="The connect_token that the connect link returned.")
+
+
+class DestinationConnectStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=DestinationConnectStatus.choices,
+        help_text=(
+            "`pending`: the user has not saved a connection yet. `connected`: the user saved one, and "
+            "integration_id holds it. `expired`: the link is no longer valid, or it is unknown or belongs to "
+            "another user. Ask for a new link."
+        ),
+    )
+    integration_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="Id of the saved integration when status is `connected`. Pass it to destination create.",
+    )
+    integration_kind = serializers.CharField(
+        allow_null=True, help_text="The integration kind the link is for. Null when status is `expired`."
+    )
+    display_name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the saved connection, such as the account or host, to confirm with the user.",
+    )
+
+
+def _connect_status_payload(record: DestinationConnectToken | None) -> dict[str, Any]:
+    if record is None:
+        return {
+            "status": DestinationConnectStatus.EXPIRED,
+            "integration_id": None,
+            "integration_kind": None,
+            "display_name": None,
+        }
+    return {
+        "status": record.status(timezone.now()),
+        "integration_id": record.integration_id,
+        "integration_kind": record.integration_kind,
+        "display_name": record.display_name,
+    }
+
+
+class SyncedSourceSerializer(serializers.Serializer):
+    """One source that writes to a destination. Shape only — never used to deserialize."""
+
+    id = serializers.UUIDField(help_text="The source's id.")
+    name = serializers.CharField(help_text="How the source is labelled in the UI, prefix included.")
+    source_type = serializers.CharField(help_text="Which connector this is, e.g. Stripe or Postgres.")
+    via_table_override = serializers.BooleanField(
+        help_text="True when only some of the source's tables reach this destination, through their own override."
+    )
+
+
+class AddSourcesRequestSerializer(serializers.Serializer):
+    source_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=50,
+        help_text="IDs of up to 50 existing sources to attach to this destination.",
+    )
+    resync = serializers.BooleanField(
+        default=False, help_text="Start a full resync for each enabled table newly attached."
+    )
+
+
+class SkippedSourceSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the source that was not attached.")
+    name = serializers.CharField(help_text="Name of the source that was not attached.")
+    reason = serializers.CharField(help_text="Why the source was not attached.")
+
+
+class ResyncFailureSerializer(serializers.Serializer):
+    schema_id = serializers.UUIDField(help_text="ID of the table whose resync did not start.")
+    detail = serializers.CharField(help_text="Why the resync did not start.")
+
+
+class AddSourcesResponseSerializer(serializers.Serializer):
+    attached = SyncedSourceSerializer(many=True, help_text="Sources newly attached to this destination.")
+    skipped = SkippedSourceSerializer(many=True, help_text="Sources that were not attached and their reasons.")
+    tables_resyncing = serializers.IntegerField(help_text="Number of tables sent for a full resync.")
+    resync_failures = ResyncFailureSerializer(
+        many=True, help_text="Tables whose resync did not start. The sources are still attached."
+    )
+
+
+class DestinationConnectionTestStepSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="What this step checks.")
+    description = serializers.CharField(help_text="A longer explanation of what this step checks.")
+    status = serializers.ChoiceField(
+        choices=DestinationConnectionTestStepStatus.choices,
+        allow_null=True,
+        help_text="The result of the step. Null when the step did not run because an earlier step failed.",
+    )
+    message = serializers.CharField(
+        allow_null=True,
+        help_text="Why the step failed or was skipped. Null when the step passed or did not run.",
+    )
+
+
+class DestinationConnectionTestResponseSerializer(serializers.Serializer):
+    steps = DestinationConnectionTestStepSerializer(
+        many=True,
+        help_text="The steps of the connection test, in order. The test stops at the first failed step.",
+    )
+
+
+def _connection_test_response(run: ConnectionTestRun) -> dict[str, Any]:
+    return {
+        "steps": [
+            {
+                "name": step.name,
+                "description": step.description,
+                "status": step.result.status if step.result else None,
+                "message": step.result.message if step.result else None,
+            }
+            for step in run.steps
+        ]
+    }
+
+
+def _source_summary(source: ExternalDataSource, *, via_table_override: bool = False) -> dict[str, Any]:
+    # Prefix is part of how a person recognizes a source, since one connector can be added twice.
+    return {
+        "id": str(source.id),
+        "name": f"{source.prefix or ''}{source.source_type}".strip(),
+        "source_type": source.source_type,
+        "via_table_override": via_table_override,
+    }
+
+
+class ExternalDataDestinationSerializer(serializers.ModelSerializer):
+    type = serializers.ChoiceField(
+        choices=ExternalDataDestination.Type.choices,
+        help_text="Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.",
+    )
+    name = serializers.CharField(
+        max_length=400, help_text="Human-readable name shown when picking destinations for a source or table."
+    )
+    config = serializers.JSONField(
+        required=False,
+        help_text=(
+            "Settings for this destination: target database, schema or dataset, bucket and prefix, file "
+            "format. Credentials are not stored here. They live on the linked integration."
+        ),
+    )
+    integration = IntegrationReferenceField(
+        kinds=ALL_DESTINATION_INTEGRATION_KINDS,
+        required=False,
+        allow_null=True,
+        help_text="Integration holding this destination's credentials. Required for every type except the PostHog warehouse.",
+    )
+    is_posthog_warehouse = serializers.BooleanField(
+        read_only=True, help_text="Whether this is the managed PostHog warehouse destination."
+    )
+    status = serializers.ChoiceField(
+        choices=ExternalDataDestination.Status.choices,
+        read_only=True,
+        help_text=(
+            "Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the "
+            "last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. "
+            "Edit the destination to turn it back on."
+        ),
+    )
+    latest_error = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The last delivery error, safe to show to the user. Null if no delivery has failed.",
+    )
+    latest_error_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the last delivery error occurred."
+    )
+    synced_sources = serializers.SerializerMethodField(
+        help_text=(
+            "Sources whose tables sync to this destination, so you can see what a change or a "
+            "deletion would affect. Includes sources that reach it through a single table's "
+            "override, and — for the PostHog warehouse — sources that write there by default "
+            "because nothing else was configured."
+        )
+    )
+
+    @extend_schema_field(SyncedSourceSerializer(many=True))
+    def get_synced_sources(self, destination: ExternalDataDestination) -> list[dict[str, Any]]:
+        # Reads only prefetched relations plus lists built once per request, so a project with
+        # many destinations still costs a fixed number of queries.
+        #
+        # `accessible_source_ids` is None for service auth (nothing to restrict) and otherwise the
+        # set of sources the requesting user may see — the same check the source list endpoint
+        # itself enforces. Without it, a source with an explicit `none` grant would still leak its
+        # id/name/type here just because it shares a destination with a source the user can see.
+        accessible_source_ids = self.context.get("accessible_source_ids")
+
+        def _visible(source_id: Any) -> bool:
+            return accessible_source_ids is None or str(source_id) in accessible_source_ids
+
+        by_id: dict[str, dict[str, Any]] = {}
+        for link in destination.source_links.all():
+            if link.enabled and not link.source.deleted and _visible(link.source_id):
+                by_id[str(link.source_id)] = _source_summary(link.source)
+        for schema_link in destination.schema_links.all():
+            if (
+                schema_link.enabled
+                and not schema_link.schema.deleted
+                and not schema_link.schema.source.deleted
+                and _visible(schema_link.schema.source_id)
+            ):
+                by_id.setdefault(
+                    str(schema_link.schema.source_id),
+                    _source_summary(schema_link.schema.source, via_table_override=True),
+                )
+
+        if destination.is_posthog_warehouse:
+            for source in self.context.get("unconfigured_sources", []):
+                if _visible(source.id):
+                    by_id.setdefault(str(source.id), _source_summary(source))
+
+        return sorted(by_id.values(), key=lambda entry: entry["name"])
+
+    class Meta:
+        model = ExternalDataDestination
+        fields = [
+            "id",
+            "type",
+            "name",
+            "config",
+            "integration",
+            "is_posthog_warehouse",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "synced_sources",
+            "status",
+            "latest_error",
+            "latest_error_at",
+        ]
+        read_only_fields = [
+            "id",
+            "is_posthog_warehouse",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "synced_sources",
+            "status",
+            "latest_error",
+            "latest_error_at",
+        ]
+
+    # A JSONField takes any JSON value, and every check and `update()` read config as an object.
+    def validate_config(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValidationError('Config must be an object of settings, such as {"database": "analytics"}.')
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        destination_type = attrs.get("type", getattr(self.instance, "type", None))
+
+        if destination_type not in USER_CREATABLE_TYPES:
+            raise ValidationError(
+                {"type": "PostHog warehouse destinations are managed for you. Pick a different type."}
+            )
+
+        integration = attrs.get("integration", getattr(self.instance, "integration", None))
+        if integration is None:
+            raise ValidationError(
+                {
+                    "integration": (
+                        f"{destination_type} destinations need an integration. Add one with your "
+                        f"{destination_type} credentials, then try again."
+                    )
+                }
+            )
+
+        allowed_kinds = DESTINATION_INTEGRATION_KINDS[destination_type]
+        if integration.kind not in allowed_kinds:
+            expected = " or ".join(f"'{kind}'" for kind in allowed_kinds)
+            raise ValidationError({"integration": f"A {destination_type} destination needs a {expected} integration."})
+
+        if isinstance(attrs.get("config"), dict):
+            attrs["config"] = self._trim_names(str(destination_type), attrs["config"])
+
+        if self.instance is not None:
+            self._reject_retargeting(attrs)
+            if destination_type == ExternalDataDestination.Type.REDSHIFT and "config" in attrs:
+                # `update()` merges the PATCH onto the saved config, so check the port the next sync uses.
+                self._check_redshift_port({**(self.instance.config or {}), **attrs["config"]})
+        elif destination_type == ExternalDataDestination.Type.POSTGRES:
+            self._check_postgres_connection(integration, attrs.get("config"))
+        elif destination_type == ExternalDataDestination.Type.REDSHIFT:
+            self._check_redshift_target(integration, attrs.get("config"))
+        else:
+            self._run_connection_test(destination_type, integration, attrs.get("config"))
+
+        return attrs
+
+    # Only creation tests the connection. A destination keeps its server, database and schema
+    # after that (see `_reject_retargeting`), so there is nothing new to test on update.
+    def _check_postgres_connection(self, integration: IntegrationRecord, config: dict[str, Any] | None) -> None:
+        try:
+            check_postgres_destination(integration, config)
+        except DestinationConnectionCheckError as error:
+            field = "config" if error.failure in CONFIG_FAILURES else "integration"
+            raise ValidationError({field: str(error)})
+
+    # A username and password connection stores its own host. An IAM role or access key
+    # connection stores only the AWS identity, so the destination has to name the cluster.
+    def _check_redshift_target(self, integration: IntegrationRecord, config: dict[str, Any] | None) -> None:
+        try:
+            redshift = redshift_integration_from_record(integration)
+        except IntegrationError as error:
+            raise ValidationError({"integration": str(error)})
+        if isinstance(redshift, RedshiftIntegration):
+            self._require_complete_password_connection(integration)
+            return
+
+        config = config or {}
+        host = config.get("host")
+        if not isinstance(host, str) or not host:
+            raise ValidationError(
+                {"config": "Add the cluster endpoint as host. This connection uses AWS credentials, so it has no host."}
+            )
+        try:
+            server = parse_redshift_host(host)
+            if isinstance(redshift, AWSRedshiftRoleBasedIntegration) and isinstance(
+                server, RedshiftServerlessWorkgroup
+            ):
+                redshift.workgroup_arn_for(server)
+        except IntegrationError as error:
+            raise ValidationError({"config": str(error)})
+
+        self._check_redshift_port(config)
+
+    def _check_redshift_port(self, config: dict[str, Any]) -> None:
+        port = config.get("port")
+        if port is not None and (isinstance(port, bool) or not isinstance(port, int) or not 0 < port <= 65535):
+            raise ValidationError({"config": "Port must be a number from 1 to 65535."})
+
+    # A connection with no AWS identity signs in with a password, and the writer reads all of these
+    # fields on the first sync. Without this, a broken connection saves and only fails then.
+    REDSHIFT_PASSWORD_FIELDS: tuple[tuple[str, str, bool], ...] = (
+        ("host", "host", False),
+        ("port", "port", False),
+        ("user", "username", False),
+        ("password", "password", True),
+    )
+
+    def _require_complete_password_connection(self, integration: IntegrationRecord) -> None:
+        config = integration.config or {}
+        sensitive_config = integration.sensitive_config or {}
+        missing = [
+            label
+            for key, label, sensitive in self.REDSHIFT_PASSWORD_FIELDS
+            if not str((sensitive_config if sensitive else config).get(key) or "").strip()
+        ]
+        if missing:
+            listed = missing[0] if len(missing) == 1 else f"{', '.join(missing[:-1])} or {missing[-1]}"
+            raise ValidationError(
+                {"integration": f"This Redshift connection has no {listed}. Reconnect Redshift, then try again."}
+            )
+
+    def _run_connection_test(self, destination_type: str, integration: IntegrationRecord, config: Any) -> None:
+        run = run_connection_test(destination_type, integration, config)
+        if run is not None and run.failure is not None:
+            raise ValidationError({run.failure.field: str(run.failure)})
+
+    # Where a destination points is fixed once it exists. Everything already synced sits at the
+    # current server and schema, so repointing one strands that data and needs a full resync of
+    # every table that syncs there. A second destination is the supported way to write elsewhere.
+    # Config fields that pin where a destination's already-synced rows live, per type. Changing
+    # one points the destination somewhere else and strands everything written so far, so they
+    # are fixed after creation. Mirrors `retargetingKeys` on each definition in
+    # products/data_warehouse/frontend/shared/destinations/.
+    #
+    # Aliases are listed alongside the name the writer prefers: S3 reads `bucket` or
+    # `bucket_name` and Azure Blob reads `container_name` or `container`, so guarding only one
+    # spelling would let the other through.
+    RETARGETING_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
+        str(ExternalDataDestination.Type.POSTGRES): ("database", "schema"),
+        str(ExternalDataDestination.Type.REDSHIFT): ("host", "database", "schema"),
+        str(ExternalDataDestination.Type.SNOWFLAKE): ("database", "schema"),
+        str(ExternalDataDestination.Type.DATABRICKS): ("catalog", "schema"),
+        str(ExternalDataDestination.Type.BIGQUERY): ("dataset", "dataset_id", "project", "project_id"),
+        str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "prefix"),
+        str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container", "prefix"),
+    }
+
+    # Config fields whose names cannot hold a space, per type. A pasted bucket or container name
+    # often has a stray space at one end, and the store then rejects the name on every run. A
+    # prefix is not here: a prefix with a space is a valid key, and rows may already sit under it.
+    TRIMMED_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
+        str(ExternalDataDestination.Type.REDSHIFT): ("host",),
+        str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "region"),
+        str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container"),
+    }
+
+    def _trim_names(self, destination_type: str, config: dict[str, Any]) -> dict[str, Any]:
+        fields = self.TRIMMED_FIELDS_BY_TYPE.get(destination_type, ())
+        return {
+            key: value.strip() if key in fields and isinstance(value, str) else value for key, value in config.items()
+        }
+
+    def _reject_retargeting(self, attrs: dict[str, Any]) -> None:
+        assert self.instance is not None
+        if "integration" in attrs and attrs["integration"] != self.instance.integration:
+            raise ValidationError(
+                {
+                    "integration": (
+                        "A destination keeps the connection it was created with. Add a second "
+                        "destination for the other server."
+                    )
+                }
+            )
+
+        if "config" not in attrs:
+            return
+
+        destination_type = attrs.get("type", getattr(self.instance, "type", None))
+        # A name saved with a stray space never worked, so the trimmed name is the same target.
+        current = self._trim_names(str(destination_type), self.instance.config or {})
+        incoming = attrs["config"] or {}
+        for field in self.RETARGETING_FIELDS_BY_TYPE.get(str(destination_type), ()):
+            if field in incoming and incoming[field] != current.get(field):
+                label = field.replace("_", " ")
+                raise ValidationError(
+                    {
+                        "config": (
+                            f"A destination keeps the {label} it was created with. Add a second "
+                            f"destination for the other {label}."
+                        )
+                    }
+                )
+
+    def create(self, validated_data: dict[str, Any]) -> ExternalDataDestination:
+        request = self.context["request"]
+        return ExternalDataDestination.objects.for_team(self.context["get_team"]().pk).create(
+            team_id=self.context["get_team"]().pk,
+            created_by=request.user,
+            **validated_data,
+        )
+
+    def update(self, instance: ExternalDataDestination, validated_data: dict[str, Any]) -> ExternalDataDestination:
+        # `config` is a single JSON blob, so a PATCH that includes it replaces the whole thing.
+        # A caller that means to change one key (say `compression`) without repeating every other
+        # key would otherwise silently drop `database`/`schema` and strand already-synced rows,
+        # the exact outcome `_reject_retargeting` exists to prevent. Merging onto the current
+        # config keeps every field `_reject_retargeting` did not see change.
+        if "config" in validated_data:
+            current = instance.config or {}
+            validated_data["config"] = {**current, **validated_data["config"]}
+        return super().update(instance, validated_data)
+
+
+class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """Manage where warehouse sources write their synced rows.
+
+    A destination can be attached to several sources, or to a single table on a source.
+    Credentials come from an integration, so one connection can be reused across syncs.
+    """
+
+    scope_object = "external_data_source"
+    # `ExternalDataDestination` has no `model_to_resource` mapping, so object-level RBAC
+    # (`check_access_level_for_object`) is a no-op for it and every request would otherwise
+    # fall through to "has specific access to *any* external_data_source object", letting a
+    # user with narrow write access to one source manage every destination on the team. A
+    # destination is shared across sources and tables rather than owned by one of them, so
+    # there is no single object to check specific access against here; require resource-level
+    # access to `external_data_source` instead.
+    requires_resource_level_access = True
+    # Token auth rejects any action missing from these lists.
+    scope_object_read_actions = ["list", "retrieve", "connect_link", "connect_link_status"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "add_sources",
+        "test_connection",
+        "connect_link_complete",
+    ]
+    # `.unscoped()` is import-safe (the fail-closed manager raises on `.all()` without team
+    # context); the mixin scopes every request by team_id.
+    queryset = ExternalDataDestination.objects.unscoped().all()
+    serializer_class = ExternalDataDestinationSerializer
+    ordering = "name"
+
+    def safely_get_queryset(self, queryset: Any) -> Any:
+        # Prefetched so `synced_sources` reads relations already in memory: two extra queries for
+        # the whole page rather than two per destination.
+        if self.action != "add_sources":
+            queryset = queryset.exclude(deleted=True)
+        return (
+            queryset.filter(team_id=self.team_id)
+            .prefetch_related("source_links__source", "schema_links__schema__source")
+            .order_by(self.ordering)
+        )
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # A source with no links of its own writes to the PostHog warehouse. Resolved once per
+        # request rather than per destination, and only when the warehouse can appear in the
+        # response at all.
+        context["unconfigured_sources"] = self._unconfigured_sources()
+        context["accessible_source_ids"] = self._accessible_source_ids()
+        return context
+
+    def _accessible_source_ids(self) -> Optional[set[str]]:
+        # None means "don't restrict": service auth acts on behalf of the system, not a project
+        # member, so there is no per-source grant to check.
+        if is_service_auth(self.request):
+            return None
+        accessible = self.user_access_control.filter_queryset_by_access_level(
+            ExternalDataSource.objects.filter(team_id=self.team_id).exclude(deleted=True),
+            resource="external_data_source",
+        )
+        return {str(source_id) for source_id in accessible.values_list("id", flat=True)}
+
+    def _unconfigured_sources(self) -> list[ExternalDataSource]:
+        return list(
+            ExternalDataSource.objects.filter(team_id=self.team_id)
+            .exclude(deleted=True)
+            .exclude(destination_links__enabled=True)
+            .exclude(schemas__destination_links__enabled=True)
+            .distinct()
+        )
+
+    def _request_user_id(self) -> int:
+        user_id = self.request.user.pk
+        if user_id is None:
+            raise NotAuthenticated()
+        return user_id
+
+    def _assert_can_mutate(self, instance: ExternalDataDestination) -> None:
+        """Per-table gate for changing or deleting a shared destination.
+
+        `requires_resource_level_access` only proves editor access to *some* source; a
+        destination is wired to every table on each source it's linked to (directly, or
+        through a schema-level override), and a table can be locked below that resource-level
+        grant. Changing the destination's integration/config, or deleting it outright, reroutes
+        every one of those tables' next sync, so this mirrors
+        `ExternalDataSourceViewSet._assert_can_write_schemas` — the same gate a source-level
+        destination change goes through — rather than trusting the coarser resource check alone.
+        """
+        if is_service_auth(self.request):
+            return
+
+        source_ids = {link.source_id for link in instance.source_links.all()}
+        direct_schema_ids = {link.schema_id for link in instance.schema_links.all()}
+        schemas = list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id)
+            .filter(Q(source_id__in=source_ids) | Q(id__in=direct_schema_ids))
+            .select_related("table")
+        )
+
+        uac = self.user_access_control
+        for schema in schemas:
+            level = uac.get_user_access_level(schema.table or schema.source)
+            if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                raise PermissionDenied("You do not have editor access to every table wired to this destination.")
+
+    @validated_request(
+        query_serializer=DestinationConnectLinkQuerySerializer,
+        responses={200: DestinationConnectLinkSerializer},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def connect_link(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Return a secure browser link where the user connects the credentials for a destination.
+
+        The page saves an integration and does not create the destination, so secrets never pass
+        through the agent. The link carries a connect token. The agent reads the saved integration's id
+        with the token from the connect link status endpoint, then creates the destination with it.
+        """
+        destination_type = request.validated_query_data["destination_type"]
+        kind = request.validated_query_data["integration_kind"]
+        connect = issue_connect_token(team_id=self.team_id, user_id=self._request_user_id(), integration_kind=kind)
+        target_check = (
+            "Creating the destination tests the connection, so a wrong target fails at that step."
+            if has_connection_test(destination_type)
+            else f"Nothing tests a {destination_type} target before the first sync, so confirm it with the user "
+            "before creating the destination."
+        )
+        data = {
+            "destination_type": destination_type,
+            "integration_kind": kind,
+            "connect_url": (
+                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect-destination"
+                f"?kind={quote(kind)}&token={quote(connect.token)}"
+            ),
+            "connect_token": connect.token,
+            "expires_at": connect.expires_at,
+            "instructions": (
+                f"Share this link with the user. They enter their {destination_type} credentials directly in "
+                "PostHog. Never ask them to paste passwords, keys or tokens into the chat. The page saves the "
+                "connection as an integration. It does not create the destination. The user must open the link "
+                "while logged in to PostHog as the same user this session acts as. After you share the link, call "
+                "external-data-destinations-connect-link-status with this connect_token every few seconds until "
+                "status is 'connected' or 'expired'. When it is 'connected', confirm display_name with the user. "
+                "Then call external-data-destinations-create with "
+                f"type='{destination_type}', a name, the integration_id from the status, and the target config that "
+                f"tool lists for {destination_type}. {target_check} When it is 'expired', ask for a new link."
+            ),
+        }
+        return Response(DestinationConnectLinkSerializer(data).data)
+
+    @validated_request(
+        request_serializer=DestinationConnectCompleteRequestSerializer,
+        responses={200: DestinationConnectStatusSerializer},
+    )
+    @action(methods=["POST"], detail=False, pagination_class=None)
+    def connect_link_complete(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Report the integration the user saved on the connect page, so the agent that sent them can read it.
+
+        The connect page calls this. Repeating the call with the same integration is safe.
+        """
+        try:
+            record = complete_connect_token(
+                team_id=self.team_id,
+                user_id=self._request_user_id(),
+                token=request.validated_data["connect_token"],
+                integration_id=request.validated_data["integration_id"],
+            )
+        except ConnectTokenNotFound:
+            raise NotFound("This connect link is unknown or has expired.")
+        except ConnectTokenOtherUser:
+            raise PermissionDenied("This connect link was created for another user.")
+        except ConnectTokenInvalidIntegration as error:
+            raise ValidationError({"integration_id": str(error)})
+        return Response(DestinationConnectStatusSerializer(_connect_status_payload(record)).data)
+
+    @validated_request(
+        query_serializer=DestinationConnectStatusQuerySerializer,
+        responses={200: DestinationConnectStatusSerializer},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def connect_link_status(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Return whether the user saved a connection through a connect link, and which integration it is.
+
+        Never returns credentials or integration config.
+        """
+        record = read_connect_token(
+            team_id=self.team_id, user_id=self._request_user_id(), token=request.validated_query_data["connect_token"]
+        )
+        return Response(DestinationConnectStatusSerializer(_connect_status_payload(record)).data)
+
+    @extend_schema(request=AddSourcesRequestSerializer, responses={200: AddSourcesResponseSerializer})
+    @action(methods=["POST"], detail=True)
+    def add_sources(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        destination: ExternalDataDestination = self.get_object()
+        if destination.deleted:
+            raise ValidationError({"destination": "This destination was deleted."})
+
+        serializer = AddSourcesRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        source_ids = serializer.validated_data["source_ids"]
+        team_id = self.team_id
+        sources = list(ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids).exclude(deleted=True))
+        by_id = {str(source.id): source for source in sources}
+        missing = {str(source_id) for source_id in source_ids} - by_id.keys()
+        if missing:
+            raise ValidationError({"source_ids": f"Unknown sources: {', '.join(sorted(missing))}"})
+        # Mirrors the source and schema viewsets, which reject writes to sources PostHog manages.
+        if any(source.is_system_managed for source in sources):
+            raise PermissionDenied("Sources managed by PostHog cannot be changed through this API.")
+        # Reject before attaching anything, so a billing pause never leaves links without a resync.
+        if serializer.validated_data["resync"] and is_any_external_data_schema_paused(team_id):
+            raise ValidationError(
+                {"resync": "Monthly sync limit reached. Please increase your billing limit to resume syncing."}
+            )
+
+        self._assert_can_mutate(destination)
+        if not is_service_auth(request):
+            for source in sources:
+                level = self.user_access_control.get_user_access_level(source)
+                if level is None or not access_level_satisfied_for_resource("external_data_source", level, "editor"):
+                    raise PermissionDenied("You do not have editor access to every selected source.")
+            schemas = (
+                ExternalDataSchema.objects.filter(team_id=team_id, source_id__in=source_ids)
+                .exclude(deleted=True)
+                .select_related("table", "source")
+            )
+            for schema in schemas:
+                level = self.user_access_control.get_user_access_level(schema.table or schema.source)
+                if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                    raise PermissionDenied("You do not have editor access to every table in these sources.")
+
+        attached: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        attached_sources: list[ExternalDataSource] = []
+        for source_id in dict.fromkeys(str(source_id) for source_id in source_ids):
+            source = by_id[source_id]
+            reason: str | None = None
+            with transaction.atomic():
+                ExternalDataSource.objects.select_for_update(of=("self",)).get(pk=source.id, team_id=team_id)
+                links = ExternalDataSourceDestination.objects.for_team(team_id).filter(source=source)
+                if links.filter(destination=destination).exists():
+                    reason = "Already attached."
+                elif links.filter(enabled=True).count() >= MAX_DESTINATIONS_PER_LINK:
+                    reason = f"Source already has {MAX_DESTINATIONS_PER_LINK} enabled destinations."
+                else:
+                    ExternalDataSourceDestination.objects.for_team(team_id).create(
+                        team_id=team_id, source=source, destination=destination
+                    )
+            if reason:
+                skipped.append({"id": source_id, "name": _source_summary(source)["name"], "reason": reason})
+            else:
+                attached.append(_source_summary(source))
+                attached_sources.append(source)
+
+        tables_resyncing = 0
+        resync_failures: list[dict[str, str]] = []
+        if serializer.validated_data["resync"]:
+            for source in attached_sources:
+                for schema in ExternalDataSchema.objects.filter(
+                    team_id=team_id, source=source, should_sync=True, deleted=False
+                ):
+                    # The links are already committed, so report a table that fails to start instead of
+                    # erroring: a retry would skip these sources as already attached.
+                    try:
+                        result = resync_schema(schema)
+                    except ValidationError as e:
+                        resync_failures.append({"schema_id": str(schema.id), "detail": str(e.detail)})
+                        continue
+                    if result.status_code != status.HTTP_200_OK:
+                        resync_failures.append({"schema_id": str(schema.id), "detail": str(result.data)})
+                        continue
+                    tables_resyncing += 1
+
+        return Response(
+            AddSourcesResponseSerializer(
+                {
+                    "attached": attached,
+                    "skipped": skipped,
+                    "tables_resyncing": tables_resyncing,
+                    "resync_failures": resync_failures,
+                }
+            ).data
+        )
+
+    @extend_schema(request=None, responses={200: DestinationConnectionTestResponseSerializer})
+    @action(methods=["POST"], detail=True)
+    def test_connection(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Test the credentials and target of an existing destination, and return the result of each step."""
+        destination: ExternalDataDestination = self.get_object()
+        integration = destination.integration
+        if destination.is_posthog_warehouse or integration is None:
+            raise ValidationError(
+                {"type": "The PostHog warehouse is managed for you, so it has no connection to test."}
+            )
+
+        if destination.type == ExternalDataDestination.Type.POSTGRES:
+            run: ConnectionTestRun | None = run_postgres_connection_test(integration, destination.config)
+        else:
+            run = run_connection_test(destination.type, integration, destination.config)
+        if run is None:
+            raise ValidationError({"type": f"Connection tests are not available for {destination.type} destinations."})
+
+        return Response(DestinationConnectionTestResponseSerializer(_connection_test_response(run)).data)
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        # `.instance` is `Any | None` on the base serializer type, but `update`/`partial_update`
+        # always construct this viewset's serializer with the existing instance to update.
+        self._assert_can_mutate(cast(ExternalDataDestination, serializer.instance))
+        super().perform_update(serializer)
+        # An edit is how a user says they fixed the destination, so the next sync tries it again.
+        destination = cast(ExternalDataDestination, serializer.instance)
+        # Reload under the destination lock: a delivery can pause it after this request reads it.
+        resume_destination(destination)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Soft-delete, and detach it from everything that syncs to it.
+
+        Runs already in flight keep their own snapshot of the destination, so deleting one
+        never strands a run part-way through. The next run of each affected table resolves
+        without it.
+        """
+        instance = self.get_object()
+        if instance.is_posthog_warehouse:
+            raise ValidationError({"type": "The PostHog warehouse destination cannot be deleted."})
+        self._assert_can_mutate(instance)
+
+        # One edit, so one transaction: detaching without the soft delete leaves a live
+        # destination nothing points at, and the reverse leaves links to a deleted one.
+        with transaction.atomic():
+            instance.source_links.all().delete()
+            instance.schema_links.all().delete()
+            instance.deleted = True
+            instance.save(update_fields=["deleted", "updated_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)

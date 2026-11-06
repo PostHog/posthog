@@ -1,15 +1,14 @@
 import abc
 import threading
+from collections.abc import Iterator
 from typing import IO, Any, Optional, Union
 from urllib.parse import urlparse
 
 from django.conf import settings
 
 import structlog
-from boto3 import client
-from botocore.client import Config
-from botocore.exceptions import ClientError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -31,6 +30,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        pass
+
+    @abc.abstractmethod
     def get_presigned_url(
         self,
         bucket: str,
@@ -48,7 +51,18 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def get_presigned_put(
+        self, bucket: str, file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+    ) -> Optional[str]:
+        pass
+
+    @abc.abstractmethod
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
+        pass
+
+    @abc.abstractmethod
+    def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
+        """Yield every key under the prefix, one listing page at a time. Raises ObjectStorageError on any failure."""
         pass
 
     @abc.abstractmethod
@@ -106,6 +120,9 @@ class UnavailableStorage(ObjectStorageClient):
     def head_object(self, bucket: str, file_key: str):
         return None
 
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        raise ObjectStorageError("object storage is unavailable")
+
     def get_presigned_url(
         self,
         bucket: str,
@@ -121,8 +138,17 @@ class UnavailableStorage(ObjectStorageClient):
     ) -> Optional[dict]:
         pass
 
+    def get_presigned_put(
+        self, bucket: str, file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+    ) -> Optional[str]:
+        pass
+
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         pass
+
+    def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
+        # This raises instead of yielding nothing, because an empty listing tells the caller that the prefix holds no keys.
+        raise ObjectStorageError("object storage is unavailable")
 
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         return None
@@ -177,6 +203,24 @@ class ObjectStorage(ObjectStorageClient):
             logger.warn("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
             return None
 
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+        try:
+            return self.aws_client.head_object(Bucket=bucket, Key=file_key)
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if error_code in {"404", "NoSuchKey", "NotFound"} or status_code == 404:
+                return None
+            logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("head_object failed") from e
+        except Exception as e:
+            logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("head_object failed") from e
+
     def get_presigned_url(
         self,
         bucket: str,
@@ -214,16 +258,33 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
+    def get_presigned_put(
+        self, bucket: str, file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+    ) -> Optional[str]:
+        try:
+            params: dict[str, Any] = {"Bucket": bucket, "Key": file_key}
+            if content_length is not None:
+                # Signing `content-length` puts it in the SigV4 canonical request, so storage
+                # refuses a body of any other size. It is exact, not a range like a POST policy's
+                # `content-length-range`, so the caller must know the byte count up front.
+                params["ContentLength"] = content_length
+            return self.presigned_client.generate_presigned_url(
+                ClientMethod="put_object",
+                Params=params,
+                ExpiresIn=expiration,
+                HttpMethod="PUT",
+            )
+        except Exception as e:
+            logger.exception("object_storage.get_presigned_put_failed", file_name=file_key, error=e)
+            capture_exception(e)
+            return None
+
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         try:
             s3_response = self.aws_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
             if s3_response.get("Contents"):
                 return [obj["Key"] for obj in s3_response["Contents"]]
             else:
-                capture_exception(
-                    Exception("object_storage.no_contents_found_list_objects_in_bucket"),
-                    {"bucket": bucket, "prefix": prefix},
-                )
                 logger.info("object_storage.no_contents_found_list_objects_in_bucket", bucket=bucket, prefix=prefix)
                 return None
         except Exception as e:
@@ -235,6 +296,19 @@ class ObjectStorage(ObjectStorageClient):
             )
             capture_exception(e)
             return None
+
+    def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
+        pages = self.aws_client.get_paginator("list_objects_v2").paginate(
+            Bucket=bucket, Prefix=prefix, PaginationConfig={"PageSize": page_size}
+        )
+        try:
+            for page in pages:
+                for obj in page.get("Contents", []):
+                    yield obj["Key"]
+        except Exception as e:
+            logger.exception("object_storage.iter_keys_failed", bucket=bucket, prefix=prefix, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("list failed") from e
 
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         object_bytes = self.read_bytes(bucket, key, missing_ok=missing_ok)
@@ -248,6 +322,8 @@ class ObjectStorage(ObjectStorageClient):
         return None if result is None else result[0]
 
     def read_object(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[tuple[bytes, Optional[str]]]:
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         s3_response = {}
         try:
             s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
@@ -430,9 +506,18 @@ def object_storage_client() -> ObjectStorageClient:
     if not settings.OBJECT_STORAGE_ENABLED:
         _client = UnavailableStorage()
     elif isinstance(_client, UnavailableStorage):
+        # boto3/botocore are imported at call time: this module is on the django.setup() path
+        # (hypercache -> group_type_mapping) and the SDK costs ~40ms that non-S3 processes never need.
+        from boto3 import client  # noqa: PLC0415 — keeps the heavy dep off the import path
+        from botocore.client import Config  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         s3_config = Config(
             signature_version="s3v4",
             connect_timeout=1,
+            # Bounds socket inactivity, not total transfer time, so slow-but-flowing large
+            # objects still complete; the botocore default leaves callers blocked for 60s
+            # when the store accepts a connection but stops sending bytes.
+            read_timeout=5,
             retries={"max_attempts": 1},
         )
         aws_client = client(
@@ -531,8 +616,14 @@ def read_object(
     return object_storage_client().read_object(bucket, file_name, missing_ok=missing_ok)
 
 
-def list_objects(prefix: str) -> Optional[list[str]]:
-    return object_storage_client().list_objects(bucket=settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+def list_objects(prefix: str, bucket: str | None = None) -> Optional[list[str]]:
+    return object_storage_client().list_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+
+
+def iter_keys(prefix: str, bucket: str | None = None, *, page_size: int = 1000) -> Iterator[str]:
+    return object_storage_client().iter_keys(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix, page_size=page_size
+    )
 
 
 def copy_objects(source_prefix: str, target_prefix: str) -> int:
@@ -559,9 +650,10 @@ def get_presigned_url(
     expiration: int = 3600,
     content_type: Optional[str] = None,
     content_disposition: Optional[str] = None,
+    bucket: str | None = None,
 ) -> Optional[str]:
     return object_storage_client().get_presigned_url(
-        bucket=settings.OBJECT_STORAGE_BUCKET,
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
         file_key=file_key,
         expiration=expiration,
         content_type=content_type,
@@ -575,6 +667,15 @@ def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3
     )
 
 
+def get_presigned_put(file_key: str, content_length: Optional[int] = None, expiration: int = 3600) -> Optional[str]:
+    return object_storage_client().get_presigned_put(
+        bucket=settings.OBJECT_STORAGE_BUCKET,
+        file_key=file_key,
+        content_length=content_length,
+        expiration=expiration,
+    )
+
+
 _accelerated_presigned_client: Optional[Any] = None
 _accelerated_client_lock = threading.Lock()
 
@@ -584,6 +685,9 @@ def _get_accelerated_presigned_client() -> Optional[Any]:
     if _accelerated_presigned_client is None and settings.OBJECT_STORAGE_TRANSFER_ACCELERATION:
         with _accelerated_client_lock:
             if _accelerated_presigned_client is None:
+                from boto3 import client  # noqa: PLC0415 — keeps the heavy dep off the import path
+                from botocore.client import Config  # noqa: PLC0415 — keeps the heavy dep off the import path
+
                 s3_config = Config(
                     signature_version="s3v4",
                     connect_timeout=1,
@@ -600,21 +704,93 @@ def _get_accelerated_presigned_client() -> Optional[Any]:
     return _accelerated_presigned_client
 
 
-def get_accelerated_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3600) -> Optional[dict]:
+@frozen
+class PresignedPostPair:
+    """Presigned POSTs for one upload.
+
+    The primary targets the transfer-acceleration endpoint when it is configured and
+    presigning succeeds, and the fallback then targets the standard endpoint, for
+    clients whose network blocks the accelerate domain. Otherwise the primary is a
+    standard-endpoint POST and the fallback is None.
+    """
+
+    primary: Optional[dict]
+    fallback: Optional[dict]
+
+
+@frozen
+class PresignedPutPair:
+    """Presigned PUTs for one upload.
+
+    Mirrors ``PresignedPostPair``: the primary targets the transfer-acceleration endpoint when
+    it is configured and presigning succeeds, and the fallback then targets the standard
+    endpoint. Unlike a POST policy, a PUT carries no ``content-length-range``, so a caller that
+    needs the size enforced passes ``content_length`` and storage signs that exact value.
+
+    Cloudflare R2 and other S3-compatible stores implement presigned PUT but not presigned POST,
+    so this is the only upload form that works everywhere.
+    """
+
+    primary: Optional[str]
+    fallback: Optional[str]
+
+
+def get_presigned_post_pair(file_key: str, conditions: list[Any], expiration: int = 3600) -> PresignedPostPair:
     accelerated = _get_accelerated_presigned_client()
     if accelerated:
         try:
-            return accelerated.generate_presigned_post(
+            primary = accelerated.generate_presigned_post(
                 settings.OBJECT_STORAGE_BUCKET, file_key, Conditions=conditions, ExpiresIn=expiration
+            )
+            return PresignedPostPair(
+                primary=primary,
+                fallback=get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration),
             )
         except Exception as e:
             logger.exception("object_storage.get_accelerated_presigned_post_failed", file_name=file_key, error=e)
             capture_exception(e)
-    return get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration)
+    return PresignedPostPair(
+        primary=get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration),
+        fallback=None,
+    )
+
+
+def get_presigned_put_pair(
+    file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+) -> PresignedPutPair:
+    accelerated = _get_accelerated_presigned_client()
+    if accelerated:
+        try:
+            params: dict[str, Any] = {"Bucket": settings.OBJECT_STORAGE_BUCKET, "Key": file_key}
+            if content_length is not None:
+                params["ContentLength"] = content_length
+            primary = accelerated.generate_presigned_url(
+                ClientMethod="put_object",
+                Params=params,
+                ExpiresIn=expiration,
+                HttpMethod="PUT",
+            )
+            return PresignedPutPair(
+                primary=primary,
+                fallback=get_presigned_put(file_key=file_key, content_length=content_length, expiration=expiration),
+            )
+        except Exception as e:
+            logger.exception("object_storage.get_accelerated_presigned_put_failed", file_name=file_key, error=e)
+            capture_exception(e)
+    return PresignedPutPair(
+        primary=get_presigned_put(file_key=file_key, content_length=content_length, expiration=expiration),
+        fallback=None,
+    )
 
 
 def head_object(file_key: str, bucket: str | None = None) -> Optional[dict]:
     return object_storage_client().head_object(file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET)
+
+
+def head_object_strict(file_key: str, bucket: str | None = None) -> Optional[dict]:
+    return object_storage_client().head_object_strict(
+        file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET
+    )
 
 
 def health_check() -> bool:

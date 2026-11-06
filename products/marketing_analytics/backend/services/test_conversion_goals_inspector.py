@@ -8,8 +8,9 @@ from django.utils import timezone
 
 from posthog.schema import DateRange
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import acreate_action, create_action
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
+    UtmSplitCounts,
     explain_conversion_goal,
     list_conversion_goals,
 )
@@ -79,8 +80,12 @@ class _InspectorMixin(APIBaseTest):
 
         self.mocks["config"].return_value = ([], 90, "last_touch")
         self.mocks["alias_map"].return_value = dict(canonical_source_aliases())
-        self.mocks["event_count"].return_value = (0, 0, 0, 0)
-        self.mocks["action_count"].return_value = (0, 0, 0, 0)
+        self.mocks["event_count"].return_value = UtmSplitCounts(
+            total=0, integrated=0, without_utm=0, unmatched_with_utm=0
+        )
+        self.mocks["action_count"].return_value = UtmSplitCounts(
+            total=0, integrated=0, without_utm=0, unmatched_with_utm=0
+        )
         self.mocks["dw_count"].return_value = (0, None)
         self.mocks["resolve_action"].return_value = (None, None)
 
@@ -97,7 +102,9 @@ class TestListConversionGoals(_InspectorMixin):
     async def test_events_node_goal_summarized_with_split(self):
         self.mocks["config"].return_value = ([_events_goal("purchase")], 60, "first_touch")
         # 200 total: 80 integrated, 70 events without utm_source, 50 with unmatched utm_source
-        self.mocks["event_count"].return_value = (200, 80, 70, 50)
+        self.mocks["event_count"].return_value = UtmSplitCounts(
+            total=200, integrated=80, without_utm=70, unmatched_with_utm=50
+        )
 
         response = await list_conversion_goals(self.team)
 
@@ -105,7 +112,7 @@ class TestListConversionGoals(_InspectorMixin):
         assert response.attribution_mode == "first_touch"
         assert len(response.goals) == 1
         goal = response.goals[0]
-        assert goal.id == "purchase"
+        assert goal.conversion_goal_id == "purchase"
         assert goal.kind == "EventsNode"
         assert goal.target_label == "purchase"
         assert goal.last_30d_count == 200
@@ -119,7 +126,9 @@ class TestListConversionGoals(_InspectorMixin):
     @pytest.mark.asyncio
     async def test_events_node_with_null_event_uses_all_events_label(self):
         self.mocks["config"].return_value = ([_events_goal("any", event=None)], 90, "last_touch")
-        self.mocks["event_count"].return_value = (10, 0, 10, 0)
+        self.mocks["event_count"].return_value = UtmSplitCounts(
+            total=10, integrated=0, without_utm=10, unmatched_with_utm=0
+        )
 
         response = await list_conversion_goals(self.team)
         assert response.goals[0].target_label == "(all events)"
@@ -147,7 +156,9 @@ class TestListConversionGoals(_InspectorMixin):
         action_mock.name = "Demo booked"
         self.mocks["config"].return_value = ([_actions_goal("cg_demos", action_id=42)], 90, "last_touch")
         self.mocks["resolve_action"].return_value = (action_mock, None)
-        self.mocks["action_count"].return_value = (10, 10, 0, 0)
+        self.mocks["action_count"].return_value = UtmSplitCounts(
+            total=10, integrated=10, without_utm=0, unmatched_with_utm=0
+        )
 
         response = await list_conversion_goals(self.team)
 
@@ -155,7 +166,7 @@ class TestListConversionGoals(_InspectorMixin):
         assert response.goals[0].is_misconfigured is False
         # The summary still identifies the goal by its own id, which is what the setup
         # plan uses to open the right editor.
-        assert response.goals[0].id == "cg_demos"
+        assert response.goals[0].conversion_goal_id == "cg_demos"
 
     @pytest.mark.asyncio
     async def test_actions_node_with_resolved_action_uses_action_name(self):
@@ -164,7 +175,9 @@ class TestListConversionGoals(_InspectorMixin):
         self.mocks["config"].return_value = ([_actions_goal("42")], 90, "last_touch")
         self.mocks["resolve_action"].return_value = (action_mock, None)
         # 50 total: 30 integrated, 12 without utm_source, 8 with unmatched utm_source.
-        self.mocks["action_count"].return_value = (50, 30, 12, 8)
+        self.mocks["action_count"].return_value = UtmSplitCounts(
+            total=50, integrated=30, without_utm=12, unmatched_with_utm=8
+        )
 
         response = await list_conversion_goals(self.team)
         goal = response.goals[0]
@@ -243,7 +256,8 @@ class TestExplainConversionGoal(_InspectorMixin):
             ("uuid-1", ts1, "user-a", "purchase", "facebook", "spring_sale"),
             ("uuid-2", ts1, "user-b", "purchase", "google", "spring_sale"),
             ("uuid-3", ts2, "user-c", "purchase", None, None),
-            ("uuid-4", ts2, "user-d", "purchase", "twitter", "tweet_drive"),  # no alias hit
+            ("uuid-4", ts2, "user-d", "purchase", "twitter", "tweet_drive"),
+            ("uuid-5", ts2, "user-e", "purchase", "unmapped_source", "summer_sale"),
         ]
         with patch(
             "products.marketing_analytics.backend.services.conversion_goals_inspector._query_goal_events",
@@ -255,25 +269,27 @@ class TestExplainConversionGoal(_InspectorMixin):
                 period=DateRange(date_from="2026-04-01T00:00:00+00:00", date_to="2026-04-03T00:00:00+00:00"),
             )
 
-        assert explanation.total_count == 4
-        assert explanation.integrated_count == 2
-        # 1 row had utm_source=None (without_utm), 1 row had utm_source='twitter' (unmatched_with_utm)
+        assert explanation.total_count == 5
+        assert explanation.integrated_count == 3
+        # 1 row had utm_source=None (without_utm), 1 row had utm_source='unmapped_source' (unmatched_with_utm)
         assert explanation.events_without_utm_source == 1
         assert explanation.events_with_unmatched_utm_source == 1
         assert explanation.non_integrated_count == 2
-        assert dict(explanation.by_event) == {"purchase": 4}
+        assert dict(explanation.by_event) == {"purchase": 5}
 
         utm_dict = dict(explanation.by_utm_source)
         assert utm_dict.get("facebook") == 1
         assert utm_dict.get("google") == 1
         assert utm_dict.get("twitter") == 1
+        assert utm_dict.get("unmapped_source") == 1
 
         integration_dict = dict(explanation.by_matched_integration)
         assert integration_dict.get("meta_ads") == 1
         assert integration_dict.get("google_ads") == 1
-        assert "twitter" not in integration_dict
+        assert integration_dict.get("twitter_ads") == 1
+        assert "unmapped_source" not in integration_dict
 
-        assert len(explanation.samples) == 4
+        assert len(explanation.samples) == 5
 
     @pytest.mark.asyncio
     async def test_events_goal_caps_samples(self):
@@ -301,12 +317,12 @@ class TestResolveAction(APIBaseTest):
         # Create a second team in a separate organization to ensure cross-team isolation.
         other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
         other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
-        other_action = await sync_to_async(Action.objects.create)(team=other_team, name="Other Team Action")
+        other_action = await acreate_action(team=other_team, name="Other Team Action")
 
         # _resolve_action scoped to self.team must NOT return an action that belongs
         # to other_team — otherwise team A could read team B's action name and step
         # events through the diagnostic tool.
-        action, error = await _resolve_action(self.team, str(other_action.pk))
+        action, error = await _resolve_action(self.team, str(other_action.id))
         assert action is None
         assert error is not None
 
@@ -315,7 +331,7 @@ class TestResolveAction(APIBaseTest):
         from products.marketing_analytics.backend.services.conversion_goals_inspector import _resolve_action
 
         with patch(
-            "products.marketing_analytics.backend.services.conversion_goals_inspector.Action.objects.get",
+            "products.marketing_analytics.backend.services.conversion_goals_inspector.get_action",
         ) as p_get:
             action, error = await _resolve_action(self.team, "not-an-int")
         assert action is None
@@ -572,7 +588,7 @@ class TestListGoalCountsClickhouse(ClickhouseTestMixin, BaseTest):
 
         assert len(response.goals) == 1
         goal = response.goals[0]
-        assert goal.id == "signup"
+        assert goal.conversion_goal_id == "signup"
         assert goal.kind == "EventsNode"
         assert goal.last_30d_count == 3
         assert goal.integrated_count == 3
@@ -654,7 +670,7 @@ class TestListActionGoalFiltersClickhouse(ClickhouseTestMixin, BaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.action = Action.objects.create(
+        self.action = create_action(
             team=self.team,
             name="Pro purchase",
             steps_json=[

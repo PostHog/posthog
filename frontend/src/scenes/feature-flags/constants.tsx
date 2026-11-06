@@ -3,6 +3,12 @@ import { Link } from '@posthog/lemon-ui'
 export const COHORT_BEHAVIORAL_LIMITATIONS_URL =
     'https://posthog.com/docs/feature-flags/common-questions#why-cant-i-use-a-cohort-with-behavioral-filters-in-my-feature-flag'
 
+export const EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON =
+    'This flag is linked to an early access feature, so it can only target users. Remove the early access feature to target groups.'
+
+export const CONDITION_SET_LOGICAL_OPERATOR_TOOLTIP =
+    'Filters within a group are combined with AND. To use OR, add another group.'
+
 export const MATCHING_ESTIMATE_TOOLTIP = (
     <>
         <div>

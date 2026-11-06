@@ -1,14 +1,23 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
+import { HogQLQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { ActivityScope } from '~/types'
 
 import type { TestHogResponseApi } from '../generated/api.schemas'
+import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { DEFAULT_HOG_SOURCE, DEFAULT_JUDGE_PROMPT, llmEvaluationLogic } from './llmEvaluationLogic'
+import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { takeBackfillStart } from './pendingBackfillStarts'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -24,6 +33,7 @@ const mockProviderKeys: LLMProviderKey[] = [
         last_used_at: null,
         azure_endpoint_display: null,
         api_version_display: null,
+        base_url_display: null,
     },
     {
         id: 'key-2',
@@ -37,6 +47,7 @@ const mockProviderKeys: LLMProviderKey[] = [
         last_used_at: null,
         azure_endpoint_display: null,
         api_version_display: null,
+        base_url_display: null,
     },
     {
         id: 'key-3',
@@ -50,6 +61,7 @@ const mockProviderKeys: LLMProviderKey[] = [
         last_used_at: null,
         azure_endpoint_display: null,
         api_version_display: null,
+        base_url_display: null,
     },
     {
         id: 'key-4',
@@ -63,6 +75,7 @@ const mockProviderKeys: LLMProviderKey[] = [
         last_used_at: null,
         azure_endpoint_display: null,
         api_version_display: null,
+        base_url_display: null,
     },
 ]
 
@@ -230,6 +243,8 @@ describe('llmEvaluationLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
+                '/api/projects/:teamId/llm_analytics/provider_keys/:keyId/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -238,7 +253,11 @@ describe('llmEvaluationLogic', () => {
                 },
                 '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 '/api/environments/:teamId/llm_analytics/models/': {
-                    models: [{ id: 'gpt-5-mini' }, { id: 'gpt-5' }],
+                    models: [
+                        { id: 'gpt-5-mini', provider: 'openai' },
+                        { id: 'gpt-5', provider: 'openai' },
+                    ],
+                    providers: [{ provider: 'openai', model_count: 2, requires_provider_key: false }],
                 },
             },
         })
@@ -256,6 +275,130 @@ describe('llmEvaluationLogic', () => {
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()
+        })
+
+        it.each([
+            ['sentiment' as const, true],
+            ['hog' as const, true],
+            ['llm_judge' as const, false],
+        ])('starts a new %s evaluation running only when it can run without a provider key', async (type, expected) => {
+            await expectLogic(keysLogic).toFinishAllListeners()
+            logic.actions.setEvaluationType(type)
+            expect(logic.values.evaluation?.enabled).toBe(expected)
+        })
+
+        it.each([
+            [DEFAULT_HOG_SOURCE, 'return 0;'],
+            ['return 42;', 'return 42;'],
+        ])('updates only untouched Hog source %s when selecting numeric output', (source, expected) => {
+            const warning = jest.spyOn(lemonToast, 'warning')
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource(source)
+            logic.actions.setTrueIsFailure(true)
+            logic.actions.setOutputType('numeric')
+            expect(logic.values.evaluation).toMatchObject({
+                output_type: 'numeric',
+                evaluation_config: { source: expected },
+            })
+            expect(logic.values.evaluation?.output_config).not.toHaveProperty('true_is_failure')
+            if (source === expected) {
+                expect(warning).toHaveBeenCalledWith(
+                    'Your code was kept. Update it to return a number and test it before enabling this evaluation.'
+                )
+            } else {
+                expect(warning).not.toHaveBeenCalled()
+            }
+            warning.mockRestore()
+            const numericConfig = { min: 0, max: 10, passing_rule: { operator: 'gte' as const, threshold: 7 } }
+            logic.actions.patchOutputConfig(numericConfig)
+            logic.actions.setOutputType('boolean')
+            expect(logic.values.evaluation).toMatchObject({
+                output_type: 'boolean',
+                evaluation_config: { source },
+                output_config: { true_is_failure: true },
+            })
+            expect(logic.values.evaluation?.output_config).not.toHaveProperty('passing_rule')
+            logic.actions.setOutputType('numeric')
+            expect(logic.values.evaluation?.output_config).toMatchObject(numericConfig)
+            logic.actions.patchOutputConfig({ max: 20 })
+            logic.actions.setOutputType('numeric')
+            expect(logic.values.evaluation?.output_config.max).toBe(20)
+        })
+
+        it.each([
+            ['hog', null],
+            ['llm_judge', null],
+            ['hog', 'return [input.category];'],
+            ['llm_judge', 'return [input.category];'],
+        ] as const)(
+            'keeps category edits and output switches in sync with generated Hog code from %s (custom: %s)',
+            (runtime, customSource) => {
+                logic.actions.setEvaluationType(runtime)
+                logic.actions.setOutputType('categorical')
+                if (runtime === 'llm_judge') {
+                    logic.actions.setEvaluationType('hog')
+                }
+                if (customSource) {
+                    logic.actions.setHogSource(customSource)
+                }
+
+                logic.actions.patchOutputConfig({
+                    options: [
+                        { key: 'helpful', label: 'Helpful' },
+                        { key: 'unresolved', label: 'Unresolved' },
+                    ],
+                })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    source: customSource ?? "return ['helpful'];",
+                })
+
+                logic.actions.patchOutputConfig({ options: [{ key: 'unresolved', label: 'Unresolved' }] })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    source: customSource ?? "return ['unresolved'];",
+                })
+
+                for (const outputType of ['numeric', 'boolean'] as const) {
+                    logic.actions.setOutputType(outputType)
+                    expect(logic.values.evaluation?.evaluation_config).toEqual({
+                        source: customSource ?? (outputType === 'numeric' ? 'return 0;' : DEFAULT_HOG_SOURCE),
+                    })
+
+                    logic.actions.setOutputType('categorical')
+                    expect(logic.values.evaluation?.evaluation_config).toEqual({
+                        source: customSource ?? "return ['unresolved'];",
+                    })
+                }
+            }
+        )
+
+        it('preserves numeric output while switching runtimes and locks saved output types', async () => {
+            const numeric = {
+                ...mockEvaluation,
+                output_type: 'numeric' as const,
+                output_config: {
+                    min: 0,
+                    max: 10,
+                    allows_na: true,
+                    passing_rule: { operator: 'gte' as const, threshold: 7 },
+                },
+            }
+            logic.actions.loadEvaluationSuccess(numeric)
+            logic.actions.setEvaluationType('hog')
+            expect(logic.values.evaluation).toMatchObject({
+                output_type: 'numeric',
+                output_config: numeric.output_config,
+            })
+            logic.actions.setEvaluationType('llm_judge')
+            expect(logic.values.evaluation).toMatchObject({
+                output_type: 'numeric',
+                output_config: numeric.output_config,
+            })
+            const savedLogic = llmEvaluationLogic({ evaluationId: 'saved-numeric' })
+            savedLogic.mount()
+            savedLogic.actions.loadEvaluationSuccess(numeric)
+            savedLogic.actions.setOutputType('boolean')
+            expect(savedLogic.values.evaluation?.output_type).toBe('numeric')
+            savedLogic.unmount()
         })
 
         it('setEvaluationName updates evaluation name', async () => {
@@ -290,6 +433,32 @@ describe('llmEvaluationLogic', () => {
                 evaluation: expect.objectContaining({
                     output_config: { allows_na: true },
                 }),
+            })
+        })
+
+        it('sends an explicit attachments choice so turning it back on is saved', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setIncludeMedia(false)
+            expect(logic.values.evaluation?.evaluation_config).toEqual(
+                expect.objectContaining({ include_media: false })
+            )
+            expect(logic.values.includeMedia).toBe(false)
+
+            logic.actions.setIncludeMedia(true)
+            expect(logic.values.evaluation?.evaluation_config).toEqual(expect.objectContaining({ include_media: true }))
+            expect(logic.values.includeMedia).toBe(true)
+        })
+
+        it('records the polarity on the boolean output config', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluationSuccess({ ...mockEvaluation })
+                logic.actions.setTrueIsFailure(true)
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    output_config: { allows_na: false, true_is_failure: true },
+                }),
+                hasUnsavedChanges: true,
             })
         })
 
@@ -582,6 +751,113 @@ return result`,
                 await expectLogic(logic).toMatchValues({ formValid: true })
             })
 
+            it.each([
+                [undefined, true],
+                [0, true],
+                [0.35, true],
+                [1, true],
+                [-0.01, false],
+                [1.01, false],
+                [NaN, false],
+                [Infinity, false],
+            ])('validates a decision threshold of %s as %s', async (threshold, valid) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: {},
+                    model_configuration: { provider: 'system_one', model: 'custom-model', provider_key_id: 'key-1' },
+                })
+                logic.actions.patchOutputConfig({ decision_threshold: threshold })
+                expect(logic.values.evaluation?.output_config.decision_threshold).toBe(threshold)
+                expect(logic.values.formValid).toBe(valid)
+            })
+
+            it.each([
+                ['llm', NaN, null],
+                ['llm', 1.5, null],
+                ['hog', NaN, null],
+                ['hog', 1.5, null],
+                ['llm', 0, 0],
+                ['llm', 0.35, 0.35],
+                ['hog', 0, 0],
+                ['hog', 0.35, 0.35],
+            ] as const)(
+                'allows saving after leaving decision judging for %s with threshold %s',
+                async (method, threshold, expectedThreshold) => {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.loadEvaluationSuccess({
+                        ...mockEvaluation,
+                        evaluation_config: { prompt: 'Check the response.', judge_method: 'decision' },
+                        output_config: { allows_na: true, true_is_failure: true },
+                        model_configuration: {
+                            provider: 'system_one',
+                            model: 'custom-model',
+                            provider_key_id: 'key-1',
+                        },
+                    })
+                    logic.actions.patchOutputConfig({ decision_threshold: threshold })
+
+                    if (method === 'llm') {
+                        await expectLogic(logic, () => logic.actions.setJudgeMethod('llm')).toFinishAllListeners()
+                        logic.actions.setModelConfiguration({
+                            provider: 'openai',
+                            model: 'gpt-5-mini',
+                            provider_key_id: 'key-1',
+                        })
+                    } else {
+                        logic.actions.setEvaluationType('hog')
+                    }
+
+                    expect(logic.values.evaluation?.output_config).toEqual({
+                        allows_na: method === 'llm',
+                        true_is_failure: true,
+                        decision_threshold: expectedThreshold,
+                    })
+                    expect(logic.values.formValid).toBe(true)
+                }
+            )
+
+            it.each([
+                ['system_one', false, true],
+                ['openrouter', true, true],
+                ['openrouter', false, false],
+            ] as const)(
+                'requires numeric bounds for %s with supportsDecisions=%s: %s',
+                async (provider, supportsDecisions, boundsRequired) => {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    await expectLogic(logic).toFinishAllListeners()
+                    modelPickerLogic.actions.loadByokModelsSuccess([
+                        {
+                            id: 'custom-model',
+                            name: 'Decision model',
+                            provider: 'OpenRouter',
+                            description: '',
+                            providerKeyId: 'key-1',
+                            supportsDecisions,
+                        },
+                    ])
+                    logic.actions.loadEvaluationSuccess({
+                        ...mockEvaluation,
+                        output_type: 'numeric',
+                        output_config: {},
+                        model_configuration: { provider, model: 'custom-model', provider_key_id: 'key-1' },
+                    })
+                    expect(logic.values.formValid).toBe(!boundsRequired)
+
+                    logic.actions.patchOutputConfig({ min: 1, max: 10 })
+                    expect(logic.values.formValid).toBe(true)
+                    logic.actions.patchOutputConfig({ max: null })
+                    expect(logic.values.formValid).toBe(!boundsRequired)
+
+                    logic.actions.setModelConfiguration({
+                        provider: 'openai',
+                        model: 'gpt-5-mini',
+                        provider_key_id: 'key-1',
+                    })
+                    expect(logic.values.formValid).toBe(true)
+                }
+            )
+
             // A loaded evaluation whose stored shape doesn't match its type (e.g. an llm_judge
             // record with no prompt) used to crash formValid with a TypeError on render.
             it.each([
@@ -594,6 +870,31 @@ return result`,
                 logic.actions.loadEvaluationSuccess(malformed as unknown as EvaluationConfig)
 
                 await expectLogic(logic).toMatchValues({ formValid: false })
+            })
+        })
+
+        describe('sidePanelContext', () => {
+            it('scopes the side panel to this evaluation once it loads', async () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                await expectLogic(logic).toMatchValues({
+                    sidePanelContext: {
+                        activity_scope: ActivityScope.EVALUATION,
+                        activity_item_id: 'eval-123',
+                        access_control_resource: 'evaluation',
+                        access_control_resource_id: 'eval-123',
+                    },
+                })
+            })
+
+            it('stays null while creating a new evaluation', async () => {
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+
+                await expectLogic(logic).toMatchValues({ sidePanelContext: null })
             })
         })
 
@@ -610,6 +911,18 @@ return result`,
 
                 await expectLogic(logic).toMatchValues({ modelSelectionRequired: false, formValid: true })
             })
+
+            it.each(['llm', 'decision'] as const)(
+                'requires a model when a legacy evaluation selects %s',
+                async (method) => {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.loadEvaluationSuccess({ ...mockEvaluation, model_configuration: null })
+
+                    logic.actions.setJudgeMethod(method)
+
+                    await expectLogic(logic).toMatchValues({ modelSelectionRequired: true, formValid: false })
+                }
+            )
 
             it('requires an existing configured evaluation to keep a selected model', async () => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
@@ -697,6 +1010,173 @@ return result`,
         })
 
         describe('runsSummary', () => {
+            it('applies the selected dates to both runs and statistics, preserving the full backfill view', async () => {
+                const queries: HogQLQuery[] = []
+                useMocks({
+                    get: {
+                        '/api/projects/:teamId/evaluations/:id/backfills/:backfillId/': () => ({
+                            id: 'backfill-1',
+                            window_start: '2024-01-01T00:00:00Z',
+                            window_end: '2024-02-01T00:00:00Z',
+                        }),
+                    },
+                    post: {
+                        '/api/environments/:teamId/query/HogQLQuery/': async ({ request }) => {
+                            const { query } = (await request.json()) as { query: HogQLQuery }
+                            queries.push(query)
+                            return { results: query.query.includes('count() as total') ? [[4, 4, 3]] : [] }
+                        },
+                    },
+                })
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess', 'loadRunsStatsSuccess'])
+                expect(queries.length).toBeGreaterThan(0)
+                expect(queries.every((query) => query.filters?.dateRange?.date_from === '-7d')).toBe(true)
+
+                for (const dateRange of [
+                    { date_from: '-30d', date_to: null },
+                    { date_from: '2024-01-01', date_to: '2024-02-01' },
+                    { date_from: 'all', date_to: null },
+                ]) {
+                    queries.length = 0
+                    await expectLogic(logic, () =>
+                        logic.actions.setRunsDates(dateRange.date_from, dateRange.date_to)
+                    ).toDispatchActions(['loadEvaluationRunsSuccess', 'loadRunsStatsSuccess'])
+                    expect(queries).toHaveLength(2)
+                    expect(queries.every((query) => query.query.includes('AND {filters}'))).toBe(true)
+                    expect(queries.map((query) => query.filters?.dateRange)).toEqual([dateRange, dateRange])
+                    expect(router.values.searchParams.date_from).toBe(dateRange.date_from)
+                }
+
+                queries.length = 0
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.aiObservabilityEvaluation('eval-123'), {
+                        backfill_id: 'backfill-1',
+                        date_from: '-7d',
+                    })
+                ).toDispatchActions(['loadEvaluationRunsSuccess', 'loadRunsStatsSuccess'])
+                expect(queries).toHaveLength(2)
+                expect(
+                    queries.every((query) => query.query.includes("$ai_evaluation_backfill_id = 'backfill-1'"))
+                ).toBe(true)
+                expect(queries.every((query) => !query.filters?.dateRange && !query.query.includes('{filters}'))).toBe(
+                    true
+                )
+            })
+
+            it('loads numeric threshold counts after the evaluation configuration arrives', async () => {
+                logic.unmount()
+                const numeric: EvaluationConfig = {
+                    ...mockEvaluation,
+                    output_type: 'numeric',
+                    output_config: { passing_rule: { operator: 'gte', threshold: 7 } },
+                }
+                let resolveEvaluation: (value: EvaluationConfig) => void = () => {}
+                const evaluationResponse = new Promise<EvaluationConfig>((resolve) => {
+                    resolveEvaluation = resolve
+                })
+                useMocks({
+                    get: { '/api/projects/:teamId/evaluations/:id/': () => evaluationResponse },
+                    post: {
+                        '/api/environments/:teamId/query/HogQLQuery/': async ({ request }) => {
+                            const { query } = (await request.json()) as { query: { query: string } }
+                            return {
+                                results: query.query.includes('count() as total')
+                                    ? [[4, 0, 0, 4, 8, query.query.includes('>= 7') ? 4 : 0]]
+                                    : [],
+                            }
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                await expectLogic(logic, () => resolveEvaluation(numeric)).toDispatchActions([
+                    'loadEvaluationSuccess',
+                    'loadRunsStatsSuccess',
+                ])
+                expect(logic.values.runsSummary).toMatchObject({ total: 4, scoreMean: 8, successRate: 100 })
+            })
+
+            it('uses numeric aggregate scores instead of the limited run list', () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_type: 'numeric',
+                    output_config: { passing_rule: { operator: 'gte', threshold: 7 } },
+                })
+                const savedTrendUrl = logic.values.trendInsightUrl
+                expect(savedTrendUrl).toContain('Pass%20rate')
+                expect(logic.values.isReportableEvaluation).toBe(true)
+                logic.actions.loadRunsStatsSuccess({
+                    total: 1000,
+                    applicable: 0,
+                    trueCount: 0,
+                    scoreCount: 800,
+                    scoreMean: 6.5,
+                    numericPassCount: 400,
+                })
+                expect(logic.values.runsSummary).toMatchObject({
+                    total: 1000,
+                    scoreMean: 6.5,
+                    successful: 400,
+                    successRate: 50,
+                    applicabilityRate: 80,
+                })
+                logic.actions.loadEvaluationRunsSuccess([
+                    { ...mockRuns[0], result_type: 'numeric', score: 6, result: null },
+                    { ...mockRuns[1], result_type: 'numeric', score: 8, result: null },
+                ])
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
+                logic.actions.patchOutputConfig({ passing_rule: { operator: 'lte', threshold: 7 } })
+                expect(logic.values.filteredEvaluationRuns.map((run) => run.score)).toEqual([8])
+                expect(logic.values.runsSummary?.successRate).toBe(50)
+                expect(logic.values.trendInsightUrl).toBe(savedTrendUrl)
+                expect(logic.values.isReportableEvaluation).toBe(true)
+                logic.actions.patchOutputConfig({ passing_rule: null })
+                expect(logic.values.filteredEvaluationRuns.map((run) => run.score)).toEqual([8])
+                expect(logic.values.runsSummary?.successRate).toBe(50)
+                expect(logic.values.trendInsightUrl).toBe(savedTrendUrl)
+                expect(logic.values.isReportableEvaluation).toBe(true)
+                logic.actions.saveEvaluationSuccess(logic.values.evaluation!)
+                expect(logic.values.isReportableEvaluation).toBe(false)
+                expect(logic.values.trendInsightUrl).toContain('Mean%20score')
+                logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
+                expect(logic.values.isReportableEvaluation).toBe(false)
+            })
+
+            it('charts the negative rate for a sentiment evaluation', () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                })
+                expect(logic.values.trendInsightUrl).toContain('Negative%20rate')
+            })
+
+            it.each([
+                { trueCount: 999, expected: 99.9 },
+                { trueCount: 1000, expected: 100 },
+            ])('rounds the pass rate down to $expected% for $trueCount of 1000 passing', ({ trueCount, expected }) => {
+                logic.actions.loadEvaluationSuccess(mockEvaluation)
+                logic.actions.loadRunsStatsSuccess({ total: 1000, applicable: 1000, trueCount })
+                expect(logic.values.runsSummary?.successRate).toBe(expected)
+            })
+
+            it.each(['boolean', 'numeric'] as const)('has no success rate for ungraded %s runs', (output_type) => {
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_type,
+                    output_config: { passing_rule: { operator: 'gte', threshold: 7 } },
+                })
+                logic.actions.loadRunsStatsSuccess({ total: 4, applicable: 0, trueCount: 0, scoreCount: 0 })
+                expect(logic.values.runsSummary?.successRate).toBeNull()
+            })
+
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
                 logic.mount()
@@ -707,19 +1187,51 @@ return result`,
             })
 
             it('calculates summary from server-side aggregate counts', async () => {
-                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, passed: 1 })
+                logic.actions.loadEvaluationSuccess(mockEvaluation)
+                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, trueCount: 1 })
 
                 await expectLogic(logic).toMatchValues({
                     runsSummary: {
                         total: 3,
+                        scoreMean: null,
                         successful: 1,
                         failed: 1,
-                        errors: 0,
                         successRate: 50,
                         applicabilityRate: 67,
                     },
                 })
             })
+        })
+    })
+
+    describe('routing', () => {
+        it('opens a direct configuration link and keeps tab changes in the URL', async () => {
+            router.actions.push(
+                combineUrl(urls.aiObservabilityEvaluation('eval-123'), {
+                    evaluation_tab: 'configuration',
+                }).url
+            )
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess']).toMatchValues({
+                activeTab: 'configuration',
+            })
+
+            logic.actions.setActiveTab('runs')
+
+            expect(router.values.searchParams.evaluation_tab).toBeUndefined()
+        })
+
+        it('leaves the trace drawer params behind on a tab change', async () => {
+            router.actions.push(combineUrl(urls.aiObservabilityEvaluation('eval-123'), { trace: 'a', step: 'b' }).url)
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setActiveTab('configuration')
+
+            expect(router.values.searchParams).toEqual({ evaluation_tab: 'configuration' })
         })
     })
 
@@ -831,6 +1343,29 @@ return result`,
                     },
                 },
                 {
+                    name: 'categorical LLM judge',
+                    templateKey: 'task_outcome',
+                    expectedEvaluation: {
+                        evaluation_type: 'llm_judge',
+                        output_type: 'categorical',
+                        output_config: expect.objectContaining({
+                            selection_mode: 'single',
+                            passing_rule: { categories: ['resolved'] },
+                        }),
+                        target: 'trace',
+                        target_config: expect.objectContaining({ strategy: 'fixed_window' }),
+                    },
+                },
+                {
+                    name: 'numeric Hog',
+                    templateKey: 'latency',
+                    expectedEvaluation: {
+                        evaluation_type: 'hog',
+                        output_type: 'numeric',
+                        output_config: expect.objectContaining({ passing_rule: { operator: 'lte', threshold: 10 } }),
+                    },
+                },
+                {
                     name: 'sentiment',
                     templateKey: 'sentiment',
                     expectedEvaluation: {
@@ -886,153 +1421,107 @@ return result`,
                 })
             })
         })
+
+        describe('loadOlderEvaluationRuns', () => {
+            const runRow = (id: string, timestamp: string): unknown[] => {
+                const row: unknown[] = new Array(22).fill(null)
+                row[0] = id
+                row[1] = timestamp
+                row[2] = 'eval-123'
+                return row
+            }
+
+            it('pages past the first runs with a timestamp cursor and appends the older runs', async () => {
+                const newest = Array.from({ length: EVALUATION_RUNS_QUERY_LIMIT }, (_, i) =>
+                    runRow(
+                        `new-${i}`,
+                        i < EVALUATION_RUNS_QUERY_LIMIT - 2 ? '2024-01-02T00:00:00Z' : '2024-01-01T00:00:00Z'
+                    )
+                )
+                const queryHogQL = jest.spyOn(api, 'queryHogQL').mockImplementation(async (query) => {
+                    if (query.includes('count() as total')) {
+                        return { results: [[EVALUATION_RUNS_QUERY_LIMIT + 1]] } as any
+                    }
+                    return {
+                        results: query.includes('uuid NOT IN') ? [runRow('old-1', '2023-12-31T00:00:00Z')] : newest,
+                    } as any
+                })
+
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationRunsSuccess']).toMatchValues({
+                    evaluationRunsHasMore: true,
+                })
+
+                logic.actions.loadOlderEvaluationRuns()
+                await expectLogic(logic).toDispatchActions(['loadOlderEvaluationRunsSuccess']).toMatchValues({
+                    evaluationRunsHasMore: false,
+                })
+
+                expect(logic.values.evaluationRuns.map((run) => run.id).slice(-3)).toEqual([
+                    `new-${EVALUATION_RUNS_QUERY_LIMIT - 2}`,
+                    `new-${EVALUATION_RUNS_QUERY_LIMIT - 1}`,
+                    'old-1',
+                ])
+                const olderQuery = queryHogQL.mock.calls.find(([query]) => String(query).includes('uuid NOT IN'))
+                expect(olderQuery?.[0]).toContain(
+                    `AND timestamp <= toDateTime('2024-01-01T00:00:00Z') AND uuid NOT IN ['new-${EVALUATION_RUNS_QUERY_LIMIT - 2}', 'new-${EVALUATION_RUNS_QUERY_LIMIT - 1}']`
+                )
+                queryHogQL.mockRestore()
+            })
+
+            it('reloads runs with the filter in the query, so failures past the newest page are reachable', async () => {
+                const queryHogQL = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: { allows_na: false, true_is_failure: true },
+                })
+                queryHogQL.mockClear()
+
+                logic.actions.setEvaluationRunsFilter('fail', 'all')
+                await expectLogic(logic).toDispatchActions(['loadEvaluationRunsSuccess'])
+
+                const runsQuery = queryHogQL.mock.calls.find(([query]) =>
+                    String(query).includes('ORDER BY timestamp DESC')
+                )
+                expect(runsQuery?.[0]).toContain(`NOT (properties.$ai_evaluation_result = 'false')`)
+                queryHogQL.mockRestore()
+            })
+        })
     })
 
-    describe('evaluation summary', () => {
+    describe('runs filtering', () => {
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
             logic.mount()
         })
 
-        describe('evaluationSummaryFilter', () => {
+        describe('evaluationRunsFilter', () => {
             it('defaults to all', async () => {
-                expect(logic.values.evaluationSummaryFilter).toBe('all')
+                expect(logic.values.evaluationRunsFilter).toBe('all')
             })
 
-            it('updates when setEvaluationSummaryFilter is called', async () => {
-                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+            it('updates when setEvaluationRunsFilter is called', async () => {
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
 
                 await expectLogic(logic).toMatchValues({
-                    evaluationSummaryFilter: 'pass',
-                })
-            })
-
-            it('clears evaluationSummary when filter changes', async () => {
-                // Simulate having a summary
-                logic.actions.generateEvaluationSummarySuccess({
-                    overall_assessment: 'Test',
-                    pass_patterns: [],
-                    fail_patterns: [],
-                    na_patterns: [],
-                    recommendations: [],
-                    statistics: { total_analyzed: 10, pass_count: 5, fail_count: 3, na_count: 2 },
-                })
-
-                await expectLogic(logic).toMatchValues({
-                    evaluationSummary: expect.objectContaining({ overall_assessment: 'Test' }),
-                })
-
-                logic.actions.setEvaluationSummaryFilter('fail', 'all')
-
-                await expectLogic(logic).toMatchValues({
-                    evaluationSummary: null,
+                    evaluationRunsFilter: 'pass',
                 })
             })
         })
 
         describe('sentiment evaluation filters', () => {
             it('defaults to all for boolean evaluations', async () => {
-                expect(logic.values.evaluationSummaryFilter).toBe('all')
+                expect(logic.values.evaluationRunsFilter).toBe('all')
             })
 
             it('defaults to negative for sentiment evaluations', async () => {
                 logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
 
                 await expectLogic(logic).toMatchValues({
-                    evaluationSummaryFilter: 'negative',
-                })
-            })
-        })
-
-        describe('runsToSummarizeCount', () => {
-            it('returns 0 when no runs', async () => {
-                expect(logic.values.runsToSummarizeCount).toBe(0)
-            })
-
-            it('counts all completed runs when filter is all', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 3,
-                })
-            })
-
-            it('counts only passing runs when filter is pass', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('pass', 'all')
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 1,
-                })
-            })
-
-            it('counts only failing runs when filter is fail', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('fail', 'all')
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 1,
-                })
-            })
-
-            it('counts only N/A runs when filter is na', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('na', 'all')
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 1,
-                })
-            })
-
-            it(`caps count at ${EVALUATION_SUMMARY_MAX_RUNS}`, async () => {
-                const manyRuns = Array.from({ length: EVALUATION_SUMMARY_MAX_RUNS + 50 }, (_, i) => ({
-                    ...mockRuns[0],
-                    id: `run-${i}`,
-                    generation_id: `gen-${i}`,
-                }))
-                logic.actions.loadEvaluationRunsSuccess(manyRuns)
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: EVALUATION_SUMMARY_MAX_RUNS,
-                })
-            })
-        })
-
-        describe('summaryExpanded', () => {
-            it('defaults to true', async () => {
-                expect(logic.values.summaryExpanded).toBe(true)
-            })
-
-            it('toggles on toggleSummaryExpanded', async () => {
-                logic.actions.toggleSummaryExpanded()
-
-                await expectLogic(logic).toMatchValues({
-                    summaryExpanded: false,
-                })
-
-                logic.actions.toggleSummaryExpanded()
-
-                await expectLogic(logic).toMatchValues({
-                    summaryExpanded: true,
-                })
-            })
-
-            it('expands on generateEvaluationSummarySuccess', async () => {
-                logic.actions.toggleSummaryExpanded() // collapse
-
-                await expectLogic(logic).toMatchValues({ summaryExpanded: false })
-
-                logic.actions.generateEvaluationSummarySuccess({
-                    overall_assessment: 'Test',
-                    pass_patterns: [],
-                    fail_patterns: [],
-                    na_patterns: [],
-                    recommendations: [],
-                    statistics: { total_analyzed: 10, pass_count: 5, fail_count: 3, na_count: 2 },
-                })
-
-                await expectLogic(logic).toMatchValues({
-                    summaryExpanded: true,
+                    evaluationRunsFilter: 'negative',
                 })
             })
         })
@@ -1048,16 +1537,29 @@ return result`,
 
             it('returns only passing runs when filter is pass', async () => {
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1', result: true })],
                 })
             })
 
+            it('treats a false result as a pass for a detector', async () => {
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: { allows_na: false, true_is_failure: true },
+                })
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2', result: false })],
+                })
+            })
+
             it('returns only failing runs when filter is fail', async () => {
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+                logic.actions.setEvaluationRunsFilter('fail', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2', result: false })],
@@ -1066,7 +1568,7 @@ return result`,
 
             it('returns only N/A runs when filter is na', async () => {
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('na', 'all')
+                logic.actions.setEvaluationRunsFilter('na', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-3', result: null })],
@@ -1084,11 +1586,10 @@ return result`,
                     skipped: true,
                 }
                 logic.actions.loadEvaluationRunsSuccess([...mockRuns, skippedRun])
-                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+                logic.actions.setEvaluationRunsFilter('fail', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2' })],
-                    runsToSummarizeCount: 1,
                 })
             })
 
@@ -1108,7 +1609,7 @@ return result`,
                     },
                 ]
                 logic.actions.loadEvaluationRunsSuccess(runsWithFailed)
-                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1' })],
@@ -1127,7 +1628,7 @@ return result`,
             it('returns only completed sentiment runs matching the selected filter', async () => {
                 logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
                 logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
-                logic.actions.setEvaluationSummaryFilter('positive', 'negative')
+                logic.actions.setEvaluationRunsFilter('positive', 'negative')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-positive' })],
@@ -1137,7 +1638,7 @@ return result`,
             it('returns all sentiment runs when the all filter is selected', async () => {
                 logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
                 logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
-                logic.actions.setEvaluationSummaryFilter('all', 'negative')
+                logic.actions.setEvaluationRunsFilter('all', 'negative')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: mockSentimentRuns,
@@ -1145,16 +1646,23 @@ return result`,
             })
         })
 
-        describe('runsLookup', () => {
-            it('creates lookup by generation_id', async () => {
+        // Without this the failed query keeps the default empty list, and the table shows "no runs
+        // yet" instead of a failure state — the bug this fix addresses.
+        describe('evaluationRunsError', () => {
+            it('records the failure so the table can show an error state', async () => {
+                logic.actions.loadEvaluationRunsFailure('boom')
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationRunsError: true,
+                })
+            })
+
+            it('clears the error on the next successful load', async () => {
+                logic.actions.loadEvaluationRunsFailure('boom')
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
 
                 await expectLogic(logic).toMatchValues({
-                    runsLookup: {
-                        'gen-1': expect.objectContaining({ id: 'run-1' }),
-                        'gen-2': expect.objectContaining({ id: 'run-2' }),
-                        'gen-3': expect.objectContaining({ id: 'run-3' }),
-                    },
+                    evaluationRunsError: false,
                 })
             })
         })
@@ -1180,16 +1688,27 @@ return result`,
             })
         })
 
-        it('setEvaluationType switches back to llm_judge config shape', async () => {
+        it('switching method and back keeps the prompt and code already typed', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
+            logic.actions.setEvaluationPrompt('Is the answer polite?')
             logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource('return true;')
             logic.actions.setEvaluationType('llm_judge')
 
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({
                     evaluation_type: 'llm_judge',
-                    evaluation_config: { prompt: '' },
+                    evaluation_config: { prompt: 'Is the answer polite?' },
+                }),
+            })
+
+            logic.actions.setEvaluationType('hog')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: 'return true;' },
                 }),
             })
         })
@@ -1350,6 +1869,205 @@ return result`,
     })
 
     describe('selectModelFromPicker', () => {
+        it.each([
+            [false, 'decision'],
+            [true, 'llm'],
+        ] as const)(
+            'keeps legacy routing when the decision model supportsChat=%s',
+            async (supportsChat, expectedMethod) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                modelPickerLogic.actions.loadByokModelsSuccess([
+                    {
+                        id: 'example/decision-model',
+                        name: 'example/decision-model',
+                        description: '',
+                        provider: 'OpenRouter',
+                        providerKeyId: 'key-3',
+                        supportsDecisions: true,
+                        supportsChat,
+                    },
+                ])
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    model_configuration: {
+                        provider: 'openrouter',
+                        model: 'example/decision-model',
+                        provider_key_id: 'key-3',
+                    },
+                })
+                expect(logic.values.judgeMethod).toBe(expectedMethod)
+                logic.actions.setEvaluationName('Renamed evaluation')
+                expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: 'Is this response helpful?' })
+                expect(logic.values.selectedModel).toBe('example/decision-model')
+            }
+        )
+
+        it.each([
+            ['llm', 'openrouter', 'OpenRouter', 'key-3'],
+            ['decision', 'openrouter', 'OpenRouter', 'key-3'],
+            ['llm', 'openai', 'OpenAI', 'key-1'],
+            ['decision', 'openai', 'OpenAI', 'key-1'],
+        ] as const)(
+            'keeps compatible models and custom deployments when selecting %s for %s',
+            async (method, provider, displayName, keyId) => {
+                useMocks({
+                    get: {
+                        '/api/environments/:teamId/llm_analytics/provider_keys/': {
+                            results: [
+                                ...mockProviderKeys,
+                                {
+                                    ...mockProviderKeys[0],
+                                    id: 'key-azure',
+                                    provider: 'azure_openai',
+                                    name: 'Azure Key',
+                                },
+                            ],
+                        },
+                        '/api/llm_proxy/models/': ({ request }) => [
+                            200,
+                            new URL(request.url).searchParams.get('provider_key_id') === keyId
+                                ? [
+                                      {
+                                          id: 'example/dual-model',
+                                          name: 'example/dual-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/chat-model',
+                                          name: 'example/chat-model',
+                                          provider: displayName,
+                                          supports_decisions: false,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/decision-model',
+                                          name: 'example/decision-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: false,
+                                      },
+                                  ]
+                                : [],
+                        ],
+                        '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                            200,
+                            params.key_id === keyId
+                                ? [
+                                      {
+                                          id: 'example/dual-model',
+                                          name: 'example/dual-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/chat-model',
+                                          name: 'example/chat-model',
+                                          provider: displayName,
+                                          supports_decisions: false,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/decision-model',
+                                          name: 'example/decision-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: false,
+                                      },
+                                  ]
+                                : [],
+                        ],
+                    },
+                })
+                await expectLogic(keysLogic, () => keysLogic.actions.loadProviderKeys()).toFinishAllListeners()
+                await expectLogic(modelPickerLogic).toFinishAllListeners()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.selectModelFromPicker('example/dual-model', keyId)
+                logic.actions.setJudgeMethod(method === 'llm' ? 'decision' : 'llm')
+                logic.actions.saveEvaluationSuccess(logic.values.evaluation!)
+                expect(logic.values.hasUnsavedChanges).toBe(false)
+                logic.actions.setJudgeMethod(method)
+                expect(logic.values.judgeMethod).toBe(method)
+                expect(logic.values.hasUnsavedChanges).toBe(true)
+                expect(logic.values.evaluation?.model_configuration).toEqual({
+                    provider,
+                    model: 'example/dual-model',
+                    provider_key_id: keyId,
+                })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    prompt: DEFAULT_JUDGE_PROMPT,
+                    judge_method: method,
+                })
+                expect(logic.values.judgeModelGroups.flatMap((group) => group.models.map((model) => model.id))).toEqual(
+                    ['example/dual-model', method === 'llm' ? 'example/chat-model' : 'example/decision-model']
+                )
+                expect(logic.values.judgeModelGroups.find((group) => group.providerKeyId === 'key-azure')).toEqual(
+                    method === 'llm' ? expect.objectContaining({ allowsCustomModel: true }) : undefined
+                )
+            }
+        )
+
+        it('clears an incompatible model without losing the prompt or output configuration', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
+            logic.actions.setEvaluationPrompt('Check the response.')
+            logic.actions.setAllowsNA(true)
+            await expectLogic(logic, () => logic.actions.selectModelFromPicker('gpt-5', 'key-1')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.setJudgeMethod('decision')).toFinishAllListeners()
+            expect(logic.values.selectedModel).toBe('')
+            expect(logic.values.selectedPickerProviderKeyId).toBeNull()
+            expect(logic.values.evaluation).toEqual(
+                expect.objectContaining({
+                    evaluation_config: { prompt: 'Check the response.', judge_method: 'decision' },
+                    output_config: { allows_na: true },
+                    model_configuration: null,
+                })
+            )
+        })
+
+        it.each([
+            [true, 'high'],
+            [false, null],
+        ] as const)(
+            'keeps the reasoning level only when the next model supports it (supportsReasoning=%s)',
+            async (supportsReasoning, expectedLevel) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
+                await expectLogic(modelPickerLogic).toFinishAllListeners()
+                modelPickerLogic.actions.loadByokModelsSuccess([
+                    {
+                        id: 'example/reasoning-model',
+                        name: 'example/reasoning-model',
+                        description: '',
+                        provider: 'OpenAI',
+                        providerKeyId: 'key-1',
+                        supportsReasoning: true,
+                    },
+                    {
+                        id: 'example/next-model',
+                        name: 'example/next-model',
+                        description: '',
+                        provider: 'OpenAI',
+                        providerKeyId: 'key-1',
+                        supportsReasoning,
+                    },
+                ])
+                await expectLogic(logic, () =>
+                    logic.actions.selectModelFromPicker('example/reasoning-model', 'key-1')
+                ).toFinishAllListeners()
+                logic.actions.setReasoningLevel('high')
+                expect(logic.values.selectedModelSupportsReasoning).toBe(true)
+
+                await expectLogic(logic, () =>
+                    logic.actions.selectModelFromPicker('example/next-model', 'key-1')
+                ).toFinishAllListeners()
+
+                expect(logic.values.reasoningLevel).toBe(expectedLevel)
+            }
+        )
+
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()
@@ -1404,92 +2122,401 @@ return result`,
     })
 
     describe('Hog sample testing', () => {
-        it('sends the trace aggregation window and clears completed results when it changes', async () => {
-            let requestBody: Record<string, unknown> | undefined
-            useMocks({
-                post: {
-                    '/api/projects/:teamId/evaluations/test_hog/': async ({ request }) => {
-                        requestBody = (await request.json()) as Record<string, unknown>
-                        return {
-                            results: [
-                                {
-                                    sample_id: 'trace-1',
-                                    sample_type: 'trace',
-                                    event_uuid: null,
-                                    trace_id: 'trace-1',
-                                    input_preview: 'hello',
-                                    output_preview: 'world',
-                                    result: true,
-                                    reasoning: null,
-                                    error: null,
-                                },
-                            ],
-                        }
-                    },
-                },
-            })
-            logic = llmEvaluationLogic({ evaluationId: 'new' })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-            logic.actions.setEvaluationType('hog')
-            logic.actions.setEvaluationTarget('trace')
-            logic.actions.patchTargetConfig({ window_seconds: 120 })
-            logic.actions.testHogOnSample()
-
-            await expectLogic(logic)
-                .toDispatchActions(['testHogOnSampleSuccess'])
-                .toMatchValues({
-                    hogTestResults: [expect.objectContaining({ sample_id: 'trace-1', sample_type: 'trace' })],
-                })
-            expect(requestBody).toMatchObject({
-                target: 'trace',
-                target_config: { window_seconds: 120 },
-            })
-
-            logic.actions.patchTargetConfig({ window_seconds: 240 })
-            await expectLogic(logic).toMatchValues({ hogTestResults: null })
+        it.each([NaN, Infinity, -Infinity])('leaves scores ungraded for threshold %s', (threshold) => {
+            expect(numericScorePasses(7, { operator: 'gte', threshold })).toBeNull()
         })
 
-        it('does not restore results from a request whose target changed in flight', async () => {
-            let resolveRequest: (value: TestHogResponseApi) => void = () => {}
-            const pendingResponse = new Promise<TestHogResponseApi>((resolve) => {
-                resolveRequest = resolve
-            })
+        it.each(['numeric', 'categorical'] as const)(
+            'does not request a sample with an invalid %s config',
+            async (outputType) => {
+                const testSample = jest.fn(() => ({ results: [] }))
+                useMocks({ post: { '/api/projects/:teamId/evaluations/test_hog/': testSample } })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationType('hog')
+                logic.actions.setOutputType(outputType)
+                logic.actions.patchOutputConfig(
+                    outputType === 'numeric'
+                        ? { passing_rule: { operator: 'gte', threshold: NaN } }
+                        : {
+                              options: Array.from({ length: 101 }, (_, i) => ({
+                                  key: `category_${i}`,
+                                  label: `Category ${i}`,
+                              })),
+                          }
+                )
+
+                await expectLogic(logic, () => logic.actions.testHogOnSample()).toFinishAllListeners()
+
+                expect(testSample).not.toHaveBeenCalled()
+                expect(logic.values.hogTestResults).toBeNull()
+            }
+        )
+
+        it.each(['boolean', 'numeric', 'categorical'] as const)(
+            'sends %s output config and clears sample results after configuration changes',
+            async (outputType) => {
+                let requestBody: Record<string, unknown> | undefined
+                useMocks({
+                    post: {
+                        '/api/projects/:teamId/evaluations/test_hog/': async ({ request }) => {
+                            requestBody = (await request.json()) as Record<string, unknown>
+                            return {
+                                results: [
+                                    {
+                                        sample_id: 'trace-1',
+                                        sample_type: 'trace',
+                                        event_uuid: null,
+                                        trace_id: 'trace-1',
+                                        input_preview: 'hello',
+                                        output_preview: 'world',
+                                        result: true,
+                                        reasoning: null,
+                                        error: null,
+                                    },
+                                ],
+                            }
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.setEvaluationType('hog')
+                logic.actions.setOutputType(outputType)
+                if (outputType === 'numeric') {
+                    logic.actions.patchOutputConfig({
+                        min: 0,
+                        max: 10,
+                        passing_rule: { operator: 'gte', threshold: 7 },
+                    })
+                }
+                logic.actions.setEvaluationTarget('trace')
+                logic.actions.patchTargetConfig({ window_seconds: 120 })
+                logic.actions.testHogOnSample()
+
+                await expectLogic(logic)
+                    .toDispatchActions(['testHogOnSampleSuccess'])
+                    .toMatchValues({
+                        hogTestResults: [expect.objectContaining({ sample_id: 'trace-1', sample_type: 'trace' })],
+                    })
+                expect(requestBody).toMatchObject({
+                    target: 'trace',
+                    output_type: outputType,
+                    output_config:
+                        outputType === 'numeric'
+                            ? { min: 0, max: 10, allows_na: false, passing_rule: { operator: 'gte', threshold: 7 } }
+                            : outputType === 'categorical'
+                              ? {
+                                    allows_na: false,
+                                    selection_mode: 'single',
+                                    options: [
+                                        { key: 'resolved', label: 'Resolved' },
+                                        { key: 'unresolved', label: 'Unresolved' },
+                                    ],
+                                }
+                              : { allows_na: false },
+                    target_config: { window_seconds: 120 },
+                })
+                expect(requestBody).not.toHaveProperty('allows_na')
+
+                if (outputType === 'numeric') {
+                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
+                    expect(logic.values.hogTestResults).not.toBeNull()
+                    logic.actions.patchOutputConfig({ max: 20 })
+                } else {
+                    logic.actions.patchTargetConfig({ window_seconds: 240 })
+                }
+                await expectLogic(logic).toMatchValues({ hogTestResults: null })
+            }
+        )
+
+        it.each(['target', 'passing_rule'])(
+            'handles a %s change while a preview is in flight',
+            async (changedField) => {
+                let resolveRequest: (value: TestHogResponseApi) => void = () => {}
+                const pendingResponse = new Promise<TestHogResponseApi>((resolve) => {
+                    resolveRequest = resolve
+                })
+                useMocks({
+                    post: {
+                        '/api/projects/:teamId/evaluations/test_hog/': () => pendingResponse,
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                logic.actions.setEvaluationType('hog')
+                logic.actions.setOutputType('numeric')
+                logic.actions.testHogOnSample()
+                await expectLogic(logic).toMatchValues({ hogTestResultsLoading: true })
+
+                if (changedField === 'target') {
+                    logic.actions.setEvaluationTarget('trace')
+                } else {
+                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
+                }
+                await expectLogic(logic).toMatchValues({ hogTestResults: null })
+                resolveRequest({
+                    results: [
+                        {
+                            sample_id: 'generation-1',
+                            sample_type: 'generation',
+                            event_uuid: 'generation-1',
+                            trace_id: 'trace-1',
+                            input_preview: 'hello',
+                            output_preview: 'world',
+                            result: null,
+                            score: 7,
+                            reasoning: '',
+                            error: null,
+                        },
+                    ],
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['testHogOnSampleSuccess'])
+                    .toMatchValues({
+                        hogTestResults: changedField === 'target' ? null : [expect.objectContaining({ score: 7 })],
+                    })
+            }
+        )
+    })
+
+    describe('saveEvaluation list refresh', () => {
+        it('reloads the evaluations list so it shows the eval just created', async () => {
+            const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+            let evaluationListCount = 0
+
             useMocks({
+                get: {
+                    '/api/projects/:teamId/evaluations/': () => {
+                        evaluationListCount += 1
+                        return { results: evaluationListCount === 1 ? [] : [mockSentimentEvaluation] }
+                    },
+                    '/api/projects/:teamId/evaluation_directories/': [],
+                },
                 post: {
-                    '/api/projects/:teamId/evaluations/test_hog/': () => pendingResponse,
+                    '/api/projects/:teamId/evaluations/': () => mockSentimentEvaluation,
                 },
             })
-            logic = llmEvaluationLogic({ evaluationId: 'new' })
+
+            const evaluationsLogic = llmEvaluationsLogic()
+            evaluationsLogic.mount()
+
+            try {
+                await expectLogic(evaluationsLogic).toDispatchActions(['loadEvaluationsSuccess'])
+                expect(evaluationsLogic.values.evaluations).toEqual([])
+
+                logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Sentiment evaluation')
+                logic.actions.saveEvaluation()
+
+                await expectLogic(evaluationsLogic).toDispatchActions(['loadEvaluations', 'loadEvaluationsSuccess'])
+                expect(evaluationsLogic.values.evaluations).toHaveLength(1)
+            } finally {
+                pushSpy.mockRestore()
+                evaluationsLogic.unmount()
+            }
+        })
+    })
+
+    describe('saveEvaluation past traffic', () => {
+        it.each([
+            { enabled: true, expectedTab: 'backfills', requestsStart: true, offersPastData: false },
+            { enabled: false, expectedTab: null, requestsStart: false, offersPastData: true },
+        ])(
+            'a new evaluation created enabled=$enabled asks the Backfills tab to start: $requestsStart',
+            async ({ enabled, expectedTab, requestsStart, offersPastData }) => {
+                const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+                const infoSpy = jest.spyOn(lemonToast, 'info')
+                let backfillRequests = 0
+                useMocks({
+                    post: {
+                        '/api/projects/:teamId/evaluations/': () => ({ ...mockSentimentEvaluation, enabled }),
+                        '/api/projects/:teamId/evaluations/:id/backfills/': () => {
+                            backfillRequests += 1
+                            return [201, {}]
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+                logic.mount()
+
+                try {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.setEvaluationName('Sentiment evaluation')
+                    logic.actions.setCheckPastTraffic(true)
+                    logic.actions.saveEvaluation()
+                    await expectLogic(logic).toDispatchActions(['saveEvaluationSuccess'])
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(backfillRequests).toBe(0)
+                    const params = new URL(String(pushSpy.mock.calls.at(-1)?.[0]), 'http://x').searchParams
+                    expect(params.get('evaluation_tab')).toBe(expectedTab)
+                    // The request stays in memory, never in a URL someone could share.
+                    expect(params.get('backfill_start')).toBeNull()
+                    expect(takeBackfillStart(mockSentimentEvaluation.id)).toBe(requestsStart)
+                    expect(
+                        infoSpy.mock.calls.some(
+                            ([message]) => message === 'This evaluation grades new data from now on.'
+                        )
+                    ).toBe(offersPastData)
+                } finally {
+                    pushSpy.mockRestore()
+                    infoSpy.mockRestore()
+                }
+            }
+        )
+    })
+
+    describe('saveEvaluation updates', () => {
+        it.each([
+            { change: 'name', expected: { name: 'Renamed decision evaluation' }, rejected: false },
+            {
+                change: 'output_config',
+                expected: { output_config: { allows_na: true } },
+                rejected: true,
+            },
+            {
+                change: 'model_configuration',
+                expected: {
+                    model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: 'key-1' },
+                },
+                rejected: true,
+            },
+            {
+                change: 'sentiment',
+                expected: {
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                },
+                rejected: false,
+            },
+        ] as const)(
+            'sends only $change changes when the decision flag is off',
+            async ({ change, expected, rejected }) => {
+                const evaluation: EvaluationConfig = {
+                    ...mockEvaluation,
+                    enabled: true,
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: { prompt: 'Is this response helpful?', judge_method: 'decision' },
+                    output_type: 'boolean',
+                    output_config: { allows_na: false },
+                    model_configuration: { provider: 'openai', model: 'gpt-6-luna', provider_key_id: 'key-1' },
+                }
+                let savedPayload: unknown
+                const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+                useMocks({
+                    get: { '/api/projects/:teamId/evaluations/:id/': evaluation },
+                    patch: {
+                        '/api/projects/:teamId/evaluations/:id/': async ({ request }) => {
+                            savedPayload = await request.json()
+                            return rejected
+                                ? [
+                                      400,
+                                      {
+                                          model_configuration: [
+                                              'Decision evaluations are not available for this project.',
+                                          ],
+                                      },
+                                  ]
+                                : { ...evaluation, ...expected }
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+
+                try {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.setModelConfiguration({ ...evaluation.model_configuration! })
+                    logic.actions.setAllowsNA(true)
+                    logic.actions.setAllowsNA(false)
+                    switch (change) {
+                        case 'name':
+                            logic.actions.setEvaluationName(expected.name)
+                            break
+                        case 'output_config':
+                            logic.actions.setAllowsNA(true)
+                            break
+                        case 'model_configuration':
+                            logic.actions.setModelConfiguration(expected.model_configuration)
+                            break
+                        case 'sentiment':
+                            logic.actions.setEvaluationType('sentiment')
+                            break
+                    }
+                    logic.actions.saveEvaluation()
+
+                    await expectLogic(logic)
+                        .toDispatchActions([rejected ? 'saveEvaluationFailure' : 'saveEvaluationSuccess'])
+                        .toMatchValues({ evaluationFormSubmitting: false })
+                    expect(savedPayload).toEqual(expected)
+                } finally {
+                    pushSpy.mockRestore()
+                }
+            }
+        )
+    })
+
+    describe('saveEnabled', () => {
+        it('lets a saved code evaluation turn on while its unsaved draft is a judge without a key', async () => {
+            const evaluation: EvaluationConfig = {
+                ...mockEvaluation,
+                enabled: false,
+                evaluation_type: 'hog',
+                evaluation_config: { source: 'return true;' },
+                model_configuration: null,
+            } as EvaluationConfig
+            useMocks({ get: { '/api/projects/:teamId/evaluations/:id/': evaluation } })
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            await expectLogic(keysLogic).toFinishAllListeners()
+
+            logic.actions.setEvaluationType('llm_judge')
+
+            expect(logic.values.canEnable).toBe(false)
+            expect(logic.values.enableSavedReason).toBeNull()
+        })
+
+        it('saves only the run state and keeps unsaved configuration edits', async () => {
+            const evaluation: EvaluationConfig = { ...mockEvaluation, enabled: false }
+            let savedPayload: unknown
+            useMocks({
+                get: { '/api/projects/:teamId/evaluations/:id/': evaluation },
+                patch: {
+                    '/api/projects/:teamId/evaluations/:id/': async ({ request }) => {
+                        savedPayload = await request.json()
+                        return { ...evaluation, enabled: true }
+                    },
+                },
+            })
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-            logic.actions.setEvaluationType('hog')
-            logic.actions.testHogOnSample()
-            await expectLogic(logic).toMatchValues({ hogTestResultsLoading: true })
-
-            logic.actions.setEvaluationTarget('trace')
-            await expectLogic(logic).toMatchValues({ hogTestResults: null })
-            resolveRequest({
-                results: [
-                    {
-                        sample_id: 'generation-1',
-                        sample_type: 'generation',
-                        event_uuid: 'generation-1',
-                        trace_id: 'trace-1',
-                        input_preview: 'hello',
-                        output_preview: 'world',
-                        result: true,
-                        reasoning: '',
-                        error: null,
-                    },
-                ],
-            })
+            logic.actions.setEvaluationName('Renamed but not saved')
+            logic.actions.saveEnabled(true)
 
             await expectLogic(logic)
-                .toDispatchActions(['testHogOnSampleSuccess'])
-                .toMatchValues({ hogTestResults: null })
+                .toDispatchActions(['saveEnabledSuccess'])
+                .toMatchValues({
+                    enabledSaving: false,
+                    evaluation: expect.objectContaining({ enabled: true, name: 'Renamed but not saved' }),
+                    originalEvaluation: expect.objectContaining({ enabled: true, name: evaluation.name }),
+                    hasUnsavedChanges: true,
+                })
+            expect(savedPayload).toEqual({ enabled: true })
         })
     })
 
@@ -1519,6 +2546,7 @@ return result`,
                     model: 'gpt-5-mini',
                     provider_key_id: 'key-1',
                 })
+                reportLogic.actions.setDraftFrequency('every_n')
                 reportLogic.actions.setDraftTriggerThreshold(67)
 
                 expect(reportLogic.values.configErrors.triggerThreshold).toBe(
@@ -1652,6 +2680,43 @@ return result`,
                 expect(reportCreateCount).toBe(0)
             } finally {
                 pushSpy.mockRestore()
+                reportLogic.unmount()
+            }
+        })
+    })
+
+    describe('report destinations', () => {
+        it.each([
+            { name: 'a new evaluation reports daily', evaluationId: 'new', frequency: 'scheduled' },
+            {
+                name: 'a saved evaluation without a report keeps the older baseline, so it shows no unsaved change',
+                evaluationId: 'saved-eval',
+                frequency: 'every_n',
+            },
+        ])('$name', ({ evaluationId, frequency }) => {
+            const reportLogic = evaluationReportLogic({ evaluationId })
+            reportLogic.mount()
+            try {
+                expect(reportLogic.values.configDraft).toMatchObject({ frequency, scheduleCadence: 'daily' })
+            } finally {
+                reportLogic.unmount()
+            }
+        })
+
+        it('keeps an emptied destination open until it is removed, then clears it', () => {
+            const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+            reportLogic.mount()
+            try {
+                reportLogic.actions.addDraftDestination('email')
+                reportLogic.actions.setDraftEmailValue('team@example.com')
+                reportLogic.actions.setDraftEmailValue('')
+                expect(reportLogic.values.shownDestinations).toEqual(['email'])
+
+                reportLogic.actions.setDraftEmailValue('team@example.com')
+                reportLogic.actions.removeDraftDestination('email')
+                expect(reportLogic.values.shownDestinations).toEqual([])
+                expect(reportLogic.values.configDraft.emailValue).toEqual('')
+            } finally {
                 reportLogic.unmount()
             }
         })

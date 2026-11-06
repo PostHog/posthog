@@ -1,5 +1,6 @@
 import datetime
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, get_args, get_origin
 from uuid import UUID
 
@@ -13,7 +14,8 @@ from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
 
 from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
@@ -146,10 +148,18 @@ class AssistantContextMixin(ABC):
         return False
 
 
+@dataclass(frozen=True)
+class StateClasses:
+    """The state types extracted from a class's generic parameters."""
+
+    state_class: type
+    partial_state_class: type
+
+
 class StateClassMixin:
     """Mixin to extract state types from generic class parameters."""
 
-    def _get_state_class(self, target_class: type) -> tuple[type, type]:
+    def _get_state_class(self, target_class: type) -> StateClasses:
         """Extract the State type from the class's generic parameters."""
         # Check if this class has generic arguments
         if hasattr(self.__class__, "__orig_bases__"):
@@ -157,7 +167,8 @@ class StateClassMixin:
                 if get_origin(base) is target_class:
                     args = get_args(base)
                     if args:
-                        return args[0], args[1]  # State is the first argument and PartialState is the second argument
+                        # State is the first argument and PartialState is the second argument
+                        return StateClasses(state_class=args[0], partial_state_class=args[1])
 
         # No generic type found - this shouldn't happen in proper usage
         raise ValueError(
@@ -192,8 +203,8 @@ class TaxonomyUpdateDispatcherNodeMixin:
                         )
                     case "retrieve_action_properties" | "retrieve_action_property_values":
                         try:
-                            action_model = Action.objects.get(
-                                pk=action.tool_input["action_id"], team__project_id=self._team.project_id
+                            action_model = get_action(
+                                action_id=int(action.tool_input["action_id"]), project_id=self._team.project_id
                             )
                             if action.tool == "retrieve_action_properties":
                                 substeps.append(f"Exploring `{action_model.name}` action properties")
@@ -201,7 +212,7 @@ class TaxonomyUpdateDispatcherNodeMixin:
                                 substeps.append(
                                     f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
                                 )
-                        except Action.DoesNotExist:
+                        except ActionNotFound:
                             pass
 
         content = "Picking relevant events and properties"

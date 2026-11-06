@@ -28,6 +28,11 @@ export interface AcpNotification {
  */
 export interface StoredLogEntry {
     type: 'notification'
+    event_id?: string
+    first_event_id?: string
+    covered_event_ids?: string[]
+    /** Client-side ownership; the shared backend log payload stays unchanged. */
+    source_run_id?: string
     timestamp?: string
     notification: AcpNotification
 }
@@ -44,6 +49,8 @@ export interface TaskRunStateFrame {
     status?: string
     stage?: string | null
     output?: unknown
+    task_summary?: string | null
+    task_tags?: string[]
     branch?: string | null
     error_message?: string | null
     updated_at?: string | null
@@ -66,11 +73,14 @@ export interface PermissionOption {
     kind: string
     /** `_meta.customInput === true` — the option accepts optional free-text feedback. */
     customInput?: boolean
+    hint?: string
+    _meta?: { customInput?: boolean; hint?: string }
 }
 
 /** Top-level permission frame hoisted onto the stream by the relay. */
 export interface PermissionRequestFrame {
     type: 'permission_request'
+    event_id?: string
     requestId?: string
     toolCallId?: string
     options?: PermissionOption[]
@@ -152,6 +162,7 @@ export interface SessionUpdateToolCall {
     kind?: string
     status?: string
     rawInput?: Record<string, unknown>
+    rawOutput?: unknown
     input?: Record<string, unknown>
     locations?: { path: string; line?: number }[]
     content?: unknown[]
@@ -173,6 +184,7 @@ export interface SessionUpdateClaudeCodeMeta {
 }
 
 export interface SessionUpdateToolCallMeta {
+    posthog?: { toolName: string; mcp?: { server: string; tool: string }; parentToolCallId?: string }
     claudeCode?: SessionUpdateClaudeCodeMeta
 }
 
@@ -307,6 +319,42 @@ export function isSessionUpdateUsage(update: unknown): update is SessionUpdateUs
     return isRecord(update) && update.sessionUpdate === 'usage_update'
 }
 
+/** The agent's full slash-command list. Each frame replaces the previous list. */
+export interface SessionUpdateAvailableCommands {
+    sessionUpdate: 'available_commands_update'
+    availableCommands?: unknown
+}
+
+export function isSessionUpdateAvailableCommands(update: unknown): update is SessionUpdateAvailableCommands {
+    return isRecord(update) && update.sessionUpdate === 'available_commands_update'
+}
+
+/** An agent-advertised command, guarded down from the loosely-typed ACP `AvailableCommand`. */
+export interface AgentCommand {
+    name: string
+    description: string
+    hint?: string
+}
+
+export function parseAvailableCommands(raw: unknown): AgentCommand[] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    return raw.flatMap((command): AgentCommand[] => {
+        if (!isRecord(command) || typeof command.name !== 'string' || !command.name) {
+            return []
+        }
+        const hint = isRecord(command.input) && typeof command.input.hint === 'string' ? command.input.hint : undefined
+        return [
+            {
+                name: command.name.replace(/^\//, ''),
+                description: typeof command.description === 'string' ? command.description : '',
+                ...(hint ? { hint } : {}),
+            },
+        ]
+    })
+}
+
 /**
  * The user's own turn, echoed back by the agent adapter and persisted to the run log as a
  * `session/update` (not a `_posthog/*` ext-notification). Carries the full prompt text in a single
@@ -331,6 +379,13 @@ export interface PosthogStatusParams {
     sessionId?: string
     status?: string
     isComplete?: boolean
+    /** Failure reason, set on a `*_failed` status (e.g. `clearing_failed`). */
+    error?: string
+}
+
+/** `/clear` boundary — `sessionId` is the fresh agent session swapped in behind it. */
+export interface PosthogConversationClearedParams {
+    sessionId?: string
 }
 
 export interface PosthogCompactBoundaryParams {
@@ -383,11 +438,51 @@ export interface PosthogRunStartedParams {
     runId?: string
     taskId?: string
     agentVersion?: string
+    /** The agent implements `/clear` and honours the conversation-cleared boundary. Absent on older agents. */
+    conversationClear?: boolean
 }
 
 export interface PosthogTurnCompleteParams {
     sessionId?: string
     stopReason?: string
+    /** The turn's gateway trace id, when the agent's traceparent hook reported one. */
+    traceId?: string
+}
+
+export interface SuggestedInsightRefParams {
+    insightShortId?: string
+    insightId?: number | null
+    insightName?: string
+}
+
+/** Loose on purpose: the fold validates it. */
+export interface PosthogTurnSuggestionParams {
+    turnIndex?: number
+    kind?: string
+    intent?: string
+    confidence?: number
+    title?: string
+    description?: string
+    scout?: {
+        mode?: string
+        displayName?: string
+        description?: string
+        body?: string
+        cadence?: string
+    }
+    notebook?: {
+        title?: string
+        summary?: string
+        incident?: { timeline?: string; cause?: string; fix?: string } | null
+    }
+    alert?: SuggestedInsightRefParams & { direction?: string; changePercent?: number }
+    subscription?: SuggestedInsightRefParams & { cadence?: string }
+    errorAlert?: { issueId?: string; issueName?: string }
+}
+
+export interface PosthogTurnSuggestionResolvedParams {
+    turnIndex?: number
+    outcome?: string
 }
 
 export interface PosthogNotificationParamsByMethod {
@@ -398,6 +493,7 @@ export interface PosthogNotificationParamsByMethod {
     '_posthog/usage_update': PosthogUsageUpdateParams
     '_posthog/status': PosthogStatusParams
     '_posthog/compact_boundary': PosthogCompactBoundaryParams
+    '_posthog/conversation_cleared': PosthogConversationClearedParams
     '_posthog/task_notification': PosthogTaskNotificationParams
     '_posthog/error': PosthogErrorParams
     '_posthog/sdk_session': PosthogSdkSessionParams
@@ -406,6 +502,8 @@ export interface PosthogNotificationParamsByMethod {
     '_posthog/permission_resolved': PosthogPermissionResolvedParams
     '_posthog/run_started': PosthogRunStartedParams
     '_posthog/turn_complete': PosthogTurnCompleteParams
+    '_posthog/turn_suggestion': PosthogTurnSuggestionParams
+    '_posthog/turn_suggestion_resolved': PosthogTurnSuggestionResolvedParams
 }
 
 /**

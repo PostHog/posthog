@@ -46,7 +46,7 @@ export const VARIANT_META: Record<RunVariant, VariantMeta> = {
     },
     live: {
         label: 'Running',
-        dotClass: 'bg-accent animate-pulse',
+        dotClass: 'bg-success animate-pulse',
         ariaLabel: 'In progress',
     },
     completed: {

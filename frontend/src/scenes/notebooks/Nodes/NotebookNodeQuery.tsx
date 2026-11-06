@@ -1,30 +1,35 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     isDataTableNode,
-    isEventsQuery,
     isHogQLQuery,
     isInsightVizNode,
     isNodeWithSource,
-    isSavedInsightNode,
     isActorsQuery,
-} from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
+} from '~/queries/schema/node-guards'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { isEventsQuery, isSavedInsightNode } from '~/queries/utils'
+import { InsightLogicProps, InsightShortId } from '~/types'
+
+import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'
+import type { InsightDataframeAttributes } from 'products/notebooks/frontend/notebookInsightDataframeLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import {
@@ -41,6 +46,10 @@ type NotebookSqlOutputToolbarVisibilityProps = {
     componentPanelState: ReturnType<typeof useComponentPanelState>
     expanded: boolean
     isEditing: boolean
+}
+
+function getResolvedNotebookQuery(attributes: NotebookNodeQueryAttributes): QuerySchema {
+    return attributes.id ? { kind: NodeKind.SavedInsightNode, shortId: attributes.id } : attributes.query
 }
 
 export function getNotebookSqlOutputToolbarVisibility({
@@ -69,7 +78,8 @@ const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const { query, nodeId } = attributes
+    const { nodeId } = attributes
+    const query = getResolvedNotebookQuery(attributes)
     const nodeLogic = useRequiredNotebookNode()
     const { expanded, nodeId: resolvedNodeId, notebookLogic } = useValues(nodeLogic)
     const {
@@ -95,6 +105,11 @@ const Component = ({
         : {
               dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
           }
+    const dataframeInsightProps: InsightLogicProps =
+        query.kind === NodeKind.SavedInsightNode
+            ? insightLogicProps
+            : { dashboardItemId: `new-AdHoc.notebook.${notebookLogic.props.shortId}.${nodeId}`, query }
+    dataframeInsightProps.retainResponseOnUnmount = !isShared
     const { insightName } = useValues(insightLogic(insightLogicProps))
     const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
     const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
@@ -150,7 +165,6 @@ const Component = ({
             modifiedQuery.showFilters = false
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
-            modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
         }
 
@@ -225,6 +239,7 @@ const Component = ({
         <Query
             uniqueKey={nodeId + '-component'}
             query={modifiedQuery}
+            context={{ insightProps: dataframeInsightProps }}
             attachTo={notebookLogic}
             setQuery={(t) => {
                 updateAttributes({
@@ -249,13 +264,22 @@ const Component = ({
                         {queryComponent}
                     </ScrollableShadows>
                 )}
+                {isInsightViz ? (
+                    <NotebookInsightDataframe
+                        insightProps={dataframeInsightProps}
+                        attributes={attributes}
+                        updateAttributes={updateAttributes}
+                    />
+                ) : null}
             </BindLogic>
         </div>
     )
 }
 
-type NotebookNodeQueryAttributes = {
+type NotebookNodeQueryAttributes = InsightDataframeAttributes & {
     query: QuerySchema
+    id?: InsightShortId
+    view?: string
     /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
     showSettings?: boolean
@@ -266,7 +290,8 @@ export const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
-    const { query, isDefaultFilterApplied } = attributes
+    const { isDefaultFilterApplied } = attributes
+    const query = getResolvedNotebookQuery(attributes)
     const nodeLogic = useRequiredNotebookNode()
     const { notebookLogic } = useValues(nodeLogic)
     const { canvasFiltersOverride } = useValues(notebookLogic)
@@ -320,19 +345,19 @@ export const Settings = ({
     }, [query, canvasFiltersOverride, isDefaultFilterApplied, attributes, updateAttributes])
 
     const detachSavedInsight = (): void => {
-        if (isSavedInsightNode(attributes.query)) {
-            const insightProps: InsightLogicProps = { dashboardItemId: attributes.query.shortId }
+        if (isSavedInsightNode(query)) {
+            const insightProps: InsightLogicProps = { dashboardItemId: query.shortId }
             const dataLogic = insightDataLogic.findMounted(insightProps)
 
             if (dataLogic) {
-                updateAttributes({ query: dataLogic.values.query as QuerySchema })
+                updateAttributes({ id: undefined, query: dataLogic.values.query as QuerySchema })
             }
         }
     }
 
     const isSqlEditorQuery = !!getSqlEditorSourceQuery(query)
 
-    return isSavedInsightNode(attributes.query) ? (
+    return isSavedInsightNode(query) ? (
         <div className="p-3 deprecated-space-y-2">
             <div className="text-lg font-semibold">Insight created outside of this notebook</div>
             <div>
@@ -346,7 +371,7 @@ export const Settings = ({
                     type="secondary"
                     fullWidth
                     className="flex flex-1"
-                    to={urls.insightEdit(attributes.query.shortId)}
+                    to={urls.insightEdit(query.shortId)}
                 >
                     Edit the insight
                 </LemonButton>
@@ -373,7 +398,7 @@ export const Settings = ({
                 setQuery={(t) => {
                     updateAttributes({
                         query: {
-                            ...attributes.query,
+                            ...query,
                             source: (t as DataTableNode | InsightVizNode).source,
                         } as QuerySchema,
                     })
@@ -383,6 +408,64 @@ export const Settings = ({
     )
 }
 
+function InsightSummary({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element {
+    const query = getResolvedNotebookQuery(attributes)
+
+    if (!isSavedInsightNode(query)) {
+        return <Component attributes={attributes} updateAttributes={() => {}} />
+    }
+
+    return <SavedInsightSummary shortId={query.shortId} />
+}
+
+function SavedInsightSummary({ shortId }: { shortId: InsightShortId }): JSX.Element {
+    const logic = insightLogic({ dashboardItemId: shortId })
+    const { insight, insightLoading, insightName } = useValues(logic)
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        setTitlePlaceholder(insightName || 'Insight')
+    }, [insightName, setTitlePlaceholder])
+
+    if (insightLoading && !insight.id) {
+        return (
+            <div className="p-3">
+                <LemonSkeleton className="h-6 w-full" />
+            </div>
+        )
+    }
+
+    const insightType = insight.query?.kind?.replace('Node', '').replace('Query', '') || 'Insight'
+
+    return (
+        <BindLogic logic={insightLogic} props={{ dashboardItemId: shortId }}>
+            <div className="flex flex-wrap items-center gap-2 p-3">
+                <span className="min-w-48 flex-1 truncate">{insight.description || insightName}</span>
+                <LemonTag type="muted">{insightType}</LemonTag>
+            </div>
+        </BindLogic>
+    )
+}
+
+function InsightEditor(props: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element {
+    const query = getResolvedNotebookQuery(props.attributes)
+    const shortId = isSavedInsightNode(query) ? query.shortId : ('new' as const)
+    const { insightName } = useValues(insightLogic({ dashboardItemId: shortId }))
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        setTitlePlaceholder(insightName || 'Insight')
+    }, [insightName, setTitlePlaceholder])
+
+    return <Settings {...props} />
+}
+
+const INSIGHT_NOTEBOOK_WIDGET_VIEWS = defineNotebookWidgetViews<NotebookNodeQueryAttributes, 'Insight'>('Insight', {
+    summary: InsightSummary,
+    editor: InsightEditor,
+    results: Component,
+})
+
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
     titlePlaceholder: 'Query',
@@ -391,10 +474,13 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
+    deferUntilInView: true,
     attributes: {
         query: {
             default: DEFAULT_QUERY,
         },
+        id: {},
+        view: {},
         isDefaultFilterApplied: {
             default: false,
         },
@@ -404,18 +490,29 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         outputTab: {
             default: OutputTab.Results,
         },
+        nodeId: {},
+        returnVariable: {},
+        dataframeSource: {},
+        dataframeQuery: {},
+        runId: {},
+        result: {},
+        runStatus: {},
     },
-    href: ({ query }) =>
-        isSavedInsightNode(query)
+    href: (attributes) => {
+        const query = getResolvedNotebookQuery(attributes)
+        return isSavedInsightNode(query)
             ? urls.insightView(query.shortId)
             : isInsightVizNode(query)
               ? urls.insightNew({ query })
-              : undefined,
+              : undefined
+    },
     Settings,
+    defaultView: getNotebookWidgetDefaultView('Insight'),
+    views: INSIGHT_NOTEBOOK_WIDGET_VIEWS,
     settingsPlacement: 'inline',
     serializedText: (attrs) => {
         let text = ''
-        const q = attrs.query
+        const q = getResolvedNotebookQuery(attrs)
         if (containsHogQLQuery(q)) {
             if (isHogQLQuery(q)) {
                 text = q.query

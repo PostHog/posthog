@@ -15,6 +15,11 @@ import psycopg.errors
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
+    HostNotAllowedError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 
 # Server requires (or rejects) an encrypted connection. Kept specific so a transient
 # "SSL connection has been closed unexpectedly" stays a retryable connection failure.
@@ -34,10 +39,43 @@ _AUTH_MARKERS = (
 # reachable and the failure is plausibly transient — these are deterministic for the configured
 # host (e.g. it resolves to a private or otherwise non-routable address, such as an IPv6 address
 # PostHog can't route to), so retrying re-hits the same wall. Mirrors the non-retryable treatment
-# on the batch path (PostgresSource.get_non_retryable_errors).
+# on the batch path (PostgresSource.get_non_retryable_errors). "enetunreach" is Supabase Supavisor's
+# erlang-tuple wording of the same condition ("{:error, :enetunreach}"), which never contains the
+# libpq phrasing above.
 _HOST_UNREACHABLE_MARKERS = (
     "network is unreachable",
     "no route to host",
+    "enetunreach",
+)
+
+# A managed provider (observed on Neon) refuses PostHog's IP address, either because it isn't on the
+# project's IP allow list or because the project blocks public access. Deterministic until the
+# customer changes that network policy. Mirrors the non-retryable treatment on the batch path
+# (PostgresSource.get_non_retryable_errors).
+_IP_NOT_ALLOWED_MARKERS = (
+    "is not allowed to connect to this endpoint",
+    "access this endpoint from a blocked network",
+)
+
+# A managed provider (observed on Neon) blocks the connection once the account or project has
+# exceeded a usage quota, reporting a plain libpq ERROR rather than a connection failure. Mirrors
+# the non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors's
+# "exceeded the compute time quota" / "exceeded the data transfer quota" entries), which use more
+# specific wording for those two quota types; this is the more generic sibling. The block only
+# lifts when the customer upgrades the plan or the quota resets, so without this marker it falls
+# through to the generic CONNECTION_FAILED bucket below and retries indefinitely into the same
+# wall. Match the stable quota phrase; it names no volatile host/IP/port detail.
+_QUOTA_EXCEEDED_MARKER = "exceeded the quota"
+
+# A Supabase/Supavisor pooler that can't resolve the tenant behind the pooler username, in its
+# older ("Tenant or user not found") and newer ("(ENOTFOUND) tenant/user <user> not found")
+# wordings, or whose upstream DNS record is gone ("{:error, :nxdomain}"). The project is paused or
+# deleted, or the pooler username is wrong, so every reconnect re-hits it. Mirrors the
+# non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors).
+_POOLER_TENANT_NOT_FOUND_MARKERS = (
+    "tenant or user not found",
+    "(enotfound) tenant/user",
+    "{:error, :nxdomain}",
 )
 
 # sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
@@ -64,6 +102,14 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
             return CDCErrorCategory.SSH_TUNNEL_FAILED
         return None
 
+    # The host policy refused a host before any socket opened. Deterministic for the configured
+    # host, so it stops the run like an unroutable address does. One type covers the bastion and
+    # the database, and each needs its own guidance, so the prefix picks the category.
+    if isinstance(exc, HostNotAllowedError):
+        if str(exc).startswith(SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR):
+            return CDCErrorCategory.SSH_TUNNEL_FAILED
+        return CDCErrorCategory.HOST_UNREACHABLE
+
     # Guard all string-based checks: only psycopg exceptions carry these message patterns.
     # A non-psycopg exception whose message happens to contain e.g. "does not exist" would
     # otherwise be misclassified as non-retryable SLOT_MISSING, permanently stopping retries.
@@ -83,6 +129,11 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         if "publication" in message:
             return CDCErrorCategory.PUBLICATION_MISSING
 
+    # Before the authentication checks: Postgres reports a rejected client certificate as
+    # "certificate authentication failed", which the auth markers would otherwise claim.
+    if any(marker in message for marker in CERTIFICATE_ERRORS):
+        return CDCErrorCategory.CERTIFICATE_REJECTED
+
     # Authentication (SQLSTATE class 28) surfaces either as a mapped subclass (server-side)
     # or a bare OperationalError with a libpq message (connection-time). Check before the
     # generic OperationalError fallback, which these subclass.
@@ -91,10 +142,34 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
     if any(marker in message for marker in _AUTH_MARKERS):
         return CDCErrorCategory.AUTH_FAILED
 
+    # SQLSTATE 42501 (insufficient_privilege) — the connecting role lacks a privilege CDC needs.
+    # Covers both "permission denied for table/view/schema ..." (missing SELECT/USAGE) and
+    # "must be owner of table ..." (managing a publication requires table ownership, not just
+    # SELECT). Deterministic until the customer grants the privilege, so it must not fall through
+    # to the retryable UNKNOWN bucket, where a stuck grant would otherwise retry forever.
+    if isinstance(exc, psycopg.errors.InsufficientPrivilege):
+        return CDCErrorCategory.PERMISSION_DENIED
+
     if isinstance(exc, psycopg.OperationalError):
+        if any(marker in message for marker in _IP_NOT_ALLOWED_MARKERS):
+            return CDCErrorCategory.HOST_UNREACHABLE
         if any(marker in message for marker in _SSL_REQUIRED_MARKERS):
             return CDCErrorCategory.SSL_REQUIRED
         if any(marker in message for marker in _HOST_UNREACHABLE_MARKERS):
+            return CDCErrorCategory.HOST_UNREACHABLE
+        if _QUOTA_EXCEEDED_MARKER in message:
+            return CDCErrorCategory.QUOTA_EXCEEDED
+        if any(marker in message for marker in _POOLER_TENANT_NOT_FOUND_MARKERS):
+            return CDCErrorCategory.POOLER_TENANT_NOT_FOUND
+        # psycopg raises ConnectionTimeout only from connect() itself, and the reader already
+        # retries it in-process first (stream_reader._open_streaming_connection wraps every
+        # connect in _connect_with_dropped_retry, which widens its predicate to connect-time
+        # timeouts). Reaching here means every one of those reconnects also timed out — a
+        # persistently unreachable host, not a one-off blip — so treat it like the other
+        # unreachable-host markers above instead of retrying the same wall forever. Mirrors the
+        # non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors's
+        # "connection timeout expired" entry).
+        if isinstance(exc, psycopg.errors.ConnectionTimeout):
             return CDCErrorCategory.HOST_UNREACHABLE
         return CDCErrorCategory.CONNECTION_FAILED
 

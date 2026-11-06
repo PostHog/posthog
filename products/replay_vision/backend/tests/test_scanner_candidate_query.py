@@ -1,29 +1,40 @@
 import datetime as dt
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin
+import time_machine
+from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 
-from posthog.schema import EventPropertyFilter, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
+from posthog.schema import (
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyOperator,
+    RecordingPropertyFilter,
+    RecordingsQuery,
+)
 
 from posthog.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import User
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import create_person
 
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     FOCUSED_SURFACING_THRESHOLD,
     SETTLE_INTERVAL,
-    BackfillCandidateQuery,
+    SWEEP_EVENTS_LOOKBACK,
     ScannerCandidateQuery,
+    WindowedCandidateQuery,
     surfacing_score_predicate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
-    _ESTIMATE_SCAN_WINDOW_DAYS,
+    BATCH_ESTIMATE_BUDGET,
+    PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
@@ -179,11 +190,57 @@ def test_surfacing_score_predicate_emits_threshold(mode, expected_threshold):
     assert isinstance(expr.right, ast.Constant) and expr.right.value == expected_threshold
 
 
+# Whether the narrow events window can cost this query candidates (needs a team, no ClickHouse).
+
+
+def _positive_event_filter() -> EventPropertyFilter:
+    return EventPropertyFilter(key="$host", value=["app.example.com"], operator=PropertyOperator.EXACT, type="event")
+
+
+@pytest.mark.parametrize(
+    "make_query, expected",
+    [
+        (lambda: RecordingsQuery(properties=[_positive_event_filter()]), True),
+        # Negative filters are enforced unbounded, so the events window never costs them anything.
+        (
+            lambda: RecordingsQuery(
+                properties=[
+                    EventPropertyFilter(
+                        key="$host", value=["internal.example.com"], operator=PropertyOperator.IS_NOT, type="event"
+                    )
+                ]
+            ),
+            False,
+        ),
+        (lambda: RecordingsQuery(), False),
+    ],
+)
+@pytest.mark.django_db
+def test_matches_on_events_tracks_positive_event_filters(make_query, expected: bool, team) -> None:
+    # A false negative here silently retires the deep pass for that scanner, and the stragglers it
+    # exists to catch are then never observed at all.
+    assert _make_query(team=team, query=make_query()).matches_on_events() is expected
+
+
+@pytest.mark.django_db
+def test_matches_on_events_covers_test_account_filters(team) -> None:
+    # Team config routes through a second builder that a naive implementation would never consult.
+    team.test_account_filters = [{"key": "$host", "value": ["app.example.com"], "operator": "exact", "type": "event"}]
+    team.save()
+    query = RecordingsQuery(filter_test_accounts=True)
+
+    assert _make_query(team=team, query=query).matches_on_events() is True
+
+
 # Integration: actual ClickHouse query.
 
 
-@freeze_time(_FROZEN_TIME)
 class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
     def setup_method(self, _method) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
@@ -434,7 +491,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
     @pytest.mark.django_db
     def test_volume_estimate_window_is_exactly_the_scan_window(self, team) -> None:
         # An exact-timestamp date_from keeps the boundary sharp: a relative form would truncate to start-of-day.
-        bound = _NOW - dt.timedelta(days=_ESTIMATE_SCAN_WINDOW_DAYS)
+        bound = _NOW - dt.timedelta(days=BATCH_ESTIMATE_BUDGET.scan_window_days)
         self._produce(
             team.id,
             "same-day-but-outside",
@@ -454,6 +511,33 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
         assert estimate.matched_sessions == 1
 
+    @pytest.mark.parametrize("operand", [FilterLogicalOperator.OR_, None])
+    @pytest.mark.django_db
+    def test_unsampled_estimate_window_narrows_only_for_previews(self, team, operand) -> None:
+        # An OR operand rules out the events SAMPLE, so a preview scans a shorter window instead of
+        # paying full price. A persisted estimate keeps the whole week, because a partial week
+        # inherits whichever weekdays it covered and biases the monthly projection.
+        first = _NOW - dt.timedelta(days=3)
+        self._produce(team.id, "older-match", first, first + dt.timedelta(minutes=10))
+        _create_event(
+            team=team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=first,
+            properties={"$session_id": "older-match"},
+        )
+        # The query builder reads a null operand as OR too, so the estimate must not sample it.
+        query = RecordingsQuery(
+            operand=operand,
+            events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+        )
+
+        preview = estimate_scanner_session_volume(team=team, query=query, budget=PREVIEW_ESTIMATE_BUDGET)
+        batch = estimate_scanner_session_volume(team=team, query=query, budget=BATCH_ESTIMATE_BUDGET)
+
+        assert preview.matched_sessions == 0
+        assert batch.matched_sessions == 1
+
     @pytest.mark.django_db
     def test_volume_estimate_projects_zero_for_old_but_quiet_teams(self, team) -> None:
         # Recordings older than the probe fall back to the full scan-window divisor, which is inert: matched is 0.
@@ -463,7 +547,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
 
         assert estimate.matched_sessions == 0
-        assert estimate.effective_window_days == _ESTIMATE_SCAN_WINDOW_DAYS
+        assert estimate.effective_window_days == BATCH_ESTIMATE_BUDGET.scan_window_days
         assert project_monthly_observations(estimate, 1.0) == 0
 
     @pytest.mark.django_db
@@ -633,6 +717,56 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
         assert results == []
 
+    @pytest.mark.django_db
+    def test_events_lookback_bounds_positive_event_matching(self, team) -> None:
+        last_swept_at = _NOW - dt.timedelta(hours=1)
+        floor = last_swept_at - SWEEP_EVENTS_LOOKBACK
+        for session_id, event_ts in (
+            ("recent-event", floor + dt.timedelta(hours=1)),
+            ("old-event", floor - dt.timedelta(hours=1)),
+        ):
+            self._produce(team.id, session_id, _NOW - dt.timedelta(hours=8), _NOW - dt.timedelta(minutes=50))
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id="d1",
+                timestamp=event_ts,
+                properties={"$session_id": session_id},
+            )
+
+        query = RecordingsQuery(events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}])
+
+        narrow = self._run(team=team, query=query, last_swept_at=last_swept_at, events_lookback=SWEEP_EVENTS_LOOKBACK)
+        assert [r.session_id for r in narrow] == ["recent-event"]
+
+        full_width = self._run(team=team, query=query, last_swept_at=last_swept_at)
+        assert sorted(r.session_id for r in full_width) == ["old-event", "recent-event"]
+
+    @pytest.mark.django_db
+    def test_events_lookback_keeps_negative_filters_full_width(self, team) -> None:
+        last_swept_at = _NOW - dt.timedelta(hours=1)
+        old_ts = last_swept_at - SWEEP_EVENTS_LOOKBACK - dt.timedelta(hours=1)
+        for session_id, host in (("blocked", "internal.example.com"), ("kept", "app.example.com")):
+            self._produce(team.id, session_id, _NOW - dt.timedelta(hours=8), _NOW - dt.timedelta(minutes=50))
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id="d1",
+                timestamp=old_ts,
+                properties={"$session_id": session_id, "$host": host},
+            )
+
+        query = RecordingsQuery(
+            properties=[
+                EventPropertyFilter(
+                    key="$host", value=["internal.example.com"], operator=PropertyOperator.IS_NOT, type="event"
+                )
+            ]
+        )
+
+        results = self._run(team=team, query=query, last_swept_at=last_swept_at, events_lookback=SWEEP_EVENTS_LOOKBACK)
+        assert [r.session_id for r in results] == ["kept"]
+
     @staticmethod
     def _run(
         *,
@@ -643,6 +777,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         sampling_salt: str = "scanner-1",
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         last_seen_session_id: str | None = None,
+        events_lookback: dt.timedelta | None = None,
     ):
         return ScannerCandidateQuery(
             team=team,
@@ -652,11 +787,16 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             sampling_salt=sampling_salt,
             candidate_limit=candidate_limit,
             last_seen_session_id=last_seen_session_id,
+            events_lookback=events_lookback,
         ).run()
 
 
-@freeze_time(_FROZEN_TIME)
-class TestBackfillCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+class TestWindowedCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
     def setup_method(self, _method) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
@@ -672,12 +812,13 @@ class TestBackfillCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         )
 
     @staticmethod
-    def _query(*, team, window_start: dt.datetime, window_end: dt.datetime, **kwargs) -> BackfillCandidateQuery:
-        return BackfillCandidateQuery(
+    def _query(*, team, window_start: dt.datetime, window_end: dt.datetime, **kwargs) -> WindowedCandidateQuery:
+        return WindowedCandidateQuery(
             team=team,
             query=kwargs.pop("query", RecordingsQuery()),
             window_start=window_start,
             window_end=window_end,
+            query_type=kwargs.pop("query_type", "ReplayVisionBackfillCandidateQuery"),
             sampling_rate=kwargs.pop("sampling_rate", 1.0),
             sampling_salt=kwargs.pop("sampling_salt", "scanner-1"),
             **kwargs,
@@ -707,7 +848,8 @@ class TestBackfillCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             team.id, "after-window", window_end + dt.timedelta(minutes=1), window_end + dt.timedelta(minutes=30)
         )
 
-        assert self._query(team=team, window_start=window_start, window_end=window_end).count() == 6
+        counted = self._query(team=team, window_start=window_start, window_end=window_end)
+        assert counted.count(query_type="ReplayVisionBackfillCountQuery") == 6
 
         walked: list[str] = []
         cursor_end, cursor_sid = None, None
@@ -727,3 +869,126 @@ class TestBackfillCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
         # Newest-first, tie broken by descending session_id, every enumerated session exactly once.
         assert walked == ["sess-tied", "sess-0", "sess-1", "sess-2", "sess-3", "sess-4"]
+
+
+class TestBalancedVariantSamplingAgainstClickHouse(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
+    def setup_method(self, _method) -> None:
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    def _exposed_session(self, team, distinct_id: str, variant: str, session_id: str) -> None:
+        settle_bound = _NOW - SETTLE_INTERVAL
+        create_person(team=team, distinct_ids=[distinct_id])
+        _create_event(
+            team=team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp=_NOW - dt.timedelta(days=1),
+            properties={"$feature_flag": "balanced-flag", "$feature_flag_response": variant},
+        )
+        produce_replay_summary(
+            team_id=team.id,
+            session_id=session_id,
+            distinct_id=distinct_id,
+            first_timestamp=(settle_bound - dt.timedelta(minutes=20)).isoformat(),
+            last_timestamp=(settle_bound - dt.timedelta(minutes=10)).isoformat(),
+            active_milliseconds=30_000,
+        )
+
+    def _experiment(self, team, creator, *, variants=("control", "test")):
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key="balanced-flag",
+            created_by=creator,
+            filters={
+                "multivariate": {
+                    "variants": [{"key": key, "rollout_percentage": 100 // len(variants)} for key in variants]
+                }
+            },
+        )
+        return Experiment.objects.create(
+            team=team,
+            name="balanced",
+            feature_flag=flag,
+            created_by=creator,
+            start_date=_NOW - dt.timedelta(days=7),
+            exposure_criteria={},
+        )
+
+    @pytest.mark.django_db
+    def test_variant_exposure_counts_zero_fill_watched_variants(self, team) -> None:
+        # The plan's shares come from these counts; a variant miscounted (or dropped instead of
+        # zero-filled) plans the budget against the wrong population.
+        from products.replay_vision.backend.queries.variant_sampling import _variant_exposure_counts
+
+        creator = User.objects.create_and_join(team.organization, "counts@posthog.com", "testtest")
+        experiment = self._experiment(team, creator, variants=("control", "test", "beta"))
+        self._exposed_session(team, "counts-control-a", "control", "counts-session-a")
+        self._exposed_session(team, "counts-control-b", "control", "counts-session-b")
+        self._exposed_session(team, "counts-test", "test", "counts-session-c")
+        flush_persons_and_events()
+
+        counts = _variant_exposure_counts(
+            team, experiment_id=experiment.id, selected=None, user=creator, scanner_id="scanner-1"
+        )
+
+        assert counts == {"control": 2.0, "test": 1.0, "beta": 0.0}
+        # Exposure counts are experiment data; without a principal to authorize they stay uncounted
+        # and the tick falls back to plain sampling.
+        assert (
+            _variant_exposure_counts(team, experiment_id=experiment.id, selected=None, user=None, scanner_id=None)
+            is None
+        )
+
+    @pytest.mark.django_db
+    def test_per_variant_rates_gate_candidates_by_attributed_variant(self, team) -> None:
+        # Per-variant thresholds must select by each session's attributed variant, not by one
+        # scanner-wide rate: a broken join projection or multiIf would sample both arms alike.
+        creator = User.objects.create_and_join(team.organization, "balanced@posthog.com", "testtest")
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key="balanced-flag",
+            created_by=creator,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=team,
+            name="balanced",
+            feature_flag=flag,
+            created_by=creator,
+            start_date=_NOW - dt.timedelta(days=7),
+            exposure_criteria={},
+        )
+        self._exposed_session(team, "control-user", "control", "control-session")
+        self._exposed_session(team, "test-user", "test", "test-session")
+        flush_persons_and_events()
+
+        def run(rates: dict[str, float] | None):
+            query = RecordingsQuery.model_validate(
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": experiment.id}}
+            )
+            return ScannerCandidateQuery(
+                team=team,
+                query=query,
+                user=creator,
+                last_swept_at=_NOW - dt.timedelta(days=2),
+                sampling_rate=1.0,
+                sampling_salt="scanner-1",
+                variant_sampling_rates=rates,
+            ).run()
+
+        # Control run: without rates the exposure join keeps both arms.
+        assert {c.session_id for c in run(None)} == {"control-session", "test-session"}
+        # Rate 0 vs 1 is deterministic whatever the hash: only the fully sampled arm survives.
+        assert {c.session_id for c in run({"control": 0.0, "test": 1.0})} == {"test-session"}

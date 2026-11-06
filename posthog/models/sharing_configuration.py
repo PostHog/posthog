@@ -13,7 +13,7 @@ import structlog
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +50,16 @@ class SharingConfiguration(models.Model):
         blank=True,
     )
 
+    shared_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
     enabled = models.BooleanField(default=False)
@@ -69,6 +79,9 @@ class SharingConfiguration(models.Model):
 
     password_required = models.BooleanField(default=False)
 
+    class Meta:
+        indexes = [models.Index(fields=["shared_by"], name="sharingconfig_shared_by_idx")]
+
     @classmethod
     def shareable_resource_fields(cls) -> frozenset[str]:
         """The FK fields that point at a shareable resource - every relation except the team tenant FK.
@@ -77,7 +90,9 @@ class SharingConfiguration(models.Model):
         time, so a newly added shareable resource cannot ship without an explicit access-control decision.
         """
         return frozenset(
-            field.name for field in cls._meta.fields if field.is_relation and field.many_to_one and field.name != "team"
+            field.name
+            for field in cls._meta.fields
+            if field.is_relation and field.many_to_one and field.name not in {"team", "shared_by"}
         )
 
     @classmethod
@@ -107,6 +122,13 @@ class SharingConfiguration(models.Model):
         exist?") - distinct from queryset_active_for_resource, which picks the current config row
         for a resource and ignores grace-period duplicates."""
         return models.Q(enabled=True) & (models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+
+    @classmethod
+    def without_retired_resources_q(cls, prefix: str = "") -> models.Q:
+        """Excludes configs that share a resource of a retired product, so their tokens authenticate
+        nothing and resolve like an unknown token. Every access token lookup must apply it. Pass
+        ``prefix`` (for example ``"sharing_configuration__"``) when filtering a related model."""
+        return models.Q(**{f"{prefix}interviewee_context__isnull": True})
 
     @classmethod
     def queryset_active_for_resource(cls, **resource_lookup: Any) -> models.QuerySet["SharingConfiguration"]:
@@ -154,10 +176,9 @@ class SharingConfiguration(models.Model):
 
             return keep
 
-    def _lock_resource_for_rotation(self) -> None:
+    def lock_resource(self) -> None:
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
-        # free of product imports (``user_interviews`` only exposes its webhooks via tach's
-        # ``[[interfaces]]``).
+        # free of product imports.
         for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
             fk_value = getattr(self, f"{field_name}_id")
             if not fk_value:
@@ -186,7 +207,7 @@ class SharingConfiguration(models.Model):
         resource_lookup = self._resource_lookup_for_instance()
 
         with transaction.atomic():
-            self._lock_resource_for_rotation()
+            self.lock_resource()
 
             active_configs = list(
                 SharingConfiguration.objects.select_for_update()
@@ -219,6 +240,7 @@ class SharingConfiguration(models.Model):
                 notebook=source.notebook,
                 interviewee_context=source.interviewee_context,
                 enabled=source.enabled,
+                shared_by_id=source.shared_by_id,
                 settings=source.settings,
                 password_required=source.password_required,
             )

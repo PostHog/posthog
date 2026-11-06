@@ -87,6 +87,10 @@ async def test_notifies_after_idempotent_persistence_and_ignores_missing_issues(
         }[inputs.fingerprint]
         return SpikeEventPersistenceResult(status=status)
 
+    @activity.defn(name="dispatch_issue_spiking_alert_activity")
+    async def dispatch_alert(_: IssueSpikingWorkflowInputs) -> None:
+        return None
+
     @activity.defn(name="emit_issue_spiking_internal_event_activity")
     async def emit_event(inputs: IssueSpikingWorkflowInputs) -> None:
         emitted_events.append(inputs.issue_id)
@@ -102,7 +106,7 @@ async def test_notifies_after_idempotent_persistence_and_ignores_missing_issues(
             environment.client,
             task_queue=task_queue,
             workflows=[ErrorTrackingIssueSpikingWorkflow],
-            activities=[persist, emit_event, emit_signal],
+            activities=[persist, dispatch_alert, emit_event, emit_signal],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             results = {

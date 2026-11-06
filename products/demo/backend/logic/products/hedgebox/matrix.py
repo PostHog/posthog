@@ -49,12 +49,14 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import PAGEVIEW_EVENT
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.util import create_event
+from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -71,9 +73,7 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroup,
     SchemaPropertyGroupProperty,
 )
-from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries, metric_calculation_keys
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentSavedMetric,
@@ -81,8 +81,10 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.facade.api import record_insight_views
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
@@ -251,7 +253,7 @@ class HedgeboxMatrix(Matrix):
         team.session_recording_opt_in = True  # Also see: the tools/hedgebox-dummy/ app
 
         # Actions
-        interacted_with_file_action = Action.objects.create(
+        interacted_with_file_action = create_action(
             name="Interacted with file",
             team=team,
             description="Logged-in interaction with a file.",
@@ -271,7 +273,7 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
         )
-        Action.objects.create(
+        create_action(
             name="Visited Marius Tech Tips campaign",
             team=team,
             description="Visited page of the campaign we did with Marius Tech Tips, the best YouTube channel for tech tips.",
@@ -285,18 +287,24 @@ class HedgeboxMatrix(Matrix):
             team=team,
             name="Signed-up users",
             created_by=user,
-            groups=[
-                {
-                    "properties": [
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
                         {
-                            "key": "email",
-                            "type": "person",
-                            "value": "is_set",
-                            "operator": "is_set",
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "is_set",
+                                    "operator": "is_set",
+                                }
+                            ],
                         }
-                    ]
+                    ],
                 }
-            ],
+            },
         )
         # Create the standard internal/test users cohort (same as non-demo teams get)
         from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
@@ -416,7 +424,7 @@ class HedgeboxMatrix(Matrix):
                             custom_name="Signed up",
                         ),
                         ActionsNode(
-                            id=interacted_with_file_action.pk,
+                            id=interacted_with_file_action.id,
                             name=interacted_with_file_action.name,
                         ),
                         EventsNode(
@@ -480,7 +488,7 @@ class HedgeboxMatrix(Matrix):
                             type=EntityType.EVENTS,
                         ),
                         returningEntity=RetentionEntity(
-                            id=str(interacted_with_file_action.pk),
+                            id=str(interacted_with_file_action.id),
                             name=interacted_with_file_action.name,
                             type=EntityType.ACTIONS,
                         ),
@@ -517,7 +525,7 @@ class HedgeboxMatrix(Matrix):
                 source=LifecycleQuery(
                     series=[
                         ActionsNode(
-                            id=interacted_with_file_action.pk,
+                            id=interacted_with_file_action.id,
                             name=interacted_with_file_action.name,
                             math=BaseMathType.TOTAL,
                         )
@@ -909,27 +917,42 @@ class HedgeboxMatrix(Matrix):
             last_modified_by=user,
         )
 
-        # InsightViewed
-        try:
-            InsightViewed.objects.bulk_create(
-                (
-                    InsightViewed(
-                        team=team,
-                        user=user,
-                        insight=insight,
-                        last_viewed_at=(
-                            self.now
-                            - dt.timedelta(
-                                days=self.random.randint(0, 3),
-                                minutes=self.random.randint(5, 60),
-                            )
-                        ),
+        FileSystemShortcut.objects.bulk_create(
+            [
+                FileSystemShortcut(
+                    team=team,
+                    user=user,
+                    surface=DEFAULT_SURFACE,
+                    type=item_type,
+                    ref=str(item_ref),
+                    path=item_name or "Untitled",
+                    order=order,
+                )
+                for order, (item_type, item_ref, item_name) in enumerate(
+                    [
+                        ("dashboard", key_metrics_dashboard.pk, key_metrics_dashboard.name),
+                        ("insight", weekly_signups_insight.short_id, weekly_signups_insight.name),
+                        ("insight", signups_by_country_insight.short_id, signups_by_country_insight.name),
+                    ]
+                )
+            ]
+        )
+
+        # Insight views
+        record_insight_views(
+            team_id=team.pk,
+            user_id=user.pk,
+            last_viewed_at_by_insight_id={
+                insight.pk: (
+                    self.now
+                    - dt.timedelta(
+                        days=self.random.randint(0, 3),
+                        minutes=self.random.randint(5, 60),
                     )
-                    for insight in Insight.objects.filter(team__project_id=team.project_id)
-                ),
-            )
-        except IntegrityError:
-            pass  # This can happen if demo data generation is re-run for the same project
+                )
+                for insight in Insight.objects.filter(team__project_id=team.project_id)
+            },
+        )
 
         # Feature flags
         def create_experiment_flag(
@@ -1762,16 +1785,10 @@ class HedgeboxMatrix(Matrix):
             )
 
         # Inline metrics need stored fingerprints (normally stamped by the experiment service on
-        # create/launch) — the timeseries endpoint looks results up by them.
+        # create/launch), and the backfill below files the seeded days under the same key.
+        calculation_keys = metric_calculation_keys(new_experiment.id, team_id=team.id).inline
         for metric_dict in metrics:
-            metric_dict["fingerprint"] = compute_metric_fingerprint(
-                metric_dict,
-                new_experiment.start_date,
-                get_experiment_stats_method(new_experiment),
-                new_experiment.exposure_criteria,
-                only_count_matured_users=new_experiment.only_count_matured_users,
-                excluded_variants=new_experiment.excluded_variants or [],
-            )
+            metric_dict["fingerprint"] = calculation_keys[metric_dict["uuid"]]
         new_experiment.metrics = metrics
         new_experiment.save(update_fields=["metrics"])
 
@@ -1893,7 +1910,7 @@ class HedgeboxMatrix(Matrix):
                         ],
                     },
                 ],
-                "days_ago": [2, 5, 11, 18],
+                "days_ago": [2, 5, 11, 18, 0],
             },
             {
                 "name": "File preview render failure",
@@ -1947,7 +1964,7 @@ class HedgeboxMatrix(Matrix):
                         ],
                     },
                 ],
-                "days_ago": [1, 4, 9],
+                "days_ago": [1, 4, 9, 0],
             },
             {
                 "name": "Team invite rejected",
@@ -1999,7 +2016,7 @@ class HedgeboxMatrix(Matrix):
                         ],
                     },
                 ],
-                "days_ago": [3, 7],
+                "days_ago": [3, 7, 0],
             },
         ]
 
@@ -2039,7 +2056,7 @@ class HedgeboxMatrix(Matrix):
                 distinct_id = (
                     sorted(person.distinct_ids_at_now)[0] if person.distinct_ids_at_now else person.in_product_id
                 )
-                timestamp = self.now - dt.timedelta(days=days_ago, hours=index % 5)
+                timestamp = self.now - dt.timedelta(days=days_ago, hours=2 if days_ago == 0 else index % 5)
                 frames = issue_spec["frames"]
                 event_frames = [self._stack_frame_contents(frame) for frame in frames]
                 exception_type = issue_spec["type"]
@@ -2424,7 +2441,7 @@ class HedgeboxMatrix(Matrix):
         if existing_table:
             if existing_table.external_data_source is not None:
                 return
-            existing_table.format = DataWarehouseTable.TableFormat.CSVWithNames
+            existing_table.format = DataWarehouseTableFormat.CSVWithNames
             existing_table.url_pattern = url_pattern
             existing_table.credential = credential
             existing_table.columns = columns
@@ -2433,18 +2450,23 @@ class HedgeboxMatrix(Matrix):
             existing_table.deleted_at = None
             if existing_table.created_by_id is None:
                 existing_table.created_by = user
-            existing_table.save()
+            # url_pattern is computed above from source_team_id/table_name, not request input, and
+            # credential is a real value from get_or_create_datawarehouse_credential (never None) -
+            # but the guard reads the row's prior DB state, so a stale credential-less row from
+            # before this function existed would still trip it without this declared explicitly.
+            existing_table.save(internally_computed_url_pattern=True)
             return
 
         DataWarehouseTable.objects.create(
             team=team,
             name=table_name,
-            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            format=DataWarehouseTableFormat.CSVWithNames,
             url_pattern=url_pattern,
             credential=credential,
             columns=columns,
             options={"csv_allow_double_quotes": True},
             created_by=user,
+            created_via=DataWarehouseTableCreatedVia.DEMO,
         )
 
     @classmethod

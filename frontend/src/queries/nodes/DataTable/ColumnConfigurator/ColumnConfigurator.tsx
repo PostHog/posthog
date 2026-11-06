@@ -23,15 +23,16 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
+import { isActorsQuery } from '~/queries/schema/node-guards'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import {
-    isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
     isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
+    taxonomicSessionFilterToHogQL,
     trimQuotes,
 } from '~/queries/utils'
 import { GroupTypeIndex, PropertyFilterType } from '~/types'
@@ -255,7 +256,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                                     ? taxonomicGroupFilterToHogQL(group.type, value)
                                                     : isActorsQuery(query.source)
                                                       ? taxonomicPersonFilterToHogQL(group.type, value)
-                                                      : taxonomicEventFilterToHogQL(group.type, value)
+                                                      : isSessionsQuery(query.source)
+                                                        ? taxonomicSessionFilterToHogQL(group.type, value)
+                                                        : taxonomicEventFilterToHogQL(group.type, value)
                                                 if (column !== null) {
                                                     selectColumn(column)
                                                 }

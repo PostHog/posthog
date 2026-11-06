@@ -1,6 +1,11 @@
 from posthog.test.base import APIBaseTest
 
-from products.data_warehouse.backend.direct_virtual_tables import build_direct_table_for_schema
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
+
+from products.data_warehouse.backend.direct_virtual_tables import (
+    build_direct_table_for_schema,
+    eligible_direct_query_schemas,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -14,7 +19,9 @@ SCHEMA_METADATA = {
 
 
 class TestBuildDirectTableForSchema(APIBaseTest):
-    def _create(self, *, enabled_columns: list[str] | None) -> tuple[ExternalDataSchema, ExternalDataSource]:
+    def _create(
+        self, *, enabled_columns: list[str] | None, masked_columns: list[str] | None = None
+    ) -> tuple[ExternalDataSchema, ExternalDataSource]:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -27,6 +34,7 @@ class TestBuildDirectTableForSchema(APIBaseTest):
             team=self.team,
             source=source,
             enabled_columns=enabled_columns,
+            masked_columns=masked_columns,
             sync_type_config={"schema_metadata": SCHEMA_METADATA, "primary_key_columns": ["id"]},
         )
         return schema, source
@@ -43,6 +51,13 @@ class TestBuildDirectTableForSchema(APIBaseTest):
         assert "email" in table.fields
         assert "id" in table.fields  # primary key always retained
 
+    def test_masked_schema_is_not_exposed_to_live_queries(self):
+        # A live query reads the source directly, so it would return the masked values in plaintext.
+        schema, source = self._create(enabled_columns=None, masked_columns=["secret"])
+
+        assert build_direct_table_for_schema(schema, source) is None
+        assert eligible_direct_query_schemas(self.team.pk, str(source.pk)) == []
+
     def test_none_enabled_columns_syncs_everything(self):
         schema, source = self._create(enabled_columns=None)
 
@@ -50,3 +65,39 @@ class TestBuildDirectTableForSchema(APIBaseTest):
 
         assert table is not None
         assert set(table.fields) == {"id", "email", "secret"}
+
+    def test_motherduck_virtual_table_resolves_location_and_columns(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.MOTHERDUCK,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            job_inputs={"access_token": "t", "database": "my_db"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="nyc.taxi",
+            team=self.team,
+            source=source,
+            enabled_columns=None,
+            sync_type_config={
+                "schema_metadata": {
+                    "source_catalog": "my_db",
+                    "source_schema": "nyc",
+                    "source_table_name": "taxi",
+                    "columns": [
+                        {"name": "id", "data_type": "BIGINT", "is_nullable": False},
+                        {"name": "fare", "data_type": "DOUBLE", "is_nullable": True},
+                    ],
+                },
+            },
+        )
+
+        table = build_direct_table_for_schema(schema, source)
+
+        assert isinstance(table, DirectMotherDuckTable)
+        assert (table.motherduck_database, table.motherduck_schema, table.motherduck_table_name) == (
+            "my_db",
+            "nyc",
+            "taxi",
+        )
+        assert set(table.fields) == {"id", "fare"}

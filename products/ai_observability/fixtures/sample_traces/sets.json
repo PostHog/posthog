@@ -1,0 +1,28 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "core": {
+    "anthropic_messages_thinking_tool_use": "Anthropic messages: thinking blocks and tool_use / tool_result",
+    "api_openai_pdf_url_intake": "PDF by URL: a dealer quote attached as a file URL, with a tool retry and a validating sub-generation",
+    "claude_code_plugin_session": "Claude Code plugin: coding-agent tree with many tool spans",
+    "gemini_audio_voice_memo": "Gemini: audio input",
+    "langchain_cerebras_image_error": "Error state: failed generation with image input inside a trace",
+    "node_azure_then_groq_two_phase": "Metadata only: hand-written captures that omit $ai_input and $ai_output_choices",
+    "openai_agents_with_evals": "OpenAI Agents SDK: tool calls, reasoning, spans, trace event, online evals attached",
+    "openrouter_broadcast_two_providers": "No SDK: server-side integration posting plain chat generations",
+    "python_anthropic_span_and_trace": "Python SDK with explicit $ai_trace and $ai_span around a generation",
+    "session_langchain_recruiting_screening": "LangChain callbacks: a 5-trace multi-turn session with nested spans",
+    "vercel_gateway_tool_approval": "Vercel AI SDK over OTel: trace and spans built from OTel, tool approval request",
+    "vercel_gemini_image_generation_revisions": "Image generation: a generated image returned in the output, revised over several turns",
+    "vercel_openai_edge_generation": "Privacy mode: @posthog/ai wrapper sends $ai_input and $ai_output_choices as null",
+    "vercel_openai_image_video_file_reasoning": "Vercel AI SDK withTracing: image, video and file input, reasoning, tool calls"
+  },
+  "stress": {
+    "openai_responses_chinese_tutoring": "very long non-English conversation",
+    "python_220_spans_no_generations": "220 spans in one trace, no generations",
+    "session_custom_lib_78_short_traces": "session of 78 short traces",
+    "session_langchain_memory_150_embeddings": "session of 156 traces, mostly embeddings",
+    "vercel_anthropic_92_message_agent": "92-message history in one generation",
+    "vercel_gateway_96_tool_catalog": "96-tool catalog and a 21-turn history in one generation",
+    "vercel_otel_image_agent_59_events": "deep agent tree, 49 spans, repeated tool failures"
+  }
+}

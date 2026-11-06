@@ -2,7 +2,9 @@
 
 <example>
 User: How many weekly active users do we have?
-Assistant: I need to find the right query tool and data schema tool.
+Assistant: A weekly count is a governed shape, so the catalog comes first.
+[Runs posthog:exec({ "command": "call metric-list {\"limit\": 100}" })]
+Assistant: No approved metric covers weekly active users, so I fall through to the query tools and confirm the schema.
 [Runs posthog:exec({ "command": "search query-trends" }) and posthog:exec({ "command": "search read-data" }) in parallel]
 Assistant: Let me check the tool descriptions and schemas.
 [Runs posthog:exec({ "command": "info query-trends" }) and posthog:exec({ "command": "info read-data-schema" }) in parallel]

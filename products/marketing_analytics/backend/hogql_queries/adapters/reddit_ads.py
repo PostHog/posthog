@@ -91,12 +91,21 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
         stats_table = self._level_tables().stats_table
         stats_table_name = stats_table.name
 
-        # Reddit reports spend in micros — divide by 1,000,000.
+        # Reddit reports spend in micros — divide by 1,000,000. The column can sync as a
+        # string, so the cast comes before the division — ClickHouse rejects a divide on a
+        # String argument before any surrounding cast runs.
         spend_field = ast.Field(chain=[stats_table_name, "spend"])
-        cost_standard = ast.ArithmeticOperation(
-            left=spend_field, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000)
+        cost_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.Call(name="toFloat", args=[spend_field]),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Constant(value=1000000),
+                ),
+                ast.Constant(value=0),
+            ],
         )
-        cost_float = ast.Call(name="toFloat", args=[cost_standard])
 
         converted = self._apply_currency_conversion(stats_table, stats_table_name, "currency", cost_float)
         if converted:

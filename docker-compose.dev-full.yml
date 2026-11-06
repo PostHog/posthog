@@ -18,6 +18,7 @@ services:
         depends_on:
             - replay-capture
             - capture
+            - capture-ai
             - feature-flags
             - hypercache-server
             - web
@@ -84,8 +85,8 @@ services:
         ports:
             - '19000:19000'
             - '19001:19001'
-        # Fresh named volume so the swap starts clean; data on the previous volume
-        # stays salvageable via `hogli deploy:upgrade-objectstorage`.
+        # Named volume from the SeaweedFS swap; the old MinIO volume is left in place
+        # because SeaweedFS cannot read its on-disk format.
         volumes:
             - objectstorage-data:/data
 
@@ -127,7 +128,7 @@ services:
         ports:
             - 8000:8000
         build: .
-        command: ./bin/docker-server-unit
+        command: ./bin/docker-server
         volumes:
             - .:/app/posthog
         environment:
@@ -156,6 +157,16 @@ services:
             - redis7
             - kafka
 
+    capture-ai:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-ai
+        environment:
+            - DEBUG=1
+        depends_on:
+            - redis7
+            - kafka
+
     replay-capture:
         extends:
             file: docker-compose.base.yml
@@ -171,6 +182,16 @@ services:
         depends_on:
             - kafka
 
+    property-defs-ai:
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        environment:
+            KAFKA_CONSUMER_TOPIC: clickhouse_ai_events_json
+            KAFKA_CONSUMER_GROUP: property-defs-ai
+        depends_on:
+            - kafka
+
     feature-flags:
         extends:
             file: docker-compose.base.yml
@@ -178,6 +199,9 @@ services:
         depends_on:
             - redis7
             - db
+        environment:
+            # Answer /flags?v=4 with the v4 response, as production does
+            FLAGS_V4_RESPONSE_ENABLED: 'true'
 
     hypercache-server:
         extends:
@@ -267,20 +291,6 @@ services:
             - objectstorage
             - temporal
 
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            KAFKA_HOSTS: 'kafka:9092'
-            DEBUG: 1 # Add debug mode like other services
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
-
     otel-collector:
         extends:
             file: docker-compose.base.yml
@@ -293,10 +303,10 @@ services:
             file: docker-compose.base.yml
             service: jaeger
 
-    localstack:
+    dynamodb:
         extends:
             file: docker-compose.base.yml
-            service: localstack
+            service: dynamodb
 
 networks:
     otel_network:

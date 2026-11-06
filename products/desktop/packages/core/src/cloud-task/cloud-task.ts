@@ -3,10 +3,13 @@ import {
   ANALYTICS_SERVICE,
   type IAnalytics,
 } from "@posthog/platform/analytics";
+import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import { inject, injectable, optional, preDestroy } from "inversify";
 import { CloudTaskEngine } from "./cloud-task-engine";
 import {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
+  type ClaudeSubscriptionTokenStore,
   type ICloudTaskAuth,
   MCP_RELAY_EXECUTOR,
   type McpRelayExecutor,
@@ -24,8 +27,19 @@ export class CloudTaskService extends CloudTaskEngine {
     @inject(MCP_RELAY_EXECUTOR)
     @optional()
     mcpRelayExecutor: McpRelayExecutor | null = null,
+    @inject(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
+    @optional()
+    claudeSubscriptionTokenStore: ClaudeSubscriptionTokenStore | null = null,
   ) {
-    super({ auth, analytics, logger, mcpRelayExecutor });
+    // The desktop renderer pages older history in from `windowStart`.
+    super({
+      auth,
+      analytics,
+      logger,
+      mcpRelayExecutor,
+      claudeSubscriptionTokenStore,
+      transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
+    });
   }
 
   @preDestroy()

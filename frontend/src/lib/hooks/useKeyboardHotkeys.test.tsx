@@ -79,9 +79,21 @@ describe('useKeyboardHotkeys', () => {
         })
     })
 
-    it('does not capture held-key repeats but still runs the action', () => {
+    it('runs the action once when a key is held, ignoring OS repeats', () => {
         const action = jest.fn()
-        renderHook(() => useKeyboardHotkeys({ arrowleft: { action, willHandleEvent: true } }))
+        renderHook(() => useKeyboardHotkeys({ s: { action } }))
+
+        press('s')
+        press('s', { repeat: true })
+        press('s', { repeat: true })
+
+        expect(action).toHaveBeenCalledTimes(1)
+        expect(mockPosthog.capture).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-runs the action on repeats for allowRepeat hotkeys but still captures once', () => {
+        const action = jest.fn()
+        renderHook(() => useKeyboardHotkeys({ arrowleft: { action, willHandleEvent: true, allowRepeat: true } }))
 
         press('ArrowLeft')
         press('ArrowLeft', { repeat: true })
@@ -137,14 +149,21 @@ describe('useKeyboardHotkeys', () => {
         expect(mockPosthog.capture).not.toHaveBeenCalled()
     })
 
-    it('does not run or capture while typing in an input', () => {
+    it.each([
+        ['an input', '<input data-target />'],
+        [
+            'an EditContext Monaco editor',
+            '<div class="monaco-editor"><div class="native-edit-context" tabindex="0" data-target></div></div>',
+        ],
+    ])('does not run or capture while typing in %s', (_, markup) => {
         const action = jest.fn()
         renderHook(() => useKeyboardHotkeys({ k: { action } }))
 
-        const input = document.createElement('input')
-        document.body.appendChild(input)
-        press('k', {}, input)
-        input.remove()
+        const host = document.createElement('div')
+        host.innerHTML = markup
+        document.body.appendChild(host)
+        press('k', {}, host.querySelector('[data-target]') as Element)
+        host.remove()
 
         expect(action).not.toHaveBeenCalled()
         expect(mockPosthog.capture).not.toHaveBeenCalled()

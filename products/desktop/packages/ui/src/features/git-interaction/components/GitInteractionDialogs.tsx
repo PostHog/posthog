@@ -11,6 +11,7 @@ import {
   type DiffStats,
   formatFileCountLabel,
 } from "@posthog/core/git-interaction/diffStats";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { CheckIcon } from "@radix-ui/react-icons";
 import {
   Box,
@@ -19,7 +20,6 @@ import {
   Dialog,
   Flex,
   IconButton,
-  Spinner,
   Text,
   TextArea,
   TextField,
@@ -105,7 +105,7 @@ export function GenerateButton({
         onClick={onClick}
         disabled={isGenerating || disabled}
       >
-        {isGenerating ? <Spinner size="1" /> : <Sparkle size={14} />}
+        {isGenerating ? <Spinner size="sm" /> : <Sparkle size={14} />}
       </IconButton>
     </Tooltip>
   );
@@ -192,9 +192,9 @@ export function GitDialog({
             <Button
               size="1"
               disabled={buttonDisabled || isSubmitting}
-              loading={isSubmitting}
               onClick={onSubmit}
             >
+              {isSubmitting && <Spinner size="sm" />}
               {buttonLabel}
             </Button>
           </Flex>

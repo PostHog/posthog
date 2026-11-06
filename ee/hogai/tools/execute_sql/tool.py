@@ -28,8 +28,9 @@ from ee.hogai.chat_agent.sql.prompts import (
 )
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -102,13 +103,20 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         display: AssistantDataVisualizationDisplayType | None = None,
         chart_settings: AssistantDataVisualizationChartSettings | dict[str, object] | None = None,
     ) -> tuple[str, ToolMessagesArtifact | None]:
+        connection_id = self.context.get("connection_id") or None
         parsed_query = self._parse_output({"query": query})
-        try:
-            await self._quality_check_output(
-                output=parsed_query,
-            )
-        except PydanticOutputParserException as e:
-            return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
+        if connection_id:
+            # An external connection's tables aren't in the ClickHouse catalog, so local HogQL
+            # validation would reject them. Tag the query with the connection and defer validation
+            # to the runner, which resolves the connection's schema.
+            parsed_query.query.source = parsed_query.query.source.model_copy(update={"connectionId": connection_id})
+        else:
+            try:
+                await self._quality_check_output(
+                    output=parsed_query,
+                )
+            except PydanticOutputParserException as e:
+                return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
         source_query = (
             parsed_query.query.source.model_copy(update={"filters": filters})
@@ -147,6 +155,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         )
 
         insight_context = InsightContext(
+            max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
             team=self._team,
             query=artifact_query,
             name=viz_title,
@@ -159,6 +168,8 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             result = await insight_context.execute_and_format()
         except MaxToolRetryableError as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
+        except MaxToolError as e:
+            return f"{e.to_summary()}.{e.retry_hint}", None
         except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 

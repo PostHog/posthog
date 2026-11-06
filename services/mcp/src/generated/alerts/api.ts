@@ -3,12 +3,12 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const AlertsListParams = /* @__PURE__ */ zod.object({
+export const AlertsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,17 @@ export const AlertsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
+export const AlertsListQueryParams = () => zod.object({
     created_by: zod
         .string()
         .optional()
         .describe('Optional. Restrict results to alerts created by the user with this UUID.'),
+    has_detector: zod
+        .boolean()
+        .optional()
+        .describe('Optional. Restrict results by whether the alert uses anomaly detection.'),
     insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
+    insight_tag: zod.string().optional().describe('Optional. Restrict results to alerts whose insight has this tag.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
@@ -32,7 +37,7 @@ export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsCreateParams = /* @__PURE__ */ zod.object({
+export const AlertsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -73,8 +78,13 @@ export const alertsCreateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
-export const AlertsCreateBody = /* @__PURE__ */ zod.object({
+export const alertsCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsCreateBodyEvaluationDelayIntervalsMin = 0
+export const alertsCreateBodyEvaluationDelayIntervalsMax = 100
+
+export const AlertsCreateBody = () => zod.object({
     insight: zod
         .number()
         .describe('Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.'),
@@ -131,6 +141,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
             'Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.'
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
+    schedule_start_time: zod
+        .string()
+        .nullish()
+        .describe(
+            'Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.'
+        ),
     config: zod
         .union([
             zod
@@ -187,6 +203,23 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
                             ),
                         type: zod.enum(['MetricsAlertConfig']).default(alertsCreateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(
@@ -1230,11 +1263,31 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
                     }),
+                    zod.object({
+                        instructions: zod
+                            .union([
+                                zod.string().max(alertsCreateBodyDetectorConfigOneOnefourInstructionsOneMax),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'What counts as unusual or interesting for this metric, in your own words. Optional.'
+                            ),
+                        type: zod.enum(['llm']).default(alertsCreateBodyDetectorConfigOneOnefourTypeDefault),
+                    }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
         ])
         .optional(),
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsCreateBodyEvaluationDelayIntervalsMin)
+        .max(alertsCreateBodyEvaluationDelayIntervalsMax)
+        .optional()
+        .describe(
+            'Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.'
+        ),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
@@ -1286,13 +1339,13 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+            'When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts.'
         ),
     investigation_gates_notifications: zod
         .boolean()
         .optional()
         .describe(
-            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+            'When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls.'
         ),
     investigation_inconclusive_action: zod
         .enum(['notify', 'suppress'])
@@ -1303,7 +1356,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
+export const AlertsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
@@ -1312,7 +1365,7 @@ export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const AlertsRetrieveQueryParams = () => zod.object({
     checks_date_from: zod
         .string()
         .optional()
@@ -1335,7 +1388,7 @@ export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe('Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.'),
 })
 
-export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const AlertsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
@@ -1377,8 +1430,13 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsPartialUpdateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
 
-export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsPartialUpdateBodyEvaluationDelayIntervalsMin = 0
+export const alertsPartialUpdateBodyEvaluationDelayIntervalsMax = 100
+
+export const AlertsPartialUpdateBody = () => zod.object({
     insight: zod
         .number()
         .optional()
@@ -1438,6 +1496,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.'
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
+    schedule_start_time: zod
+        .string()
+        .nullish()
+        .describe(
+            'Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.'
+        ),
     config: zod
         .union([
             zod
@@ -1496,6 +1560,23 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
                             ),
                         type: zod.enum(['MetricsAlertConfig']).default(alertsPartialUpdateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(
@@ -2559,11 +2640,31 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                             ),
                     }),
+                    zod.object({
+                        instructions: zod
+                            .union([
+                                zod.string().max(alertsPartialUpdateBodyDetectorConfigOneOnefourInstructionsOneMax),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'What counts as unusual or interesting for this metric, in your own words. Optional.'
+                            ),
+                        type: zod.enum(['llm']).default(alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault),
+                    }),
                 ])
                 .describe('Detector configuration types'),
             zod.null(),
         ])
         .optional(),
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsPartialUpdateBodyEvaluationDelayIntervalsMin)
+        .max(alertsPartialUpdateBodyEvaluationDelayIntervalsMax)
+        .optional()
+        .describe(
+            'Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.'
+        ),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
@@ -2615,13 +2716,13 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+            'When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts.'
         ),
     investigation_gates_notifications: zod
         .boolean()
         .optional()
         .describe(
-            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+            'When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls.'
         ),
     investigation_inconclusive_action: zod
         .enum(['notify', 'suppress'])
@@ -2632,7 +2733,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
+export const AlertsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
@@ -2642,15 +2743,71 @@ export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
  */
-export const AlertsSimulateCreateParams = /* @__PURE__ */ zod.object({
+export const AlertsDestinationsCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const alertsDestinationsCreateBodyTypeDefault = `slack`
+
+export const AlertsDestinationsCreateBody = () => zod.object({
+    type: zod
+        .enum(['slack'])
+        .describe('\* `slack` - slack')
+        .default(alertsDestinationsCreateBodyTypeDefault)
+        .describe('Destination type. Slack is the only type this endpoint creates.\n\n\* `slack` - slack'),
+    slack_workspace_id: zod
+        .number()
+        .describe('Integration ID of the Slack workspace to post in. List them with the integrations endpoint.'),
+    slack_channel_id: zod.string().describe('Slack channel ID to post in, for example C0123456789.'),
+    slack_channel_name: zod
+        .string()
+        .optional()
+        .describe('Channel name shown on the destination, for example product-alerts.'),
+})
+
+/**
+ * Stop sending this alert to a destination. The alert keeps its email recipients.
+ */
+export const AlertsDestinationsDeleteCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const alertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
+
+export const AlertsDestinationsDeleteCreateBody = () => zod.object({
+    hog_function_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(alertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
+        .describe('Destination IDs to delete, as returned when the destination was created.'),
+})
+
+/**
+ * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
+ */
+export const AlertsSimulateCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsDefault = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMin = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMax = 100
 
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
@@ -2677,14 +2834,27 @@ export const alertsSimulateCreateBodyDetectorConfigOneOnezeroTypeDefault = `hbos
 export const alertsSimulateCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsSimulateCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
+
+export const alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
 export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
 export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
-export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
-    insight: zod.number().describe('Insight ID to simulate the detector on.'),
+export const AlertsSimulateCreateBody = () => zod.object({
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsSimulateCreateBodyEvaluationDelayIntervalsMin)
+        .max(alertsSimulateCreateBodyEvaluationDelayIntervalsMax)
+        .default(alertsSimulateCreateBodyEvaluationDelayIntervalsDefault)
+        .describe(
+            'Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.'
+        ),
+    insight: zod
+        .union([zod.number(), zod.string()])
+        .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),
     detector_config: zod
         .union([
             zod.object({
@@ -3686,9 +3856,22 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                     ),
             }),
+            zod.object({
+                instructions: zod
+                    .union([
+                        zod.string().max(alertsSimulateCreateBodyDetectorConfigOneOnefourInstructionsOneMax),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('What counts as unusual or interesting for this metric, in your own words. Optional.'),
+                type: zod.enum(['llm']).default(alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault),
+            }),
         ])
         .describe('Detector configuration types')
-        .describe('Detector configuration to simulate.'),
+        .optional()
+        .describe(
+            'Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing).'
+        ),
     series_index: zod
         .number()
         .default(alertsSimulateCreateBodySeriesIndexDefault)
@@ -3759,6 +3942,23 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .enum(['MetricsAlertConfig'])
                             .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(
@@ -3769,5 +3969,11 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
+        ),
+    alert: zod
+        .string()
+        .nullish()
+        .describe(
+            "ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert."
         ),
 })

@@ -16,6 +16,7 @@ import {
     ScheduleState,
     scheduleToText,
     stateToRRule,
+    summarizeSchedule,
 } from './rrule-helpers'
 
 describe('rrule-helpers', () => {
@@ -365,10 +366,13 @@ describe('rrule-helpers', () => {
             expect(result).toContain('until December 25, 2024')
         })
 
-        it('includes starting date when startsAt is provided', () => {
+        it.each([
+            ['2024-06-01', undefined, 'starting June 1'],
+            ['2026-10-01T00:18:00Z', 'US/Pacific', 'starting September 30'],
+            ['2026-09-30T22:18:00Z', 'Europe/Prague', 'starting October 1'],
+        ])('names the starting date of %s in the schedule timezone %s', (startsAt, timezone, expected) => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily' }
-            const result = buildSummary(state, '2024-06-01')
-            expect(result).toContain('starting June 1')
+            expect(buildSummary(state, startsAt, timezone)).toContain(expected)
         })
 
         it('ends with a period', () => {
@@ -427,6 +431,22 @@ describe('rrule-helpers', () => {
             ],
         ])('converts state to "%s"', (_label, state, expected) => {
             expect(scheduleToText(state, null)).toBe(expected)
+        })
+    })
+
+    describe('summarizeSchedule', () => {
+        const STARTS = '2026-11-02T09:00:00.000Z'
+
+        it('names the date of a one-time schedule so two of them can be told apart', () => {
+            expect(summarizeSchedule(ONE_TIME_RRULE, STARTS, 'UTC')).toBe('Runs once on 2 Nov 2026, 09:00')
+        })
+
+        it('shows a rule the picker cannot model as written rather than describing it wrongly', () => {
+            expect(summarizeSchedule('FREQ=HOURLY;INTERVAL=1', STARTS, 'UTC')).toBe('FREQ=HOURLY;INTERVAL=1')
+        })
+
+        it('describes a rule the picker does model', () => {
+            expect(summarizeSchedule('FREQ=DAILY;INTERVAL=3', STARTS, 'UTC')).toContain('every 3 days')
         })
     })
 })

@@ -80,7 +80,7 @@ mod test {
 
         let client = Arc::new(client);
 
-        let hmp = HermesMapProvider {};
+        let hmp = HermesMapProvider::new(&config.resolver);
         let hmp = ChunkIdFetcher::new(
             hmp,
             client.clone(),
@@ -97,21 +97,21 @@ mod test {
         );
 
         let pgp = ChunkIdFetcher::new(
-            ProguardProvider {},
+            ProguardProvider::new(&config.resolver),
             client.clone(),
             db.clone(),
             config.resolver.object_storage_bucket.clone(),
         );
 
         let apple = ChunkIdFetcher::new(
-            AppleProvider {},
+            AppleProvider::new(&config.resolver),
             client.clone(),
             db.clone(),
             config.resolver.object_storage_bucket.clone(),
         );
 
         let native = ChunkIdFetcher::new(
-            NativeProvider {},
+            NativeProvider::new(&config.resolver),
             client.clone(),
             db.clone(),
             config.resolver.object_storage_bucket.clone(),
@@ -125,6 +125,9 @@ mod test {
             function: "onClick".to_string(),
             lineno: Some(14),
             map_id: Some(map_id),
+            context_line: None,
+            pre_context: Vec::new(),
+            post_context: Vec::new(),
             method_synthetic: false,
             meta: CommonFrameMetadata::default(),
         };

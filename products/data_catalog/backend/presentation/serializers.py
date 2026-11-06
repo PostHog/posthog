@@ -10,12 +10,13 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models import User
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
+from ..facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
-from ..logic.validation import MAX_DESCRIPTION_LENGTH
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -26,6 +27,23 @@ class MetricDefinitionField(serializers.JSONField):
 @extend_schema_field(OpenApiTypes.ANY)
 class _FreeJSONField(serializers.JSONField):
     """A free-form JSON value (query results / query status shapes)."""
+
+
+class MetricOwnerField(serializers.EmailField):
+    def get_attribute(self, instance: Metric) -> str | None:
+        return instance.owner.email if instance.owner else None
+
+    def run_validation(self, data: object = serializers.empty) -> User | None:
+        email = super().run_validation(data)
+        if email is None:
+            return None
+        team = self.context["view"].team
+        owner = User.objects.filter(
+            email__iexact=email, organization_membership__organization_id=team.organization_id
+        ).first()
+        if owner is None:
+            raise serializers.ValidationError("No member of this organization has this email.")
+        return owner
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricRun")
@@ -42,8 +60,27 @@ class MetricRunResponseSerializer(serializers.Serializer):
     results = _FreeJSONField(
         allow_null=True, help_text="The query results, for an executable metric. Null for a markdown metric."
     )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        allow_null=True,
+        help_text="Names of the result columns, in the order of the values in each positional result row. "
+        "Null when the results are already labeled, or the query kind returns no column names.",
+    )
     compiled_query = serializers.CharField(allow_null=True, help_text="The compiled HogQL, when available.")
     query_status = _FreeJSONField(allow_null=True, help_text="Async query status, when the run is not blocking.")
+    has_more = serializers.BooleanField(
+        help_text="True when the query hit its row limit and more rows exist. Narrow the window or the "
+        "interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those "
+        "overrides, so report the window the definition itself covers, or ask for a parameterized metric. "
+        "Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row "
+        "cap was reported for that run."
+    )
+    row_limit = serializers.IntegerField(
+        allow_null=True,
+        help_text="Row limit applied to this run. Null when no row cap was reported: a markdown metric, an "
+        "insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field "
+        "cannot verify the completeness of those runs.",
+    )
     posthog_url = serializers.CharField(
         allow_null=True, help_text="Deep link to open the query in the app (SQL editor or insight)."
     )
@@ -106,8 +143,12 @@ class MetricSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Whether a human ('user') or an agent ('ai_generated') authored this metric.",
     )
-    owner = serializers.SerializerMethodField(
-        help_text="Email of the human accountable for this metric, or null.",
+    owner = MetricOwnerField(
+        required=False,
+        allow_null=True,
+        help_text="Email of the human accountable for this metric, or null. Set it to the email of a member of "
+        "this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's "
+        "approval.",
     )
     created_by = UserBasicSerializer(read_only=True, help_text="User who first created this metric.")
     approved_by = UserBasicSerializer(
@@ -152,7 +193,11 @@ class MetricSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         extra_kwargs = {
-            "name": {"help_text": "Identifier-safe run handle, unique per team and reserved forever. Write-once."},
+            "name": {
+                "help_text": "Identifier-safe run handle, unique among the team's live metrics. Renaming or "
+                "deleting a metric frees its name for reuse, and anything referencing the old name (SQL over "
+                "information_schema.metrics, run URLs, links) stops resolving."
+            },
             "source_insight_short_id": {
                 "required": False,
                 "help_text": "Create the metric from this insight's query (snapshotted server-side). "
@@ -160,10 +205,12 @@ class MetricSerializer(serializers.ModelSerializer):
             },
             "display_name": {"help_text": "Human-friendly label. Mutable, unlike name."},
             "description": {
-                "help_text": "What the metric means and what it serves, in 1-3 short sentences: the business "
-                "meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the "
-                "query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+                "help_text": "What the number is, in 1-2 short sentences under 300 characters: its meaning and "
+                "grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, "
+                "column lists, and comparisons with other metrics. Never narrate the query - the definition carries "
+                "the mechanics; put the query's design decisions in 'reasoning'.",
                 "max_length": MAX_DESCRIPTION_LENGTH,
+                "error_messages": {"max_length": DESCRIPTION_TOO_LONG_MESSAGE},
             },
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
             "ai_model": {"help_text": "Model that generated the metric, if AI-authored."},
@@ -172,12 +219,13 @@ class MetricSerializer(serializers.ModelSerializer):
                 "min_value": 0.0,
                 "max_value": 1.0,
             },
-            "reasoning": {"help_text": "AI author's reasoning, surfaced as review context."},
+            "reasoning": {
+                "help_text": "Why the definition is shaped this way, in 1-3 short sentences. Name the main design "
+                "decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an "
+                "approximation. Leave out the use case, who asked, run results, validation figures, and edit "
+                "history."
+            },
         }
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_owner(self, obj: Metric) -> str | None:
-        return obj.owner.email if obj.owner else None
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_drifted(self, obj: Metric) -> bool:
@@ -187,6 +235,126 @@ class MetricSerializer(serializers.ModelSerializer):
         if drift_map is not None and obj.id in drift_map:
             return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricCreate")
+class MetricCreateSerializer(MetricSerializer):
+    """Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name."""
+
+    overwrite = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text="Replace the fields of the live metric that already holds this name. When false, a taken name "
+        "returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an "
+        "approved metric with a changed name, description, unit, or definition resets it to 'proposed'.",
+    )
+
+    class Meta(MetricSerializer.Meta):
+        fields = [*MetricSerializer.Meta.fields, "overwrite"]
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricNameConflictExisting")
+class MetricNameConflictExistingSerializer(serializers.Serializer):
+    """The live metric that holds the name a create was sent with."""
+
+    name = serializers.CharField(help_text="Name of the existing metric.")
+    status = serializers.CharField(help_text="Lifecycle state of the existing metric: 'proposed' or 'approved'.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricNameConflictExtra")
+class MetricNameConflictExtraSerializer(serializers.Serializer):
+    existing_metric = MetricNameConflictExistingSerializer(
+        help_text="The metric that holds the name. Send overwrite true to replace it."
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricNameConflict")
+class MetricNameConflictSerializer(serializers.Serializer):
+    """The 409 body of a create whose name a live metric already holds."""
+
+    type = serializers.CharField(help_text="Error class the API attaches to every error body.")
+    code = serializers.CharField(help_text="Always 'metric_name_taken'.")
+    detail = serializers.CharField(help_text="Human-readable reason, safe to show as is.")
+    attr = serializers.CharField(allow_null=True, help_text="Always null: the conflict is not tied to one field.")
+    extra = MetricNameConflictExtraSerializer(
+        required=False,
+        help_text="Absent when the existing metric is hidden from the caller because it reads a table they cannot access.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricApproveRequest")
+class MetricApproveRequestSerializer(serializers.Serializer):
+    """Input for approving one metric."""
+
+    expected_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text="The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkNamesRequest")
+class MetricBulkNamesRequestSerializer(serializers.Serializer):
+    """Input for the bulk metric actions: the metric names to act on."""
+
+    names = serializers.ListField(
+        child=serializers.CharField(max_length=METRIC_NAME_MAX_LENGTH),
+        allow_empty=False,
+        # `allow_empty` alone doesn't reach the OpenAPI schema; `min_length` emits `minItems: 1`
+        # so generated MCP/Zod clients can't construct an empty batch the API would 400.
+        min_length=1,
+        max_length=api.METRIC_BULK_MAX,
+        help_text=f"Names of the metrics to act on, at most {api.METRIC_BULK_MAX}. Duplicates are collapsed.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkChangeOwnerRequest")
+class MetricBulkChangeOwnerRequestSerializer(MetricBulkNamesRequestSerializer):
+    """Input for giving many metrics one owner."""
+
+    owner = MetricOwnerField(
+        allow_null=True,
+        help_text="Email of the member of this organization who becomes the owner of every named metric, or null "
+        "to clear the owner. Changing the owner keeps each metric's approval.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkSkip")
+class MetricBulkSkipSerializer(serializers.Serializer):
+    """A metric the bulk action did not act on, and why."""
+
+    name = serializers.CharField(help_text="Name of the metric that was skipped.")
+    reason = serializers.CharField(
+        help_text="Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'."
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkApprove")
+class MetricBulkApproveResponseSerializer(serializers.Serializer):
+    """Outcome of a bulk approve: what changed, and what was left alone."""
+
+    approved = MetricSerializer(many=True, help_text="The metrics that are now approved, freshly serialized.")
+    skipped = MetricBulkSkipSerializer(many=True, help_text="Requested metrics that were not approved, with reasons.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkChangeOwner")
+class MetricBulkChangeOwnerResponseSerializer(serializers.Serializer):
+    """Outcome of a bulk owner change: what changed, and what was left alone."""
+
+    updated = MetricSerializer(many=True, help_text="The metrics that now have the new owner, freshly serialized.")
+    skipped = MetricBulkSkipSerializer(
+        many=True, help_text="Requested metrics whose owner did not change, with reasons."
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkDelete")
+class MetricBulkDeleteResponseSerializer(serializers.Serializer):
+    """Outcome of a bulk delete: which names are gone, and what was left alone."""
+
+    deleted = serializers.ListField(
+        child=serializers.CharField(), help_text="Names of the metrics that were deleted, now free for reuse."
+    )
+    skipped = MetricBulkSkipSerializer(many=True, help_text="Requested metrics that were not deleted, with reasons.")
 
 
 @extend_schema_serializer(component_name="DataCatalogCertification")
@@ -200,7 +368,7 @@ class CertificationSerializer(serializers.ModelSerializer):
         "(avoid this source). Informational once the mark is settled.",
     )
     target_type = serializers.SerializerMethodField(help_text="Whether the marked target is a 'table' or a 'view'.")
-    target_name = serializers.SerializerMethodField(help_text="Name of the marked table or view.")
+    target_name = serializers.SerializerMethodField(help_text="Queryable HogQL name of the marked table or view.")
     certified_by = UserBasicSerializer(
         read_only=True, allow_null=True, help_text="User who last set certified/deprecated, or null."
     )
@@ -240,9 +408,7 @@ class CertificationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_target_name(self, obj: TableCertification) -> str:
-        if obj.table_id:
-            return obj.table.name if obj.table else ""
-        return obj.saved_query.name if obj.saved_query else ""
+        return api.certification_target_name(obj)
 
 
 class CertificationCreateSerializer(serializers.Serializer):
@@ -250,8 +416,12 @@ class CertificationCreateSerializer(serializers.Serializer):
 
     table_id = serializers.UUIDField(required=False, help_text="Warehouse table id to certify (XOR the other targets).")
     saved_query_id = serializers.UUIDField(required=False, help_text="Warehouse view (saved query) id to certify.")
-    table_name = serializers.CharField(required=False, help_text="Table name; 409 with candidates if ambiguous.")
-    view_name = serializers.CharField(required=False, help_text="View name; 409 with candidates if ambiguous.")
+    table_name = serializers.CharField(
+        required=False, help_text="Queryable HogQL table name; 409 with candidates if ambiguous."
+    )
+    view_name = serializers.CharField(
+        required=False, help_text="Queryable HogQL view name; 409 with candidates if ambiguous."
+    )
     notes = serializers.CharField(required=False, allow_blank=True, help_text="Why this mark exists.")
     proposed_status = serializers.ChoiceField(
         choices=["certified", "deprecated"],

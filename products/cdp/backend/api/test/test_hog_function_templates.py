@@ -2,17 +2,18 @@ import os
 import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
 MOCK_NODE_TEMPLATES = json.loads(
     open(os.path.join(os.path.dirname(__file__), "__data__/hog_function_templates.json")).read()
@@ -197,7 +198,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
     def test_template_updates_are_reflected(self):
         """Test that template updates are reflected in API responses"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+        from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
         # Initial sha of the template
         initial_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
@@ -327,6 +328,32 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "template-hidden" in [template["id"] for template in response.json()["results"]]
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_flag_gated_template_visibility_follows_the_flag(self, _name, flag_enabled):
+        # A flag-gated pre-release template must stay undiscoverable for teams without the flag:
+        # an agent that can list it would try to use it and loop on "Template not found". Ordinary
+        # hidden templates keep being listed (the workflow editor depends on that, see above).
+        HogFunctionTemplate.objects.create(
+            template_id="template-posthog-classify",
+            sha="1.0.0",
+            name="Classify with AI",
+            description="A flag-gated template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+
+        with patch("products.cdp.backend.flag_gated_templates.gated_template_enabled", return_value=flag_enabled):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        listed_ids = [template["id"] for template in response.json()["results"]]
+        assert ("template-posthog-classify" in listed_ids) is flag_enabled
 
     def test_hidden_templates_excluded_from_public_catalog(self):
         HogFunctionTemplate.objects.create(

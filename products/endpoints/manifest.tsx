@@ -4,10 +4,16 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Endpoints',
+    activityDescribers: {
+        [ActivityScope.ENDPOINT]: () =>
+            import('./frontend/activityDescriber').then((module) => module.endpointActivityDescriber),
+        [ActivityScope.ENDPOINT_VERSION]: () =>
+            import('./frontend/activityDescriber').then((module) => module.endpointActivityDescriber),
+    },
     scenes: {
         EndpointsScene: {
             import: () => import('./frontend/EndpointsScene'),
@@ -17,6 +23,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'endpoints',
             description: 'Define queries your application will use via the API and monitor their cost and usage.',
+            docsHref: 'https://posthog.com/docs/endpoints',
         },
         EndpointScene: {
             import: () => import('./frontend/EndpointScene'),
@@ -76,7 +83,7 @@ export const manifest: ProductManifest = {
             name: 'Endpoints',
             iconType: 'endpoints',
             href: () => urls.endpoints(),
-            iconColor: ['var(--color-product-endpoints-light)'],
+            iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
             filterKey: 'endpoints',
         },
     },
@@ -84,20 +91,28 @@ export const manifest: ProductManifest = {
         {
             path: 'Endpoints',
             intents: [ProductKey.ENDPOINTS],
-            category: ProductItemCategory.TOOLS,
+            category: ProductItemCategory.DATA,
             href: urls.endpoints(),
+            searchKeywords: ['rest api', 'query api'],
+            searchTabs: [{ name: 'Usage', href: urls.endpointsUsage() }],
             type: 'endpoints',
             iconType: 'endpoints',
-            iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-endpoints-light)',
+                'var(--color-product-endpoints-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'EndpointsScene',
         },
     ],
     treeItemsMetadata: [
         {
             path: 'Endpoints',
-            category: 'Tools',
+            category: 'Data',
             iconType: 'endpoints' as FileSystemIconType,
-            iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-endpoints-light)',
+                'var(--color-product-endpoints-dark)',
+            ] as FileSystemIconColor,
             href: urls.endpoints(),
             sceneKey: 'EndpointsScene',
             sceneKeys: ['EndpointsScene', 'EndpointScene'],

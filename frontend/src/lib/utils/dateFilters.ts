@@ -1,4 +1,3 @@
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { DATE_FORMAT, formatDate, formatDateRange, formatDateTimeRange, isDate } from 'lib/utils/datetime'
 import { UnexpectedNeverError } from 'lib/utils/guards'
@@ -10,6 +9,8 @@ export function startOfWeek(date: dayjs.Dayjs, weekStartDay?: number | null): da
     const start = weekStartDay === 1 ? 1 : 0
     return date.subtract((date.day() - start + 7) % 7, 'day').startOf('day')
 }
+
+export const CUSTOM_OPTION_KEY = 'Custom'
 
 export const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
@@ -220,6 +221,32 @@ export function dateFilterToText(
     return defaultValue
 }
 
+const RELATIVE_DATE_VALUE_RE = /^([+-]?)(\d+)([hdwmqyMs])$/
+const RELATIVE_DATE_UNIT_LABELS: Record<string, string> = {
+    h: 'hour',
+    d: 'day',
+    w: 'week',
+    m: 'month',
+    q: 'quarter',
+    y: 'year',
+    M: 'minute',
+    s: 'second',
+}
+
+export function formatRelativeDateValue(value: string): string | null {
+    const match = RELATIVE_DATE_VALUE_RE.exec(value)
+    if (!match) {
+        return null
+    }
+    const [, sign, rawAmount, rawUnit] = match
+    const amount = Number.parseInt(rawAmount, 10)
+    if (amount === 0) {
+        return 'now'
+    }
+    const unit = RELATIVE_DATE_UNIT_LABELS[rawUnit]
+    return `${amount} ${unit}${amount === 1 ? '' : 's'} ${sign === '-' ? 'ago' : 'from now'}`
+}
+
 // Converts a dateFrom string ("-2w") into english: "2 weeks"
 export function dateFromToText(dateFrom: string): string | undefined {
     const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] =
@@ -312,7 +339,8 @@ export function dateStringToDayJs(date: string | null, timezone: string = 'UTC')
     const isSubDay = ['hour', 'minute', 'second'].includes(dateComponents.unit)
     const offset: dayjs.Dayjs = isSubDay ? dayjs().tz(timezone) : dayjs().tz(timezone).startOf('day')
     const response = componentsToDayJs(dateComponents, offset, timezone)
-    return response
+    // dayjs keeps today's UTC offset when it adds calendar units, so resolve the local time again.
+    return isSubDay ? response : response.tz(timezone, true)
 }
 
 export function isValidRelativeOrAbsoluteDate(date: string): boolean {

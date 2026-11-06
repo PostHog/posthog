@@ -65,3 +65,33 @@ export const MultiSchema: Story = {
         return <SchemasTab {...props} />
     },
 }
+
+// A table a sync run proved can't merge: it is disabled, and its sync method carries the reason.
+const blockedSchemaSourceMock = {
+    ...externalDataSourceResponseMock,
+    schemas: externalDataSourceResponseMock.schemas.map((schema, index) =>
+        index === 1
+            ? {
+                  ...schema,
+                  should_sync: false,
+                  status: 'Failed',
+                  sync_type: 'incremental',
+                  incremental_sync_blocked: 'duplicate_primary_key',
+              }
+            : schema
+    ),
+}
+
+export const IncrementalSyncBlocked: Story = {
+    render: (props) => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/:id': () => {
+                    return [200, blockedSchemaSourceMock]
+                },
+            },
+        })
+
+        return <SchemasTab {...props} />
+    },
+}

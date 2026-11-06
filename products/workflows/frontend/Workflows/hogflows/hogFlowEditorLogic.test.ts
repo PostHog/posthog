@@ -1,8 +1,13 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
+import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -76,6 +81,84 @@ describe('computeMoveEdges', () => {
         expect(result).toEqual(expected)
     })
 
+    it('inserts a step after only the nested split paths', () => {
+        const edges = [
+            edge('trigger', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('onboarding', 'shared', 'continue'),
+            edge('guided', 'shared', 'continue'),
+            edge('self-serve', 'shared', 'continue'),
+            edge('shared', 'exit', 'continue'),
+        ]
+
+        expect(
+            computeInsertEdges(edges, 'after-onboarding', 0, [
+                edge('guided', 'shared', 'continue'),
+                edge('self-serve', 'shared', 'continue'),
+                edge('onboarding', 'shared', 'continue'),
+            ])
+        ).toEqual([
+            edge('trigger', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('shared', 'exit', 'continue'),
+            edge('onboarding', 'after-onboarding', 'continue'),
+            edge('guided', 'after-onboarding', 'continue'),
+            edge('self-serve', 'after-onboarding', 'continue'),
+            edge('after-onboarding', 'shared', 'continue'),
+        ])
+    })
+
+    it('moves a step after only the nested split paths', () => {
+        const edges = [
+            edge('trigger', 'move', 'continue'),
+            edge('move', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('onboarding', 'shared', 'continue'),
+            edge('guided', 'shared', 'continue'),
+            edge('self-serve', 'shared', 'continue'),
+            edge('shared', 'exit', 'continue'),
+        ]
+        const joinEdges = [
+            edge('guided', 'shared', 'continue'),
+            edge('self-serve', 'shared', 'continue'),
+            edge('onboarding', 'shared', 'continue'),
+        ]
+
+        expect(computeMoveEdges(edges, 'move', joinEdges[0], true, joinEdges)).toEqual([
+            edge('trigger', 'outer', 'continue'),
+            edge('outer', 'paid', 'branch', 0),
+            edge('outer', 'onboarding', 'branch', 1),
+            edge('outer', 'at-risk', 'continue'),
+            edge('paid', 'shared', 'continue'),
+            edge('at-risk', 'shared', 'continue'),
+            edge('onboarding', 'guided', 'branch', 0),
+            edge('onboarding', 'self-serve', 'branch', 1),
+            edge('shared', 'exit', 'continue'),
+            edge('onboarding', 'move', 'continue'),
+            edge('guided', 'move', 'continue'),
+            edge('self-serve', 'move', 'continue'),
+            edge('move', 'shared', 'continue'),
+        ])
+    })
+
     it('returns null when moving node has no outgoing edge', () => {
         const edges = [edge('trigger', 'A', 'continue')]
         expect(computeMoveEdges(edges, 'A', edge('trigger', 'A', 'continue'), false)).toBeNull()
@@ -97,375 +180,115 @@ describe('hogFlowEditorLogic', () => {
         logic.mount()
     })
 
-    describe('conditional branch naming', () => {
-        const createMockHogFlow = (conditionNames?: (string | undefined)[]): HogFlow => ({
-            id: 'test-flow',
-            team_id: 1,
-            version: 1,
-            name: 'Test Flow',
-            status: 'draft',
-            exit_condition: 'exit_only_at_end',
-            actions: [
-                {
-                    id: 'trigger',
-                    name: 'Trigger',
-                    description: '',
-                    type: 'trigger',
-                    created_at: Date.now(),
-                    updated_at: Date.now(),
-                    config: {
-                        type: 'event',
-                        filters: {},
-                    },
-                },
-                {
-                    id: 'branch',
-                    name: 'Conditional Branch',
-                    description: '',
-                    type: 'conditional_branch',
-                    created_at: Date.now(),
-                    updated_at: Date.now(),
-                    config: {
-                        conditions: conditionNames
-                            ? conditionNames.map((name) => ({ filters: {}, name }))
-                            : [{ filters: {} }, { filters: {} }],
-                    },
-                },
-                {
-                    id: 'exit',
-                    name: 'Exit',
-                    description: '',
-                    type: 'exit',
-                    created_at: Date.now(),
-                    updated_at: Date.now(),
-                    config: { reason: '' },
-                },
-            ],
-            edges: [
-                { from: 'trigger', to: 'branch', type: 'continue' },
-                { from: 'branch', to: 'exit', type: 'branch', index: 0 },
-                { from: 'branch', to: 'exit', type: 'branch', index: 1 },
-                { from: 'branch', to: 'exit', type: 'continue' },
-            ],
-            updated_at: new Date().toISOString(),
-            created_at: new Date().toISOString(),
+    it('resolves the selected action while React Flow nodes are still laying out', () => {
+        const action = logic.values.workflow.actions[0]
+        logic.actions.setNodesRaw([])
+        logic.actions.setSelectedNodeId(action.id)
+
+        expect(logic.values.selectedNode).toMatchObject({ id: action.id, data: action })
+    })
+
+    it('keeps edits made while "Save as team default" was saving', () => {
+        const email = {
+            id: 'email',
+            name: 'Send email',
+            description: '',
+            type: 'function_email',
+            created_at: 0,
+            updated_at: 0,
+            config: {
+                template_id: 'template-email',
+                inputs: {},
+                utm_tags_enabled: true,
+                utm_params: { utm_source: 'partner', utm_campaign: 'spring' },
+                utm_params_from_default: [],
+            },
+        } as HogFlowAction
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [NEW_WORKFLOW.actions[0], email, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, email.id, 'continue'), edge(email.id, EXIT_NODE_ID, 'continue')],
         })
+        const saved = { utm_source: 'partner', utm_campaign: 'spring' }
+        logic.actions.setWorkflowAction(email.id, {
+            ...email,
+            name: 'Renamed while saving',
+            config: { ...email.config, utm_params: { utm_source: 'partner', utm_campaign: 'summer' } },
+        } as HogFlowAction)
 
-        it('should use default labels when condition names are not provided', () => {
-            const mockFlow = createMockHogFlow()
-            logic.actions.resetFlowFromHogFlow(mockFlow)
+        logic.actions.markUtmSavedAsTeamDefault(email.id, saved)
 
-            const edges = logic.values.edges
-
-            // Find the branch edges
-            const branchEdge0 = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('branch_branch_0'))
-            const branchEdge1 = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('branch_branch_1'))
-            const continueEdge = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('continue_branch'))
-
-            expect(branchEdge0?.data?.label).toBe('If condition #1 matches')
-            expect(branchEdge1?.data?.label).toBe('If condition #2 matches')
-            expect(continueEdge?.data?.label).toBe('No match')
+        const latest = logic.values.workflow.actions.find((action) => action.id === email.id)
+        expect(latest).toMatchObject({
+            name: 'Renamed while saving',
+            config: {
+                utm_params: { utm_source: 'partner', utm_campaign: 'summer' },
+                utm_params_from_default: ['utm_source', 'utm_medium', 'utm_content'],
+            },
         })
+    })
 
-        it('should use custom names when provided for conditional branches', () => {
-            const mockFlow = createMockHogFlow(['User is premium', 'User is in trial'])
-            logic.actions.resetFlowFromHogFlow(mockFlow)
-
-            const edges = logic.values.edges
-
-            // Find the branch edges
-            const branchEdge0 = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('branch_branch_0'))
-            const branchEdge1 = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('branch_branch_1'))
-            const continueEdge = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('continue_branch'))
-
-            expect(branchEdge0?.data?.label).toBe('User is premium')
-            expect(branchEdge1?.data?.label).toBe('User is in trial')
-            expect(continueEdge?.data?.label).toBe('No match')
-        })
-
-        it('should fall back to default labels for conditions without names', () => {
-            const mockFlow = createMockHogFlow(['User is premium', undefined])
-            logic.actions.resetFlowFromHogFlow(mockFlow)
-
-            const edges = logic.values.edges
-
-            // Find the branch edges
-            const branchEdge0 = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('branch_branch_0'))
-            const branchEdge1 = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('branch_branch_1'))
-
-            expect(branchEdge0?.data?.label).toBe('User is premium')
-            expect(branchEdge1?.data?.label).toBe('If condition #2 matches')
-        })
-
-        it('should not show labels for single-edge nodes', () => {
-            const mockFlow = createMockHogFlow()
-            // Remove all but one edge from the branch node
-            mockFlow.edges = [
-                { from: 'trigger', to: 'branch', type: 'continue' },
-                { from: 'branch', to: 'exit', type: 'continue' },
-            ]
-
-            logic.actions.resetFlowFromHogFlow(mockFlow)
-
-            const edges = logic.values.edges
-            const branchEdge = edges.find((e) => e.source === 'branch')
-
-            expect(branchEdge?.data?.label).toBeUndefined()
-        })
-
-        it('should update edge labels when conditions are modified', () => {
-            const mockFlow = createMockHogFlow()
-            logic.actions.resetFlowFromHogFlow(mockFlow)
-
-            // Update the action with new condition names
-            const updatedAction: HogFlowAction = {
-                id: 'branch',
-                name: 'Conditional Branch',
+    it.each([
+        {
+            case: 'a delay',
+            step: {
+                id: 'step',
+                name: 'Delay',
                 description: '',
-                type: 'conditional_branch',
-                created_at: Date.now(),
-                updated_at: Date.now(),
+                type: 'delay',
+                created_at: 0,
+                updated_at: 0,
+                config: { delay_duration: '1d' },
+            } as HogFlowAction,
+        },
+        {
+            case: 'an email with its own UTM settings',
+            step: {
+                id: 'step',
+                name: 'Send email',
+                description: '',
+                type: 'function_email',
+                created_at: 0,
+                updated_at: 0,
                 config: {
-                    conditions: [
-                        { filters: {}, name: 'New condition 1' },
-                        { filters: {}, name: 'New condition 2' },
-                    ],
+                    template_id: 'template-email',
+                    inputs: {},
+                    utm_tags_enabled: false,
+                    utm_params: { utm_source: 'partner' },
+                    utm_params_from_default: ['utm_medium'],
                 },
-            }
-
-            logic.actions.setWorkflowAction('branch', updatedAction)
-
-            // Re-trigger the flow reset to update edges
-            const updatedFlow = {
-                ...mockFlow,
-                actions: mockFlow.actions.map((a) => (a.id === 'branch' ? updatedAction : a)),
-            }
-            logic.actions.resetFlowFromHogFlow(updatedFlow)
-
-            const edges = logic.values.edges
-            const branchEdge0 = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('branch_branch_0'))
-            const branchEdge1 = edges.find((e) => e.source === 'branch' && e.sourceHandle?.includes('branch_branch_1'))
-
-            expect(branchEdge0?.data?.label).toBe('New condition 1')
-            expect(branchEdge1?.data?.label).toBe('New condition 2')
+            } as HogFlowAction,
+        },
+    ])('copies $case onto the edge below it', ({ step }) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: {
+                capture_workflows_engagement_events: false,
+                email_utm_tags_enabled: true,
+                email_utm_params: { utm_source: 'newsletter' },
+            },
+        })
+        workflowLogic().actions.setWorkflowInfo({
+            actions: [NEW_WORKFLOW.actions[0], step, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, step.id, 'continue'), edge(step.id, EXIT_NODE_ID, 'continue')],
         })
 
-        it('should use custom names for wait_until_condition when provided', () => {
-            const mockFlow: HogFlow = {
-                ...createMockHogFlow(),
-                actions: [
-                    {
-                        id: 'trigger',
-                        name: 'Trigger',
-                        description: '',
-                        type: 'trigger',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: {
-                            type: 'event',
-                            filters: {},
-                        },
-                    },
-                    {
-                        id: 'wait',
-                        name: 'Wait Until',
-                        description: '',
-                        type: 'wait_until_condition',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: {
-                            condition: { filters: {}, name: 'User completes onboarding' },
-                            max_wait_duration: '1h',
-                        },
-                    },
-                    {
-                        id: 'exit',
-                        name: 'Exit',
-                        description: '',
-                        type: 'exit',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: { reason: '' },
-                    },
-                ],
-                edges: [
-                    { from: 'trigger', to: 'wait', type: 'continue' },
-                    { from: 'wait', to: 'exit', type: 'branch', index: 0 },
-                    { from: 'wait', to: 'exit', type: 'continue' },
-                ],
-            }
+        logic.actions.startCopyingNode({
+            id: step.id,
+            type: step.type,
+            data: step,
+            position: { x: 0, y: 0 },
+        } as HogFlowActionNode)
+        logic.actions.onDrop(undefined, edge(step.id, EXIT_NODE_ID, 'continue'))
 
-            logic.actions.resetFlowFromHogFlow(mockFlow)
-
-            const edges = logic.values.edges
-            const branchEdge = edges.find((e) => e.source === 'wait' && e.sourceHandle?.includes('branch_wait_0'))
-
-            expect(branchEdge?.data?.label).toBe('User completes onboarding')
-        })
-
-        it('should handle wait_until_condition edge labels without custom names', () => {
-            const mockFlow: HogFlow = {
-                ...createMockHogFlow(),
-                actions: [
-                    {
-                        id: 'trigger',
-                        name: 'Trigger',
-                        description: '',
-                        type: 'trigger',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: {
-                            type: 'event',
-                            filters: {},
-                        },
-                    },
-                    {
-                        id: 'wait',
-                        name: 'Wait Until',
-                        description: '',
-                        type: 'wait_until_condition',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: {
-                            condition: { filters: {} },
-                            max_wait_duration: '1h',
-                        },
-                    },
-                    {
-                        id: 'exit',
-                        name: 'Exit',
-                        description: '',
-                        type: 'exit',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: { reason: '' },
-                    },
-                ],
-                edges: [
-                    { from: 'trigger', to: 'wait', type: 'continue' },
-                    { from: 'wait', to: 'exit', type: 'branch', index: 0 },
-                    { from: 'wait', to: 'exit', type: 'continue' },
-                ],
-            }
-
-            logic.actions.resetFlowFromHogFlow(mockFlow)
-
-            const edges = logic.values.edges
-            const branchEdge = edges.find((e) => e.source === 'wait' && e.sourceHandle?.includes('branch_wait_0'))
-
-            expect(branchEdge?.data?.label).toBe('If condition matches')
-        })
-
-        it('should use custom names for random_cohort_branch when provided', () => {
-            const mockFlow: HogFlow = {
-                ...createMockHogFlow(),
-                actions: [
-                    {
-                        id: 'trigger',
-                        name: 'Trigger',
-                        description: '',
-                        type: 'trigger',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: {
-                            type: 'event',
-                            filters: {},
-                        },
-                    },
-                    {
-                        id: 'cohort',
-                        name: 'Random Cohort',
-                        description: '',
-                        type: 'random_cohort_branch',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: {
-                            cohorts: [
-                                { percentage: 50, name: 'Control group' },
-                                { percentage: 50, name: 'Test group' },
-                            ],
-                        },
-                    },
-                    {
-                        id: 'exit',
-                        name: 'Exit',
-                        description: '',
-                        type: 'exit',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: { reason: '' },
-                    },
-                ],
-                edges: [
-                    { from: 'trigger', to: 'cohort', type: 'continue' },
-                    { from: 'cohort', to: 'exit', type: 'branch', index: 0 },
-                    { from: 'cohort', to: 'exit', type: 'branch', index: 1 },
-                ],
-            }
-
-            logic.actions.resetFlowFromHogFlow(mockFlow)
-
-            const edges = logic.values.edges
-            const branchEdge0 = edges.find((e) => e.source === 'cohort' && e.sourceHandle?.includes('branch_cohort_0'))
-            const branchEdge1 = edges.find((e) => e.source === 'cohort' && e.sourceHandle?.includes('branch_cohort_1'))
-
-            expect(branchEdge0?.data?.label).toBe('Control group')
-            expect(branchEdge1?.data?.label).toBe('Test group')
-        })
-
-        it('should handle random_cohort_branch edge labels without custom names', () => {
-            const mockFlow: HogFlow = {
-                ...createMockHogFlow(),
-                actions: [
-                    {
-                        id: 'trigger',
-                        name: 'Trigger',
-                        description: '',
-                        type: 'trigger',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: {
-                            type: 'event',
-                            filters: {},
-                        },
-                    },
-                    {
-                        id: 'cohort',
-                        name: 'Random Cohort',
-                        description: '',
-                        type: 'random_cohort_branch',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: {
-                            cohorts: [{ percentage: 50 }, { percentage: 50 }],
-                        },
-                    },
-                    {
-                        id: 'exit',
-                        name: 'Exit',
-                        description: '',
-                        type: 'exit',
-                        created_at: Date.now(),
-                        updated_at: Date.now(),
-                        config: { reason: '' },
-                    },
-                ],
-                edges: [
-                    { from: 'trigger', to: 'cohort', type: 'continue' },
-                    { from: 'cohort', to: 'exit', type: 'branch', index: 0 },
-                    { from: 'cohort', to: 'exit', type: 'branch', index: 1 },
-                ],
-            }
-
-            logic.actions.resetFlowFromHogFlow(mockFlow)
-
-            const edges = logic.values.edges
-            const branchEdge0 = edges.find((e) => e.source === 'cohort' && e.sourceHandle?.includes('branch_cohort_0'))
-            const branchEdge1 = edges.find((e) => e.source === 'cohort' && e.sourceHandle?.includes('branch_cohort_1'))
-
-            expect(branchEdge0?.data?.label).toBe('If cohort #1 matches')
-            expect(branchEdge1?.data?.label).toBe('If cohort #2 matches')
-        })
+        const duplicatedAction = logic.values.workflow.actions.find(
+            (action) => action.id !== step.id && action.type === step.type
+        )
+        expect(duplicatedAction).toMatchObject({ name: step.name, config: step.config })
+        expect(logic.values.workflow.edges).toEqual([
+            edge(TRIGGER_NODE_ID, step.id, 'continue'),
+            edge(step.id, duplicatedAction!.id, 'continue'),
+            edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
+        ])
     })
 
     describe('graph identity across rebuilds', () => {
@@ -568,7 +391,6 @@ describe('hogFlowEditorLogic', () => {
                 type: 'action',
                 data: { id, type: 'exit', name: id, description: '', config: {} } as unknown as HogFlowAction,
                 position: { x: 0, y: 0 },
-                handles: [],
             }) as HogFlowActionNode
 
         const makeEdge = (
@@ -580,9 +402,6 @@ describe('hogFlowEditorLogic', () => {
             id: `${from}->${to} ${type} ${index ?? ''}`.trim(),
             source: from,
             target: to,
-            type: 'smart',
-            sourceHandle: type === 'continue' ? `continue_${from}` : `branch_${from}_${index}`,
-            targetHandle: `target_${to}`,
             data: { edge: { from, to, type, index } },
         })
 

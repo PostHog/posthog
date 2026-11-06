@@ -3,11 +3,18 @@ import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
+import { emailAttachmentOutcomesTotal } from '../messaging/email-attachments.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { CyclotronV2CleanupResult, CyclotronV2DequeuedJob, CyclotronV2JanitorConfig } from './types'
+import {
+    CYCLOTRON_COUNTER_MAX,
+    CyclotronV2CleanupResult,
+    CyclotronV2DequeuedJob,
+    CyclotronV2JanitorConfig,
+} from './types'
 
 // Stable, low-cardinality `error_kind` stamped on the failed invocation result
 // the janitor writes when it gives up on a poison pill. Lets operators target
@@ -63,9 +70,33 @@ const janitorRunCounter = new Counter({
     help: 'Number of janitor cleanup runs completed',
 })
 
+// The name is load-bearing: dashboards and alerts query it, so it must not follow the code around.
+const conversionWatchersSweptCounter = new Counter({
+    name: 'cdp_conversion_watchers_swept',
+    help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
+})
+
+export const EMAIL_ATTACHMENTS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
+const emailAttachmentsTableBytesGauge = new Gauge({
+    name: 'cdp_email_attachments_table_bytes',
+    help: 'Total size of cyclotron_email_attachments on disk, with its TOAST data and indexes (pg_total_relation_size). Sampled by the janitor sweep.',
+})
+
+const emailAttachmentsRowsGauge = new Gauge({
+    name: 'cdp_email_attachments_rows',
+    help: 'Planner estimate (pg_class.reltuples) of the rows in cyclotron_email_attachments, one per file of a transactional email that waits to send. Sampled by the janitor sweep without a table scan.',
+})
+
 const queueDepthGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_depth',
     help: 'Number of available jobs per queue',
+    labelNames: ['queue'],
+})
+
+const queueOldestDueAgeGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_queue_oldest_due_age_ms',
+    help: 'Milliseconds since the oldest available job per queue became due (its scheduled time). 0 when the queue has no due jobs.',
     labelNames: ['queue'],
 })
 
@@ -91,6 +122,8 @@ interface PoisonRow {
 export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
+    // Queue names this process has seen hold work, so a drained queue can report 0.
+    private readonly seenQueues = new Set<string>()
 
     private readonly cleanupBatchSize: number
     private readonly cleanupIntervalMs: number
@@ -150,6 +183,14 @@ export class CyclotronV2Janitor {
     }
 
     async runOnce(): Promise<CyclotronV2CleanupResult> {
+        // Sweep first, before the cyclotron-cleanup stages below. Each of those issues an unguarded
+        // pool.query, so a failure specific to cyclotron_jobs (a statement timeout or lock pressure on
+        // that hot table) rejects out of runOnce and would skip the sweep for as long as it lasts. The
+        // sweep touches a different table and swallows its own errors, so running it up front keeps
+        // expired watchers draining even while cyclotron cleanup is failing.
+        await this.sweepExpiredConversionWatchers()
+        await this.sweepEmailAttachments()
+
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
@@ -222,7 +263,7 @@ export class CyclotronV2Janitor {
         const result = await this.pool.query<{ id: string }>(
             `UPDATE cyclotron_jobs
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                 last_transition = NOW(), transition_count = transition_count + 1
+                 last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
              WHERE id IN (
                  SELECT id
                  FROM cyclotron_jobs
@@ -407,6 +448,7 @@ export class CyclotronV2Janitor {
             distinctId: row.distinct_id,
             personId: row.person_id,
             actionId: row.action_id,
+            cancelRequestedAt: null,
             ack: () => Promise.resolve(),
             fail: () => Promise.resolve(),
             reschedule: () => Promise.resolve(),
@@ -453,7 +495,7 @@ export class CyclotronV2Janitor {
             )
             UPDATE cyclotron_jobs
             SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
-                janitor_touch_count = janitor_touch_count + 1${backoffClause}
+                janitor_touch_count = LEAST(janitor_touch_count + 1, ${CYCLOTRON_COUNTER_MAX})${backoffClause}
             FROM stalled
             WHERE cyclotron_jobs.id = stalled.id`,
             params
@@ -468,9 +510,74 @@ export class CyclotronV2Janitor {
         return count
     }
 
+    /**
+     * Deletes conversion watchers whose attribution window has closed.
+     *
+     * Nothing else removes them: a watcher that converts is deleted by the matcher's claim, and one
+     * that never converts would otherwise live forever. This runs here rather than in the matcher
+     * because every matcher pod would run its own copy, all deleting from the same table.
+     *
+     * A failure is reported to error tracking and swallowed: an expired watcher has already stopped
+     * matching via the `expires_at` predicate, so a missed sweep costs space and never a conversion,
+     * and it must not stop the janitor finishing its cyclotron work. The report matters because the
+     * catch hides the failure from the run otherwise — a persistent one grows the table unbounded.
+     */
+    async sweepExpiredConversionWatchers(): Promise<number> {
+        try {
+            const result = await this.pool.query(
+                `DELETE FROM conversion_watchers
+                 WHERE id IN (
+                     SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1
+                 )`,
+                [this.cleanupBatchSize]
+            )
+            const deleted = result.rowCount ?? 0
+            if (deleted > 0) {
+                conversionWatchersSweptCounter.inc(deleted)
+                logger.info('CyclotronV2Janitor swept expired conversion watchers', { count: deleted })
+            }
+            return deleted
+        } catch (err) {
+            logger.error('CyclotronV2Janitor conversion watcher sweep failed', { error: String(err) })
+            captureException(err)
+            return 0
+        }
+    }
+
+    async sweepEmailAttachments(): Promise<number> {
+        try {
+            const result = await this.pool.query(
+                `DELETE FROM cyclotron_email_attachments
+                 WHERE id IN (
+                     SELECT id FROM cyclotron_email_attachments WHERE created_at < $1 LIMIT $2
+                     FOR UPDATE SKIP LOCKED
+                 )`,
+                [new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS), this.cleanupBatchSize]
+            )
+            const swept = result.rowCount ?? 0
+            if (swept > 0) {
+                emailAttachmentOutcomesTotal.inc({ outcome: 'swept' }, swept)
+                logger.info('CyclotronV2Janitor swept email attachment rows', { count: swept })
+            }
+            const size = await this.pool.query<{ bytes: string; rows: string }>(
+                `SELECT pg_total_relation_size('cyclotron_email_attachments') AS bytes,
+                        (SELECT GREATEST(reltuples, 0)::bigint FROM pg_class
+                         WHERE oid = 'cyclotron_email_attachments'::regclass) AS rows`
+            )
+            emailAttachmentsTableBytesGauge.set(Number(size.rows[0].bytes))
+            emailAttachmentsRowsGauge.set(Number(size.rows[0].rows))
+            return swept
+        } catch (err) {
+            logger.error('CyclotronV2Janitor email attachment sweep failed', { error: String(err) })
+            captureException(err)
+            return 0
+        }
+    }
+
     async measureQueueDepths(): Promise<Map<string, number>> {
-        const result = await this.pool.query<{ queue_name: string; count: string }>(
-            `SELECT queue_name, COUNT(*) as count
+        const result = await this.pool.query<{ queue_name: string; count: string; oldest_due_age_ms: number }>(
+            `SELECT queue_name, COUNT(*) as count,
+                    EXTRACT(EPOCH FROM NOW() - MIN(scheduled))::float8 * 1000 as oldest_due_age_ms
              FROM cyclotron_jobs
              WHERE status = 'available' AND scheduled <= NOW()
              GROUP BY queue_name`
@@ -480,7 +587,21 @@ export class CyclotronV2Janitor {
         for (const row of result.rows) {
             const count = parseInt(row.count, 10)
             depths.set(row.queue_name, count)
+            this.seenQueues.add(row.queue_name)
             queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+            queueOldestDueAgeGauge.labels({ queue: row.queue_name }).set(row.oldest_due_age_ms)
+        }
+
+        // GROUP BY returns no row for a queue that is empty. Without the write below,
+        // that queue keeps the last depth this process set, and an alert on the value
+        // fires while the queue is idle. Write 0 for every queue this process saw
+        // before. The set holds only observed queue names, so it needs no maintenance
+        // and it adds no series for a queue that does not use this table.
+        for (const queue of this.seenQueues) {
+            if (!depths.has(queue)) {
+                queueDepthGauge.labels({ queue }).set(0)
+                queueOldestDueAgeGauge.labels({ queue }).set(0)
+            }
         }
 
         return depths

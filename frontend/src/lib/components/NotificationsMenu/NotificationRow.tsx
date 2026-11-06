@@ -37,6 +37,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Pipeline failures',
         description: 'When a data pipeline or batch export fails',
     },
+    materialization_failure: {
+        label: 'Materialized view failures',
+        description: 'When a materialized view in your project fails to refresh',
+    },
     issue_assigned: {
         label: 'Issues assigned',
         description: 'When an error tracking issue is assigned to you',
@@ -68,6 +72,30 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
     subscription_nudge: {
         label: 'Subscription suggestions',
         description: 'When PostHog suggests subscribing to a dashboard you keep coming back to',
+    },
+    data_quality_check_failure: {
+        label: 'Data quality check failures',
+        description: 'When a data quality check on a warehouse table or view starts failing',
+    },
+    workflow_suggestion: {
+        label: 'Workflow suggestions',
+        description: 'When PostHog suggests a change to a workflow you set up',
+    },
+    warehouse_suggestion_assigned: {
+        label: 'Warehouse suggestions',
+        description: 'When a suggestion for a view or table is assigned to you',
+    },
+    first_report_completed: {
+        label: 'First Self-Driving investigation',
+        description: 'When your first Self-Driving investigation finishes, including when it has no report.',
+    },
+    report_claim_taken_over: {
+        label: 'Self-Driving report takeovers',
+        description: 'When someone takes over a Self-Driving report you were working on',
+    },
+    feature_flag_failure: {
+        label: 'Feature flag failures',
+        description: 'When a feature flag in your project fails to evaluate',
     },
 }
 
@@ -133,7 +161,7 @@ export function NotificationRow({
     onNavigate?: () => void
     readOnly?: boolean
 }): JSX.Element {
-    const { navigateToNotification, toggleRead, markAsRead, archiveNotification } =
+    const { navigateToNotification, notificationClicked, toggleRead, markAsRead, archiveNotification } =
         useActions(sidePanelNotificationsLogic)
     const { projectNameForNotification, sourcePathForNotification, manuallyToggledIds, archivingEnabled } =
         useValues(sidePanelNotificationsLogic)
@@ -150,6 +178,9 @@ export function NotificationRow({
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleOpen = (): void => {
+        // Sits outside the navigation guard below: a click on a notification with no target
+        // is still engagement
+        notificationClicked(notification)
         // Clicking the card marks it read and navigates to its source
         if (!notification.read) {
             toggleRead(notification.id)

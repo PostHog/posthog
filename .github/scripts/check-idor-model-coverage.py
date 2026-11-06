@@ -10,10 +10,14 @@ CI script that checks two related concerns:
    don't are checked against `posthog/models/scoping/baseline_unmigrated.txt`
    — additions fail CI, removals are reported as opportunities to
    shrink the baseline.
+3. Environment-scoped model list: the model regex in the
+   `environment-model-scoped-by-project` semgrep rule matches the
+   environment-scoped models derived from code.
 
 Usage:
     python check-idor-model-coverage.py
     python check-idor-model-coverage.py --regenerate-baseline
+    python check-idor-model-coverage.py --regenerate-environment-models
 
 Exit codes:
     0 - All checks pass
@@ -30,6 +34,8 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BASELINE_FILE = REPO_ROOT / "posthog/models/scoping/baseline_unmigrated.txt"
+SEMGREP_RULES_FILE = REPO_ROOT / ".semgrep/rules/security/idor-team-scoped-models.yaml"
+ENVIRONMENT_RULE_ID = "environment-model-scoped-by-project"
 
 
 def setup_django() -> None:
@@ -89,11 +95,13 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # RoleMembership has a direct user FK but org is indirect (via role), so the
         # script sees it as user_scoped while semgrep correctly has it in org_scoped.
         "RoleMembership",
+        # IdJagIdentity has a direct user FK but org is indirect (via its IdentityProviderConfig),
+        # so the script sees it as user_scoped while semgrep has it in org_scoped.
+        "IdJagIdentity",
         # --- Ingestion/event tables (not queried by user-supplied ID) ---
         "CoreEvent",
         "ElementGroup",
         "Event",
-        "PersonlessDistinctId",
         "SessionRecordingEvent",
         # --- Persons system (managed separately, not looked up by user input) ---
         "FlatPersonOverride",
@@ -116,6 +124,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LogEntry",
         "OAuthAccessToken",
         "OAuthApplication",
+        "OAuthDeviceGrant",
         "OAuthGrant",
         "OAuthIDToken",
         "OAuthRefreshToken",
@@ -130,6 +139,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- Internal infra (audit, async, caching, scheduling) ---
         "ActivityLog",
         "AsyncDeletion",
+        # Instance-wide log of deletion Dagster runs, read by staff in Django admin only.
+        "DeletionRunLog",
         "AsyncMigration",
         "AsyncMigrationError",
         # Outbound email delivery queue — looked up by PK / comment FK from internal
@@ -142,10 +153,13 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # stamphog lives on a separate product DB; every model is a ProductTeamModel whose
         # fail-closed manager (.for_team / safely_get_queryset) scopes every query by team_id.
         "StamphogRepoConfig",
+        "StamphogInstallation",
         "PullRequest",
         "ReviewRun",
         "DigestChannel",
         "DigestRun",
+        "RoutingRun",
+        "RoutingRunOwner",
         # --- Accessed via parent FK (no direct team-scoped lookup needed) ---
         "AlertSubscription",
         "Approval",
@@ -153,8 +167,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Artifact",
         "BatchExportLogEntry",
         "BatchExportRun",
-        "CodeInvite",
-        "CodeInviteRedemption",
         # Comment↔Slack-thread mirror mapping — looked up by source_comment FK or
         # (scope, item_id) within team scope, and by internally-generated task-arg id;
         # never by user-supplied CommentSlackThread id through an API. Fail-closed via
@@ -172,6 +184,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # OneToOne extension of Organization, read via the org relation
         # (enrichment_record), never looked up by user-supplied ID.
         "OrganizationEnrichment",
+        # Write-once OneToOne record of the partner that created an Organization, written by the
+        # partner account-creation paths; no API endpoint, never looked up by user-supplied ID.
+        # Remove this exemption the moment an endpoint exposes it, or the org_scoped rule stops
+        # protecting it silently.
+        "OrganizationProvisioning",
         # Write-once idempotency guard keyed on the org, claimed via get_or_create from an
         # internal enrichment write-back path, never looked up by user-supplied ID.
         "EnrichmentSignupSnapshot",
@@ -181,6 +198,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Instance-global classifier definition, so there is no team_id to scope on. Seeded by
         # migration and read by the batch runner; no API endpoint, never looked up by user-supplied ID.
         "EnrichmentPromptConfig",
+        # Instance-global versioned ICP curated-list rows (created_by is authorship provenance,
+        # not access scoping). Written by a management command, read by the enrichment scorer;
+        # admin-only surface, never looked up by user-supplied ID.
+        "IcpScoringConfig",
         # Shadow classifier output, org-scoped rather than team-scoped. Written only by the batch
         # runner and read-only in admin; no API endpoint, never looked up by user-supplied ID.
         # It carries an Organization FK, so the org_scoped rule would otherwise cover it: remove this
@@ -193,17 +214,41 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DuckgresServer",
         "EvaluationConfig",
         "RemoteConfig",
+        "TeamAccessControlConfig",
         "TeamConversationsSlackConfig",
         "TeamConversationsTeamsChannelSync",
+        "TeamConversationsTicketConfig",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
+        "TeamBusinessKnowledgeConfig",
         "TeamDataQualityConfig",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        # Staff-only OneToOne extension keyed on the team, edited in Django admin and read by the
+        # events cleanup schedule; no endpoint looks it up by a user-supplied ID.
+        "TeamEventsRetentionConfig",
+        # OneToOne extension keyed on the team, written and read only by the events cleanup schedule;
+        # no endpoint looks it up by a user-supplied ID.
+        "TeamEventsPlanDeletion",
         "TeamFeatureFlagsConfig",
+        # Staff-only OneToOne extension keyed on the team, written by a management command and read
+        # by the realtime cohort pipeline; no endpoint looks it up by a user-supplied ID.
+        "RealtimeCohortTeamAccess",
+        # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
+        # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.
+        "TeamFeatureFlagPolicyConfig",
+        # OneToOne extension keyed on the authorized Team; no independently addressable config ID.
+        "TeamHeatmapConfig",
+        "TeamEventVolume",
+        "TeamTasksConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
+        # OneToOne extension keyed on the team, read by team_id from the suggestion refresher and endpoint;
+        # no endpoint looks it up by a user-supplied ID.
+        "TeamReplayVisionConfig",
+        "TeamTracingConfig",
+        "WarehouseSuggestionTeamConfig",
         "TeamJsSnippetConfig",
         "TeamProvisioningConfig",
         # --- User preferences with no IDOR risk (read own data only) ---
@@ -219,9 +264,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ExplicitTeamMembership",
         # --- Other internal (no user-facing lookup by ID) ---
         "AlertCheck",
-        # Global CIMD URL blocklist - queried by `cimd_url` (unique), never by user-supplied ID.
-        # `created_by` is for audit only.
-        "CIMDBlocklistEntry",
         "CohortCalculationHistory",
         "ColumnConfiguration",
         "DataDeletionRequest",
@@ -245,6 +287,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # `(slack_workspace_id, slack_channel_id)` from the Slack event handler,
         # never by user-supplied ID. `approved_by` is for audit only.
         "SlackChannel",
+        # Instance-wide bank of metrics dashboards, read only through staff endpoints. `reviewed_by` is for audit only.
+        "MetricsDashboardTemplate",
         "UserActivity",
         "UserGroup",
         "UserGroupMembership",
@@ -256,6 +300,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     LEGITIMATELY_UNSCOPED: set[str] = {
         # --- Django/third-party internals ---
         "AccessAttempt",
+        "AccessAttemptExpiration",
         "AccessFailureLog",
         "AccessLog",
         "Association",
@@ -266,6 +311,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Nonce",
         "OAuthAccessToken",
         "OAuthApplication",
+        "OAuthDeviceGrant",
         "OAuthGrant",
         "OAuthIDToken",
         "OAuthRefreshToken",
@@ -281,19 +327,30 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Team",
         "User",
         # --- Instance-level config ---
+        "DeletionRunLog",  # one row per deletion Dagster run, across all teams
         "AsyncMigration",
         "AsyncMigrationError",
         "InstanceSetting",
+        "DevStackImageTarget",
+        "DevStackImageAttempt",
         "License",
         # --- Deprecated ---
         "Prompt",
         "PromptSequence",
         "UserPromptState",
         # --- Global catalogs ---
+        "SignalFilterSourceDefinition",  # instance-global internal source capability metadata
+        "SignalFilterCatalogVersion",  # immutable shared recipes, never tenant observations
         "CommunitySkill",  # instance-global community skills catalog, synced from GitHub
         "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
+        "MetricsDashboardTemplate",  # instance-global bank of metrics dashboards; staff approve generated rows
         "MCPServer",
+        "MCPRegistryServer",  # instance-global MCP registry index, crawled from the official registry
+        "MCPRegistryTool",  # tools of an MCPRegistryServer (scoped via the catalog row)
+        "MCPRankingRun",  # one scoring pass over the global registry index
+        "MCPRankingScore",  # per-server score of an MCPRankingRun (scoped via the run/catalog rows)
+        "EmailHardBounce",  # instance-global email addresses that do not exist, written from hard bounces
         # --- Special (has source_team + destination_team, not a plain team) ---
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---
@@ -309,6 +366,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Role",
         "RoleMembership",
         "LinkedIdentityProviderConfig",
+        "IdJagIdentity",
         # --- User-scoped (cross-tenant by design) ---
         "NotificationViewed",
         "SCIMProvisionedUser",
@@ -319,6 +377,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "EventIngestionRestrictionConfig",
         "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
+        "UserActivitySummaryQueueCursor",  # one global read position per input source, no rows of a team
     }
 
     # Baseline violations — these models SHOULD have team_id but don't yet.
@@ -334,7 +393,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ConversationCheckpoint",  # via Conversation
         "ConversationCheckpointBlob",  # via ConversationCheckpoint
         "ConversationCheckpointWrite",  # via ConversationCheckpoint
-        "DashboardPrivilege",  # via Dashboard
         "Element",  # via Event/ElementGroup
         "ErrorTrackingExternalReference",  # via ErrorTrackingIssue
         "ErrorTrackingIssueCohort",  # via ErrorTrackingIssue
@@ -350,6 +408,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LLMSkillFile",  # via LLMSkill
         "LogsAlertCheck",  # via LogsAlertConfiguration
         "LogsAlertEvent",  # via LogsAlertConfiguration
+        "VisionAlertEvent",  # via VisionAlertConfiguration
         "NotificationReadState",  # via NotificationEvent
         "NotificationArchiveState",  # via NotificationEvent
         "PluginStorage",  # via PluginConfig
@@ -360,16 +419,18 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingPlaylistItem",  # via Playlist
         "SharePassword",  # via SharingConfiguration
         "SourceBatchStatus",  # via SourceBatch
+        "QueueJobStatus",  # via QueueJob
+        # Keyed by (lane, group_key), not a direct team_id column — group_key is a
+        # generic caller-defined string (e.g. "team:schema") rather than always a
+        # team scope, unlike SourceGroupLease which carries team_id explicitly.
+        "QueueJobLease",
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight
-        "TaskAutomation",  # via Task
         "TicketAssignment",  # via Ticket
         "UserGroupMembership",  # via UserGroup
         # --- Other models missing direct team_id ---
         "BatchExportDestination",  # via Integration
         "BatchExportRun",  # via BatchExport
-        "CodeInvite",  # user-scoped but stores team data
-        "CodeInviteRedemption",  # via CodeInvite
         "SandboxSnapshot",  # via Integration
         "SlackUserProfileCache",  # via Integration
         "SlackSettings",  # via Integration
@@ -380,6 +441,14 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     user_scoped: set[str] = set()
     no_scope: set[str] = set()
 
+    organization_scoped_overrides = {
+        "AITrainingConsent",  # Plain organization_id survives organization deletion.
+        # Billing alerts inherit scope through BillingAlertConfiguration; team is an execution context.
+        "BillingAlertConfiguration",
+        "BillingAlertEvaluationClaim",
+        "BillingAlertEvent",
+    }
+
     for model in apps.get_models():
         model_name = model.__name__
 
@@ -389,6 +458,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
 
         # Skip proxy models
         if model._meta.proxy:
+            continue
+
+        if model_name in organization_scoped_overrides:
+            org_scoped.add(model_name)
             continue
 
         # Check for FK fields and plain team_id (ProductTeamModel uses BigIntegerField)
@@ -466,12 +539,14 @@ def parse_semgrep_models(yaml_path: Path) -> dict[str, set[str]]:
         # User+team models are treated as team_scoped for comparison
         "idor-taint-user-input-to-user-team-model": "team_scoped",
         "idor-lookup-without-user-and-team": "team_scoped",
+        ENVIRONMENT_RULE_ID: "env_scoped",
     }
 
     result: dict[str, set[str]] = {
         "team_scoped": set(),
         "org_scoped": set(),
         "user_scoped": set(),
+        "env_scoped": set(),
     }
 
     for rule in data.get("rules", []):
@@ -647,12 +722,106 @@ def check_fail_closed_baseline(
     return False, False
 
 
+def get_environment_scoped_models(team_scoped: set[str]) -> set[str]:
+    """Team-scoped models whose rows belong to one environment, not to the whole project.
+
+    Project-level models drop out in two ways. RootTeamMixin (and its fail-closed
+    TeamScopedRootMixin) and ProductTeamModel rewrite team_id to the project's root
+    team on save. Models with a `project` relation to Project (own or inherited) are
+    keyed by the project directly.
+    """
+    from django.apps import apps
+
+    from posthog.models.project import Project
+    from posthog.models.scoping.product_mixin import ProductTeamModel
+    from posthog.models.utils import RootTeamMixin
+
+    environment_scoped: set[str] = set()
+    for model in apps.get_models():
+        if model._meta.proxy or model.__name__ not in team_scoped:
+            continue
+        if issubclass(model, (RootTeamMixin, ProductTeamModel)):
+            continue
+        # A field named `project` can hold something else, such as a release's application name.
+        has_project_relation = any(
+            field.name == "project" and field.related_model is Project for field in model._meta.get_fields()
+        )
+        if has_project_relation:
+            continue
+        environment_scoped.add(model.__name__)
+    return environment_scoped
+
+
+def render_environment_model_regex(models: set[str]) -> str:
+    """Return the regex block scalar body, indented to sit under `regex: |` in the rule."""
+    indent = " " * 20
+    names = sorted(models, key=str.lower)
+    lines = [f"{indent}(?x)^("]
+    lines.append(f"{indent}    {names[0]}")
+    lines.extend(f"{indent}    |{name}" for name in names[1:])
+    lines.append(f"{indent})$")
+    return "\n".join(lines) + "\n"
+
+
+def write_environment_model_regex(models: set[str]) -> None:
+    text = SEMGREP_RULES_FILE.read_text()
+    rule_start = text.index(f"- id: {ENVIRONMENT_RULE_ID}\n")
+    next_rule = text.find("\n    - id: ", rule_start + 1)
+    rule_end = len(text) if next_rule == -1 else next_rule
+    # The first `regex: |` block inside the rule holds the model list. The search stops at the
+    # next rule, so a missing block cannot rewrite another rule's list.
+    regex_block = re.compile(r"(regex: \|\n)(.*?\)\$\n)", re.DOTALL)
+    match = regex_block.search(text, rule_start, rule_end)
+    if match is None:
+        raise ValueError(f"No `regex: |` block found in rule {ENVIRONMENT_RULE_ID}")
+    new_text = text[: match.start(2)] + render_environment_model_regex(models) + text[match.end(2) :]
+    SEMGREP_RULES_FILE.write_text(new_text)
+
+
+def check_environment_model_list(
+    team_scoped: set[str],
+    semgrep_environment_models: set[str],
+    *,
+    regenerate: bool,
+) -> bool:
+    """Return True when the rule's model list differs from the code."""
+    expected = get_environment_scoped_models(team_scoped)
+
+    print(f"\n{'=' * 60}")
+    print("Environment-scoped model list check")
+    print("=" * 60)
+
+    if regenerate:
+        write_environment_model_regex(expected)
+        print(f"\n  Regenerated the {ENVIRONMENT_RULE_ID} model list ({len(expected)} models).")
+        return False
+
+    missing = expected - semgrep_environment_models
+    extra = semgrep_environment_models - expected
+    if not missing and not extra:
+        print(f"  ✅ {ENVIRONMENT_RULE_ID} lists all {len(expected)} environment-scoped models.")
+        return False
+
+    print(f"::error::The {ENVIRONMENT_RULE_ID} model list is out of date")
+    for model in sorted(missing):
+        print(f"     + {model} (environment-scoped, missing from the rule)")
+    for model in sorted(extra):
+        print(f"     - {model} (in the rule, but not environment-scoped)")
+    print(f"\n  Run: python {Path(__file__).relative_to(REPO_ROOT)} --regenerate-environment-models")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--regenerate-baseline",
         action="store_true",
         help="Rewrite the fail-closed baseline file from the current code state.",
+    )
+    parser.add_argument(
+        "--regenerate-environment-models",
+        action="store_true",
+        help=f"Rewrite the model list of the {ENVIRONMENT_RULE_ID} semgrep rule from the current code state.",
     )
     args = parser.parse_args()
 
@@ -662,8 +831,7 @@ def main() -> int:
     code_models, excluded_models, legitimately_unscoped, needs_team_id = get_scoped_models()
 
     # Get models from semgrep rules
-    semgrep_path = REPO_ROOT / ".semgrep/rules/security/idor-team-scoped-models.yaml"
-    semgrep_models = parse_semgrep_models(semgrep_path)
+    semgrep_models = parse_semgrep_models(SEMGREP_RULES_FILE)
 
     # Compare and report
     has_errors = False
@@ -759,6 +927,13 @@ def main() -> int:
     )
     has_errors = has_errors or fail_closed_errors
     has_warnings = has_warnings or fail_closed_warnings
+
+    environment_list_errors = check_environment_model_list(
+        code_models["team_scoped"],
+        semgrep_models["env_scoped"],
+        regenerate=args.regenerate_environment_models,
+    )
+    has_errors = has_errors or environment_list_errors
 
     print("\n" + "=" * 60)
 

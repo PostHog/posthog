@@ -13,14 +13,34 @@ on:
     push:
         branches:
             - master
+        # Desktop-only pushes are filtered out in the `changes` job below, not here.
+        # GitHub reads only the first 3,000 files of a push diff for a trigger-level
+        # path filter, and skips the workflow when the paths that match the filter
+        # fall outside that window. The limit is the one in "Git diff comparisons" at
+        # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+        # — note the neighbouring commit-count and diff-timeout limits always run the
+        # workflow, so this is the one that skips. The desktop tree is larger than that window, so a
+        # push that rewrites most of it could drop the image build and every deploy
+        # for a backend change in the same push, with no failed run to show it.
         paths-ignore:
             - 'rust/**'
             - 'livestream/**'
     # Break-glass: a manual dispatch must run from master. The ECR publish role
-    # (AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
+    # (AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
     # refs/heads/master, so a dispatch from any other branch is denied at
     # AssumeRoleWithWebIdentity — deliberate, so prod images only ship from master.
+    # When GitHub Actions itself is down, build through Depot CI instead:
+    # .depot/workflows/actions-outage-image-build.yml
     workflow_dispatch:
+        inputs:
+            shared-image-force:
+                description: 'Explicit image/channel keys to release, as a JSON array'
+                type: string
+                default: '[]'
+            shared-image-bootstrap:
+                description: 'One approved seed as JSON with channel, revision and digest'
+                type: string
+                default: ''
 
 # Serialize runs for the same commit so a push racing a manual re-run/dispatch can't both
 # preflight "absent" and both rebuild, moving an immutable sha-* tag to a new digest. Keyed
@@ -38,15 +58,60 @@ env:
     ECR_REPOSITORY: posthog-cloud
 
 jobs:
+    changes:
+        name: Check whether the push can change the image
+        # Org check only, because this job detects changes rather than pushing an
+        # image or dispatching a deploy, so the CD_DEPLOY_ENABLED gate belongs on
+        # posthog_build instead. Push only, because a manual dispatch carries no push
+        # range for the filter to read, and posthog_build already always builds there.
+        if: github.repository_owner == 'PostHog' && github.event_name == 'push'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        outputs:
+            image: ${{ steps.filter.outputs.image }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+
+            # On a push the action diffs the whole push range with local git, which has
+            # no file cap, so it also reads a batch push that carries several commits.
+            # continue-on-error covers a failing filter step: it publishes no verdict,
+            # and the empty value builds.
+            - uses: ./.github/actions/paths-filter
+              id: filter
+              continue-on-error: true
+              with:
+                  # `.dockerignore` strips every desktop path from the image build
+                  # context, so a change under products/desktop cannot alter the image.
+                  filters: |
+                      image:
+                        - '**'
+                        - '!products/desktop/**'
+
     posthog_build:
         name: Build and push PostHog
+        needs: changes
         outputs:
             image-digest: ${{ steps.image.outputs.digest }}
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
-        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
+        # A push that only touches desktop code skips the build and its deploy fan-out.
+        # Every other verdict builds, including the empty one left by a `changes` job
+        # that failed, timed out, or lost its runner, so an unresolved verdict costs one
+        # build instead of a missed deploy. `!cancelled()` is what keeps that true: a
+        # condition carrying no status function gets an implicit `success()` over
+        # `needs`, which skips this job whenever `changes` did not succeed. Cancelling
+        # the run still stops the build, which `always()` would not.
+        if: |
+            !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' &&
+            needs.changes.outputs.image != 'false'
         runs-on: depot-ubuntu-24.04
-        # Covers the build plus the post-build image-boot verification before dispatch.
-        timeout-minutes: 40
+        # Covers two bounded build attempts plus the post-build image-boot verification before
+        # dispatch.
+        timeout-minutes: 60
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -57,6 +122,12 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 2
+
+            - name: Resolve commit timestamp
+              id: commit-time
+              env:
+                  HEAD_COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
+              run: echo "timestamp=${HEAD_COMMIT_TIMESTAMP:-$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)}" >> "$GITHUB_OUTPUT"
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
@@ -75,7 +146,8 @@ jobs:
                   # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
                   push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
-                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  # posthog-cloud is published to the shared-services ECR, where prod and Kargo pull it.
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -112,10 +184,36 @@ jobs:
                       echo "Image for $SHA already present in ECR ($digest); skipping build." >&2
                   fi
 
+            # Create the error tracking release for this commit before the build, so the build can
+            # bake its id into the image as POSTHOG_RELEASE_ID (see the final stage of the Dockerfile).
+            # The Python SDK sends that id as $release_id on every event, which links a backend
+            # exception to the same release the frontend bundles carry: the sourcemap stage of the
+            # Dockerfile resolves the release by the same name and version, so it finds this one.
+            # Keep release-name and release-version equal to the --release-name and --release-version
+            # of that stage.
+            # This step must never block a deploy. Without the secret, the action passes with an empty
+            # id and a warning. A download, checksum, or API error fails the step, and
+            # continue-on-error keeps the build going with an empty id. The step timeout stops a hung
+            # API call. An empty id is fine: the SDK treats a blank value as unset.
+            - name: Resolve error tracking release
+              id: release
+              if: steps.preflight.outputs.digest == ''
+              continue-on-error: true
+              timeout-minutes: 5
+              uses: PostHog/resolve-release@52d3bea6f86a713545874057b7d4bfebb6b5f367 # v1.0.0
+              with:
+                  api-key: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  project-id: '2'
+                  release-name: posthog
+                  release-version: ${{ github.sha }}
+
             - name: Build and push container image
               id: build
               if: steps.preflight.outputs.digest == ''
               continue-on-error: true
+              # A hung build has to end as a step failure, not a job timeout: the retry ladder below
+              # is gated on `outcome == 'failure'`, and a cancelled job skips every step it guards.
+              timeout-minutes: 25
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
@@ -125,8 +223,18 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
+                  # The GITHUB_* args become the git metadata on the error tracking release the
+                  # sourcemap upload stage resolves, and creates when the release step above could
+                  # not. That stage builds in a container with no .git directory, so the workflow
+                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
+                      GITHUB_ACTIONS=true
+                      GITHUB_SHA=${{ github.sha }}
+                      GITHUB_REF_NAME=${{ github.ref_name }}
+                      GITHUB_REPOSITORY=PostHog/posthog
+                      GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
@@ -149,7 +257,7 @@ jobs:
               if: steps.build.outcome == 'failure'
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Re-login to Amazon ECR (retry)
@@ -185,6 +293,7 @@ jobs:
               id: build_retry
               if: steps.build.outcome == 'failure' && steps.preflight_retry.outputs.digest == ''
               continue-on-error: true
+              timeout-minutes: 25
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
@@ -194,8 +303,18 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
+                  # The GITHUB_* args become the git metadata on the error tracking release the
+                  # sourcemap upload stage resolves, and creates when the release step above could
+                  # not. That stage builds in a container with no .git directory, so the workflow
+                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
+                      GITHUB_ACTIONS=true
+                      GITHUB_SHA=${{ github.sha }}
+                      GITHUB_REF_NAME=${{ github.ref_name }}
+                      GITHUB_REPOSITORY=PostHog/posthog
+                      GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
@@ -259,7 +378,7 @@ jobs:
             - name: Verify image boots (web + temporal + celery)
               if: github.event_name == 'push'
               env:
-                  IMAGE: ghcr.io/posthog/posthog:${{ github.sha }}
+                  IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}
               run: |
                   set -euo pipefail
                   docker pull "$IMAGE"
@@ -289,240 +408,170 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Trigger PostHog Cloud deployment from Charts
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "posthog",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Check for changes in nodejs directory or Dockerfiles
-              id: check_changes_nodejs
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^nodejs/|^Dockerfile$|^Dockerfile\.node$'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Trigger Ingestion Cloud deployment
-              if: steps.check_changes_nodejs.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "ingestion",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Check for changes that affect batch exports temporal worker
-              id: check_changes_batch_exports_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/batch_exports/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Trigger Batch Exports Sync Temporal Worker Cloud deployment
-              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Batch Exports Temporal Worker Cloud deployment
-              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-batch-exports",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Check for changes that affect Max AI Temporal worker
-              id: check_changes_max_ai_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '\.py$|^pyproject\.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Trigger Max AI Temporal worker cloud deployment
-              if: steps.check_changes_max_ai_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-max-ai",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Check for changes that affect Tasks Agent Temporal worker
-              id: check_changes_tasks_agent_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/ai/posthog_code_slack_|^posthog/temporal/ai/slack_app/|^products/slack_app/backend|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Trigger Tasks Agent Temporal worker cloud deployment
-              if: steps.check_changes_tasks_agent_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-tasks-agent",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Check for changes that affect general purpose temporal worker
-              id: check_changes_general_purpose_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Check for changes that affect experiments recalculation temporal worker
-              id: check_changes_experiments_recalculation_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/experiments/backend/temporal/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Check for changes that affect signup enrichment temporal worker
-              id: check_changes_signup_enrichment_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/signup_enrichment/|^products/growth/backend/|^ee/billing/salesforce_enrichment/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Check for changes that affect billing temporal worker
-              id: check_changes_billing_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Check for changes that affect video export temporal worker
-              id: check_changes_video_export_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/signals/skills/|^products/review_hog/backend/|^products/business_knowledge/backend/|^products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals|^products/signals/backend/emission/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Check for changes that affect session replay temporal worker
-              id: check_changes_session_replay_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^ee/hogai/session_summaries|^posthog/temporal/common|^products/signals/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Check for changes that affect replay vision temporal worker
-              id: check_changes_replay_vision_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/replay_vision/backend/temporal/|^products/replay_vision/backend/models/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Check for changes that affect error tracking temporal worker
-              id: check_changes_error_tracking_temporal_worker
+            # One step decides every fleet's deploy. On a push this action diffs
+            # github.event.before..github.sha with local git, so it reads every commit in
+            # the push. The merge queue lands batches, so a push can carry several commits,
+            # and a `git diff HEAD^ HEAD` gate reads only the last one. A path changed in an
+            # earlier commit of a batch then never dispatched its fleet's deploy.
+            - name: Check for changes that affect temporal workers
               uses: ./.github/actions/paths-filter
+              id: check_temporal_worker_changes
               with:
+                  shared-image-policy: .github/shared-image-releases.yaml
                   filters: |
-                      changed:
+                      nodejs:
+                        - 'nodejs/**'
+                        - Dockerfile
+                        - Dockerfile.node
+
+                      batchExports:
+                        - 'products/batch_exports/backend/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      # Any Python change, which is what the shell gate this replaces tested for.
+                      maxAi:
+                        - '**/*.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      tasksAgent:
+                        - 'products/slack_app/backend/**'
+                        - 'products/tasks/backend/**'
+                        - 'products/wizard/backend/**'
+                        - 'posthog/tasks/**'
+                        - 'posthog/settings/temporal.py'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      # An edit that adds a path here also deploys once, through
+                      # check_general_purpose_coverage_added below.
+                      generalPurpose:
+                        - 'products/notebooks/backend/**'
+                        - 'products/subscriptions/backend/temporal/**'
+                        - 'products/subscriptions/backend/facade/temporal.py'
+                        - 'products/engineering_analytics/backend/**'
+                        - 'products/canvas/backend/**'
+                        - 'products/today/backend/**'
+                        - 'products/product_analytics/backend/insight_series.py'
+                        - 'posthog/llm/**'
+                        - 'posthog/temporal/dlq_replay/**'
+                        - 'posthog/temporal/session_recordings/**'
+                        - 'posthog/temporal/proxy_service/**'
+                        - 'posthog/temporal/ai_observability/**'
+                        - 'posthog/temporal/llm_analytics/**'
+                        - 'products/product_analytics/backend/temporal/**'
+                        - 'posthog/temporal/delete_persons/**'
+                        - 'posthog/temporal/delete_teams/**'
+                        - 'posthog/temporal/ingestion_acceptance_test/**'
+                        - 'posthog/temporal/backfill_group_type_created_at/**'
+                        - 'posthog/temporal/backfill_materialized_property/**'
+                        - 'products/security/backend/temporal/**'
+                        - 'products/security/backend/logic/**'
+                        - 'products/metrics/backend/temporal/**'
+                        - 'products/metrics/backend/suggested_dashboards/**'
+                        - 'posthog/kafka_client/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      experimentsRecalculation:
+                        - 'products/experiments/backend/temporal/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      signupEnrichment:
+                        - 'products/growth/backend/**'
+                        - 'ee/billing/salesforce_enrichment/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      billing:
+                        - 'ee/billing/**'
+                        - 'products/billing_alerts/**'
+                        - 'posthog/temporal/quota_limiting/**'
+                        - 'posthog/temporal/salesforce_enrichment/**'
+                        - 'posthog/temporal/usage_report/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      videoExport:
+                        - 'posthog/temporal/exports_video/**'
+                        - 'posthog/tasks/exports/video_exporter.py'
+                        - 'products/signals/backend/**'
+                        - 'products/signals/skills/**'
+                        - 'products/review_hog/backend/**'
+                        - 'products/business_knowledge/backend/**'
+                        - 'products/customer_analytics/backend/**'
+                        - 'products/knowledge_writer/backend/**'
+                        - 'products/knowledge_writer/merge_check/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+                        - 'products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals*'
+                        - 'products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals*/**'
+                        - 'nodejs/src/scripts/record-replay*'
+                        - 'nodejs/src/scripts/record-replay*/**'
+
+                      selfDriving:
+                        - 'products/signals/backend/**'
+                        - 'products/signals/skills/**'
+                        - 'products/autoresearch/backend/**'
+                        - 'posthog/settings/temporal.py'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      sessionReplay:
+                        - 'posthog/temporal/session_replay/**'
+                        - 'products/signals/backend/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      replayVision:
+                        - 'products/replay_vision/backend/**'
+                        - '.github/workflows/container-images-cd.yml'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
+                      errorTracking:
                         - 'products/error_tracking/backend/temporal/**'
                         - 'products/error_tracking/backend/logic/**'
+                        # The automatic suppression rules hash the bot list, so the worker
+                        # must redeploy with web analytics when that list changes.
+                        - 'products/web_analytics/backend/facade/bot_definitions.py'
+                        - 'products/web_analytics/backend/hogql_queries/bot_definitions.py'
                         - 'products/error_tracking/backend/models.py'
                         - 'products/error_tracking/backend/weekly_digest.py'
+                        - 'products/error_tracking/backend/weekly_digest_delivery.py'
                         - 'products/error_tracking/backend/indexed_embedding.py'
                         - 'posthog/tasks/email.py'
                         - 'posthog/tasks/email_utils.py'
@@ -534,270 +583,108 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
 
-            - name: Check for changes that affect weekly digest temporal worker
-              id: check_changes_weekly_digest_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/weekly_digest|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
+                      webAnalytics:
+                        - 'products/web_analytics/backend/**'
+                        - 'posthog/egress/**'
+                        - 'posthog/storage/**'
+                        - 'posthog/security/url_validation.py'
+                        - 'posthog/models/team/team_heatmap_config.py'
+                        - '.github/workflows/container-images-cd.yml'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/settings/temporal.py'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
 
-            - name: Check for changes that affect messaging temporal worker
-              id: check_changes_messaging_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging|^products/web_analytics/backend/temporal|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
+                      weeklyDigest:
+                        - 'posthog/temporal/weekly_digest/**'
+                        - 'products/data_catalog/backend/**'
+                        - 'posthog/tasks/email.py'
+                        - 'posthog/models/organization_notification_lock.py'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
 
-            - name: Check for config file changes that affect analytics platform temporal worker
-              id: check_non_python_changes_analytics_platform_temporal_worker
-              run: |
-                  # Check for non-Python files that can't be detected via import analysis
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
+                      # Non-Python paths only. Python changes reach this worker through the
+                      # import analysis in check_python_changes_analytics_platform_temporal_worker.
+                      analyticsPlatform:
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+                        # The personhog gRPC stubs are an installed package, outside the
+                        # local packages the import analysis graphs.
+                        - 'packages/personhog-proto/**'
 
-            - name: Install uv for dependency analysis
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                      llmAnalyticsEvals:
+                        - 'posthog/temporal/ai_observability/**'
+                        - 'posthog/temporal/llm_analytics/**'
+                        - 'products/ai_observability/**'
+                        - 'products/llm_analytics/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
 
-            - name: Check for Python dependency changes that affect analytics platform temporal worker
-              id: check_python_changes_analytics_platform_temporal_worker
-              run: |
-                  CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | tr '\n' ' ')
-                  SUBS_RESULT=$(uv run bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || SUBS_RESULT="true"
-                  ALERTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.alerts --check-changes "$CHANGED_FILES" | jq -r '.affected') || ALERTS_RESULT="true"
-                  EXPORTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.exports --check-changes "$CHANGED_FILES" | jq -r '.affected') || EXPORTS_RESULT="true"
-                  if [ "$SUBS_RESULT" = "true" ] || [ "$ALERTS_RESULT" = "true" ] || [ "$EXPORTS_RESULT" = "true" ]; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
+                      # Tests do not ship in the worker, so they must not deploy it.
+                      ducklake:
+                        - 'products/managed_warehouse/backend/**'
+                        - '!products/managed_warehouse/backend/tests/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
 
-            - name: Trigger Billing Temporal Worker Cloud deployment
-              if: steps.check_changes_billing_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-billing",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
+                      dataWarehouse: null
 
-            - name: Trigger Video Export Temporal Worker Cloud deployment
-              if: steps.check_changes_video_export_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-video-export",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
+                      # The CDP producer worker serves one task queue, and only the
+                      # dwh-cdp-producer-job workflow starts on that queue. That workflow
+                      # reads Delta tables and writes to Kafka. It never calls a source
+                      # implementation, so a change to one vendor directory, to the import
+                      # list of the vendors, or to the docs in sources/ cannot change this
+                      # worker. Every other path matches dataWarehouse, and sources/common
+                      # stays included because the pipeline code imports it.
+                      # A workflow that starts on this queue and calls source code must
+                      # remove these excludes in the same change.
+                      dataWarehouseCdpProducer:
+                        - 'posthog/hogql*/**'
+                        - 'products/warehouse_sources_queue/**'
+                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/customer_analytics/backend/**'
+                        - 'products/warehouse_sources/backend/temporal/data_imports/**'
+                        - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
+                        - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*/**'
+                        - '!products/warehouse_sources/backend/temporal/data_imports/sources/*.md'
+                        - 'posthog/warehouse/**'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
 
-            - name: Trigger Session Replay Temporal Worker Cloud deployment
-              if: steps.check_changes_session_replay_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-session-replay",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
+                      warehouseSourcesLoad:
+                        - 'products/warehouse_sources/backend/**'
+                        - 'products/warehouse_sources/sources/**'
+                        - 'products/warehouse_sources_queue/**'
+                        - 'posthog/warehouse/**'
+                        - 'products/data_warehouse/backend/**'
+                        # The loader imports the Temporal logger.
+                        - 'posthog/temporal/common/**'
+                        - pyproject.toml
+                        - Dockerfile
+                        - 'posthog/clickhouse/migrations/**'
 
-            - name: Trigger Replay Vision Temporal Worker Cloud deployment
-              if: steps.check_changes_replay_vision_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-replay-vision",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Experiments Recalculation Temporal Worker Cloud deployment
-              if: steps.check_changes_experiments_recalculation_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-experiments-recalculation",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Error Tracking Temporal Worker Cloud deployment
-              if: steps.check_changes_error_tracking_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-error-tracking",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Weekly Digest Temporal Worker Cloud deployment
-              if: steps.check_changes_weekly_digest_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-weekly-digest",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Analytics Platform Temporal Worker Cloud deployment
-              if: steps.check_non_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true' || steps.check_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-analytics-platform",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger General Purpose Temporal Worker Cloud deployment
-              if: steps.check_changes_general_purpose_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-general-purpose",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Signup Enrichment Temporal Worker Cloud deployment
-              if: steps.check_changes_signup_enrichment_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-signup-enrichment",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Check for changes that affect temporal workers
-              uses: ./.github/actions/paths-filter
-              id: check_temporal_worker_changes
-              with:
-                  filters: |
                       healthCheck:
                         - 'posthog/temporal/health_checks/**'
-                        - 'products/.*/backend/temporal/health_checks/**'
+                        - 'products/*/backend/temporal/health_checks/**'
+                        # `.dockerignore` keeps test files out of every image, so a
+                        # test-only edit cannot reach the running worker.
+                        - '!products/*/backend/temporal/health_checks/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - 'posthog/clickhouse/migrations/**'
@@ -805,7 +692,8 @@ jobs:
                         - bin/temporal-django-worker
                       logsAlerting:
                         - 'posthog/temporal/logs_alerting/**'
-                        - 'products/alerts/backend/state_machine.py'
+                        - 'products/alerts/backend/facade/**'
+                        - 'products/alerts/backend/logic/**'
                         - 'products/logs/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -821,8 +709,11 @@ jobs:
                         - 'posthog/temporal/data_warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/warehouse/**'
+                        - 'products/data_catalog/**'
+                        - 'products/data_quality/**'
                         - 'products/data_modeling/**'
                         - 'products/data_warehouse/**'
+                        - 'products/warehouse_suggestions/**'
                         - 'posthog/management/commands/**'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
@@ -839,9 +730,12 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                       # posthog/egress is included because the stamphog worker routes its
-                      # GitHub calls through the egress transport.
+                      # GitHub calls through the egress transport. products/stamphog/packages is
+                      # included because the worker copies the review engine from its own image
+                      # into every review sandbox, so an engine change ships only on a redeploy.
                       stamphog:
                         - 'products/stamphog/backend/**'
+                        - 'products/stamphog/packages/**'
                         - 'posthog/egress/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -849,8 +743,483 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
 
+            - name: Trigger PostHog Cloud deployment from Charts
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "posthog",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Ingestion Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.nodejs == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "ingestion",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ toJson(steps.labels.outputs.labels) }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Batch Exports Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.batchExports == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-batch-exports",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Max AI Temporal worker cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.maxAi == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-max-ai",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Tasks Agent Temporal worker cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.tasksAgent == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-tasks-agent",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Install uv for dependency analysis
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Check for Python dependency changes that affect analytics platform temporal worker
+              id: check_python_changes_analytics_platform_temporal_worker
+              env:
+                  BEFORE: ${{ github.event.before }}
+              run: |
+                  set -o pipefail
+
+                  CHANGED_FILES="$RUNNER_TEMP/analytics-platform-changed-files"
+                  PARTIAL_CHANGED_FILES="$CHANGED_FILES.partial"
+
+                  if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}"; then
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  if ! git diff --no-renames --name-only -z "$BEFORE" "$GITHUB_SHA" -- > "$PARTIAL_CHANGED_FILES"; then
+                      rm -f "$PARTIAL_CHANGED_FILES"
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  if ! mv "$PARTIAL_CHANGED_FILES" "$CHANGED_FILES"; then
+                      rm -f "$PARTIAL_CHANGED_FILES"
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  check_affected() {
+                      local entrypoint="$1"
+                      local result
+
+                      if ! result=$(uv run bin/find_python_dependencies.py "$entrypoint" --check-changes-file "$CHANGED_FILES" | jq -r 'if (.affected | type) == "boolean" then .affected else error("missing affected result") end'); then
+                          echo "true"
+                      elif [ "$result" = "true" ] || [ "$result" = "false" ]; then
+                          echo "$result"
+                      else
+                          echo "true"
+                      fi
+                  }
+
+                  SUBS_RESULT=$(check_affected products.subscriptions.backend.facade.temporal)
+                  ALERTS_RESULT=$(check_affected posthog.temporal.alerts)
+                  EXPORTS_RESULT=$(check_affected posthog.temporal.exports)
+                  if [ "$SUBS_RESULT" = "true" ] || [ "$ALERTS_RESULT" = "true" ] || [ "$EXPORTS_RESULT" = "true" ]; then
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Trigger Billing Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.billing == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-billing",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Video Export Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.videoExport == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-video-export",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Self-Driving Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.selfDriving == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-self-driving",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Session Replay Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.sessionReplay == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-session-replay",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Replay Vision Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.replayVision == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-replay-vision",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Web Analytics Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.webAnalytics == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-web-analytics",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Experiments Recalculation Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.experimentsRecalculation == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-experiments-recalculation",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Error Tracking Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.errorTracking == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-error-tracking",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Weekly Digest Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.weeklyDigest == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-weekly-digest",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Analytics Platform Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.analyticsPlatform == 'true' || steps.check_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-analytics-platform",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            # The path list for this worker lives in the filter step above. This clause
+            # deploys once when that list itself grows, so code the list newly covers
+            # ships with the worker.
+            - name: Check whether this workflow added general purpose worker coverage
+              id: check_general_purpose_coverage_added
+              env:
+                  BEFORE: ${{ github.event.before }}
+              run: |
+                  WORKFLOW=.github/workflows/container-images-cd.yml
+                  NO_COMMIT=0000000000000000000000000000000000000000
+
+                  BASE="HEAD^"
+                  if [ -n "$BEFORE" ] && [ "$BEFORE" != "$NO_COMMIT" ]; then
+                      if git fetch --depth=1 --no-tags origin "$BEFORE"; then
+                          BASE="$BEFORE"
+                      fi
+                  fi
+
+                  general_purpose_paths_at() {
+                      git show "$1:$WORKFLOW" | awk '
+                          /^ *generalPurpose:$/ { in_list = 1; next }
+                          in_list && /^ *- /    { print $2; next }
+                          in_list && /^ *(#|$)/ { next }
+                                                { in_list = 0 }
+                      ' | sort -u
+                  }
+
+                  paths_before=$(general_purpose_paths_at "$BASE")
+                  paths_after=$(general_purpose_paths_at HEAD)
+                  added_paths=$(comm -13 <(echo "$paths_before") <(echo "$paths_after"))
+
+                  if [ -n "$added_paths" ]; then
+                      echo "Paths added to the general purpose list:"
+                      echo "$added_paths"
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "No paths added to the general purpose list."
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Trigger General Purpose Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.generalPurpose == 'true' || steps.check_general_purpose_coverage_added.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-general-purpose",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Trigger Signup Enrichment Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.signupEnrichment == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-signup-enrichment",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            # The product path list for this worker lives in the filter step above and
+            # is not itself one of its paths. This clause deploys once when that list
+            # changes, so detectors the list newly covers ship with the worker.
+            - name: Check whether this workflow added health check worker coverage
+              id: check_health_check_coverage_added
+              env:
+                  BEFORE: ${{ github.event.before }}
+              run: |
+                  BASE="$BEFORE"
+                  if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+                      BASE="$(git rev-list --max-parents=0 HEAD)"
+                  elif ! git fetch --depth=1 --no-tags origin "$BASE"; then
+                      echo "::error::Unable to fetch the workflow event base commit ($BASE)"
+                      exit 1
+                  fi
+                  if ! DIFF="$(git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml)"; then
+                      echo "::error::Unable to inspect workflow changes between $BASE and HEAD"
+                      exit 1
+                  fi
+                  if grep -qE '^\+.*health_checks' <<< "$DIFF"; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
+
             - name: Trigger Health Check Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true'
+              if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true' || steps.check_health_check_coverage_added.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -865,22 +1234,13 @@ jobs:
                         },
                         "release": "temporal-worker-health-check",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
-            - name: Check for changes that affect llm analytics evals temporal worker
-              id: check_changes_llm_analytics_evals_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/(ai_observability|llm_analytics)|^products/(ai_observability|llm_analytics)|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
             - name: Trigger LLM Analytics Evals Temporal Worker Cloud deployment
-              if: steps.check_changes_llm_analytics_evals_temporal_worker.outputs.changed == 'true'
+              if: steps.check_temporal_worker_changes.outputs.llmAnalyticsEvals == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -895,34 +1255,13 @@ jobs:
                         },
                         "release": "temporal-worker-llm-analytics-evals",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             # NOTE: temporal-worker-llm-analytics rollout moved to cd-llm-analytics-image.yml
             # which builds and deploys a separate Docker image with ML dependencies.
-
-            - name: Trigger Messaging Temporal Worker Cloud deployment
-              if: steps.check_changes_messaging_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-messaging",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
 
             - name: Trigger MCP Analytics Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.mcpAnalytics == 'true'
@@ -940,9 +1279,9 @@ jobs:
                         },
                         "release": "temporal-worker-mcp-analytics",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Logs Alerting Temporal Worker Cloud deployment
@@ -961,9 +1300,9 @@ jobs:
                         },
                         "release": "temporal-worker-logs-alerting",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Stamphog Temporal Worker Cloud deployment
@@ -982,22 +1321,13 @@ jobs:
                         },
                         "release": "temporal-worker-stamphog",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
-            - name: Check for changes that affect ducklake temporal worker
-              id: check_changes_ducklake_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -v '^products/managed_warehouse/backend/tests/' | grep -qE '^products/managed_warehouse/backend|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
             - name: Trigger DuckLake Temporal Worker Cloud deployment
-              if: steps.check_changes_ducklake_temporal_worker.outputs.changed == 'true'
+              if: steps.check_temporal_worker_changes.outputs.ducklake == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1012,22 +1342,13 @@ jobs:
                         },
                         "release": "temporal-worker-ducklake",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
-            - name: Check for changes that affect data warehouse temporal worker
-              id: check_changes_data_warehouse_temporal_worker
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^products/warehouse_sources/backend/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
-
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              if: steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1042,43 +1363,13 @@ jobs:
                         },
                         "release": "temporal-worker-data-warehouse",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
-
-            - name: Trigger Data Warehouse Metadata Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-data-warehouse-metadata",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Check for changes that affect warehouse-sources-load
-              id: check_changes_warehouse_sources_load
-              run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v2/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/core/|^posthog/warehouse/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
-                  else
-                      echo "changed=false" >> $GITHUB_OUTPUT
-                  fi
 
             - name: Trigger Warehouse Sources Load Cloud deployment
-              if: steps.check_changes_warehouse_sources_load.outputs.changed == 'true'
+              if: steps.check_temporal_worker_changes.outputs.warehouseSourcesLoad == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1093,13 +1384,13 @@ jobs:
                         },
                         "release": "warehouse-sources-load",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Data Warehouse CDP Producer Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              if: steps.check_temporal_worker_changes.outputs.dataWarehouseCdpProducer == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1114,9 +1405,9 @@ jobs:
                         },
                         "release": "temporal-worker-data-warehouse-cdp-producer",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
@@ -1135,9 +1426,9 @@ jobs:
                         },
                         "release": "temporal-worker-data-modeling",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
             - name: Trigger Dagster Code Location Reload
@@ -1155,18 +1446,162 @@ jobs:
                         },
                         "release": "dagster-code-location",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
+
+    # Main image plus the inbox-ranking dependency group, for the inbox ranking training code
+    # location. Nothing depends on this job, and continue-on-error keeps the run green, so a
+    # failure here never blocks the main image publish or its deploy dispatches.
+    # The `ml-image-digest` output is the digest of posthog-dagster-ml:<sha>. The job dispatches
+    # that digest to PostHog/charts, which reloads the ML code location in Dagster+.
+    dagster_ml_build:
+        name: Build and push Dagster ML image
+        needs: posthog_build
+        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && needs.posthog_build.outputs.image-digest != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master' }}
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 30
+        continue-on-error: true
+        permissions:
+            id-token: write
+            contents: read
+        outputs:
+            ml-image-digest: ${{ steps.image.outputs.digest }}
+        env:
+            ML_ECR_REPOSITORY: posthog-dagster-ml
+
+        steps:
+            - name: Assert default-branch publish role is configured
+              env:
+                  DEFAULT_BRANCH_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+              run: |
+                  if [[ -z "$DEFAULT_BRANCH_ROLE" ]]; then
+                    echo "::error::AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set."
+                    exit 1
+                  fi
+
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Resolve commit timestamp
+              id: commit-time
+              env:
+                  HEAD_COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
+              run: echo "timestamp=${HEAD_COMMIT_TIMESTAMP:-$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)}" >> "$GITHUB_OUTPUT"
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            # Same idempotency rule as posthog_build: a re-run must not push a new digest over
+            # an existing full-SHA tag. A genuine miss returns `None`, and any API error fails the step.
+            - name: Check for existing image in ECR
+              id: preflight
+              env:
+                  SHA: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  digest="$(aws ecr batch-get-image \
+                      --repository-name "$ML_ECR_REPOSITORY" \
+                      --image-ids imageTag="$SHA" \
+                      --accepted-media-types \
+                          "application/vnd.oci.image.index.v1+json" \
+                          "application/vnd.docker.distribution.manifest.list.v2+json" \
+                          "application/vnd.oci.image.manifest.v1+json" \
+                          "application/vnd.docker.distribution.manifest.v2+json" \
+                      --query 'images[0].imageId.imageDigest' \
+                      --output text)"
+                  [ "$digest" = "None" ] && digest=""
+                  echo "digest=$digest" >> "$GITHUB_OUTPUT"
+                  if [ -n "$digest" ]; then
+                      echo "ML image for $SHA already present in ECR ($digest); skipping build." >&2
+                  fi
+
+            - name: Build and push Dagster ML image
+              id: build
+              if: steps.preflight.outputs.digest == ''
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: .
+                  file: ./Dockerfile.dagster-ml
+                  buildx-fallback: false
+                  push: true
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/${{ env.ML_ECR_REPOSITORY }}:master,${{ steps.aws-ecr.outputs.registry }}/${{ env.ML_ECR_REPOSITORY }}:${{ github.sha }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      BASE_IMAGE=${{ steps.aws-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ needs.posthog_build.outputs.image-digest }}
+
+            - name: Resolve ML image digest
+              id: image
+              env:
+                  DIGEST: ${{ steps.preflight.outputs.digest || steps.build.outputs.digest }}
+              run: |
+                  echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+                  echo "ML image digest: $DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Get deployer token
+              id: deployer
+              if: steps.image.outputs.digest != ''
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: get PR labels
+              id: labels
+              if: steps.deployer.outputs.token != ''
+              continue-on-error: true
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            # Moves the ML code location in Dagster+ to this image. The payload carries the
+            # digest, never a tag, so the location runs exactly the image this job built.
+            - name: Trigger Dagster ML Code Location Reload
+              if: steps.deployer.outputs.token != ''
+              continue-on-error: true
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: restart_dagster_ml_code_location
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "dagster-ml-code-location",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": ${{ toJson(steps.labels.outputs.labels || '[]') }},
+                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
+                      }
+
+            - name: Warn when the ML image failed
+              if: failure()
+              run: echo "::warning title=Dagster ML image not published::The Dagster ML image build failed. The main image publish and deploys are not affected."
 
     ordered_image_alias:
         name: Publish ordered image alias
         needs: posthog_build
-        if: ${{ needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        continue-on-error: true
         permissions:
             id-token: write
             contents: read
@@ -1174,78 +1609,33 @@ jobs:
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  sparse-checkout: .github
+                  sparse-checkout-cone-mode: false
 
             - name: Compute ordered release tag
               id: ordered-release
               timeout-minutes: 2
               shell: bash
-              env:
-                  ORDERED_RELEASE_TAG_REGEX: ^r[0-9]{12}-[0-9a-f]{6}$
-              run: |
-                  set -uo pipefail
-
-                  if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-                      fetch_status=0
-                      timeout --kill-after=10s 90s git fetch \
-                          --no-tags \
-                          --prune \
-                          --no-recurse-submodules \
-                          --unshallow \
-                          --filter=tree:0 \
-                          origin \
-                          "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
-                      if [ "$fetch_status" -ne 0 ]; then
-                          echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
-                          exit 0
-                      fi
-                  fi
-
-                  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
-                      echo "::warning title=Ordered release tag skipped::Complete source history is unavailable."
-                      exit 0
-                  fi
-
-                  if ! head_revision="$(git rev-parse HEAD)" || [ "$head_revision" != "$GITHUB_SHA" ]; then
-                      echo "::warning title=Ordered release tag skipped::The checked-out revision does not match GITHUB_SHA."
-                      exit 0
-                  fi
-
-                  if ! position="$(git rev-list --first-parent --count "$GITHUB_SHA")"; then
-                      echo "::warning title=Ordered release tag skipped::The source position could not be computed."
-                      exit 0
-                  fi
-
-                  if ! [[ "$position" =~ ^[1-9][0-9]{0,11}$ ]]; then
-                      echo "::warning title=Ordered release tag skipped::The source position is out of range."
-                      exit 0
-                  fi
-
-                  if ! printf -v tag 'r%012d-%.6s' "$position" "$GITHUB_SHA"; then
-                      echo "::warning title=Ordered release tag skipped::The source position could not be formatted."
-                      exit 0
-                  fi
-
-                  if ! [[ "$tag" =~ $ORDERED_RELEASE_TAG_REGEX ]]; then
-                      echo "::warning title=Ordered release tag skipped::${tag} does not match the required format."
-                      exit 0
-                  fi
-
-                  echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+              run: bash .github/scripts/ordered-image-release.sh tag
 
             - name: Warn when ordered image alias tag is unavailable
               if: ${{ steps.ordered-release.outputs.tag == '' }}
               shell: bash
               run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
 
-            - name: Set up Docker Buildx for ordered image alias
+            - name: Install ordered image copy client
               if: ${{ steps.ordered-release.outputs.tag != '' }}
-              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+              timeout-minutes: 1
+              run: bash .github/scripts/ordered-image-release.sh install "$RUNNER_TEMP/regctl"
 
             - name: Configure AWS credentials for ordered image alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Log in to Amazon ECR for ordered image alias
@@ -1254,6 +1644,7 @@ jobs:
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
             - name: Publish and read back ordered image alias
+              id: publish-alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 2
               shell: bash
@@ -1262,66 +1653,94 @@ jobs:
                   ECR_REPO: ${{ env.ECR_REPOSITORY }}
                   EXPECTED_DIGEST: ${{ needs.posthog_build.outputs.image-digest }}
                   ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  REGCTL: ${{ runner.temp }}/regctl
+              run: bash .github/scripts/ordered-image-release.sh publish
+
+            - name: Fail when the ordered image alias is missing
+              if: ${{ steps.ordered-release.outputs.tag == '' || steps.publish-alias.outputs.outcome != 'present-at-expected-digest' }}
+              env:
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || 'not published' }}
               run: |
-                  set -uo pipefail
+                  echo "::error title=Ordered image alias missing::Kargo only creates freight from the ordered alias, so Kargo-delivered apps stay on the previous image (outcome: ${OUTCOME})."
+                  exit 1
 
-                  if [ -z "$EXPECTED_DIGEST" ]; then
-                      echo "::warning title=Ordered image alias source digest unavailable::Ordered image alias publication was skipped because no image digest was resolved."
-                      exit 0
-                  fi
+    shared_image_channels:
+        name: Publish eligible shared-image channels
+        needs: [posthog_build, ordered_image_alias]
+        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 18
+        continue-on-error: true
+        permissions:
+            id-token: write
+            contents: read
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  sparse-checkout: .github
+                  sparse-checkout-cone-mode: false
 
-                  if [ -z "$ECR_REGISTRY" ] || [ -z "$ECR_REPO" ]; then
-                      echo "::warning title=Ordered image alias destination unavailable::Ordered image alias publication was skipped because the ECR registry or repository name resolved empty."
-                      exit 0
-                  fi
+            - name: Inspect shared-image publication channels
+              id: shared-image-channels
+              uses: ./.github/actions/shared-image-releases
+              with:
+                  shared-image-operation: inspect
+                  shared-image-repository: ${{ env.ECR_REPOSITORY }}
 
-                  SOURCE_IMAGE="${ECR_REGISTRY}/${ECR_REPO}@${EXPECTED_DIGEST}"
-                  TARGET_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${ORDERED_ALIAS}"
+            - name: Compute shared-image ordered tag
+              id: ordered-release
+              if: ${{ steps.shared-image-channels.outputs.channels == 'true' }}
+              timeout-minutes: 2
+              run: bash .github/scripts/ordered-image-release.sh tag
 
-                  publication_status=0
-                  timeout --kill-after=5s 40s docker buildx imagetools create \
-                      --prefer-index=false \
-                      --tag "$TARGET_IMAGE" \
-                      "$SOURCE_IMAGE" || publication_status=$?
-                  if [ "$publication_status" -ne 0 ]; then
-                      echo "::warning::Ordered alias publication exited with status $publication_status"
-                  fi
+            - name: Fail when shared-image ordered tag is unavailable
+              if: ${{ steps.shared-image-channels.outputs.channels == 'true' && steps.ordered-release.outputs.tag == '' }}
+              shell: bash
+              run: |
+                  echo "::error title=Shared-image ordered tag unavailable::Channels could not be evaluated because no ordered tag was generated. Check the tag step and retry."
+                  exit 1
 
-                  readback_status=0
-                  resolved_digest="$(timeout --kill-after=5s 40s aws ecr batch-get-image \
-                      --repository-name "$ECR_REPO" \
-                      --image-ids imageTag="$ORDERED_ALIAS" \
-                      --accepted-media-types \
-                          "application/vnd.oci.image.index.v1+json" \
-                          "application/vnd.docker.distribution.manifest.list.v2+json" \
-                          "application/vnd.oci.image.manifest.v1+json" \
-                          "application/vnd.docker.distribution.manifest.v2+json" \
-                      --query 'images[0].imageId.imageDigest' \
-                      --output text)" || readback_status=$?
+            - name: Install shared-image copy client
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              timeout-minutes: 1
+              run: bash .github/scripts/ordered-image-release.sh install "$RUNNER_TEMP/regctl"
 
-                  if [ "$readback_status" -ne 0 ]; then
-                      result=unknown
-                  elif [ "$resolved_digest" = "None" ]; then
-                      result=absent
-                  elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]] && [ "$resolved_digest" = "$EXPECTED_DIGEST" ]; then
-                      result=present-at-expected-digest
-                  elif [[ "$resolved_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-                      result=integrity-mismatch
-                  else
-                      result=unknown
-                  fi
+            - name: Configure AWS credentials for shared-image channels
+              id: shared-image-credentials
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_ECR_TEMPORAL_WORKERS_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+                  unset-current-credentials: true
 
-                  case "$result" in
-                      present-at-expected-digest)
-                          echo "::notice title=Ordered image alias present::The ordered image alias resolves to the expected image digest."
-                          ;;
-                      absent)
-                          echo "::warning title=Ordered image alias absent::The ordered image alias is absent after publication."
-                          ;;
-                      integrity-mismatch)
-                          echo "::error title=Ordered image alias integrity mismatch::The ordered image alias resolves to a different image digest."
-                          ;;
-                      unknown)
-                          echo "::error title=Ordered image alias read-back unavailable::The ordered image alias could not be read back from ECR."
-                          ;;
-                  esac
+            - name: Log in to Amazon ECR for shared-image channels
+              id: shared-image-ecr-login
+              if: ${{ !cancelled() && steps.shared-image-credentials.outcome == 'success' }}
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Publish and read back eligible shared-image channels
+              if: ${{ !cancelled() && steps.shared-image-ecr-login.outcome == 'success' }}
+              timeout-minutes: 13
+              uses: ./.github/actions/shared-image-releases
+              with:
+                  shared-image-operation: publish
+                  shared-image-digest: ${{ needs.posthog_build.outputs.image-digest }}
+                  shared-image-alias: ${{ steps.ordered-release.outputs.tag }}
+                  shared-image-repository: ${{ env.ECR_REPOSITORY }}
+                  shared-image-registry: ${{ steps.shared-image-ecr-login.outputs.registry }}
+                  shared-image-force: ${{ inputs.shared-image-force || '[]' }}
+                  shared-image-bootstrap: ${{ inputs.shared-image-bootstrap }}
+                  shared-image-regctl: ${{ runner.temp }}/regctl
+                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":4,"concurrency":2,"channelMs":300000,"totalMs":720000}'
+
+            - name: Retain shared-image publication evidence
+              if: ${{ !cancelled() && steps.shared-image-channels.outputs.channels == 'true' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: shared-image-releases-${{ github.run_attempt }}
+                  path: shared-image-releases/
+                  if-no-files-found: warn

@@ -1,6 +1,16 @@
 from posthog.models.organization import ProductFeature
 
 VALID_RETENTION_PERIODS = ["30d", "90d", "1y", "5y"]
+RETENTION_PERIOD_DAYS = {"30d": 30, "90d": 90, "1y": 365, "5y": 365 * 5}
+
+
+def retention_period_in_days(retention_period: str | None) -> int:
+    """How long this project keeps a recording, in days.
+
+    An unset or unrecognized period reads as the shortest the product offers, so a caller sizing a
+    scan by it reads too little rather than too much.
+    """
+    return RETENTION_PERIOD_DAYS.get(retention_period or "", RETENTION_PERIOD_DAYS["30d"])
 
 
 def parse_feature_to_entitlement(retention_feature: ProductFeature | None) -> str | None:

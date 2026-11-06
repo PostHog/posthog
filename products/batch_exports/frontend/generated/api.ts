@@ -13,6 +13,7 @@ import type {
     BatchExportBackfillApi,
     BatchExportRequestApi,
     BatchExportRunApi,
+    BatchExportUnpauseRequestApi,
     BatchExportsBackfillsListParams,
     BatchExportsListParams,
     BatchExportsLogsRetrieveParams,
@@ -20,9 +21,10 @@ import type {
     BatchExportsRunsLogsRetrieveParams,
     CreateFileDownloadRequestApi,
     CreateOutputApi,
-    FileDownloadBatchExportOnDemandApi,
     FileDownloadBatchExportsListParams,
     FileDownloadBatchExportsLogsRetrieveParams,
+    FileDownloadCountRowsRequestApi,
+    FileDownloadCountRowsResponseApi,
     PaginatedBatchExportBackfillListApi,
     PaginatedBatchExportListApi,
     PaginatedBatchExportRunListApi,
@@ -426,17 +428,10 @@ export const getBatchExportsPauseCreateUrl = (projectId: string, id: string) => 
 /**
  * Pause a BatchExport.
  */
-export const batchExportsPauseCreate = async (
-    projectId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<void> => {
+export const batchExportsPauseCreate = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getBatchExportsPauseCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -468,14 +463,14 @@ export const getBatchExportsUnpauseCreateUrl = (projectId: string, id: string) =
 export const batchExportsUnpauseCreate = async (
     projectId: string,
     id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
+    batchExportUnpauseRequestApi?: BatchExportUnpauseRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getBatchExportsUnpauseCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
+        body: JSON.stringify(batchExportUnpauseRequestApi),
     })
 }
 
@@ -586,14 +581,11 @@ export const getFileDownloadBatchExportsCancelCreateUrl = (projectId: string, id
 export const fileDownloadBatchExportsCancelCreate = async (
     projectId: string,
     id: string,
-    fileDownloadBatchExportOnDemandApi: FileDownloadBatchExportOnDemandApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFileDownloadBatchExportsCancelCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileDownloadBatchExportOnDemandApi),
     })
 }
 
@@ -652,5 +644,25 @@ export const fileDownloadBatchExportsLogsRetrieve = async (
     return apiMutator<void>(getFileDownloadBatchExportsLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFileDownloadBatchExportsCountRowsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_download_batch_exports/count_rows/`
+}
+
+/**
+ * Count the rows a HogQL batch export would produce if started now.
+ */
+export const fileDownloadBatchExportsCountRowsCreate = async (
+    projectId: string,
+    fileDownloadCountRowsRequestApi: FileDownloadCountRowsRequestApi,
+    options?: RequestInit
+): Promise<FileDownloadCountRowsResponseApi> => {
+    return apiMutator<FileDownloadCountRowsResponseApi>(getFileDownloadBatchExportsCountRowsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileDownloadCountRowsRequestApi),
     })
 }

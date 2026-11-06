@@ -4,7 +4,7 @@ from posthog.test.base import _create_event
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import Team
+from posthog.models import Element, Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
@@ -18,6 +18,7 @@ def create_event(
     team: Team,
     event_name: str = "$pageview",
     properties: dict | None = None,
+    elements: list[Element] | None = None,
 ) -> str:
     if properties is None:
         properties = {"$os": "Windows 95", "$current_url": "aloha.com/2"}
@@ -27,11 +28,16 @@ def create_event(
         timestamp=timestamp,
         distinct_id=distinct_id,
         properties=properties,
+        elements=elements,
     )
 
 
 def filter_recordings_by(
-    team: Team, recordings_filter: dict | None = None, allow_event_property_expansion: bool = False
+    team: Team,
+    recordings_filter: dict | None = None,
+    allow_event_property_expansion: bool = False,
+    user: User | None = None,
+    allow_combined_event_filters: bool = False,
 ) -> SessionRecordingQueryResult:
     the_query = RecordingsQuery.model_validate(query_as_params_to_dict(recordings_filter or {}))
     session_recording_list_instance = SessionRecordingListFromQuery(
@@ -39,6 +45,8 @@ def filter_recordings_by(
         team=team,
         hogql_query_modifiers=None,
         allow_event_property_expansion=allow_event_property_expansion,
+        user=user,
+        allow_combined_event_filters=allow_combined_event_filters,
     )
     return session_recording_list_instance.run()
 
@@ -49,9 +57,10 @@ def assert_query_matches_session_ids(
     expected: list[str],
     sort_results_when_asserting: bool = True,
     allow_event_property_expansion: bool = False,
+    user: User | None = None,
 ) -> None:
     (session_recordings, more_recordings_available, _, _) = filter_recordings_by(
-        team=team, recordings_filter=query, allow_event_property_expansion=allow_event_property_expansion
+        team=team, recordings_filter=query, allow_event_property_expansion=allow_event_property_expansion, user=user
     )
 
     # in some tests we care about the order of results e.g. when testing sorting

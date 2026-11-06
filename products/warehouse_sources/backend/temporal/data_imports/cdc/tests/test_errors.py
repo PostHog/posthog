@@ -5,7 +5,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
     CDCErrorInfo,
-    CDCSchemaMergeError,
+    CDCMaskedKeyError,
+    CDCMaskingKeyError,
     CDCSlotNotConfiguredError,
     CDCTransactionTooLargeError,
     cdc_error_info,
@@ -32,15 +33,18 @@ class TestCDCErrorInfo:
         [
             (CDCErrorCategory.AUTH_FAILED, False),
             (CDCErrorCategory.SSL_REQUIRED, False),
+            (CDCErrorCategory.CERTIFICATE_REJECTED, False),
             (CDCErrorCategory.CONNECTION_FAILED, True),
             (CDCErrorCategory.HOST_UNREACHABLE, False),
+            (CDCErrorCategory.QUOTA_EXCEEDED, False),
+            (CDCErrorCategory.POOLER_TENANT_NOT_FOUND, False),
             (CDCErrorCategory.SLOT_MISSING, False),
             (CDCErrorCategory.SLOT_NOT_CONFIGURED, False),
             (CDCErrorCategory.PUBLICATION_MISSING, False),
             (CDCErrorCategory.SLOT_IN_USE, True),
             (CDCErrorCategory.WAL_DECODE_ERROR, False),
             (CDCErrorCategory.TRANSACTION_TOO_LARGE, False),
-            (CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE, False),
+            (CDCErrorCategory.MASKED_KEY_CONFLICT, False),
             (CDCErrorCategory.UNKNOWN, True),
         ]
     )
@@ -81,26 +85,37 @@ class TestClassifyCDCError:
         info = classify_cdc_error(wrapper, PostgresCDCAdapter())
         assert info.category is CDCErrorCategory.AUTH_FAILED
 
-    def test_transaction_too_large_is_classified_without_adapter(self):
-        info = classify_cdc_error(CDCTransactionTooLargeError("500001 events"), None)
-        assert info.category is CDCErrorCategory.TRANSACTION_TOO_LARGE
+    @parameterized.expand(
+        [
+            (
+                "transaction_too_large",
+                CDCTransactionTooLargeError("500001 events"),
+                CDCErrorCategory.TRANSACTION_TOO_LARGE,
+            ),
+            ("masked_key", CDCMaskedKeyError("public.orders", ["id"]), CDCErrorCategory.MASKED_KEY_CONFLICT),
+            (
+                "masking_key_unavailable",
+                CDCMaskingKeyError("WAREHOUSE_COLUMN_MASKING_KEY must be set"),
+                CDCErrorCategory.MASKING_KEY_UNAVAILABLE,
+            ),
+        ]
+    )
+    def test_config_errors_are_classified_without_adapter(self, _name, exc, category):
+        info = classify_cdc_error(exc, None)
+        assert info.category is category
         assert info.retryable is False
+
+    def test_masked_key_error_names_the_table_and_columns(self):
+        # Capture fails every table on the source, so the message must say which one to fix.
+        info = classify_cdc_error(CDCMaskedKeyError("public.orders", ["id", "tenant_id"]), None)
+        assert "public.orders" in info.friendly_message
+        assert "id, tenant_id" in info.friendly_message
 
     def test_slot_not_configured_is_classified_without_adapter(self):
         # A CDC-enabled source with no slot name is a config dead end, not a psycopg failure, so it
         # must classify to a non-retryable category regardless of engine adapter.
         info = classify_cdc_error(CDCSlotNotConfiguredError(), None)
         assert info.category is CDCErrorCategory.SLOT_NOT_CONFIGURED
-        assert info.retryable is False
-
-    def test_schema_merge_error_is_non_retryable_via_cause_chain(self):
-        # The activity wraps the Arrow type error as CDCSchemaMergeError; classification must
-        # find it through the cause chain and mark the run non-retryable so it stops looping.
-        cause = CDCSchemaMergeError("Incompatible column types across CDC batches for orders")
-        wrapper = RuntimeError("flush failed")
-        wrapper.__cause__ = cause
-        info = classify_cdc_error(wrapper, None)
-        assert info.category is CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE
         assert info.retryable is False
 
     def test_non_psycopg_exception_with_slot_message_is_not_classified(self):

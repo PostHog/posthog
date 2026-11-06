@@ -21,6 +21,7 @@ const buildDefinition = (
     name: 'CSM',
     description: null,
     is_single_holder: true,
+    is_controlled: false,
     ...overrides,
 })
 
@@ -48,6 +49,30 @@ describe('relationshipDefinitionsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadDefinitions', 'loadDefinitionsSuccess'])
             .toMatchValues({ definitions: [expect.objectContaining({ id: 'def-1', name: 'CSM' })] })
+    })
+
+    it('loads relationship definitions beyond the first page', async () => {
+        const first = buildDefinition()
+        const second = buildDefinition({ id: 'def-2', name: 'Account owner' })
+        useMocks({
+            get: {
+                [DEFINITIONS_URL]: ({ request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    return [
+                        200,
+                        offset === 0
+                            ? { count: 2, next: `${DEFINITIONS_URL}?offset=1`, results: [first] }
+                            : { count: 2, next: null, results: [second] },
+                    ]
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic)
+            .toDispatchActions(['loadDefinitionsSuccess'])
+            .toMatchValues({
+                definitions: [first, second],
+            })
     })
 
     it('creates a definition and reloads the list', async () => {

@@ -30,6 +30,7 @@ const sceneImport = (): any => ({ scene: { component: () => null } })
 
 const testScenes: Record<string, () => any> = {
     [Scene.DataManagement]: sceneImport,
+    [Scene.EventDefinition]: sceneImport,
     [Scene.Settings]: sceneImport,
 }
 
@@ -61,6 +62,14 @@ describe('sidePanelLogic', () => {
         await navigate(urls.eventDefinitions())
     })
 
+    it('only offers the Discussion tab on scenes that have an activity scope', async () => {
+        await navigate(urls.eventDefinitions())
+        expect(logic.values.enabledTabs).not.toContain(SidePanelTab.Discussion)
+
+        await navigate(urls.eventDefinition('1'))
+        expect(logic.values.enabledTabs).toContain(SidePanelTab.Discussion)
+    })
+
     it('closes a context-bound tab when navigating to a different scene', async () => {
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Activity)
         await navigate(urls.settings('user'))
@@ -76,10 +85,24 @@ describe('sidePanelLogic', () => {
         }
     )
 
-    it('stays open when navigating within the same scene', async () => {
+    it('closes a context-bound tab when navigating between settings sections', async () => {
         await navigate(urls.settings('user'))
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Discussion)
         await navigate(urls.settings('project'))
+        await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: false })
+    })
+
+    it('keeps a persisted tab open when navigating between settings sections', async () => {
+        await navigate(urls.settings('user'))
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+        await navigate(urls.settings('project'))
+        await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: true, selectedTab: SidePanelTab.Max })
+    })
+
+    it('stays open across search param changes within the same settings section', async () => {
+        await navigate(urls.settings('user'))
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Discussion)
+        router.actions.push(urls.settings('user'), { access_tab: 'members' })
         await expectLogic(sidePanelStateLogic).toMatchValues({
             sidePanelOpen: true,
             selectedTab: SidePanelTab.Discussion,

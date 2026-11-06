@@ -1,3 +1,5 @@
+import ipaddress
+
 import pytest
 
 import httpx
@@ -5,7 +7,13 @@ import openai
 import anthropic
 import posthoganalytics
 
-from products.ai_observability.backend.llm.providers._diagnostics import _tag_response, tagged_http_client
+from posthog.security.pinned_httpx import PinnedTransport
+
+from products.ai_observability.backend.llm.providers._diagnostics import (
+    PROVIDER_DEFAULT_LIMITS,
+    _tag_response,
+    tagged_http_client,
+)
 
 
 def _make_response(status: int = 200, headers: dict | None = None) -> httpx.Response:
@@ -56,6 +64,23 @@ class TestTagResponse:
             _tag_response(_make_response(200, {"x-request-id": "req_inside"}))
         assert "provider.last_status" not in posthoganalytics.get_tags()
         assert "provider.last_request_id" not in posthoganalytics.get_tags()
+
+
+class TestPinnedClientLimits:
+    def test_pinned_client_keeps_the_provider_pool_limits(self):
+        # httpx applies client-level limits only to the transport it builds itself. A pinned
+        # client that wrapped a pre-built transport would silently drop to httpx's default pool
+        # of 100 connections, which is a tenth of what the provider SDKs expect.
+        client = tagged_http_client(pin=("https://8.8.8.8/v1", {ipaddress.ip_address("8.8.8.8")}))
+
+        transport = client._transport
+        assert isinstance(transport, PinnedTransport)
+        inner = transport._inner
+        assert isinstance(inner, httpx.HTTPTransport)
+
+        pool = inner._pool
+        assert pool._max_connections == PROVIDER_DEFAULT_LIMITS.max_connections
+        assert pool._max_keepalive_connections == PROVIDER_DEFAULT_LIMITS.max_keepalive_connections
 
 
 class TestSDKIntegration:

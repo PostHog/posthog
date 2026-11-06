@@ -50,6 +50,40 @@ describe('webhook template', () => {
         expect(fetchResponse.error).toBeUndefined()
     })
 
+    // The queue payload is stored as plaintext JSON, so the template must pass
+    // an input-key reference for the executor to resolve at fetch time, never
+    // the secret itself.
+    it('passes a signing secret reference, not the secret, to the fetch queue', async () => {
+        const response = await tester.invoke({
+            url: 'https://example.com',
+            signing_secret: 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw',
+        })
+
+        expect(response.error).toBeUndefined()
+        const params = response.invocation.queueParameters as any
+        expect(params.standard_webhooks).toEqual({
+            secret_input: 'signing_secret',
+            webhook_id: expect.any(String),
+        })
+        expect(JSON.stringify(params)).not.toContain('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw')
+    })
+
+    it('passes a secret headers reference, not the values, to the fetch queue', async () => {
+        const response = await tester.invoke({
+            url: 'https://example.com',
+            headers: { 'Content-Type': 'application/json' },
+            secret_headers: { Authorization: 'Bearer sk_test_token' },
+            debug: true,
+        })
+
+        expect(response.error).toBeUndefined()
+        const params = response.invocation.queueParameters as any
+        expect(params.secret_headers_input).toEqual('secret_headers')
+        expect(params.headers).toEqual({ 'Content-Type': 'application/json' })
+        expect(JSON.stringify(params)).not.toContain('Authorization')
+        expect(response.logs.map((l) => l.message).join('\n')).not.toContain('Authorization')
+    })
+
     it('should log details of given', async () => {
         let response = await tester.invoke({
             url: 'https://example.com?v={event.properties.$lib_version}',

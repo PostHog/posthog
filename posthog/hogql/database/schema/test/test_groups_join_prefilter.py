@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
@@ -26,15 +28,22 @@ class TestGroupsJoinPrefilter(APIBaseTest):
     queries (no WHERE, or WHERE without a date range) still go through the original path.
     """
 
+    def _group_0_column(self) -> str:
+        # The new table reads $group_0 as a declared JSON path, the old one as a column.
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return "events.properties.`$group_0`"
+        return "events.`$group_0`"
+
     def setUp(self):
         super().setUp()
-        create_group_type_mapping(
-            team=self.team,
-            project=self.team.project,
-            group_type="company",
-            group_type_index=0,
-            created_at=datetime(2020, 1, 1, tzinfo=UTC),
-        )
+        for group_type_index, group_type in enumerate(["company", "workspace"]):
+            create_group_type_mapping(
+                team=self.team,
+                project=self.team.project,
+                group_type=group_type,
+                group_type_index=group_type_index,
+                created_at=datetime(2020, 1, 1, tzinfo=UTC),
+            )
         invalidate_group_types_cache(self.team.project_id)
         self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
@@ -50,7 +59,7 @@ class TestGroupsJoinPrefilter(APIBaseTest):
         # against the GroupTypeMapping created_at, etc.), so we only assert the column ref
         # appears in the printed SQL — not the exact SELECT prefix.
         self.assertIn("globalIn(key,", sql)
-        self.assertIn("events.`$group_0`", sql)
+        self.assertIn(self._group_0_column(), sql)
         self.assertIn("FROM events", sql)
 
     def test_pushes_group_key_filter_with_uuid_and_timestamp_where(self):
@@ -62,17 +71,35 @@ class TestGroupsJoinPrefilter(APIBaseTest):
             "AND timestamp < toDateTime('2026-06-23 13:32:26')"
         )
         self.assertIn("globalIn(key,", sql)
-        self.assertIn("events.`$group_0`", sql)
+        self.assertIn(self._group_0_column(), sql)
+
+    @parameterized.expand(
+        [
+            ("two_groups", "SELECT group_0.properties, group_1.properties FROM events WHERE {bound}", 2),
+            ("session_and_group", "SELECT session.$entry_current_url, group_0.properties FROM events WHERE {bound}", 1),
+            ("select_alias", "SELECT event AS name, group_0.properties FROM events WHERE {bound} AND name = 'x'", 0),
+            (
+                "array_join_alias",
+                "SELECT group_0.properties FROM events ARRAY JOIN [1, 2] AS item WHERE {bound} AND item = 1",
+                0,
+            ),
+        ]
+    )
+    def test_bounds_each_group_join_whose_key_subquery_can_reuse_the_where(
+        self, _name: str, query: str, expected_bounds: int
+    ):
+        sql = self._print(query.format(bound="timestamp > toDateTime('2026-01-01')"))
+        self.assertEqual(sql.count("globalIn(key,"), expected_bounds)
 
     def test_skips_filter_when_outer_where_lacks_timestamp(self):
         # No timestamp reference → the optimization would push a key subquery that scans every
         # event for the team, which is strictly worse than no filter. Guard skips it.
         sql = self._print("SELECT group_0.properties FROM events WHERE event = '$pageview'")
-        self.assertNotIn("in(key,", sql)
+        self.assertNotIn("globalIn(key,", sql)
 
     def test_skips_filter_when_outer_has_no_where(self):
         sql = self._print("SELECT group_0.properties FROM events")
-        self.assertNotIn("in(key,", sql)
+        self.assertNotIn("globalIn(key,", sql)
 
     @parameterized.expand(
         [
@@ -97,7 +124,7 @@ class TestGroupsJoinPrefilter(APIBaseTest):
             f"SELECT group_0.properties FROM events WHERE {where_predicate} AND timestamp > toDateTime('2026-01-01')"
         )
         self.assertIn("events__group_0", sql)
-        self.assertNotIn("in(key,", sql)
+        self.assertNotIn("globalIn(key,", sql)
 
     def test_skips_filter_when_outer_from_events_is_aliased(self):
         # Funnel queries (and others) build `FROM events AS e ... WHERE e.timestamp > X`.
@@ -107,4 +134,4 @@ class TestGroupsJoinPrefilter(APIBaseTest):
         sql = self._print("SELECT group_0.properties FROM events AS e WHERE e.timestamp > toDateTime('2026-01-01')")
         # The lazy join is named after the FROM alias, so `e__group_0` rather than `events__group_0`.
         self.assertIn("e__group_0", sql)
-        self.assertNotIn("in(key,", sql)
+        self.assertNotIn("globalIn(key,", sql)

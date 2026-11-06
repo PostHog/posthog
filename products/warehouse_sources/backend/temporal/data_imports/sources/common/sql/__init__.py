@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     RowFilter,
+    RowFilterColumn,
     RowFilterValidationError,
     ValidatedRowFilter,
     classify_column_type,
@@ -41,12 +42,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    TableProjection,
     compute_projected_columns,
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
     format_projected_select_clause,
     project_arrow_columns,
     prune_enabled_columns,
+    resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
     ParamStyle,
@@ -75,11 +78,13 @@ __all__ = [
     "InvalidIdentifierError",
     "ParamStyle",
     "RowFilter",
+    "RowFilterColumn",
     "RowFilterValidationError",
     "SafeSQL",
     "SelectQueryBuilder",
     "Table",
     "TableBase",
+    "TableProjection",
     "TableReference",
     "TableSchemas",
     "TableStats",
@@ -99,6 +104,7 @@ __all__ = [
     "render_named_conditions",
     "render_positional_conditions",
     "resolve_detected_primary_keys",
+    "resolve_table_projection",
     "sql_schema_metadata",
     "validate_and_coerce_row_filters",
 ]

@@ -1,8 +1,15 @@
 // The web workers the app loads from /static at runtime, in one place so the production build
 // (build.mjs) and the dev watcher (bin/watch-workers.mjs) cannot drift. Vite serves the app in
 // dev but does not build these, so without the watcher they are simply absent locally and every
-// worker silently falls back to the main thread.
+// worker is unavailable locally.
 export const WORKER_ENTRIES = [
+    {
+        name: 'Terminal Worker',
+        entryPoint: 'src/scenes/terminal/terminalWorker.ts',
+        outfileName: 'terminalWorker.js',
+        // v86 also ships Node transports, which must not enter the browser worker bundle.
+        define: { process: 'undefined', require: 'undefined' },
+    },
     {
         name: 'Decompression Worker',
         entryPoint: 'src/scenes/session-recordings/player/snapshot-processing/decompressionWorker.ts',
@@ -12,6 +19,11 @@ export const WORKER_ENTRIES = [
         name: 'HogQL Parser Worker',
         entryPoint: 'src/scenes/data-warehouse/editor/hogqlParserWorker.ts',
         outfileName: 'hogqlParserWorker.js',
+    },
+    {
+        name: 'ELK Layout Worker',
+        entryPoint: 'src/lib/elkWorker.ts',
+        outfileName: 'elkWorker.js',
     },
     {
         name: 'Monaco Editor Worker',

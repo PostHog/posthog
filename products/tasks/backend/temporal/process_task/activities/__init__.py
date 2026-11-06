@@ -4,12 +4,13 @@ from .emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .enforce_self_driving_quota import EnforceSelfDrivingRunQuotaInput, enforce_self_driving_run_quota
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .forward_pending_message import forward_pending_user_message
-from .get_sandbox_for_repository import (
-    GetSandboxForRepositoryInput,
-    GetSandboxForRepositoryOutput,
-    get_sandbox_for_repository,
-)
+from .get_sandbox_exit_reason import GetSandboxExitReasonInput, get_sandbox_exit_reason
 from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
+from .materialize_context_layer import (
+    MaterializeContextLayerInput,
+    MaterializeContextLayerOutput,
+    materialize_context_layer_in_sandbox,
+)
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
@@ -18,6 +19,7 @@ from .provision_sandbox import (
     CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
+    GetSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
@@ -28,6 +30,7 @@ from .provision_sandbox import (
     inject_fresh_tokens_on_resume,
     invalidate_resume_snapshot,
     prepare_sandbox_for_repository,
+    restore_sandbox_connection_state,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .refresh_sandbox_credentials import (
@@ -52,26 +55,36 @@ from .send_permission_response_to_sandbox import (
 )
 from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
+    CollectAgentShadowResultInput,
     MarkRepoReadyInput,
     StartAgentServerInput,
     StartAgentServerOutput,
     await_agent_server_ready,
+    collect_agent_shadow_result,
     launch_agent_server,
     mark_repo_ready,
     start_agent_server,
 )
+from .start_dev_stack_preview import (
+    StartDevStackPreviewInput,
+    StartDevStackPreviewOutput,
+    WaitDevStackPreviewInput,
+    WaitDevStackPreviewOutput,
+    start_dev_stack_preview,
+    wait_dev_stack_preview,
+)
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
-from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
+from .update_task_run_status import UpdateTaskRunStatusInput, complete_signal_spend, update_task_run_status
 
 __all__ = [
     "CleanupSandboxInput",
+    "CollectAgentShadowResultInput",
     "CompleteRunStreamInput",
     "CreateResumeSnapshotInput",
     "CreateResumeSnapshotOutput",
     "EmitProgressInput",
     "ExecuteTaskInput",
     "ExecuteTaskOutput",
-    "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
     "CheckoutBranchInSandboxInput",
     "CheckoutBranchInSandboxOutput",
@@ -82,6 +95,10 @@ __all__ = [
     "InjectFreshTokensOnResumeInput",
     "InvalidateResumeSnapshotInput",
     "PostSlackUpdateInput",
+    "StartDevStackPreviewInput",
+    "StartDevStackPreviewOutput",
+    "WaitDevStackPreviewInput",
+    "WaitDevStackPreviewOutput",
     "PrepareSandboxForRepositoryInput",
     "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
@@ -112,16 +129,20 @@ __all__ = [
     "forward_pending_user_message",
     "relay_agent_design_signals",
     "relay_sandbox_events",
+    "GetSandboxExitReasonInput",
+    "get_sandbox_exit_reason",
     "relay_sandbox_events_deferred_completion",
     "post_permission_delivery_failure_notice",
     "send_permission_denial_guidance",
     "send_permission_response_to_sandbox",
     "send_followup_to_sandbox",
-    "get_sandbox_for_repository",
     "get_task_processing_context",
     "inject_fresh_tokens_on_resume",
+    "restore_sandbox_connection_state",
     "invalidate_resume_snapshot",
     "post_slack_update",
+    "start_dev_stack_preview",
+    "wait_dev_stack_preview",
     "prepare_sandbox_for_repository",
     "read_sandbox_logs",
     "refresh_sandbox_credentials",
@@ -129,9 +150,14 @@ __all__ = [
     "start_agent_server",
     "launch_agent_server",
     "await_agent_server_ready",
+    "collect_agent_shadow_result",
     "mark_repo_ready",
     "track_workflow_event",
     "update_task_run_status",
+    "complete_signal_spend",
     "clone_repository_in_sandbox",
+    "materialize_context_layer_in_sandbox",
+    "MaterializeContextLayerInput",
+    "MaterializeContextLayerOutput",
     "checkout_branch_in_sandbox",
 ]

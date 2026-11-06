@@ -9,7 +9,7 @@
 # proxy distribution, not the server — different artifact, don't confuse them.
 
 # Pin the same Node version as the rest of the monorepo (.nvmrc).
-ARG NODE_VERSION=24.13.0
+ARG NODE_VERSION=26.13.0
 ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 
 #
@@ -22,7 +22,7 @@ WORKDIR /code
 
 # `corepack enable` reads the `packageManager` field in package.json to pick the
 # pnpm version — no `corepack prepare pnpm@latest` (non-deterministic).
-RUN corepack enable
+RUN npm install -g corepack@0.36.0 && corepack enable
 
 # Copy lockfile + workspace manifests first so the install layer caches across
 # unrelated source changes. `patches/` is required because pnpm-lock.yaml
@@ -38,12 +38,9 @@ COPY patches/ patches/
 # source after, so source edits don't bust the install cache.
 COPY services/mcp/package.json services/mcp/package.json
 COPY tools/openapi-codegen/package.json tools/openapi-codegen/package.json
-# @posthog/mcp depends on @posthog/products-ai-observability (workspace:*) —
-# pnpm needs its manifest to resolve the dependency graph and install its
-# transitive deps (e.g. yaml).
-COPY products/ai_observability/package.json products/ai_observability/package.json
-# UI apps depend on @posthog/quill — copy all its workspace manifests so pnpm
-# can resolve the full dependency graph during install.
+# UI apps depend on @posthog/quill, and the parser tools on @posthog/llm-normalizer —
+# copy all workspace package manifests so pnpm can resolve the full dependency
+# graph during install.
 COPY packages/ packages/
 
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
@@ -56,6 +53,10 @@ COPY tools/openapi-codegen/ tools/openapi-codegen/
 # so the whole `products/` tree needs to be in the build context.
 COPY products/ products/
 WORKDIR /code/services/mcp
+ARG POSTHOG_UI_APPS_TOKEN
+ARG POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
+ENV POSTHOG_UI_APPS_TOKEN=${POSTHOG_UI_APPS_TOKEN} \
+    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${POSTHOG_MCP_APPS_ANALYTICS_BASE_URL}
 RUN pnpm exec tsx scripts/build-hono.ts && pnpm run build:ui-apps
 
 #
@@ -75,8 +76,10 @@ COPY --from=build --chown=node:node /code/services/mcp/dist/hono-server.mjs.map 
 # UI app static assets — served at `/ui-apps/<app>/...` by `serveStatic` in app.ts.
 COPY --from=build --chown=node:node /code/services/mcp/public/ ./public/
 
+ARG POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
 ENV NODE_ENV=production \
-    PORT=3001
+    PORT=3001 \
+    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${POSTHOG_MCP_APPS_ANALYTICS_BASE_URL}
 
 EXPOSE 3001
 

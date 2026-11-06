@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA11",
+    "cluster": null,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/signals/backend/auto_start.py:244-265 creates the real automatic implementation task with signal_report_id, ai_stage=implementation, interaction_origin=signal_report, and explicitly internal=True at 260-261. The facade forwards internal unchanged at tasks/backend/facade/api.py:891-903, and Task.create_and_run forwards it to task creation at models.py:754-768. The actual creation test asserts internal is True at signals/backend/test/test_auto_start.py:257-264. review_hog/backend/receivers.py:97-105 therefore returns before the reviewer resolution and both dispatches at 111-138. Later webhook recovery is blocked by the same assumption in tasks/backend/facade/api.py:504-509, which returns None for task.internal. Thus normal auto-started Inbox implementation PRs never reach the new hosted review path.",
+            "refutation": "I first checked whether internal=True referred only to research/custom-agent plumbing, whether a default/facade rewrote it, or whether the explicit implementation relationship bypassed the receiver guard. The comment in receiver.py:100-103 claims implementations are non-internal, but auto_start.py:260-261 explicitly states the opposite to hide these runs from the default task list. No facade or model override changes that supplied value. The implementation relationship is separately recorded at auto_start.py:271-275 but never consulted by this guard. Tests for the receiver use their own configurable task fixture (test_inbox_trigger.py:71-79), while the real auto-start test proves the blocked shape."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The real producer contradicts the receiver's premise. /tmp/frozen-75215/products/signals/backend/auto_start.py:244-265 creates the implementation with origin SIGNAL_REPORT, signal_report_id, ai_stage=implementation and explicitly internal=True at :260-261; :271-275 records its implementation relationship. /tmp/frozen-75215/products/tasks/backend/facade/api.py:881-903 passes that internal argument through to task creation. /tmp/frozen-75215/products/review_hog/backend/receivers.py:100-105 assumes the implementation is noninternal and returns before either review dispatch at :115-138. Later pushes cannot repair it because tasks/facade/api.py:508-509 also rejects internal tasks when resolving the Stamphog webhook carve-out. Therefore normal autostarted Inbox implementation PRs never enter either path.",
+            "refutation": "First tried to establish that internal=True applied only to research/plumbing tasks or was reset before execution. The implementation creator explicitly sets it to hide the implementation from the default task list, and no reset appears in the creation chain. products/signals/backend/test/test_auto_start.py:257-260 asserts internal is True. In contrast, products/review_hog/backend/tests/test_inbox_trigger.py:61-79 fabricates implementation fixtures with internal=False; :271-298 treats every internal fixture as a pipeline task and expects it skipped. The existing tests encode incompatible producer/consumer assumptions rather than covering the actual implementation creation path."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The real report-generation path calls maybe_autostart_implementation_task at products/signals/backend/temporal/agentic/report.py:315-325, which calls _create_implementation_task_if_absent at auto_start.py:521-532. That creator explicitly passes origin SIGNAL_REPORT, signal_report_id, ai_stage='implementation', and internal=True at auto_start.py:244-261. The facade forwards internal unchanged at products/tasks/backend/facade/api.py:891-903, and Task.create_and_run forwards it into task creation at models.py:718-768. Consequently the saved output hits review_hog/backend/receivers.py:104-105 and returns before either toggle/dispatch at 111-138. Later webhook identification also rejects task.internal at tasks/backend/facade/api.py:504-509. Production self-driving auto-start implementations cannot enter either new review path.",
+            "refutation": "I tried to substantiate the receiver comment that only pipeline plumbing is internal and implementation tasks are non-internal (receivers.py:100-103). The production creator directly contradicts that comment: internal=True is deliberate to hide implementation tasks from the default task list (signals/backend/auto_start.py:260-261), and its existing test asserts that exact argument at signals/backend/test/test_auto_start.py:257-260. The receiver tests instead fabricate internal=False by default (review_hog/backend/tests/test_inbox_trigger.py:66,79), so their successful dispatches do not refute the production mismatch. No creator/facade reset of the flag protects this path."
+        }
+    ]
+}

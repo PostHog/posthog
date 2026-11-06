@@ -1,8 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FunctionComponent, isValidElement, memo, useEffect, useRef } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
-import useResizeObserver from 'use-resize-observer'
+import { FunctionComponent, isValidElement, memo, useRef } from 'react'
 
 import {
     BaseIcon,
@@ -55,13 +53,13 @@ import {
     InspectorListItem,
     InspectorListItemConsole,
     InspectorListItemEvent,
+    InspectorListItemLog,
     playerInspectorLogic,
 } from '../playerInspectorLogic'
 import { ItemAppState, ItemAppStateDetail, ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
-
-const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
+import { ItemLog, ItemLogDetail } from './ItemLog'
 
 interface IconAndDescription {
     Icon: FunctionComponent | undefined
@@ -180,54 +178,72 @@ function IconWithOptionalBadge({
     )
 }
 
-function RowItemTitle({
-    item,
-    finalTimestamp,
-    groupCount,
-    groupedItems,
-}: {
+interface RowItemTitleProps {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
     groupCount?: number
     groupedItems?: InspectorListItem[]
-}): JSX.Element {
-    return (
-        <div className="flex items-center text-text-3000" data-attr="row-item-title">
-            {item.type === 'network' ? (
-                <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === 'console' ? (
-                <ItemConsoleLog item={item} groupCount={groupCount} />
-            ) : item.type === 'app-state' ? (
-                <ItemAppState item={item} />
-            ) : item.type === 'events' ? (
+}
+
+function rowItemTitleContent({
+    item,
+    finalTimestamp,
+    groupCount,
+    groupedItems,
+}: RowItemTitleProps): JSX.Element | null {
+    switch (item.type) {
+        case 'network':
+            return <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
+        case 'console':
+            return <ItemConsoleLog item={item} groupCount={groupCount} />
+        case 'app-state':
+            return <ItemAppState item={item} />
+        case 'events':
+            return (
                 <ItemEvent
                     item={item}
                     groupCount={groupCount}
                     groupedItems={groupedItems as InspectorListItemEvent[] | undefined}
                 />
-            ) : item.type === 'offline-status' ? (
+            )
+        case 'offline-status':
+            return (
                 <div className="flex w-full items-start p-2 text-xs font-light font-mono">
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
                 </div>
-            ) : item.type === 'browser-visibility' ? (
+            )
+        case 'browser-visibility':
+            return (
                 <div className="flex w-full items-start px-2 py-1 font-light font-mono text-xs">
                     Window became {item.status}
                 </div>
-            ) : item.type === 'doctor' ? (
-                <ItemDoctor item={item} />
-            ) : item.type === 'comment' ? (
-                <ItemAnyComment item={item} />
-            ) : item.type === 'inspector-summary' ? (
-                <ItemSummary item={item} />
-            ) : item.type === 'inactivity' ? (
-                <ItemInactivity item={item} />
-            ) : item.type === 'session-change' ? (
-                <ItemSessionChange item={item} />
-            ) : item.type === 'experiment-variant' ? (
-                <ItemExperimentVariant item={item} />
-            ) : item.type === 'metric-event' ? (
-                <ItemMetricEvent item={item} />
-            ) : null}
+            )
+        case 'doctor':
+            return <ItemDoctor item={item} />
+        case 'comment':
+            return <ItemAnyComment item={item} />
+        case 'inspector-summary':
+            return <ItemSummary item={item} />
+        case 'inactivity':
+            return <ItemInactivity item={item} />
+        case 'session-change':
+            return <ItemSessionChange item={item} />
+        case 'experiment-variant':
+            return <ItemExperimentVariant item={item} />
+        case 'metric-event':
+            return <ItemMetricEvent item={item} />
+        case 'logs':
+            return <ItemLog item={item} groupCount={groupCount} />
+        default:
+            item satisfies never
+            return null
+    }
+}
+
+function RowItemTitle(props: RowItemTitleProps): JSX.Element {
+    return (
+        <div className="flex items-center text-text-3000" data-attr="row-item-title">
+            {rowItemTitleContent(props)}
         </div>
     )
 }
@@ -240,40 +256,63 @@ function RowItemMenu({ item }: { item: InspectorListItem }): JSX.Element | null 
     return item.type === 'events' ? <ItemEventMenu item={item} /> : null
 }
 
-function RowItemDetail({
-    item,
-    finalTimestamp,
-    groupedItems,
-}: {
+interface RowItemDetailProps {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
     groupedItems?: InspectorListItem[]
-}): JSX.Element | null {
-    return (
-        <div>
-            {item.type === 'network' ? (
-                <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === 'app-state' ? (
-                <ItemAppStateDetail item={item} />
-            ) : item.type === 'console' ? (
+    sessionId?: string
+}
+
+function rowItemDetailContent({
+    item,
+    finalTimestamp,
+    groupedItems,
+    sessionId,
+}: RowItemDetailProps): JSX.Element | null {
+    switch (item.type) {
+        case 'network':
+            return <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
+        case 'app-state':
+            return <ItemAppStateDetail item={item} />
+        case 'console':
+            return (
                 <ItemConsoleLogDetail
                     item={item}
                     groupedItems={groupedItems as InspectorListItemConsole[] | undefined}
                 />
-            ) : item.type === 'events' ? (
-                <ItemEventDetail item={item} groupedItems={groupedItems as InspectorListItemEvent[] | undefined} />
-            ) : item.type === 'offline-status' ? null : item.type === 'browser-visibility' ? null : item.type ===
-              'doctor' ? (
-                <ItemDoctorDetail item={item} />
-            ) : item.type === 'comment' ? (
-                <ItemAnyCommentDetail item={item} />
-            ) : item.type === 'experiment-variant' ? (
-                <ItemExperimentVariantDetail item={item} />
-            ) : item.type === 'metric-event' ? (
-                <ItemMetricEventDetail item={item} />
-            ) : null}
-        </div>
-    )
+            )
+        case 'events':
+            return <ItemEventDetail item={item} groupedItems={groupedItems as InspectorListItemEvent[] | undefined} />
+        case 'doctor':
+            return <ItemDoctorDetail item={item} />
+        case 'comment':
+            return <ItemAnyCommentDetail item={item} />
+        case 'experiment-variant':
+            return <ItemExperimentVariantDetail item={item} />
+        case 'metric-event':
+            return <ItemMetricEventDetail item={item} />
+        case 'logs':
+            return (
+                <ItemLogDetail
+                    item={item}
+                    groupedItems={groupedItems as InspectorListItemLog[] | undefined}
+                    sessionId={sessionId}
+                />
+            )
+        case 'offline-status':
+        case 'browser-visibility':
+        case 'inspector-summary':
+        case 'inactivity':
+        case 'session-change':
+            return null
+        default:
+            item satisfies never
+            return null
+    }
+}
+
+function RowItemDetail(props: RowItemDetailProps): JSX.Element {
+    return <div>{rowItemDetailContent(props)}</div>
 }
 
 const ListItemTitle = memo(function ListItemTitle({
@@ -407,7 +446,12 @@ const ListItemDetail = memo(function ListItemDetail({
             )}
         >
             <div className="text-xs">
-                <RowItemDetail item={item} finalTimestamp={end} groupedItems={groupedItems} />
+                <RowItemDetail
+                    item={item}
+                    finalTimestamp={end}
+                    groupedItems={groupedItems}
+                    sessionId={logicProps.sessionRecordingId}
+                />
                 <LemonDivider dashed />
 
                 <div
@@ -424,53 +468,22 @@ const ListItemDetail = memo(function ListItemDetail({
 export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
     item,
     index,
-    onLayout,
     groupCount,
     groupedItems,
 }: {
     item: InspectorListItem
     index: number
-    onLayout?: (layout: { width: number; height: number }) => void
     groupCount?: number
     groupedItems?: InspectorListItem[]
 }): JSX.Element {
     const hoverRef = useRef<HTMLDivElement>(null)
+    const ref = useRef<HTMLDivElement>(null)
 
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const { expandedItems } = useValues(playerInspectorLogic(logicProps))
 
     const isExpanded = expandedItems.includes(index)
-
-    const onLayoutDebounced = useDebouncedCallback(onLayout ?? (() => {}), 500)
-    const { ref, width, height } = useResizeObserver({})
-
-    const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
-
-    // Height changes should lay out immediately but width ones (browser resize can be much slower)
-    useEffect(
-        () => {
-            if (!onLayout || !width || !totalHeight) {
-                return
-            }
-            onLayoutDebounced({ width, height: totalHeight })
-        },
-        // purposefully only triggering on width
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [width]
-    )
-
-    useEffect(
-        () => {
-            if (!onLayout || !width || !totalHeight) {
-                return
-            }
-            onLayout({ width, height: totalHeight })
-        },
-        // purposefully only triggering on total height
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [totalHeight]
-    )
 
     const isHovering = useIsHovering(hoverRef)
 

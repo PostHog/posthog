@@ -39,5 +39,9 @@ export function ElapsedTime({ startTime }: ElapsedTimeProps): JSX.Element | null
         return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
     }
 
-    return <>{formatElapsedTime(elapsedSeconds)}</>
+    // Wrapped in an element rather than returned bare, because a bare text node lands among the
+    // caller's children and React removes it directly once `startTime` goes away. If a
+    // page-translation extension has swapped it for a <font> element by then, that removal throws
+    // removeChild NotFoundError (react#11538). A clock has nothing to translate anyway.
+    return <span translate="no">{formatElapsedTime(elapsedSeconds)}</span>
 }

@@ -1,6 +1,6 @@
 import { tryJsonParse } from 'lib/utils/json'
 import { LiquidRenderer } from 'lib/utils/liquid'
-import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
+import { type EmailTemplate, MAX_WORKFLOW_EMAIL_SENDERS } from 'scenes/hog-functions/email-templater/types'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
 
@@ -155,6 +155,13 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
         // Pull out the address so it gets the same required + templating validation as every other field —
         // otherwise a malformed Liquid template in the To field (or an empty address) saves with no error.
         const toEmail = value.to && typeof value.to === 'object' ? value.to.email : value.to
+        const senderLimitError =
+            inputSchema.type === 'native_email' &&
+            typeof value.from === 'object' &&
+            Array.isArray(value.from?.integrationIds) &&
+            value.from.integrationIds.length > MAX_WORKFLOW_EMAIL_SENDERS
+                ? `Choose no more than ${MAX_WORKFLOW_EMAIL_SENDERS} email senders`
+                : undefined
         const emailTemplateErrors: Partial<EmailTemplate> = {
             html:
                 !value.html && !value.text
@@ -164,7 +171,14 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
                       : undefined,
             text: value.text ? getTemplatingError(value.text) : undefined,
             subject: !value.subject ? 'Subject is required' : getTemplatingError(value.subject),
-            from: !value.from ? 'From is required' : getTemplatingError(value.from),
+            // `native_email` stores `from` as { integrationId, email?, name? } where the optional
+            // keys are templated sender overrides; the legacy `email` type stores a template string.
+            from: !value.from
+                ? 'From is required'
+                : (senderLimitError ??
+                  (typeof value.from === 'string'
+                      ? getTemplatingError(value.from)
+                      : (getTemplatingError(value.from.email) ?? getTemplatingError(value.from.name)))),
             to: !toEmail ? 'To is required' : getTemplatingError(toEmail),
         }
 
@@ -195,17 +209,28 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
         }
     }
 }
+export const MISSING_INTEGRATION_ERROR =
+    'This integration no longer exists. It may have been deleted. Select a connected integration.'
+
 export class CyclotronJobInputsValidation {
     static validate(
         inputs: Record<string, CyclotronJobInputType>,
-        inputsSchema: CyclotronJobInputSchemaType[]
+        inputsSchema: CyclotronJobInputSchemaType[],
+        integrations?: { id: number }[] | null
     ): CyclotronJobInputsValidationResult {
         const inputErrors: Record<string, string> = {}
         const inputWarnings: Record<string, string> = {}
 
         inputsSchema?.forEach((inputSchema) => {
             const input = inputs[inputSchema.key]
-            const error = validateInput(input, inputSchema)
+            const error =
+                validateInput(input, inputSchema) ??
+                (inputSchema.type === 'integration' &&
+                integrations &&
+                typeof input?.value === 'number' &&
+                !integrations.some((integration) => integration.id === input.value)
+                    ? MISSING_INTEGRATION_ERROR
+                    : undefined)
             if (error) {
                 inputErrors[inputSchema.key] = error
             }

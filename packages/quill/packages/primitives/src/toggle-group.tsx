@@ -1,3 +1,5 @@
+import './toggle-group.css'
+
 import { Toggle as TogglePrimitive } from '@base-ui/react/toggle'
 import { ToggleGroup as ToggleGroupPrimitive } from '@base-ui/react/toggle-group'
 import { type VariantProps } from 'class-variance-authority'
@@ -5,8 +7,8 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { cn } from './lib/utils'
-import './toggle-group.css'
 import { toggleVariants } from './toggle'
+import { hasTooltipContent } from './with-tooltip'
 
 const ToggleGroupContext = React.createContext<
     VariantProps<typeof toggleVariants> & {
@@ -20,21 +22,17 @@ const ToggleGroupContext = React.createContext<
     orientation: 'horizontal',
 })
 
-function ToggleGroup({
-    className,
-    variant,
-    size,
-    spacing = 0,
-    orientation = 'horizontal',
-    children,
-    ...props
-}: ToggleGroupPrimitive.Props &
-    VariantProps<typeof toggleVariants> & {
-        spacing?: number
-        orientation?: 'horizontal' | 'vertical'
-    }): React.ReactElement {
+const ToggleGroup = React.forwardRef<
+    React.ComponentRef<typeof ToggleGroupPrimitive>,
+    ToggleGroupPrimitive.Props &
+        VariantProps<typeof toggleVariants> & {
+            spacing?: number
+            orientation?: 'horizontal' | 'vertical'
+        }
+>(function ToggleGroup({ className, variant, size, spacing = 0, orientation = 'horizontal', children, ...props }, ref) {
     return (
         <ToggleGroupPrimitive
+            ref={ref}
             data-quill
             data-slot="toggle-group"
             data-variant={variant}
@@ -53,19 +51,24 @@ function ToggleGroup({
             </ToggleGroupContext.Provider>
         </ToggleGroupPrimitive>
     )
-}
+})
 
-function ToggleGroupItem({
-    className,
-    children,
-    variant = 'default',
-    size = 'default',
-    ...props
-}: TogglePrimitive.Props & VariantProps<typeof toggleVariants>): React.ReactElement {
+const ToggleGroupItem = React.forwardRef<
+    React.ComponentRef<typeof TogglePrimitive>,
+    TogglePrimitive.Props &
+        VariantProps<typeof toggleVariants> & {
+            /** Disables the item and says why in a tooltip on hover. */
+            disabledReason?: React.ReactNode
+        }
+>(function ToggleGroupItem(
+    { className, children, variant = 'default', size = 'default', disabled, disabledReason, ...props },
+    ref
+) {
     const context = React.useContext(ToggleGroupContext)
 
     return (
         <TogglePrimitive
+            ref={ref}
             data-slot="toggle-group-item"
             data-variant={context.variant || variant}
             data-size={context.size || size}
@@ -79,11 +82,12 @@ function ToggleGroupItem({
                 className
             )}
             {...props}
-            render={(props) => <Button variant="outline" size={size} {...props} />}
+            disabled={disabled || hasTooltipContent(disabledReason)}
+            render={(props) => <Button variant="outline" size={size} disabledReason={disabledReason} {...props} />}
         >
             {children}
         </TogglePrimitive>
     )
-}
+})
 
 export { ToggleGroup, ToggleGroupItem }

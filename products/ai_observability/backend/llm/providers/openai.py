@@ -4,12 +4,14 @@ import json
 import uuid
 import logging
 from collections.abc import Generator
-from typing import Any
+from typing import Any, ClassVar
 
 from django.conf import settings
 
+import httpx
 import openai
 import posthoganalytics
+from openai import omit
 from openai.types import CompletionUsage, ReasoningEffort
 from openai.types.chat import ChatCompletionDeveloperMessageParam, ChatCompletionSystemMessageParam
 from posthoganalytics.ai.openai import (
@@ -18,20 +20,28 @@ from posthoganalytics.ai.openai import (
 )
 from pydantic import BaseModel, ValidationError
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
+    LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputTokenLimitError,
+    ProviderConnectionError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
+    is_output_limit_error_message,
+    stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
+    ReasoningLevel,
     StreamChunk,
     Usage,
 )
@@ -40,11 +50,15 @@ from products.ai_observability.backend.providers.formatters.tools_handler import
 
 logger = logging.getLogger(__name__)
 
+OPENAI_DECISIONS_BASE_URL = "https://api.openai.com/v1"
+
 
 class OpenAIConfig:
     REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
     TIMEOUT: float = 300.0
+
+    DECISION_MODELS: frozenset[str] = frozenset({"gpt-6-luna"})
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-5.4",
@@ -98,11 +112,29 @@ class OpenAIConfig:
         "o3-mini",
     ]
 
+    @staticmethod
+    def supports_reasoning_level(model: str) -> bool:
+        return model.startswith(("gpt-5", "o3", "o4")) and "chat" not in model
+
+    @staticmethod
+    def reasoning_effort(model: str, level: ReasoningLevel) -> ReasoningEffort:
+        # Only the original GPT-5 models accept "minimal". Later models and the o-series reject it.
+        if level == "minimal" and not (model == "gpt-5" or model.startswith("gpt-5-")):
+            return "low"
+        return level
+
 
 class OpenAIAdapter:
     """OpenAI provider implementing the unified Client interface."""
 
     name = "openai"
+    request_timeout: float = OpenAIConfig.TIMEOUT
+    max_retries: int = openai.DEFAULT_MAX_RETRIES
+
+    # OpenRouter returns 402 when the key can't afford the requested max_tokens (or is out of
+    # credits). Retrying never helps, so these map to the quota path and the workflow marks the
+    # key errored and stops.
+    QUOTA_EXHAUSTED_STATUS_CODES: ClassVar[frozenset[int]] = frozenset({402})
 
     def _create_client(
         self,
@@ -111,27 +143,37 @@ class OpenAIAdapter:
         analytics: AnalyticsContext,
     ) -> Any:
         """Create an OpenAI client. Override in subclasses for different client types (e.g. AzureOpenAI)."""
-        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
-
         default_headers = self._get_default_headers()
         posthog_client = posthoganalytics.default_client
-        http_client = tagged_http_client(timeout=OpenAIConfig.TIMEOUT)
+        http_client = self._build_http_client()
         if analytics.capture and posthog_client:
             return OpenAI(
                 api_key=api_key,
                 posthog_client=posthog_client,
                 base_url=base_url,
-                timeout=OpenAIConfig.TIMEOUT,
+                timeout=self.request_timeout,
+                max_retries=self.max_retries,
                 default_headers=default_headers or None,
                 http_client=http_client,
             )
         return openai.OpenAI(
             api_key=api_key,
             base_url=base_url,
-            timeout=OpenAIConfig.TIMEOUT,
+            timeout=self.request_timeout,
+            max_retries=self.max_retries,
             default_headers=default_headers or None,
             http_client=http_client,
         )
+
+    def _build_http_client(self) -> httpx.Client:
+        """Build the transport the provider client runs on.
+
+        Overridden by providers that talk to a user-configured endpoint, where the
+        connection itself has to be constrained (SSRF pinning, no redirects).
+        """
+        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+
+        return tagged_http_client(timeout=self.request_timeout)
 
     def complete(
         self,
@@ -146,9 +188,8 @@ class OpenAIAdapter:
 
         client = self._create_client(effective_api_key, effective_base_url, analytics)
 
-        messages: Any = self._build_messages(request)
-
         try:
+            messages: Any = self._build_messages(request)
             if request.response_format and issubclass(request.response_format, BaseModel):
                 try:
                     # Try native structured output parsing first
@@ -156,6 +197,11 @@ class OpenAIAdapter:
                         model=request.model,
                         messages=messages,
                         response_format=request.response_format,
+                        reasoning_effort=(
+                            OpenAIConfig.reasoning_effort(request.model, request.reasoning_level)
+                            if request.reasoning_level and OpenAIConfig.supports_reasoning_level(request.model)
+                            else omit
+                        ),
                         **(self._build_analytics_kwargs(analytics, client)),
                     )
                     parsed = response.choices[0].message.parsed
@@ -170,13 +216,21 @@ class OpenAIAdapter:
                 except openai.BadRequestError as e:
                     if is_context_window_error_message(str(e)):
                         raise ContextWindowExceededError(str(e)) from e
+                    if is_output_limit_error_message(str(e)):
+                        raise OutputTokenLimitError(str(e)) from e
                     # Fall back to manual JSON parsing for older models that don't support json_schema
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
                     raise
-                except (ValidationError, openai.LengthFinishReasonError) as e:
-                    # json_schema does not enforce cross-field validators, while the SDK raises a separate
-                    # exception for length-limited output. Normalize both so callers skip invalid output.
+                except openai.LengthFinishReasonError as e:
+                    # The reply was cut off at the output limit, so the JSON it carries is truncated.
+                    # Report the limit rather than the unreadable JSON it produced.
+                    raise OutputTokenLimitError(str(e)) from e
+                except openai.ContentFilterFinishReasonError as e:
+                    raise ContentFilteredError(str(e)) from e
+                except ValidationError as e:
+                    # json_schema does not enforce cross-field validators, so a schema-valid reply can
+                    # still fail our model. Normalize it so callers skip invalid output.
                     raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
             else:
                 create_response = client.chat.completions.create(
@@ -193,27 +247,50 @@ class OpenAIAdapter:
                     model=request.model,
                     usage=usage,
                 )
-        except openai.AuthenticationError as e:
-            raise AuthenticationError(str(e))
-        except openai.NotFoundError:
-            raise ModelNotFoundError(request.model)
-        except openai.PermissionDeniedError:
-            raise ModelPermissionError(request.model)
-        except openai.RateLimitError as e:
-            error_body = getattr(e, "body", {}) or {}
+        except Exception as e:
+            mapped = self._mapped_error(e, request.model)
+            if mapped is not None:
+                raise mapped from e
+            raise
+        finally:
+            client.close()
+
+    def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
+        """Normalize a provider exception into the shared taxonomy, or None when it isn't ours.
+
+        `complete` and `stream` both route through this, so the same provider failure reads the
+        same way whether the caller streamed it or not.
+        """
+        if isinstance(error, openai.AuthenticationError):
+            return AuthenticationError(str(error))
+        if isinstance(error, openai.NotFoundError):
+            return ModelNotFoundError(model)
+        if isinstance(error, openai.PermissionDeniedError):
+            return ModelPermissionError(model)
+        if isinstance(error, openai.RateLimitError):
+            error_body = getattr(error, "body", {}) or {}
             error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
-                raise QuotaExceededError(str(e))
-            raise RateLimitError(str(e))
-        except openai.APIStatusError as e:
-            if isinstance(e, openai.BadRequestError) and is_context_window_error_message(str(e)):
-                raise ContextWindowExceededError(str(e)) from e
-            # OpenRouter returns 402 when the key can't afford the requested
-            # max_tokens (or is out of credits). Retrying never helps — mirror
-            # the quota path so the workflow marks the key errored and stops.
-            if getattr(e, "status_code", None) == 402:
-                raise QuotaExceededError(str(e))
-            raise
+                return QuotaExceededError(str(error))
+            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
+        if isinstance(error, openai.APIConnectionError):
+            # Transient transport failure (connection reset, read timeout). Map to a quiet
+            # retryable error so the caller retries silently instead of spamming error tracking.
+            return ProviderConnectionError(str(error))
+        if isinstance(error, openai.APIStatusError):
+            if isinstance(error, openai.BadRequestError):
+                if is_context_window_error_message(str(error)):
+                    return ContextWindowExceededError(str(error))
+                if is_output_limit_error_message(str(error)):
+                    return OutputTokenLimitError(str(error))
+                # Azure OpenAI (`content_filter`) and OpenAI's usage policy check (`invalid_prompt`)
+                # reject a flagged prompt with a 400, before any completion exists to carry a
+                # `content_filter` finish reason.
+                if error.code in ("content_filter", "invalid_prompt"):
+                    return ContentFilteredError(str(error))
+            if getattr(error, "status_code", None) in self.QUOTA_EXHAUSTED_STATUS_CODES:
+                return QuotaExceededError(str(error))
+        return None
 
     def _complete_with_json_fallback(
         self,
@@ -234,7 +311,7 @@ You must respond with valid JSON that matches this schema:
 Return ONLY the JSON object, no other text or markdown formatting."""
 
         enhanced_messages = [{"role": "system", "content": enhanced_system}]
-        enhanced_messages.extend(request.messages)
+        enhanced_messages.extend(convert_attachment_parts(request.messages, self._attachment_block))
 
         create_response = client.chat.completions.create(
             model=request.model,
@@ -244,7 +321,11 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             **(self._build_analytics_kwargs(analytics, client)),
         )
 
-        content = create_response.choices[0].message.content or ""
+        choice = create_response.choices[0]
+        if choice.finish_reason == "content_filter":
+            # A refused reply has no content, so parsing it would report the refusal as malformed JSON.
+            raise ContentFilteredError("The request was rejected by the content filter.")
+        content = choice.message.content or ""
         usage = self._extract_usage(create_response.usage)
 
         # Parse the JSON response
@@ -279,12 +360,10 @@ Return ONLY the JSON object, no other text or markdown formatting."""
 
         client = self._create_client(effective_api_key, effective_base_url, analytics)
 
-        supports_reasoning = model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
-        reasoning_on = supports_reasoning and (request.thinking or bool(request.reasoning_level))
-
-        tools = self._convert_tools(request.tools) if request.tools else None
-
         try:
+            supports_reasoning = model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
+            reasoning_on = supports_reasoning and (request.thinking or bool(request.reasoning_level))
+            tools = self._convert_tools(request.tools) if request.tools else None
             effective_temperature = request.temperature if request.temperature is not None else OpenAIConfig.TEMPERATURE
 
             def build_common_kwargs() -> dict[str, Any]:
@@ -303,6 +382,15 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     common["max_completion_tokens"] = request.max_tokens
                 if tools is not None:
                     common["tools"] = tools
+                if request.output_schema is not None:
+                    common["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": request.output_schema.name,
+                            "schema": request.output_schema.schema,
+                            "strict": request.output_schema.strict,
+                        },
+                    }
                 return common
 
             messages = request.messages
@@ -311,7 +399,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             if supports_reasoning:
                 selected_effort: ReasoningEffort | None = None
                 if request.reasoning_level in ("minimal", "low", "medium", "high"):
-                    selected_effort = request.reasoning_level  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+                    selected_effort = request.reasoning_level
                 elif reasoning_on:
                     selected_effort = OpenAIConfig.REASONING_EFFORT
                 stream = client.chat.completions.create(
@@ -356,8 +444,9 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     yield from self._yield_usage_chunks(chunk.usage)
 
         except Exception as e:
-            logger.exception(f"OpenAI API error: {e}")
-            yield StreamChunk(type="error", data={"error": str(e)})
+            yield stream_error_chunk(e, self._mapped_error(e, model_id), logger=logger, provider=self.name)
+        finally:
+            client.close()
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
@@ -427,11 +516,14 @@ Return ONLY the JSON object, no other text or markdown formatting."""
     def _get_default_headers(self) -> dict[str, str]:
         return {}
 
+    def _attachment_block(self, part: AttachmentPart) -> dict[str, Any]:
+        return _openai_attachment_block(part)
+
     def _build_messages(self, request: CompletionRequest) -> list[dict]:
         messages = []
         if request.system:
             messages.append({"role": "system", "content": request.system})
-        messages.extend(request.messages)
+        messages.extend(convert_attachment_parts(request.messages, self._attachment_block))
         return messages
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
@@ -441,6 +533,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),
                 "posthog_properties": analytics.properties or {},
                 "posthog_groups": analytics.groups or {},
+                "posthog_privacy_mode": analytics.privacy_mode,
             }
         return {}
 
@@ -481,3 +574,12 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         result = handler.convert_to(ToolFormat.OPENAI)
         assert result is not None, "tools must be non-empty when calling _convert_tools"
         return result
+
+
+def _openai_attachment_block(part: AttachmentPart) -> dict[str, Any]:
+    if part.audio_format is not None:
+        return {"type": "input_audio", "input_audio": {"data": part.base64(), "format": part.audio_format}}
+    if part.is_pdf:
+        # The chat API takes a PDF only as inline data, and requires a file name with it.
+        return {"type": "file", "file": {"filename": "attachment.pdf", "file_data": part.data_uri()}}
+    return {"type": "image_url", "image_url": {"url": part.url or part.data_uri()}}

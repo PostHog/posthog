@@ -1,21 +1,28 @@
+import { deepEqual as equal } from 'fast-equals'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
-import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import api, { ApiMethodOptions, getJSONOrNull, isAbortError, withRequestTiming } from 'lib/api'
+import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
+import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { parseErrorMessage, pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
+import { isExpiredQueryStatusError, parseErrorMessage, pollForResults } from '~/queries/query'
+import {
+    DashboardFilter,
+    HogQLVariable,
+    MetricsDashboardVariable,
+    QueryStatus,
+    TileFilters,
+} from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -25,30 +32,42 @@ import {
     DashboardTile,
     DashboardType,
     DashboardWidgetType,
+    InsightFilterOverrideContext,
     InsightModel,
-    QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
 
-export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
+// The backend labels every transient capacity failure with this code, whatever its message: PostHog's
+// own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
+const RATE_LIMITED_ERROR_CODE = 'rate_limited'
+const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+const RATE_LIMIT_USER_MESSAGE = 'Too many queries are running right now.'
+
+export function getInsightQueryError(insight: InsightModel): ApiError | null {
     const queryStatus = insight.query_status
     if (!queryStatus?.error) {
         return null
     }
 
     const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
-    return new ApiError(undefined, 400, undefined, {
-        detail: parsedError.message,
-        code: queryStatus.error_code ?? parsedError.code,
+    const code = queryStatus.error_code ?? parsedError.code
+    // A tile failure arrives without the HTTP status the query originally failed with, so the
+    // status is rebuilt from the code. Out of memory must stay 513: as a 400 the tile tells the
+    // user their query definition is broken, which sends them to fix a query that was never wrong.
+    // A capacity rejection must stay 429 for the same reason: the query is fine, PostHog is busy.
+    const status = code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE ? 513 : code === RATE_LIMITED_ERROR_CODE ? 429 : 400
+    return new ApiError(undefined, status, undefined, {
+        detail: parsedError.message === RATE_LIMIT_ERROR_MESSAGE ? RATE_LIMIT_USER_MESSAGE : parsedError.message,
+        code,
         queryId: queryStatus.id,
     })
 }
 
-/** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
+/** Shape used for project template creation and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
-    dashboard: DashboardType<InsightModel> | null | undefined
+    dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
     if (!dashboard) {
         return undefined
@@ -61,12 +80,18 @@ export function dashboardToSaveableTemplate(
         tiles: dashboard.tiles
             .filter((tile) => !tile.error)
             .map((tile) => {
+                const display = {
+                    layouts: tile.layouts,
+                    color: tile.color,
+                    transparent_background: tile.transparent_background,
+                    group_key: tile.group_key,
+                }
                 if (tile.text) {
                     return {
                         type: 'TEXT' as const,
                         body: tile.text.body,
-                        layouts: tile.layouts,
-                        color: tile.color,
+                        agent_context: tile.text.agent_context,
+                        ...display,
                     }
                 }
                 if (tile.insight) {
@@ -75,8 +100,7 @@ export function dashboardToSaveableTemplate(
                         name: tile.insight.name,
                         description: tile.insight.description || '',
                         query: tile.insight.query,
-                        layouts: tile.layouts,
-                        color: tile.color,
+                        ...display,
                     }
                 }
                 if (tile.button_tile) {
@@ -88,8 +112,7 @@ export function dashboardToSaveableTemplate(
                             placement: tile.button_tile.placement,
                             style: tile.button_tile.style,
                         },
-                        layouts: tile.layouts,
-                        color: tile.color,
+                        ...display,
                     }
                 }
                 if (tile.widget) {
@@ -97,17 +120,36 @@ export function dashboardToSaveableTemplate(
                         type: 'WIDGET' as const,
                         widget_type: tile.widget.widget_type,
                         config: tile.widget.config,
-                        layouts: tile.layouts,
-                        color: tile.color,
+                        ...display,
                     }
                 }
                 throw new Error('Unknown tile type')
             }),
+        customization: dashboard.customization,
         variables: [],
     }
 }
 
-export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsightModel>): string {
+export function dashboardTemplateForExport(
+    template: DashboardTemplateEditorType | undefined
+): DashboardTemplateEditorType | null {
+    if (!template) {
+        return null
+    }
+    return {
+        ...template,
+        tiles: template.tiles.map((tile) => {
+            if (tile.type !== 'TEXT') {
+                return tile
+            }
+            const exportedTile = { ...tile }
+            delete exportedTile.agent_context
+            return exportedTile
+        }),
+    }
+}
+
+export function getDashboardTileDisplayName(tile: DashboardTile): string {
     if (tile.insight) {
         return tile.insight.name || tile.insight.derived_name || 'Unnamed insight'
     }
@@ -131,7 +173,7 @@ export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsigh
 
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
-    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile' | 'widget'>
+    tile: Pick<DashboardTile, 'insight' | 'text' | 'button_tile' | 'widget'>
 ): DashboardWidgetType {
     if (tile.insight) {
         return 'insight'
@@ -166,21 +208,19 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
  * The minimum interval between manual dashboard refreshes.
  * This is used to block the dashboard refresh button.
  */
-export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
-export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
-
-const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+export const AUTO_PREVIEW_TILE_LIMIT: number = 35
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
 // the tile's existing data and render as an empty insight instead of an error.
-export function isRefreshRejectionStub(insight: QueryBasedInsightModel): boolean {
+export function isRefreshRejectionStub(insight: InsightModel): boolean {
     return !!insight.query_status?.error && insight.result == null
 }
 
@@ -201,6 +241,15 @@ function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
 export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh: Dayjs | null): boolean {
     const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
     return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
+}
+
+/**
+ * `Dashboard.last_refresh` is shared by all viewers, so one person's refresh can start a block
+ * window for everybody while the tiles keep showing old data. In that state the block must give way.
+ */
+export function isEffectiveRefreshStale(effectiveLastRefresh: Dayjs | null): boolean {
+    const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
+    return ageMinutes !== null && ageMinutes >= DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES
 }
 
 // Helper function for exponential backoff
@@ -246,6 +295,110 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     return results
 }
 
+/**
+ * Runs tasks in first-in, first-out order with at most `limit` tasks at the same time.
+ * A task whose signal aborts while it waits does not start, and its promise rejects with an AbortError.
+ */
+export class TaskQueue {
+    private running = 0
+    private readonly waiting: { start: () => void; drop: () => void }[] = []
+
+    constructor(private readonly limit: number) {}
+
+    run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            if (signal?.aborted) {
+                reject(new DOMException('Aborted', 'AbortError'))
+                return
+            }
+            const entry = {
+                start: (): void => {
+                    signal?.removeEventListener('abort', entry.drop)
+                    this.running++
+                    new Promise<T>((resolveTask) => resolveTask(task())).then(resolve, reject).finally(() => {
+                        this.running--
+                        this.startNext()
+                    })
+                },
+                drop: (): void => {
+                    this.waiting.splice(this.waiting.indexOf(entry), 1)
+                    reject(new DOMException('Aborted', 'AbortError'))
+                },
+            }
+            signal?.addEventListener('abort', entry.drop, { once: true })
+            this.waiting.push(entry)
+            this.startNext()
+        })
+    }
+
+    private startNext(): void {
+        while (this.running < this.limit && this.waiting.length > 0) {
+            this.waiting.shift()!.start()
+        }
+    }
+}
+
+interface TileLoad<Refresh> {
+    tileIds: number[]
+    controller: AbortController
+    refresh: Refresh
+    settled: Promise<void>
+}
+
+/**
+ * Running and queued tile loads by tile, each with its own signal under the signal of the refresh that started it.
+ * Stopping one tile's load leaves the other loads of that refresh running.
+ */
+export class TileLoads<Refresh> {
+    private readonly loads = new Map<number, TileLoad<Refresh>>()
+
+    /** Starts one load of these tiles. Call `finish` once it settles, however it ends. */
+    start(
+        tileIds: number[],
+        refreshSignal: AbortSignal,
+        refresh: Refresh
+    ): { signal: AbortSignal; finish: () => void } {
+        const controller = new AbortController()
+        const abort = (): void => controller.abort()
+        let settle: () => void = () => {}
+        const load: TileLoad<Refresh> = {
+            tileIds,
+            controller,
+            refresh,
+            settled: new Promise<void>((resolve) => (settle = resolve)),
+        }
+        if (refreshSignal.aborted) {
+            abort()
+        } else {
+            refreshSignal.addEventListener('abort', abort, { once: true })
+        }
+        tileIds.forEach((tileId) => this.loads.set(tileId, load))
+        const finish = (): void => {
+            refreshSignal.removeEventListener('abort', abort)
+            for (const tileId of tileIds) {
+                if (this.loads.get(tileId) === load) {
+                    this.loads.delete(tileId)
+                }
+            }
+            settle()
+        }
+        return { signal: controller.signal, finish }
+    }
+
+    /**
+     * Aborts the loads of these tiles. Returns every tile those loads carried, which can be more than the tiles
+     * asked for when one load fetches several tiles, and a promise that resolves once the aborted loads settle.
+     */
+    cancel(tileIds: number[]): { tiles: { tileId: number; refresh: Refresh }[]; settled: Promise<void> } {
+        const loads = [...new Set(tileIds.flatMap((tileId) => this.loads.get(tileId) ?? []))]
+        loads.forEach((load) => load.controller.abort())
+        return {
+            tiles: loads.flatMap((load) => load.tileIds.map((tileId) => ({ tileId, refresh: load.refresh }))),
+            settled: Promise.all(loads.map((load) => load.settled)).then(() => undefined),
+        }
+    }
+}
+
 export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
     const itemLayouts: Record<string, Record<DashboardLayoutSize, TileLayout>> = {}
 
@@ -262,13 +415,35 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
 }
 
 /**
+ * Records whether a tile rerun after an expired status poll recovers, because the 404 alone does not show it.
+ * The insights endpoint bypasses performQuery, so its query submission telemetry never sees this rerun.
+ */
+async function captureTileRerunAfterStatusExpired(
+    rerun: () => Promise<InsightModel | null>
+): Promise<InsightModel | null> {
+    try {
+        const result = await rerun()
+        posthog.capture('query rerun after status expired', {
+            source: 'dashboard_tile',
+            recovered: result?.result != null && !result.query_status?.error,
+        })
+        return result
+    } catch (e) {
+        if (!isAbortError(e)) {
+            posthog.capture('query rerun after status expired', { source: 'dashboard_tile', recovered: false })
+        }
+        throw e
+    }
+}
+
+/**
  * Fetches an insight with a retry and polling mechanism.
  * It first attempts to fetch the insight synchronously. If rate-limited, it retries with exponential backoff.
  * After multiple failed attempts, it switches to asynchronous polling to fetch the result.
  */
 export async function getInsightWithRetry(
     currentTeamId: number | null,
-    insight: QueryBasedInsightModel,
+    insight: InsightModel,
     dashboardId: number,
     queryId: string,
     refresh: 'force_blocking' | 'blocking',
@@ -278,7 +453,7 @@ export async function getInsightWithRetry(
     tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
     initialDelay: number = 1200
-): Promise<QueryBasedInsightModel | null> {
+): Promise<InsightModel | null> {
     // Check if user has access to this insight before making API calls
     const canViewInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
@@ -290,10 +465,28 @@ export async function getInsightWithRetry(
     }
 
     let attempt = 0
+    let rateLimitedAttempts = 0
+
+    const captureRecovery = (result: InsightModel | null): void => {
+        if (rateLimitedAttempts > 0 && result?.result != null && !result.query_status?.error) {
+            posthog.capture('dashboard tile recovered from capacity error', {
+                insight_short_id: insight.short_id,
+                dashboard_id: dashboardId,
+                attempts: rateLimitedAttempts,
+            })
+        }
+    }
+
+    const getTimedInsight = (url: string): Promise<InsightModel | null> =>
+        withRequestTiming(methodOptions, async (timing) => {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+            const response: Response = await api.getResponse(url, methodOptions, timing)
+            return await getJSONOrNull(response, timing)
+        })
 
     while (attempt < maxAttempts) {
         try {
-            const apiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+            const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                 refresh,
                 from_dashboard: dashboardId, // needed to load insight in correct context
                 client_query_id: queryId,
@@ -302,32 +495,31 @@ export async function getInsightWithRetry(
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                 ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
-            const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-            const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
+            const result = await getTimedInsight(apiUrl)
 
-            if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
+            if (
+                result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+                result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+            ) {
                 attempt++
+                rateLimitedAttempts++
 
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
-                        const asyncApiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
-                            refresh: 'force_async',
-                            from_dashboard: dashboardId,
-                            client_query_id: queryId,
-                            session_id: currentSessionId(),
-                            ...(filtersOverride ? { filters_override: filtersOverride } : {}),
-                            ...(variablesOverride ? { variables_override: variablesOverride } : {}),
-                            ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
-                        })}`
-                        // The async call returns an insight with a query_status object
-                        const insightResponse = await api.get(asyncApiUrl, methodOptions)
-
-                        if (insightResponse?.query_status?.id) {
-                            const finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                        const asyncApiUrl = (asyncRefresh: 'force_async' | 'async'): string =>
+                            `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                refresh: asyncRefresh,
+                                from_dashboard: dashboardId,
+                                client_query_id: queryId,
+                                session_id: currentSessionId(),
+                                ...(filtersOverride ? { filters_override: filtersOverride } : {}),
+                                ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
+                            })}`
+                        const readCachedInsight = async (finalStatus: QueryStatus): Promise<InsightModel | null> => {
                             if (finalStatus.complete && !finalStatus.error) {
-                                const cacheUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',
                                     from_dashboard: dashboardId,
                                     client_query_id: queryId,
@@ -336,15 +528,63 @@ export async function getInsightWithRetry(
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                                     ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
-                                const refreshedInsightResponse: Response = await api.getResponse(
-                                    cacheUrl,
-                                    methodOptions
-                                )
-                                const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
-                                if (legacyInsight) {
-                                    const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
-                                    return { ...queryBasedInsight, query_status: finalStatus }
+                                const refreshedInsight = await getTimedInsight(cacheUrl)
+                                if (refreshedInsight) {
+                                    return {
+                                        ...refreshedInsight,
+                                        query_status: refreshedInsight.query_status?.error
+                                            ? refreshedInsight.query_status
+                                            : finalStatus,
+                                    }
                                 }
+                            }
+                            return null
+                        }
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                        const insightResponse = await api.get(asyncApiUrl('force_async'), methodOptions)
+
+                        if (insightResponse?.query_status?.id) {
+                            let finalStatus: QueryStatus
+                            try {
+                                finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
+                            } catch (e) {
+                                // pollForResults pauses in a hidden tab, so the status can expire before the next poll.
+                                // The insights endpoint ignores client_query_id and names the run by its cache key, so
+                                // the rerun in executeQuery never sees this poll. Submit once more with async, which
+                                // reads the result that the finished run cached.
+                                if (!isExpiredQueryStatusError(e)) {
+                                    throw e
+                                }
+                                const rerun = await captureTileRerunAfterStatusExpired(async () => {
+                                    // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
+                                    const rerunResponse = await api.get(asyncApiUrl('async'), methodOptions)
+                                    if (rerunResponse?.result != null && !rerunResponse.query_status?.error) {
+                                        return rerunResponse
+                                    }
+                                    if (
+                                        rerunResponse?.result == null &&
+                                        rerunResponse?.query_status?.id &&
+                                        !rerunResponse.query_status.complete
+                                    ) {
+                                        return await readCachedInsight(
+                                            await pollForResults(rerunResponse.query_status.id, methodOptions)
+                                        )
+                                    }
+                                    if (rerunResponse?.result == null) {
+                                        throw new Error('The rerun returned no result')
+                                    }
+                                    return rerunResponse
+                                })
+                                if (!rerun) {
+                                    throw new Error('The rerun returned no result')
+                                }
+                                captureRecovery(rerun)
+                                return rerun
+                            }
+                            const cachedInsight = await readCachedInsight(finalStatus)
+                            if (cachedInsight) {
+                                captureRecovery(cachedInsight)
+                                return cachedInsight
                             }
                         }
 
@@ -375,16 +615,15 @@ export async function getInsightWithRetry(
                 continue // Retry
             }
 
+            captureRecovery(result)
             return result
         } catch (e: any) {
             if (shouldCancelQuery(e)) {
                 throw e // Re-throw cancellation errors
             }
 
-            // A 4xx response (e.g. a query validation error) is deterministic, so retrying
-            // would only replay the same failure — 429 excepted, which means "retry later"
-            if (e instanceof ApiError && e.status && e.status >= 400 && e.status < 500 && e.status !== 429) {
-                throw e
+            if (isDeterministicClientError(e)) {
+                throw e // A 4xx won't change on retry, so surface it immediately
             }
 
             attempt++
@@ -400,8 +639,8 @@ export async function getInsightWithRetry(
     return null
 }
 
-export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
-    const variables: Record<string, Partial<HogQLVariable>> = {}
+export const parseURLVariables = (searchParams: Record<string, any>): Record<string, HogQLVariable['value']> => {
+    const variables: Record<string, HogQLVariable['value']> = {}
 
     const raw = searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
     if (raw) {
@@ -418,7 +657,7 @@ export const parseURLVariables = (searchParams: Record<string, any>): Record<str
     return variables
 }
 
-export const encodeURLVariables = (variables: Record<string, string>): Record<string, string> => {
+export const encodeURLVariables = (variables: Record<string, HogQLVariable['value']>): Record<string, string> => {
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
@@ -456,6 +695,120 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
     return encodedFilters
 }
 
+/**
+ * An insight opened from a dashboard keys its variable overrides by variable id, while the dashboard URL keys them
+ * by code name. Convert them back so a link to the dashboard reopens it with the same filters and variable values.
+ */
+export const dashboardSearchParamsFromOverrides = (
+    variablesOverride: Record<string, HogQLVariable> | null | undefined,
+    filtersOverride: DashboardFilter | null | undefined
+): Record<string, string> => {
+    const urlVariables: Record<string, any> = {}
+
+    for (const variable of Object.values(variablesOverride ?? {})) {
+        if (!variable?.code_name) {
+            continue
+        }
+        const value = variable.isNull ? null : variable.value
+        if (value !== undefined) {
+            urlVariables[variable.code_name] = value
+        }
+    }
+
+    return { ...encodeURLVariables(urlVariables), ...encodeURLFilters(filtersOverride ?? {}) }
+}
+
+/**
+ * An empty override must stay in the URL when it clears a saved dashboard filter. Without that explicit
+ * value, a reload restores the saved filter. Empty overrides on unfiltered dashboards can be removed.
+ */
+function withoutCurrent(variable: Partial<MetricsDashboardVariable>): Partial<MetricsDashboardVariable> {
+    const { current: _, ...definition } = variable
+    return definition
+}
+
+/** A saved metric variable goes into requests as its name and selection, and the server puts the saved definition back.
+ * A definition that is not saved yet goes in full, because the server does not know it. */
+export function withCompactMetricVariables(
+    filters: DashboardFilter,
+    saved: MetricsDashboardVariable[]
+): DashboardFilter {
+    if (!filters.metricVariables) {
+        return filters
+    }
+    return {
+        ...filters,
+        metricVariables: filters.metricVariables.map((variable) => {
+            const savedVariable = saved.find((other) => other.name === variable.name)
+            return savedVariable && equal(withoutCurrent(savedVariable), withoutCurrent(variable))
+                ? ({ name: variable.name, current: variable.current } as MetricsDashboardVariable)
+                : variable
+        }),
+    }
+}
+
+/** Saved filters with the filters from the URL on top. A metric variable that the URL names gets its saved definition. */
+export function combineSavedAndUrlFilters(saved: DashboardFilter, url: DashboardFilter): DashboardFilter {
+    // Until the dashboard loads, the saved definitions are unknown, so the server resolves the names.
+    if (!url.metricVariables || !saved.metricVariables) {
+        return combineDashboardFilters(saved, url)
+    }
+    const metricVariables = url.metricVariables.flatMap((variable) => {
+        if (variable.source) {
+            return [variable]
+        }
+        const savedVariable = saved.metricVariables?.find((other) => other.name === variable.name)
+        return savedVariable ? [{ ...savedVariable, current: variable.current }] : []
+    })
+    return combineDashboardFilters(saved, { ...url, metricVariables })
+}
+
+/** Analytics captures the page URL, so metric variables go into a URL as their names and selections only. A definition
+ * that is not saved yet stays in the page until the dashboard is saved. */
+function withMetricVariableSelections(filters: DashboardFilter): DashboardFilter {
+    if (!filters.metricVariables) {
+        return filters
+    }
+    return {
+        ...filters,
+        metricVariables: filters.metricVariables.map(
+            (variable) => ({ name: variable.name, current: variable.current }) as MetricsDashboardVariable
+        ),
+    }
+}
+
+export function searchParamsWithUrlFilters(
+    searchParams: Record<string, any>,
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter = {}
+): Record<string, any> {
+    const nextSearchParams = { ...searchParams }
+    const compact = withMetricVariableSelections(filters)
+    if (!dashboardFilterOverrideChangesFilters(compact, withMetricVariableSelections(persistedFilters))) {
+        delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
+        return nextSearchParams
+    }
+    return { ...nextSearchParams, ...encodeURLFilters(compact) }
+}
+
+export function dashboardFilterOverrideChangesFilters(
+    filters: DashboardFilter,
+    persistedFilters: DashboardFilter
+): boolean {
+    return Object.entries(filters).some(([key, value]) => {
+        const persistedValue = (persistedFilters as Record<string, unknown>)[key]
+        if (key === 'properties') {
+            const properties = Array.isArray(value) ? value : []
+            const persistedProperties = Array.isArray(persistedValue) ? persistedValue : []
+            return !equal(properties, persistedProperties)
+        }
+        if (value == null && persistedValue == null) {
+            return false
+        }
+        return !equal(value, persistedValue)
+    })
+}
+
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {
     return filters.reduce((combined, filter) => {
         Object.keys(filter).forEach((key) => {
@@ -468,6 +821,24 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
     }, {} as DashboardFilter)
 }
 
+export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | undefined
+): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
+    return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
+}
+
 const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
     DashboardEventSource.SceneCommonButtons,
     DashboardEventSource.CardEdgeHover,
@@ -477,15 +848,4 @@ const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
 
 export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
     return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
-}
-
-export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
-    return (
-        source !== null &&
-        (isLayoutEditEventSource(source) ||
-            source === DashboardEventSource.DashboardFilters ||
-            source === DashboardEventSource.DashboardVariableOverride ||
-            source === DashboardEventSource.DashboardInsightColorsModal ||
-            source === DashboardEventSource.DashboardHeaderOverridesBanner)
-    )
 }

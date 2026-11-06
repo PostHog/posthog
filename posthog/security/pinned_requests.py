@@ -52,7 +52,7 @@ def select_pinned_ip(
     return None
 
 
-def _canonical_host(hostname: str) -> str:
+def canonical_host(hostname: str) -> str:
     """Return the host in the same ASCII form ``requests`` connects to.
 
     ``requests`` IDNA-encodes non-ASCII hosts before opening the connection
@@ -91,7 +91,7 @@ class PinnedIPAdapter(HTTPAdapter):
         self._current_original_host: str | None = None
 
     def pin(self, hostname: str, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
-        self._pin_map[_canonical_host(hostname)] = str(ip)
+        self._pin_map[canonical_host(hostname)] = str(ip)
 
     def send(  # type: ignore[override]
         self,
@@ -103,7 +103,7 @@ class PinnedIPAdapter(HTTPAdapter):
         proxies: dict[str, str] | None = None,
     ) -> requests.Response:
         parsed = urlparse.urlparse(request.url or "")
-        host = _canonical_host(parsed.hostname or "")
+        host = canonical_host(parsed.hostname or "")
         ip_str = self._pin_map.get(host)
 
         if ip_str is None:
@@ -160,13 +160,13 @@ def pinned_session(url: str) -> Iterator[requests.Session]:
     ``pinned_request`` unless you need to stream the response, which requires the
     session to outlive the call.
     """
-    allowed, reason, pinned_ips = validate_url_and_pin_ips(url)
-    if not allowed:
-        raise SSRFBlockedError(reason or "URL blocked by SSRF protection")
+    verdict = validate_url_and_pin_ips(url)
+    if not verdict.allowed:
+        raise SSRFBlockedError(verdict.reason or "URL blocked by SSRF protection")
 
     adapter = PinnedIPAdapter()
     hostname = (urlparse.urlparse(url).hostname or "").lower()
-    chosen_ip = select_pinned_ip(pinned_ips)
+    chosen_ip = select_pinned_ip(verdict.pinned_ips)
     if chosen_ip is not None:
         adapter.pin(hostname, chosen_ip)
 

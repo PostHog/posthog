@@ -10,14 +10,16 @@ use dashmap::DashMap;
 
 use common::{
     create_leader_client, create_local_kafka_producer, create_test_kafka,
-    create_test_kafka_with_partitions, person_id_for_partition, seed_person, start_coordinator,
-    start_leader_pod, start_leader_pod_with_lease_ttl, start_leader_with_pg_fallback, start_router,
-    test_cached_person, test_recovery, test_store, test_warming_config, wait_for_condition,
-    CHANGELOG_TOPIC, KAFKA_BOOTSTRAP, NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
+    create_test_kafka_with_partitions, person_id_for_partition, seed_person, seed_test_changelog,
+    served_captures, start_coordinator, start_leader_pod, start_leader_pod_with_lease_ttl,
+    start_leader_with_pg_fallback, start_router, target, test_cached_person, test_recovery,
+    test_store, test_warming_config, wait_for_condition, KAFKA_BOOTSTRAP, NUM_PARTITIONS,
+    POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_common::partitioning::partition_for_person;
 use personhog_coordination::pod::HandoffHandler;
 use personhog_coordination::strategy::StickyBalancedStrategy;
+use personhog_coordination::types::ChangelogConfig;
 use personhog_leader::cache::{
     CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
 };
@@ -33,7 +35,6 @@ use personhog_proto::personhog::types::v1::{
 };
 use prost::Message;
 use rdkafka::consumer::{BaseConsumer, Consumer};
-use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
 use rdkafka::{ClientConfig, Message as KafkaMessage, TopicPartitionList};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -72,7 +73,7 @@ async fn service_accepts_requests_after_coordination_warmup() {
     let store = test_store("leader-warmup").await;
     let cancel = CancellationToken::new();
 
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    let _topic = seed_test_changelog(&store).await;
 
     let _coord = start_coordinator(
         Arc::clone(&store),
@@ -131,6 +132,7 @@ async fn service_accepts_requests_after_coordination_warmup() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -175,22 +177,23 @@ async fn service_accepts_requests_after_coordination_warmup() {
 async fn unowned_partition_returns_failed_precondition() {
     // Create service + cache directly, no coordination
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
+    // One set for both: a second would fence the first at the broker.
+    let fenced =
+        common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&_mock_cluster.topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -222,6 +225,7 @@ async fn unowned_partition_returns_failed_precondition() {
     let result = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -259,22 +263,23 @@ async fn unowned_partition_returns_failed_precondition() {
 #[tokio::test]
 async fn missing_partition_metadata_returns_invalid_argument() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
+    // One set for both: a second would fence the first at the broker.
+    let fenced =
+        common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&_mock_cluster.topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -315,6 +320,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
 
     let result = client
         .update_person_properties(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -344,24 +350,25 @@ async fn missing_partition_metadata_returns_invalid_argument() {
 /// write through the wrong partition's cache, so it must be rejected even
 /// when the named partition is warm and the person exists there.
 #[tokio::test]
-async fn mismatched_partition_metadata_returns_invalid_argument() {
+async fn mismatched_partition_metadata_returns_failed_precondition() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
+    // One set for both: a second would fence the first at the broker.
+    let fenced =
+        common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&_mock_cluster.topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -395,12 +402,13 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
         .get_person(leader_get_request(1, 42, wrong_partition))
         .await;
     let status = result.expect_err("read with mismatched x-partition must fail closed");
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
     assert!(status.message().contains("does not match"));
 
     let result = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -414,7 +422,7 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
         ))
         .await;
     let status = result.expect_err("write with mismatched x-partition must fail closed");
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
     assert!(status.message().contains("does not match"));
 
     cancel.cancel();
@@ -436,25 +444,27 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
 #[tokio::test]
 async fn writes_fenced_after_drain_reads_still_served() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(KAFKA_BOOTSTRAP);
+    // One set for both: a second would fence the first at the broker.
+    let fenced =
+        common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
+    let captures = served_captures(&_mock_cluster.topic, NUM_PARTITIONS);
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::clone(&inflight),
-        NUM_PARTITIONS,
+        Arc::clone(&captures),
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
     // The handler shares the cache, inflight tracker, dirty index, and
@@ -465,6 +475,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
         "fence-pod",
         &warming.writer_consumer_group,
     ));
+    let changelog = common::live_changelog(&_mock_cluster.topic);
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
@@ -472,10 +483,11 @@ async fn writes_fenced_after_drain_reads_still_served() {
         warming,
         Arc::new(DashMap::new()),
         None,
-        NUM_PARTITIONS,
+        changelog,
+        Arc::clone(&captures),
         pools,
-        None,
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -504,6 +516,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
     let update = |email: &str| {
         with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -543,11 +556,22 @@ async fn writes_fenced_after_drain_reads_still_served() {
         serde_json::from_slice(&response.into_inner().person.unwrap().properties).unwrap();
     assert_eq!(props["email"], "before@example.com");
 
-    // Releasing clears the fence along with the partition: when the same
-    // pod later re-acquires the partition (fresh warm), writes flow again.
+    // Releasing clears the fence along with the partition. The warm is
+    // stood in for, epoch included, since warming needs a changelog this
+    // test never writes.
     handler.release_partition(0).await.unwrap();
+    handler
+        .capture_changelog(
+            0,
+            &ChangelogConfig::new(&_mock_cluster.topic, NUM_PARTITIONS),
+        )
+        .await;
     cache.create_partition(0);
     seed_person(&cache, 0, test_cached_person());
+    fenced
+        .acquire(0, &target(&_mock_cluster.topic))
+        .await
+        .expect("the re-warm takes the epoch");
     let response = client
         .update_person_properties(update("rewarmed@example.com"))
         .await
@@ -566,25 +590,27 @@ async fn writes_fenced_after_drain_reads_still_served() {
 #[tokio::test]
 async fn drain_fences_before_waiting_on_inflight() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(KAFKA_BOOTSTRAP);
+    // One set for both: a second would fence the first at the broker.
+    let fenced =
+        common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
+    let captures = served_captures(&_mock_cluster.topic, NUM_PARTITIONS);
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::clone(&inflight),
-        NUM_PARTITIONS,
+        Arc::clone(&captures),
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
     let warming = test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP);
@@ -593,6 +619,7 @@ async fn drain_fences_before_waiting_on_inflight() {
         "fence-race-pod",
         &warming.writer_consumer_group,
     ));
+    let changelog = common::live_changelog(&_mock_cluster.topic);
     let handler = Arc::new(LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
@@ -600,10 +627,11 @@ async fn drain_fences_before_waiting_on_inflight() {
         warming,
         Arc::new(DashMap::new()),
         None,
-        NUM_PARTITIONS,
+        changelog,
+        Arc::clone(&captures),
         pools,
-        None,
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     ));
 
@@ -647,6 +675,7 @@ async fn drain_fences_before_waiting_on_inflight() {
     let status = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -685,7 +714,7 @@ async fn release_partition_stops_serving() {
     let store = test_store("leader-release").await;
     let cancel = CancellationToken::new();
 
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    let _topic = seed_test_changelog(&store).await;
 
     let _coord = start_coordinator(
         Arc::clone(&store),
@@ -803,7 +832,7 @@ async fn rewarm_after_pod_crash() {
     let store = test_store("leader-rewarm").await;
     let cancel = CancellationToken::new();
 
-    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+    let _topic = seed_test_changelog(&store).await;
 
     let _coord = start_coordinator(
         Arc::clone(&store),
@@ -895,24 +924,22 @@ async fn update_produces_person_state_to_kafka() {
     const PERSON_ID: i64 = 2;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
     assert_eq!(routing_partition, 2, "test key must map to partition 2");
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&mock_cluster.topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -946,6 +973,7 @@ async fn update_produces_person_state_to_kafka() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -975,17 +1003,14 @@ async fn update_produces_person_state_to_kafka() {
 
     let mut tpl = TopicPartitionList::new();
     tpl.add_partition_offset(
-        CHANGELOG_TOPIC,
+        &mock_cluster.topic,
         routing_partition as i32,
         rdkafka::Offset::Beginning,
     )
     .unwrap();
     consumer.assign(&tpl).unwrap();
 
-    let msg = consumer
-        .poll(Duration::from_secs(5))
-        .expect("no message received on the routing partition")
-        .expect("kafka error");
+    let msg = common::poll_record(&consumer, Duration::from_secs(5), "the routing partition");
 
     // Verify message key
     let key = std::str::from_utf8(msg.key().unwrap()).unwrap();
@@ -1005,30 +1030,30 @@ async fn update_produces_person_state_to_kafka() {
 }
 
 // ============================================================
-// Test 6: Kafka produce failure leaves cache unchanged and returns error
-// (no etcd needed)
+// Test 6: a changelog write this pod cannot land leaves the cache
+// unchanged and returns an error (no etcd needed)
 // ============================================================
 
 #[tokio::test]
 async fn kafka_produce_failure_leaves_cache_unchanged() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    let mock_cluster = create_test_kafka().await;
+    let fenced =
+        common::fenced_producers_acquired(&mock_cluster.topic, NUM_PARTITIONS as i32).await;
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&mock_cluster.topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -1053,9 +1078,10 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
     });
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    // Inject a Kafka produce error
-    let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR__BAD_MSG; 1];
-    mock_cluster.request_errors(RDKafkaApiKey::Produce, &err);
+    // A successor takes the partition's transactional id, which is what
+    // a changelog write this pod cannot land looks like.
+    let successor =
+        common::fenced_producers_acquired(&mock_cluster.topic, NUM_PARTITIONS as i32).await;
 
     let mut client = create_leader_client(addr).await;
 
@@ -1063,6 +1089,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
     let result = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -1078,7 +1105,11 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         .await;
 
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().code(), tonic::Code::Internal);
+    assert_eq!(
+        result.unwrap_err().code(),
+        tonic::Code::FailedPrecondition,
+        "a fenced pod answers in the ownership vocabulary, so the router re-resolves"
+    );
 
     // Cache was never updated since the produce failed before the cache write
     let cache_key = PersonCacheKey {
@@ -1089,15 +1120,24 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         panic!("expected original person in cache");
     };
     assert_eq!(cached.version, 1);
-    assert_eq!(cached.properties["email"], "test@example.com");
-    assert!(cached.properties.get("name").is_none());
+    assert_eq!(
+        cached.parse_properties().unwrap()["email"],
+        "test@example.com"
+    );
+    assert!(cached.parse_properties().unwrap().get("name").is_none());
 
-    // Clear errors and verify the service recovers
-    mock_cluster.clear_request_errors(RDKafkaApiKey::Produce);
+    // This pod re-takes the epoch, as the convergence heal does.
+    drop(successor);
+    fenced.expect_self_fence(0);
+    fenced
+        .acquire(0, &target(&mock_cluster.topic))
+        .await
+        .expect("this pod re-takes the fence");
 
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -1115,18 +1155,12 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
 
     let result = response.into_inner();
     assert!(result.updated);
-    // Three, not two: the failed write's version is spent. The produce
-    // path cannot tell an enqueue that never left the client from a
-    // delivery that timed out after the broker appended it, and
-    // idempotence is off by default — so reusing that number would put a
-    // second record behind one that may be in the log, and the writer's
-    // strict guard keeps whichever arrived first. Burning a version on a
-    // write that genuinely never landed is the cheap side of that trade:
-    // versions are a monotonic counter with no meaning attached to gaps.
+    // Two, not three: a record the broker refused never existed, so its
+    // version is free again.
     assert_eq!(
         result.person.unwrap().version,
-        3,
-        "a version put on the wire must not be reused, even when the write failed"
+        2,
+        "a version the broker refused is not spent"
     );
 
     cancel.cancel();
@@ -1134,29 +1168,28 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
 
 // ============================================================
 // Test 7: E2E - update produces to local Kafka and is consumable
-// Requires local Kafka (localhost:9092) and etcd running.
+// Requires local Kafka (127.0.0.1:9092) and etcd running.
 // ============================================================
 
 #[tokio::test]
 async fn e2e_update_produces_to_local_kafka() {
+    let owned = common::owned_broker_topic(NUM_PARTITIONS as i32).await;
+    let topic = owned.topic.clone();
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let kafka_producer = create_local_kafka_producer().await;
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&topic, NUM_PARTITIONS as i32).await,
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -1187,6 +1220,7 @@ async fn e2e_update_produces_to_local_kafka() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -1213,28 +1247,14 @@ async fn e2e_update_produces_to_local_kafka() {
         .create()
         .expect("failed to create local Kafka consumer");
 
+    // From the beginning: counting back from the end lands on the
+    // transaction's commit marker, which no consumer is handed.
     let mut tpl = TopicPartitionList::new();
-    tpl.add_partition_offset(CHANGELOG_TOPIC, 0, rdkafka::Offset::End)
+    tpl.add_partition_offset(&topic, 0, rdkafka::Offset::Beginning)
         .unwrap();
     consumer.assign(&tpl).unwrap();
 
-    // Seek back one message from the end to read what we just produced.
-    // End offset points past the last message, so we query it and subtract 1.
-    let (_, high_watermark) = consumer
-        .fetch_watermarks(CHANGELOG_TOPIC, 0, Duration::from_secs(5))
-        .expect("failed to fetch watermarks");
-    let target_offset = (high_watermark - 1).max(0);
-
-    let mut seek_tpl = TopicPartitionList::new();
-    seek_tpl
-        .add_partition_offset(CHANGELOG_TOPIC, 0, rdkafka::Offset::Offset(target_offset))
-        .unwrap();
-    consumer.assign(&seek_tpl).unwrap();
-
-    let msg = consumer
-        .poll(Duration::from_secs(5))
-        .expect("no message received from local Kafka")
-        .expect("kafka error");
+    let msg = common::poll_record(&consumer, Duration::from_secs(10), "local Kafka");
 
     let key = std::str::from_utf8(msg.key().unwrap()).unwrap();
     assert_eq!(key, "1:42");
@@ -1357,9 +1377,19 @@ async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
     // The representable sentinel reads as the exact double JS reads;
     // beyond-f64 garbage clamps instead of poisoning the row; neighbors
     // are untouched.
-    assert_eq!(person.properties["credits"].as_f64().unwrap(), f64::MAX);
-    assert_eq!(person.properties["overflow"].as_f64().unwrap(), 1e307);
-    assert_eq!(person.properties["plan"], "pro");
+    assert_eq!(
+        person.parse_properties().unwrap()["credits"]
+            .as_f64()
+            .unwrap(),
+        f64::MAX
+    );
+    assert_eq!(
+        person.parse_properties().unwrap()["overflow"]
+            .as_f64()
+            .unwrap(),
+        1e307
+    );
+    assert_eq!(person.parse_properties().unwrap()["plan"], "pro");
 
     sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
         .bind(team_id)
@@ -1430,6 +1460,7 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: team_id as i64,
                 person_id,
                 event_name: "$set".to_string(),
@@ -1472,7 +1503,7 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
 async fn evicted_dirty_person_recovers_from_changelog() {
     const PERSON_ID: i64 = 2;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
@@ -1482,19 +1513,17 @@ async fn evicted_dirty_person_recovers_from_changelog() {
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&mock_cluster.topic, NUM_PARTITIONS),
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -1526,6 +1555,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -1579,26 +1609,24 @@ async fn evicted_dirty_person_recovers_from_changelog() {
 async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
     const PERSON_ID: i64 = 2;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&mock_cluster.topic, NUM_PARTITIONS),
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -1629,6 +1657,7 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -1657,6 +1686,8 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
             version: mark.version,
             offset: mark.offset + 1_000,
             partition: mark.partition,
+            stream: mark.stream.clone(),
+            is_deleted: mark.is_deleted,
         },
     );
     cache.remove(routing_partition, &key);
@@ -1690,25 +1721,23 @@ async fn writes_shed_when_dirty_index_is_full() {
         .find(|pid| partition_for_person(1, *pid, NUM_PARTITIONS) == partition)
         .expect("a second person maps to the same partition");
 
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     // Capacity 1: the first person's mark fills the index.
     let dirty_index = Arc::new(DirtyIndex::new(1));
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&mock_cluster.topic, NUM_PARTITIONS),
         Arc::clone(&dirty_index),
         test_recovery(&mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -1748,6 +1777,7 @@ async fn writes_shed_when_dirty_index_is_full() {
     let mut client = create_leader_client(addr).await;
 
     let update_for = |person_id: i64, value: &str| UpdatePersonPropertiesRequest {
+        force_update: false,
         team_id: 1,
         person_id,
         event_name: "$set".to_string(),
@@ -1790,26 +1820,24 @@ async fn writes_shed_when_dirty_index_is_full() {
 async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
     const PERSON_ID: i64 = 2;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&mock_cluster.topic, NUM_PARTITIONS),
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -1840,6 +1868,7 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -1902,25 +1931,23 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
         .find(|pid| partition_for_person(1, *pid, NUM_PARTITIONS) == partition)
         .expect("a second person maps to the same partition");
 
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&mock_cluster.topic, NUM_PARTITIONS),
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -1954,6 +1981,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
     let client = create_leader_client(addr).await;
 
     let update_for = |person_id: i64, value: &str| UpdatePersonPropertiesRequest {
+        force_update: false,
         team_id: 1,
         person_id,
         event_name: "$set".to_string(),
@@ -2028,13 +2056,13 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
     use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
     use rdkafka::producer::FutureRecord;
 
-    let (mock_cluster, producer) = create_test_kafka().await;
+    let mock_cluster = create_test_kafka().await;
+    let producer = create_local_kafka_producer().await;
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = mock_cluster.bootstrap_servers();
     // pool_size 1: a single leaked consumer exhausts the pool.
     let recovery = ChangelogRecovery::new(RecoveryConfig {
         kafka,
-        topic: CHANGELOG_TOPIC.to_string(),
         pod_name: "cancel-pod".to_string(),
         recv_timeout: Duration::from_secs(2),
         pool_size: 1,
@@ -2049,6 +2077,12 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         version: 1,
         offset: 0,
         partition: 0,
+        stream: personhog_leader::cache::Stream {
+            cluster: None,
+            topic: std::sync::Arc::from(mock_cluster.topic.as_str()),
+            partition: 0,
+        },
+        is_deleted: false,
     };
 
     // Nothing is produced yet, so each fetch parks awaiting the record;
@@ -2084,7 +2118,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
     let payload = person.encode_to_vec();
     producer
         .send(
-            FutureRecord::to(CHANGELOG_TOPIC)
+            FutureRecord::to(&mock_cluster.topic)
                 .key("1:7")
                 .partition(0)
                 .payload(&payload),
@@ -2100,6 +2134,68 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
     assert_eq!(recovered.id, 7);
 }
 
+#[tokio::test]
+async fn a_mark_on_another_cluster_recovers_from_its_broker() {
+    use personhog_coordination::types::ClusterEndpoint;
+    use rdkafka::producer::FutureRecord;
+
+    let Some(secondary) = common::secondary_kafka_bootstrap() else {
+        return;
+    };
+    let old_topic = common::owned_broker_topic_on(&secondary, 1).await;
+    let producer = common::create_kafka_producer_on(&secondary).await;
+    let person = Person {
+        id: 7,
+        uuid: "00000000-0000-0000-0000-000000000007".to_string(),
+        team_id: 1,
+        properties: b"{}".to_vec(),
+        properties_last_updated_at: Vec::new(),
+        properties_last_operation: Vec::new(),
+        created_at: 1_700_000_000,
+        version: 1,
+        is_identified: false,
+        is_user_id: None,
+        last_seen_at: None,
+        is_deleted: false,
+    };
+    producer
+        .send(
+            FutureRecord::to(&old_topic.topic)
+                .key("1:7")
+                .partition(0)
+                .payload(&person.encode_to_vec()),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("produce");
+
+    let recovery = test_recovery(KAFKA_BOOTSTRAP);
+    let mark = DirtyMark {
+        version: person.version,
+        offset: 0,
+        partition: 0,
+        stream: personhog_leader::cache::Stream {
+            cluster: Some(std::sync::Arc::new(ClusterEndpoint {
+                name: "old-cluster".to_string(),
+                hosts: secondary,
+                tls: false,
+            })),
+            topic: std::sync::Arc::from(old_topic.topic.as_str()),
+            partition: 0,
+        },
+        is_deleted: false,
+    };
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 7,
+    };
+    let recovered = recovery
+        .fetch_person_at(&mark, &key)
+        .await
+        .expect("recovers from the mark's cluster");
+    assert_eq!(recovered.id, 7);
+}
+
 // ============================================================
 // Admission-time property size enforcement, mirroring the Node
 // pipeline's policy: an update that would newly push a within-limit
@@ -2112,38 +2208,34 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
 async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     const PERSON_ID: i64 = 9;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
-    // The warnings topic is not auto-created; the fire-and-forget emit
-    // would silently drop without it.
-    mock_cluster
-        .create_topic("clickhouse_ingestion_warnings", 1, 1)
-        .unwrap();
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
+    // This test reads its warnings back, so they must be its own: on a
+    // shared topic it would collect whichever two arrived first.
+    let warnings_topic = common::owned_broker_topic(1).await;
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&mock_cluster.topic, NUM_PARTITIONS),
         Arc::clone(&dirty_index),
         recovery,
         PropertySizeLimits::new(655360, 524288),
         // Burst 2 so the trim and reject below — same team, same type —
         // both clear the throttle; the third enforcement action then
         // exercises suppression.
-        WarningsProducer::with_throttle(
-            kafka_producer,
-            "clickhouse_ingestion_warnings".to_string(),
+        common::local_warnings_producer(
+            &warnings_topic.topic,
             WarningThrottle::new(DEFAULT_THROTTLE_PERIOD, NonZeroU32::new(2).unwrap()),
-        ),
+        )
+        .await,
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -2179,6 +2271,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     let err = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2222,6 +2315,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2255,15 +2349,17 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         oversized_partition,
         CachedPerson {
             id: OVERSIZED_PERSON_ID,
-            properties: serde_json::json!({
+            properties: serde_json::to_vec(&serde_json::json!({
                 "email": "a@b.c", "custom_a": big, "custom_b": big,
-            }),
+            }))
+            .unwrap(),
             ..test_cached_person()
         },
     );
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: OVERSIZED_PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2328,13 +2424,14 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         unremediable_partition,
         CachedPerson {
             id: UNREMEDIABLE_PERSON_ID,
-            properties: serde_json::json!({ "email": huge_email }),
+            properties: serde_json::to_vec(&serde_json::json!({ "email": huge_email })).unwrap(),
             ..test_cached_person()
         },
     );
     let err = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: UNREMEDIABLE_PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2363,12 +2460,8 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         .create()
         .unwrap();
     let mut tpl = TopicPartitionList::new();
-    tpl.add_partition_offset(
-        "clickhouse_ingestion_warnings",
-        0,
-        rdkafka::Offset::Beginning,
-    )
-    .unwrap();
+    tpl.add_partition_offset(&warnings_topic.topic, 0, rdkafka::Offset::Beginning)
+        .unwrap();
     consumer.assign(&tpl).unwrap();
     let mut warnings = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -2433,6 +2526,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2450,6 +2544,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 2,
                 person_id: TEAM_2_PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2484,6 +2579,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2532,6 +2628,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2579,23 +2676,24 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
 #[tokio::test]
 async fn an_unresolved_version_is_never_reused() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
+    // One set for both: a second would fence the first at the broker.
+    let fenced =
+        common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
     let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&_mock_cluster.topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         Arc::clone(&emitted_versions),
     );
 
@@ -2619,6 +2717,7 @@ async fn an_unresolved_version_is_never_reused() {
     let response = service
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -2660,24 +2759,22 @@ async fn an_unresolved_version_is_never_reused() {
 async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
     let topic = format!("fenced_svc_{}", uuid::Uuid::new_v4().simple());
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
-    let fenced = Arc::new(common::fenced_producers_for(&topic));
+    let _mock_cluster = create_test_kafka().await;
+    let fenced = Arc::new(common::test_fenced_producers());
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        topic.clone(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        Some(Arc::clone(&fenced)),
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
@@ -2685,12 +2782,16 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
     let person = test_cached_person();
     let base_version = person.version;
     seed_person(&cache, 0, person);
-    fenced.acquire(0).await.expect("take the partition's fence");
+    fenced
+        .acquire(0, &target(&topic))
+        .await
+        .expect("take the partition's fence");
 
     // Each call must change something, or the handler takes its
     // no-change fast path and never reaches the produce at all.
     let update = |n: i64| {
         let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -2729,7 +2830,10 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
     // The bounced write never reached the broker, so its version is free
     // to derive again — the next successful write must land exactly one
     // past the first, not two.
-    fenced.acquire(0).await.expect("re-take the fence");
+    fenced
+        .acquire(0, &target(&topic))
+        .await
+        .expect("re-take the fence");
     let third = service
         .update_person_properties(update(3))
         .await
@@ -2779,25 +2883,23 @@ async fn an_unknown_outcome_keeps_its_version(
 ) {
     let topic = format!("fenced_uncertain_{}", uuid::Uuid::new_v4().simple());
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
-    let fenced = Arc::new(common::fenced_producers_for(&topic));
+    let _mock_cluster = create_test_kafka().await;
+    let fenced = Arc::new(common::test_fenced_producers());
     let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        topic.clone(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        Some(Arc::clone(&fenced)),
-        None,
+        Arc::clone(&fenced),
+        common::live_authority(),
         Arc::clone(&emitted_versions),
     );
 
@@ -2805,7 +2907,10 @@ async fn an_unknown_outcome_keeps_its_version(
     let person = test_cached_person();
     let base_version = person.version;
     seed_person(&cache, 0, person);
-    fenced.acquire(0).await.expect("take the partition's fence");
+    fenced
+        .acquire(0, &target(&topic))
+        .await
+        .expect("take the partition's fence");
 
     let cache_key = PersonCacheKey {
         team_id: 1,
@@ -2813,6 +2918,7 @@ async fn an_unknown_outcome_keeps_its_version(
     };
     let update = |n: i64| {
         let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -2869,24 +2975,22 @@ async fn scalar_fields_merge_rather_than_assign() {
     const HOUR_MS: i64 = 3_600_000;
     let topic = format!("scalar_merge_{}", uuid::Uuid::new_v4().simple());
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer.clone(),
-        topic.clone(),
         None,
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
-        None,
-        None,
+        common::fenced_producers_acquired(&topic, NUM_PARTITIONS as i32).await,
+        common::live_authority(),
         Arc::clone(&emitted_versions),
     );
 
@@ -2895,6 +2999,7 @@ async fn scalar_fields_merge_rather_than_assign() {
 
     let update = |set: serde_json::Value, identified: Option<bool>, seen: Option<i64>| {
         let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$identify".to_string(),

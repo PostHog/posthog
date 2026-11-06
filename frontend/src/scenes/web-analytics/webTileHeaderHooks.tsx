@@ -9,14 +9,16 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { ExportAdapter, copyTableData } from '~/queries/nodes/InsightViz/exportAdapters'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
 import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import { shareNudgeLogic } from './shareNudgeLogic'
-import { ExportAdapter, downloadTableDataAsCsv, exportTableData, getExportAdapter } from './webAnalyticsExportUtils'
+import { downloadTableDataAsCsv, getExportAdapter } from './webAnalyticsExportUtils'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+import { withoutWebQueryModifiers } from './webQueryModifiers'
 
 const NO_ACTIVE_TAB_INSIGHT_PROPS: InsightLogicProps = {
     dashboardItemId: 'new-AdHoc.web-analytics-no-active-tab-fallback',
@@ -91,7 +93,7 @@ export function useWebTileOverflowMenuItems({
                     if (!adapter) {
                         return
                     }
-                    exportTableData(adapter.toTableData(), ExporterFormat.CSV)
+                    copyTableData(adapter.toTableData(), ExporterFormat.CSV)
                     exportTriggered()
                 },
             },
@@ -102,7 +104,7 @@ export function useWebTileOverflowMenuItems({
                     if (!query) {
                         return
                     }
-                    void copyToClipboard(JSON.stringify(query, null, 2), 'query JSON')
+                    void copyToClipboard(JSON.stringify(withoutWebQueryModifiers(query), null, 2), 'query JSON')
                 },
             },
         ]

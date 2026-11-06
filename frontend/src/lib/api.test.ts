@@ -1,13 +1,15 @@
 import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest, NetworkError, ResponseBodyReadError } from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import * as oauthClient from 'lib/utils/oauthClient'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-// Mirrors SESSION_KEY in lib/oauth/oauthClient — the localStorage key its real getStoredSession reads.
+// Mirrors SESSION_KEY in lib/utils/oauthClient — the localStorage key its real getStoredSession reads.
 const OAUTH_SESSION_KEY = 'ph_oauth_session'
 
 describe('API helper', () => {
@@ -50,7 +52,7 @@ describe('API helper', () => {
             )
 
             expect(fakeFetch).toHaveBeenCalledWith(
-                '/api/environments/2/events?properties=%5B%7B%22key%22%3A%22something%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D&limit=10&orderBy=%5B%22-timestamp%22%5D',
+                '/api/projects/2/events?properties=%5B%7B%22key%22%3A%22something%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D&limit=10&orderBy=%5B%22-timestamp%22%5D',
                 {
                     signal: undefined,
                     headers: {
@@ -59,6 +61,38 @@ describe('API helper', () => {
                 }
             )
         })
+    })
+
+    describe('agent stream recovery requests', () => {
+        it.each(['history', 'django', 'proxy'] as const)(
+            'keeps the captured project and cancellation on the %s path',
+            async (path) => {
+                const controller = new AbortController()
+                ApiConfig.setCurrentTeamId(999)
+                if (path === 'history') {
+                    await api.tasks.runs.getLogEntries('task-1', 'run-1', { projectId: 123, signal: controller.signal })
+                } else {
+                    await api.tasks.runs.openStream('task-1', 'run-1', {
+                        projectId: 123,
+                        signal: controller.signal,
+                        lastEventId: '100-0',
+                        ...(path === 'proxy'
+                            ? { proxyTarget: { baseUrl: 'https://example.com', token: 'fake-stream-token' } }
+                            : {}),
+                    })
+                }
+                const streamHeaders = expect.objectContaining({ 'Last-Event-ID': '100-0' })
+                expect(fakeFetch).toHaveBeenCalledWith(
+                    path === 'proxy'
+                        ? 'https://example.com/v1/runs/run-1/stream?resync=1'
+                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'log_entries' : 'stream'}/`,
+                    expect.objectContaining({
+                        signal: controller.signal,
+                        ...(path !== 'history' ? { headers: streamHeaders } : {}),
+                    })
+                )
+            }
+        )
     })
 
     describe('dashboard tile streaming', () => {
@@ -112,7 +146,7 @@ describe('API helper', () => {
             const connectionError = new TypeError('Failed to fetch')
             streamOptions.onerror?.(connectionError)
             expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError)
-            expect(onError).toHaveBeenCalledWith(connectionError)
+            expect(onError).toHaveBeenCalledWith(connectionError, true)
 
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             streamOptions.onerror?.(abortError)
@@ -121,6 +155,19 @@ describe('API helper', () => {
 
             fetchEventSourceSpy.mockRestore()
             apiStatusLogicSpy.mockRestore()
+        })
+
+        it('ends a stream with an unreadable message so a new load can recover', async () => {
+            const fetchEventSourceSpy = jest
+                .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                .mockReturnValueOnce(new Promise<void>(() => {}))
+            const onError = jest.fn()
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+            const options = fetchEventSourceSpy.mock.calls[0][1]
+            options.onmessage?.({ data: 'invalid json', event: '', id: '' })
+            expect(onError).toHaveBeenCalledWith(expect.any(SyntaxError))
+            expect(options.signal?.aborted).toBe(true)
+            fetchEventSourceSpy.mockRestore()
         })
 
         it('reports a stream that closes before completion', async () => {
@@ -133,23 +180,167 @@ describe('API helper', () => {
             expect(onError).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: 'Dashboard stream ended before loading finished. Refresh the page.',
-                })
+                }),
+                false
             )
             fetchEventSourceSpy.mockRestore()
         })
     })
 
     describe('query endpoints', () => {
+        it('observes response phases without changing the query result', async () => {
+            const requestId = '11111111-1111-4111-8111-111111111111'
+            let clock = 10
+            const now = jest.spyOn(performance, 'now').mockImplementation(() => clock)
+            const observeTiming = jest.fn()
+            fakeFetch.mockImplementation(async () => {
+                clock = 110
+                return {
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'X-Request-ID': requestId, 'X-Envoy-Upstream-Service-Time': '80' }),
+                    text: async () => {
+                        clock = 310
+                        return JSON.stringify(FAKE_FETCH_RESULT)
+                    },
+                }
+            })
+
+            try {
+                await expect(
+                    api.query(
+                        { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                        { requestOptions: { onRequestTiming: observeTiming } }
+                    )
+                ).resolves.toEqual(FAKE_FETCH_RESULT)
+                expect(observeTiming).toHaveBeenCalledTimes(1)
+                expect(observeTiming).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        request_total_ms: 300,
+                        time_to_headers_ms: 100,
+                        body_read_ms: 200,
+                        json_parse_ms: 0,
+                        http_status: 200,
+                        http_request_id: requestId,
+                        envoy_upstream_ms: 80,
+                    })
+                )
+                expect(observeTiming.mock.calls[0][0]).not.toHaveProperty('url')
+                expect(observeTiming.mock.calls[0][0]).not.toHaveProperty('query')
+            } finally {
+                now.mockRestore()
+            }
+        })
+
+        it('keeps successful queries successful when a timing observer throws', async () => {
+            await expect(
+                api.query(
+                    { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                    {
+                        requestOptions: {
+                            onRequestTiming: () => {
+                                throw new Error('observer failed')
+                            },
+                        },
+                    }
+                )
+            ).resolves.toEqual(FAKE_FETCH_RESULT)
+        })
+
+        it('preserves a body-read cancellation when a timing observer throws', async () => {
+            const abort = new DOMException('Cancelled', 'AbortError')
+            fakeFetch.mockResolvedValue({
+                ok: true,
+                status: 200,
+                text: () => Promise.reject(abort),
+            })
+            const observer = jest.fn(() => {
+                throw new Error('observer failed')
+            })
+
+            await expect(
+                api.query(
+                    { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                    { requestOptions: { onRequestTiming: observer } }
+                )
+            ).rejects.toBe(abort)
+            expect(observer).toHaveBeenCalledWith(
+                expect.objectContaining({ http_status: 200, body_read_ms: expect.any(Number) })
+            )
+        })
+
+        it('observes rejected response headers before the error body is consumed', async () => {
+            let clock = 10
+            const now = jest.spyOn(performance, 'now').mockImplementation(() => clock)
+            const observer = jest.fn()
+            fakeFetch.mockImplementation(async () => {
+                clock = 110
+                return {
+                    ok: false,
+                    status: 500,
+                    headers: new Headers({ 'X-Request-ID': '11111111-1111-4111-8111-111111111111' }),
+                    json: async () => {
+                        clock = 310
+                        return { detail: 'error' }
+                    },
+                }
+            })
+            try {
+                await expect(
+                    api.query(
+                        { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                        { requestOptions: { onRequestTiming: observer } }
+                    )
+                ).rejects.toMatchObject({ status: 500 })
+                expect(observer).toHaveBeenCalledWith(
+                    expect.objectContaining({ request_total_ms: 300, time_to_headers_ms: 100, http_status: 500 })
+                )
+            } finally {
+                now.mockRestore()
+            }
+        })
+
         it('adds query kind to the query URL when present', async () => {
             await api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })
 
-            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/HogQLQuery/')
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/query/HogQLQuery/')
+        })
+
+        it('uses the accounts table endpoint for AccountsTableQuery', async () => {
+            ApiConfig.setCurrentProjectId(2)
+            await api.query({ kind: NodeKind.AccountsTableQuery, columns: [], filters: [] })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/accounts_table_query/')
+        })
+
+        it('uses the account persons endpoint for the users widget and preserves request options', async () => {
+            const onRequestTiming = jest.fn()
+            const query = {
+                kind: NodeKind.ActorsQuery,
+                source: { kind: NodeKind.AccountUsersQuery, accountId: 'account-demo' },
+                select: ['persons.id', 'properties.email'],
+            }
+            const result = await api.query(query, {
+                refresh: 'blocking',
+                requestOptions: { onRequestTiming },
+            })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/accounts/account-demo/persons/')
+            expect(JSON.parse(fakeFetch.mock.calls[0][1].body)).toEqual({ query, refresh: 'blocking' })
+            expect(result).toEqual(FAKE_FETCH_RESULT)
+            expect(onRequestTiming).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps other actor queries on the query endpoint', async () => {
+            await api.query({ kind: NodeKind.ActorsQuery, select: ['persons.id'] })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/query/ActorsQuery/')
         })
 
         it('keeps the query URL kind optional', async () => {
             await api.query({} as Record<string, any>)
 
-            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/')
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/query/')
         })
 
         it('throws when the query URL kind does not match the request body', async () => {
@@ -161,6 +352,28 @@ describe('API helper', () => {
                     }
                 )
             ).rejects.toThrow('Query kind mismatch')
+        })
+    })
+
+    describe('workflow endpoints', () => {
+        // These must carry the team id of the tab that issues them. `@current` resolves server-side to
+        // the account's last-switched project, so a second tab on another project makes every save 404.
+        it.each([
+            [
+                'hogFlows.updateHogFlow',
+                () => api.hogFlows.updateHogFlow('flow-1', {}),
+                '/api/projects/2/hog_flows/flow-1/',
+            ],
+            ['hogFlows.createHogFlow', () => api.hogFlows.createHogFlow({}), '/api/projects/2/hog_flows/'],
+            [
+                'messaging.updateTemplate',
+                () => api.messaging.updateTemplate('template-1', {}),
+                '/api/projects/2/messaging_templates/template-1/',
+            ],
+        ])("%s targets the tab's team, not @current", async (_name, request, expected) => {
+            await request()
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual(expected)
         })
     })
 
@@ -272,6 +485,37 @@ describe('API helper', () => {
             window.localStorage.removeItem(OAUTH_SESSION_KEY)
         })
 
+        it.each([new TypeError('Failed to fetch'), new DOMException('Cancelled', 'AbortError')])(
+            'clears the preceding response identity when an auth retry throws %s',
+            async (failure) => {
+                const refresh = jest.spyOn(oauthClient, 'refreshAccessToken').mockResolvedValue('refreshed-token')
+                const observer = jest.fn()
+                fakeFetch
+                    .mockResolvedValueOnce({
+                        ok: false,
+                        status: 401,
+                        headers: new Headers({ 'X-Request-ID': '11111111-1111-4111-8111-111111111111' }),
+                    })
+                    .mockRejectedValueOnce(failure)
+                try {
+                    await expect(
+                        api.query(
+                            { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                            { requestOptions: { onRequestTiming: observer } }
+                        )
+                    ).rejects.toBeInstanceOf(failure.name === 'AbortError' ? DOMException : NetworkError)
+                    expect(fakeFetch).toHaveBeenCalledTimes(2)
+                    expect(observer).toHaveBeenCalledTimes(1)
+                    expect(observer.mock.calls[0][0]).toMatchObject({ resource_timing_status: 'missing_request_id' })
+                    expect(observer.mock.calls[0][0].http_status).toBeUndefined()
+                    expect(observer.mock.calls[0][0].http_request_id).toBeUndefined()
+                    expect(observer.mock.calls[0][0].time_to_headers_ms).toBeUndefined()
+                } finally {
+                    refresh.mockRestore()
+                }
+            }
+        )
+
         it('attaches the bearer token to requests routed to the OAuth backend host', async () => {
             await api.get('/api/projects/2/insights/')
             const [url, options] = fakeFetch.mock.calls[0]
@@ -320,11 +564,34 @@ describe('API helper', () => {
             expect(error.message).toContain('[POST /api/environments/2/insights]')
         })
 
-        it('surfaces a body stream that fails mid-read as an ApiError instead of null', async () => {
+        it('surfaces a body stream that fails mid-read as a ResponseBodyReadError instead of null', async () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new TypeError('network error')) }))
             const error = await api.get('api/environments/2/insights').catch((e) => e)
+            // Still an ApiError, so every existing catch path degrades exactly as it did before.
             expect(error).toBeInstanceOf(ApiError)
+            expect(error).toBeInstanceOf(ResponseBodyReadError)
             expect(error.status).toBeUndefined()
+            expect(shouldReportApiFailure(error)).toBe(false)
+            // Error tracking drops this shape, so the aggregate event is what keeps a persistent
+            // truncation regression visible.
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'client_request_failure',
+                expect.objectContaining({
+                    pathname: '/api/environments/2/insights/',
+                    method: 'GET',
+                    status: 200,
+                    failure_reason: 'response_body_read',
+                })
+            )
+        })
+
+        it('keeps a fully-read but unparsable body reportable', async () => {
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('<html></html>') }))
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error).not.toBeInstanceOf(ResponseBodyReadError)
+            expect(shouldReportApiFailure(error)).toBe(true)
+            expect(posthog.capture).not.toHaveBeenCalledWith('client_request_failure', expect.anything())
         })
 
         it.each([
@@ -336,10 +603,220 @@ describe('API helper', () => {
             await expect(api.get('api/environments/2/insights')).resolves.toBeNull()
         })
 
+        it('resolves a 204 to null even when reading its empty body rejects', async () => {
+            fakeFetch.mockResolvedValue(
+                fakeResponse({ status: 204, text: () => Promise.reject(new TypeError('Load failed')) })
+            )
+            await expect(api.get('api/projects/2/wizard/sessions/latest/')).resolves.toBeNull()
+        })
+
         it('propagates an AbortError instead of masquerading as a null result', async () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
             await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
+        })
+    })
+
+    describe('requests that never reach the server', () => {
+        // `pagehide` sets a module-level flag in lib/api, so clear it after every case instead of
+        // letting one test's simulated navigation classify the next test's failure.
+        afterEach(() => {
+            window.dispatchEvent(new Event('pageshow'))
+            window.localStorage.removeItem(OAUTH_SESSION_KEY)
+        })
+
+        it.each([
+            ['offline', false, 'Network request failed: device is offline'],
+            ['network', true, 'Network request failed'],
+        ])('classifies a fetch rejection as %s', async (reason, onLine, message) => {
+            Object.defineProperty(window.navigator, 'onLine', { value: onLine, configurable: true })
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+            expect(error.reason).toBe(reason)
+            // The message is the only channel the reason has: the automatic unhandled-rejection
+            // capture carries no custom properties, so `before_send` and grouping rules match on it
+            expect(error.message).toBe(message)
+            // Recovery paths across the app read `status === undefined` as "transient, may be retried"
+            expect(error.status).toBeUndefined()
+        })
+
+        it('classifies a fetch rejection during page teardown as navigating', async () => {
+            window.dispatchEvent(new Event('pagehide'))
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toMatchObject({ reason: 'navigating' })
+        })
+
+        it('reports the failure as a client_request_failure naming the endpoint', async () => {
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            await api.get('api/environments/2/insights').catch(() => null)
+
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'client_request_failure',
+                expect.objectContaining({
+                    pathname: '/api/environments/2/insights/',
+                    method: 'GET',
+                    // 0 keeps these separable from failures that did come back with an HTTP status
+                    status: 0,
+                    failure_reason: 'network',
+                })
+            )
+        })
+
+        it('still classifies the failure when the request URL cannot be parsed', async () => {
+            // `backendHost` comes straight from localStorage, so an out-of-range port reaches the
+            // request URL, and `fetch` rejects it with a TypeError. Deriving the pathname must not
+            // throw on the same URL, which would replace the classified failure with a crash.
+            window.localStorage.setItem(
+                OAUTH_SESSION_KEY,
+                JSON.stringify({
+                    backendHost: 'https://:99999',
+                    clientId: 'client',
+                    accessToken: 'oauth-token',
+                    refreshToken: 'refresh',
+                    expiresAt: 9999999999999,
+                })
+            )
+            fakeFetch.mockRejectedValue(new TypeError('Failed to parse URL'))
+
+            const error = await api.get('/api/projects/2/insights/').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+        })
+
+        it('classifies a cross-realm fetch failure that fails instanceof TypeError', async () => {
+            // A TypeError thrown in another realm (an iframe) or a `fetch` swapped by a browser
+            // extension fails `instanceof TypeError`, so matching only on the class would drop it
+            // to an unclassified per-endpoint ApiError. Match the name and known message instead.
+            const crossRealmError = { name: 'TypeError', message: 'Failed to fetch' }
+            fakeFetch.mockRejectedValue(crossRealmError)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+        })
+
+        it('leaves a throw that is not a fetch failure as an unclassified ApiError', async () => {
+            // A real fault in the request path must not be relabelled as connectivity, or
+            // `dropUnactionableNetworkExceptions` would filter it out of error tracking.
+            fakeFetch.mockRejectedValue(new Error('the fetcher itself broke'))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error).not.toBeInstanceOf(NetworkError)
+            expect(error.message).toBe('the fetcher itself broke')
+        })
+
+        it('keeps a thrown object readable instead of stringifying it into the message', async () => {
+            // The caught value used to be passed as the `message`, so an object read back as
+            // "[object Object]" wherever the app prints one, and `detail` and `code` came back null.
+            const thrown = { detail: 'You lack access to this collection.', code: 'permission_denied' }
+            fakeFetch.mockRejectedValue(thrown)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.message).toBe('You lack access to this collection.')
+            expect(error.code).toBe('permission_denied')
+            expect(error.data).toBe(thrown)
+        })
+
+        it('keeps the original stack as the cause', async () => {
+            // Every ApiError is built in one file, so they share its stack. posthog-js walks `cause`
+            // and reports the chained frames; it never reads `data`, so only this keeps a reported
+            // request-path fault locatable.
+            const thrown = new Error('the fetcher itself broke')
+            fakeFetch.mockRejectedValue(thrown)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.cause).toBe(thrown)
+        })
+    })
+
+    describe('uploads reporting progress', () => {
+        class FakeXMLHttpRequest {
+            static last: FakeXMLHttpRequest
+            upload: { onprogress?: (event: { loaded: number; total: number; lengthComputable: boolean }) => void } = {}
+            onload?: () => void
+            onerror?: () => void
+            onabort?: () => void
+            status = 200
+            statusText = 'OK'
+            responseText = '{"upload_id":"abc"}'
+
+            constructor() {
+                FakeXMLHttpRequest.last = this
+            }
+            open(): void {}
+            setRequestHeader(): void {}
+            getAllResponseHeaders(): string {
+                return 'content-type: application/json'
+            }
+            send(): void {}
+            abort(): void {}
+        }
+
+        const realXMLHttpRequest = window.XMLHttpRequest
+
+        beforeEach(() => {
+            window.XMLHttpRequest = FakeXMLHttpRequest as unknown as typeof XMLHttpRequest
+        })
+
+        afterEach(() => {
+            window.XMLHttpRequest = realXMLHttpRequest
+        })
+
+        it('reports how much of the body has been sent and resolves with the parsed response', async () => {
+            const onUploadProgress = jest.fn()
+            const result = api.dataWarehouseTables.uploadFile(new FormData(), { onUploadProgress })
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.upload.onprogress?.({ loaded: 512, total: 1024, lengthComputable: true })
+            xhr.onload?.()
+
+            await expect(result).resolves.toEqual({ upload_id: 'abc' })
+            expect(onUploadProgress).toHaveBeenCalledWith({ loaded: 512, total: 1024 })
+        })
+
+        it('reports an unmeasurable body as a null total', async () => {
+            const onUploadProgress = jest.fn()
+            const result = api.dataWarehouseTables.uploadFile(new FormData(), { onUploadProgress })
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.upload.onprogress?.({ loaded: 512, total: 0, lengthComputable: false })
+            xhr.onload?.()
+            await result
+
+            expect(onUploadProgress).toHaveBeenCalledWith({ loaded: 512, total: null })
+        })
+
+        it('raises the server message on a rejected upload instead of resolving', async () => {
+            const result = api.dataWarehouseTables.uploadFile(new FormData())
+
+            const xhr = FakeXMLHttpRequest.last
+            xhr.status = 400
+            xhr.statusText = 'Bad Request'
+            xhr.responseText = '{"message":"File is too large"}'
+            xhr.onload?.()
+
+            const error = await result.catch((e) => e)
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error.data.message).toBe('File is too large')
+        })
+
+        it('classifies a request that never reached the server as a network failure', async () => {
+            const result = api.dataWarehouseTables.uploadFile(new FormData())
+
+            FakeXMLHttpRequest.last.onerror?.()
+
+            await expect(result).rejects.toBeInstanceOf(NetworkError)
         })
     })
 
@@ -356,6 +833,27 @@ describe('API helper', () => {
             expect(request.assembleEndpointUrl()).toEqual(
                 'organizations/123/feature_flags/my-feature-flag%2Ffoo%2Fbar%3Fbaz%3Dqux'
             )
+        })
+    })
+
+    describe('tracing', () => {
+        it('sends the trace id as one path segment', async () => {
+            await api.tracing.getTrace('a/b?c')
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/tracing/spans/trace/a%2Fb%3Fc/')
+        })
+    })
+
+    describe('tasks', () => {
+        it.each([
+            ['task/id', 'projects/2/tasks/task%2Fid'],
+            ['../other', 'projects/2/tasks/..%2Fother'],
+        ])('keeps task ID %s inside the task path', (taskId, expectedPath) => {
+            expect(new ApiRequest().task(taskId).assembleEndpointUrl()).toEqual(expectedPath)
+        })
+
+        it.each(['.', '..'])('rejects task ID dot segment %s', (taskId) => {
+            expect(() => new ApiRequest().task(taskId)).toThrow('Invalid task ID')
         })
     })
 })

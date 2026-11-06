@@ -13,7 +13,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { fullName } from 'lib/utils/strings'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { editorSceneLogic } from './editorSceneLogic'
 import { InsightQueryVersion, insightHistoryLogic } from './insightHistoryLogic'
@@ -125,7 +125,7 @@ function OriginalVersionRow({
     sql,
     isCurrent,
 }: {
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     sql: string
     isCurrent: boolean
 }): JSX.Element {
@@ -186,7 +186,7 @@ function SqlDiffViewer({ before, after }: { before: string; after: string }): JS
     )
 }
 
-export function InsightHistory({ insight }: { insight: QueryBasedInsightModel | null }): JSX.Element {
+export function InsightHistory({ insight }: { insight: InsightModel | null }): JSX.Element {
     return insight ? (
         <InsightHistoryContent insight={insight} />
     ) : (
@@ -205,7 +205,7 @@ function InsightHistorySkeleton(): JSX.Element {
     )
 }
 
-function InsightHistoryContent({ insight }: { insight: QueryBasedInsightModel }): JSX.Element {
+function InsightHistoryContent({ insight }: { insight: InsightModel }): JSX.Element {
     const logic = insightHistoryLogic({ insightId: insight.id })
     const { versions, activityPageLoading, historyComplete } = useValues(logic)
 

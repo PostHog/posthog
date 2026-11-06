@@ -10,6 +10,8 @@ from products.replay_vision.backend.temporal.scanners.base import (
     BaseScannerOutput,
     Segment,
     confidence_field,
+    key_moment_field,
+    thumbnail_field,
 )
 
 MonitorVerdict = Literal["yes", "no", "inconclusive"]
@@ -18,7 +20,10 @@ _VERDICT_DESCRIPTION = (
     "Did the condition described in the scanner intent occur during the session? "
     "`yes` if it did, `no` if it didn't, `inconclusive` only when the session genuinely does not provide enough signal to decide."
 )
-_REASONING_DESCRIPTION = "One paragraph grounding the verdict in concrete moments from the video and events."
+_REASONING_DESCRIPTION = (
+    "One or more short paragraphs of two to four sentences, separated by a blank line, grounding the verdict in "
+    "concrete moments from the video and events."
+)
 
 
 class MonitorLlmResponse(BaseModel, frozen=True):
@@ -28,6 +33,8 @@ class MonitorLlmResponse(BaseModel, frozen=True):
     reasoning: str = Field(description=_REASONING_DESCRIPTION)
     verdict: MonitorVerdict = Field(description=_VERDICT_DESCRIPTION)
     confidence: float = confidence_field()
+    key_moment_t: int | None = key_moment_field()
+    thumbnail_t: int | None = thumbnail_field()
 
 
 class MonitorOutput(BaseScannerOutput, frozen=True):

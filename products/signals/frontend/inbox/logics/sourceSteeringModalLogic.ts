@@ -1,0 +1,301 @@
+import { LogicWrapper, MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { ApiError } from 'lib/api-error'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { signalsSourceConfigsPartialUpdate } from 'products/signals/frontend/generated/api'
+import type { SignalSourceConfigApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { captureSignalSourceSteeringChanged } from '../inboxAnalytics'
+import { signalSourcesLogic } from '../signalSourcesLogic'
+import {
+    SOURCE_DEFAULT_NOT_ACTIONABLE_KEY,
+    SOURCE_STEERING_KEY,
+    SOURCE_STEERING_MAX_LENGTH,
+    SignalSourceConfig,
+    SignalSourceProduct,
+} from '../types'
+
+export interface SourceSteeringFormValues {
+    steering: string
+}
+
+/** A starting point offered in the modal: `label` is the chip, `line` is what it appends. */
+interface SteeringExampleTemplate {
+    label: string
+    line: string
+}
+
+const DEFAULT_STEERING_EXAMPLES: SteeringExampleTemplate[] = [
+    { label: 'Skip chores', line: 'Skip anything labeled chore, internal, or dependencies.' },
+    { label: 'Billing only', line: 'Only report issues about billing, checkout, or payments.' },
+    { label: 'Crashes first', line: 'Anything mentioning a crash, outage, or data loss is worth reporting.' },
+]
+
+/** Sources whose records have no labels or issue text, so the default examples would not apply. */
+const SOURCE_STEERING_EXAMPLES: Partial<Record<SignalSourceProduct, SteeringExampleTemplate[]>> = {
+    [SignalSourceProduct.ErrorTracking]: [
+        { label: 'Skip noise', line: 'Skip errors from browser extensions, bots, or local development.' },
+        { label: 'Checkout first', line: 'Errors on checkout or payment pages are always worth reporting.' },
+        { label: 'Crashes first', line: 'Anything that crashes the app or loses data is worth reporting.' },
+    ],
+    [SignalSourceProduct.HealthChecks]: [
+        { label: 'Skip SDK updates', line: 'Skip outdated SDK warnings.' },
+        { label: 'Skip source maps', line: 'Skip missing source map warnings.' },
+        { label: 'Data gaps first', line: 'Missing events and failed warehouse syncs are always worth reporting.' },
+    ],
+    [SignalSourceProduct.Analytics]: [
+        {
+            label: 'Skip small changes',
+            line: 'Skip alerts where the metric moved only a little or recovered soon after.',
+        },
+        { label: 'Revenue first', line: 'Alerts on revenue, signups, or checkout metrics are always worth reporting.' },
+        { label: 'Skip test insights', line: 'Skip alerts on insights with test or draft in the name.' },
+    ],
+}
+
+/** Sources that emit each signal as it happens, so their guidance has no sync to wait for. */
+const DIRECT_SOURCE_PRODUCTS: ReadonlySet<SignalSourceProduct> = new Set([
+    SignalSourceProduct.ErrorTracking,
+    SignalSourceProduct.HealthChecks,
+    SignalSourceProduct.Analytics,
+])
+
+export interface SteeringExample {
+    label: string
+    line: string
+    /** What the field would hold once this example is appended. */
+    result: string
+    /** False when appending would cross the cap, which would leave the form unsavable. */
+    fits: boolean
+}
+
+export interface SourceSteeringModalLogicProps {
+    /**
+     * Every config row the card's guidance applies to. Most sources have one; error tracking has a
+     * row per signal type, and the card steers the source as a whole, so a save writes all of them.
+     */
+    sourceConfigs: SignalSourceConfig[]
+    onClose: () => void
+}
+
+/** Whether the team has any steering set on a source, for the roster's add-vs-edit affordance. */
+export function sourceSteeringIsSet(config: SignalSourceConfig): boolean {
+    const steering = config.config[SOURCE_STEERING_KEY]
+    return (
+        (typeof steering === 'string' && steering.trim().length > 0) ||
+        config.config[SOURCE_DEFAULT_NOT_ACTIONABLE_KEY] === true
+    )
+}
+
+/**
+ * Whether a source still carries the retired posture flag. The gate keeps honoring it, so the
+ * modal says so rather than showing an empty field that implies nothing is filtering.
+ */
+export function sourceHasLegacyPosture(config: SignalSourceConfig): boolean {
+    return config.config[SOURCE_DEFAULT_NOT_ACTIONABLE_KEY] === true
+}
+
+// Type-checked reads: the config blob is an open object, so a non-string steering value
+// (possible via the raw API before the serializer validation landed) must degrade to the
+// defaults rather than break the form.
+// Saves write every row, so the rows normally agree. They can disagree when one was written
+// through the API on its own, and then showing the text that is filtering beats showing a blank
+// field that reads as "nothing is set".
+function steeringFormDefaults(sourceConfigs: SignalSourceConfig[]): SourceSteeringFormValues {
+    for (const config of sourceConfigs) {
+        const steering = config.config[SOURCE_STEERING_KEY]
+        if (typeof steering === 'string' && steering.trim()) {
+            return { steering }
+        }
+    }
+    return { steering: '' }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sourceSteeringModalLogicValues {
+    sourceConfigs: SignalSourceConfig[] | null // signalSourcesLogic
+    currentTeamId: number | null // teamLogic
+    isSourceSteeringSubmitting: boolean
+    isSourceSteeringValid: boolean
+    showSourceSteeringErrors: boolean
+    sourceSteering: SourceSteeringFormValues
+    sourceSteeringAllErrors: Record<string, any>
+    sourceSteeringChanged: boolean
+    sourceSteeringErrors: DeepPartialMap<SourceSteeringFormValues, ValidationErrorType>
+    sourceSteeringHasErrors: boolean
+    sourceSteeringManualErrors: Record<string, any>
+    sourceSteeringTouched: boolean
+    sourceSteeringTouches: Record<string, boolean>
+    sourceSteeringValidationErrors: DeepPartialMap<SourceSteeringFormValues, ValidationErrorType>
+    steeringAppliesFrom: string
+    steeringExamples: SteeringExample[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sourceSteeringModalLogicActions {
+    loadSourceConfigs: () => any // signalSourcesLogic
+    replaceSourceConfig: (config: SignalSourceConfig) => {
+        config: SignalSourceConfig
+    } // signalSourcesLogic
+    resetSourceSteering: (values?: SourceSteeringFormValues) => {
+        values?: SourceSteeringFormValues
+    }
+    setSourceSteeringManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setSourceSteeringValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setSourceSteeringValues: (values: DeepPartial<SourceSteeringFormValues>) => {
+        values: DeepPartial<SourceSteeringFormValues>
+    }
+    submitSourceSteering: () => {
+        value: boolean
+    }
+    submitSourceSteeringFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitSourceSteeringRequest: (sourceSteering: SourceSteeringFormValues) => {
+        sourceSteering: SourceSteeringFormValues
+    }
+    submitSourceSteeringSuccess: (sourceSteering: SourceSteeringFormValues) => {
+        sourceSteering: SourceSteeringFormValues
+    }
+    touchSourceSteeringField: (key: string) => {
+        key: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sourceSteeringModalLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        steeringExamples: (
+            sourceSteering: SourceSteeringFormValues,
+            sourceConfigs: SignalSourceConfig[]
+        ) => SteeringExample[]
+        steeringAppliesFrom: (sourceConfigs: SignalSourceConfig[]) => string
+    }
+}
+
+export type sourceSteeringModalLogicType = MakeLogicType<
+    sourceSteeringModalLogicValues,
+    sourceSteeringModalLogicActions,
+    SourceSteeringModalLogicProps,
+    sourceSteeringModalLogicMeta
+>
+
+export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType> = kea<sourceSteeringModalLogicType>([
+    path(['scenes', 'inbox', 'logics', 'sourceSteeringModalLogic']),
+    props({} as SourceSteeringModalLogicProps),
+    key((logicProps) => logicProps.sourceConfigs.map((config) => config.id).join(',')),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId'], signalSourcesLogic, ['sourceConfigs']],
+        actions: [signalSourcesLogic, ['loadSourceConfigs', 'replaceSourceConfig']],
+    })),
+    forms(({ props: logicProps, actions, values }) => ({
+        sourceSteering: {
+            defaults: steeringFormDefaults(logicProps.sourceConfigs),
+            errors: ({ steering }: SourceSteeringFormValues) => ({
+                steering:
+                    steering.length > SOURCE_STEERING_MAX_LENGTH
+                        ? `Keep it to ${SOURCE_STEERING_MAX_LENGTH} characters or fewer`
+                        : undefined,
+            }),
+            submit: async (formValues: SourceSteeringFormValues) => {
+                if (values.currentTeamId === null) {
+                    lemonToast.error('Select a project before saving')
+                    throw new Error('No project selected')
+                }
+                const steering = formValues.steering.trim()
+                const analyticsParams = {
+                    sourceProduct: logicProps.sourceConfigs[0].source_product,
+                    // One card, so one event: the types it wrote, rather than one event per row.
+                    sourceType: logicProps.sourceConfigs
+                        .map((c: SignalSourceConfig) => c.source_type)
+                        .sort()
+                        .join(','),
+                    steeringLength: steering.length,
+                }
+                // Every row gets its turn even after one fails, so a failure leaves the fewest rows
+                // behind. Retrying writes the same text to all of them, so a partial save heals.
+                let firstError: unknown = null
+                for (const sourceConfig of logicProps.sourceConfigs) {
+                    let updated: SignalSourceConfigApi
+                    try {
+                        updated = await signalsSourceConfigsPartialUpdate(
+                            String(values.currentTeamId),
+                            sourceConfig.id,
+                            {
+                                config_set: { [SOURCE_STEERING_KEY]: steering },
+                                config_remove: [SOURCE_DEFAULT_NOT_ACTIONABLE_KEY],
+                            }
+                        )
+                    } catch (error) {
+                        firstError = firstError ?? error
+                        continue
+                    }
+                    // Overlay the saved row onto the cached list before the reload: if the reload is
+                    // slow or fails, a reopened modal would otherwise derive its form from the stale
+                    // config and a second save could restore the obsolete rules.
+                    actions.replaceSourceConfig({
+                        ...sourceConfig,
+                        enabled: updated.enabled ?? sourceConfig.enabled,
+                        config: updated.config ?? sourceConfig.config,
+                        updated_at: updated.updated_at,
+                        // The generated type widens the serializer's sync status to string | null.
+                        status: (updated.status ?? null) as SignalSourceConfig['status'],
+                    })
+                }
+                if (firstError !== null) {
+                    captureSignalSourceSteeringChanged({ ...analyticsParams, success: false })
+                    const apiError = firstError instanceof ApiError ? firstError : null
+                    lemonToast.error(apiError?.detail ?? "Couldn't save your guidance. Please try again.")
+                    actions.loadSourceConfigs()
+                    throw firstError
+                }
+                captureSignalSourceSteeringChanged({ ...analyticsParams, success: true })
+                lemonToast.success(`Guidance saved. It applies ${values.steeringAppliesFrom}.`)
+                actions.loadSourceConfigs()
+                logicProps.onClose()
+            },
+        },
+    })),
+    selectors({
+        // The textarea's maxLength only bounds typing, so an example appended programmatically
+        // could push the value past the cap and leave the form unsavable with no edit of the
+        // user's own. The view renders `result` and disables the chip when it does not fit.
+        steeringExamples: [
+            (s, p) => [s.sourceSteering, p.sourceConfigs],
+            ({ steering }: SourceSteeringFormValues, sourceConfigs: SignalSourceConfig[]): SteeringExample[] =>
+                (
+                    (sourceConfigs.length > 0 && SOURCE_STEERING_EXAMPLES[sourceConfigs[0].source_product]) ||
+                    DEFAULT_STEERING_EXAMPLES
+                ).map(({ label, line }) => {
+                    const current = steering.trimEnd()
+                    const result = current ? `${current}\n${line}` : line
+                    return { label, line, result, fits: result.length <= SOURCE_STEERING_MAX_LENGTH }
+                }),
+        ],
+        steeringAppliesFrom: [
+            (_, p) => [p.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[]): string =>
+                sourceConfigs.length > 0 && DIRECT_SOURCE_PRODUCTS.has(sourceConfigs[0].source_product)
+                    ? 'to new signals from now on'
+                    : 'from the next sync',
+        ],
+    }),
+])

@@ -24,17 +24,15 @@ import {
 import api from 'lib/api'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
-import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
-import { escapeHogQLString, hogql } from '~/queries/utils'
-import { DateMappingOption, HogFunctionTypeType, PersonType } from '~/types'
+import { HogFunctionTypeType, PersonType } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { LogsViewer } from '../logs/LogsViewer'
 import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
@@ -52,64 +50,14 @@ import {
     isRerunnableHogFunctionType,
     isRerunWrapperKind,
 } from './hogInvocationsLogic'
+import { INVOCATIONS_DATE_OPTIONS } from './invocationsDateOptions'
 import { InvocationsSparkline } from './InvocationsSparkline'
 
 const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'running', label: 'Running' },
     { value: 'succeeded', label: 'Succeeded' },
     { value: 'failed', label: 'Failed' },
-]
-
-/**
- * Preset windows mirroring the Logs viewer — covers minute-level scoping
- * (5m / 30m / 1h) plus the longer windows the table already supported.
- * Pairs with `allowTimePrecision` + `allowFixedRangeWithTime` so custom
- * ranges accept minute-precision timestamps.
- */
-const INVOCATIONS_DATE_OPTIONS: DateMappingOption[] = [
-    { key: CUSTOM_OPTION_KEY, values: [] },
-    {
-        key: 'Last 5 minutes',
-        values: ['-5M'],
-        getFormattedDate: (date) => date.subtract(5, 'minute').format(DATE_TIME_FORMAT),
-        defaultInterval: 'minute',
-    },
-    {
-        key: 'Last 30 minutes',
-        values: ['-30M'],
-        getFormattedDate: (date) => date.subtract(30, 'minute').format(DATE_TIME_FORMAT),
-        defaultInterval: 'minute',
-    },
-    {
-        key: 'Last 1 hour',
-        values: ['-1h'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(1, 'h'), date),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 4 hours',
-        values: ['-4h'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(4, 'h'), date),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 24 hours',
-        values: ['-24h'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 7 days',
-        values: ['-7d'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
-        defaultInterval: 'day',
-    },
-    {
-        key: 'Last 30 days',
-        values: ['-30d'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(30, 'd'), date.endOf('d')),
-        defaultInterval: 'day',
-    },
+    { value: 'canceled', label: 'Canceled' },
 ]
 
 const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
@@ -118,6 +66,8 @@ const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
             return 'success'
         case 'failed':
             return 'danger'
+        case 'canceled':
+            return 'muted'
         case 'running':
         default:
             return 'warning'
@@ -265,6 +215,8 @@ export function HogInvocations({
         personPropertiesById,
         sparkline,
         sparklineLoading,
+        cancellingInvocationIds,
+        cancellingAll,
     } = useValues(logic)
     const {
         loadMore,
@@ -275,6 +227,8 @@ export function HogInvocations({
         setSelectedIds,
         setExpanded,
         rerunInvocations,
+        cancelInvocations,
+        cancelAllInvocations,
         bulkRerun,
     } = useActions(logic)
     const [rerunModalOpen, setRerunModalOpen] = useState(false)
@@ -471,6 +425,37 @@ export function HogInvocations({
                 if (isRerunWrapperKind(row.function_kind)) {
                     return null
                 }
+                // Cancel is workflows-only: a workflow run in flight is usually parked on a delay
+                // or wait that an operator may need to stop, while a hog function run completes in
+                // seconds, so its in-flight rows keep the disabled Rerun instead.
+                if (functionKind === 'hog_flow' && row.status === 'running') {
+                    return (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            status="danger"
+                            loading={cancellingInvocationIds.includes(row.invocation_id)}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Cancel this run?',
+                                    // Two sentences of copy; the default dialog width spans the screen.
+                                    maxWidth: '30rem',
+                                    content:
+                                        'The run stops before its next step. Steps that already ran, ' +
+                                        'like sent emails, are not undone.',
+                                    primaryButton: {
+                                        children: 'Cancel run',
+                                        status: 'danger',
+                                        onClick: () => cancelInvocations([row.invocation_id]),
+                                    },
+                                    secondaryButton: { children: 'Keep running' },
+                                })
+                            }}
+                        >
+                            Cancel
+                        </LemonButton>
+                    )
+                }
                 return (
                     <LemonButton
                         size="xsmall"
@@ -588,6 +573,35 @@ export function HogInvocations({
                     >
                         Refresh
                     </LemonButton>
+                    {/* Workflow-wide cancel. Hidden in a parent-run-scoped or compact view, where
+                        its whole-workflow scope would read as scoped to the visible subset. */}
+                    {functionKind === 'hog_flow' && !compact && !parentRunId ? (
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            icon={<IconX />}
+                            loading={cancellingAll}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Cancel all in-flight runs?',
+                                    maxWidth: '30rem',
+                                    content:
+                                        'Every run of this workflow that has not finished stops before its ' +
+                                        'next step, including runs parked on delays and waits. Steps that ' +
+                                        'already ran, like sent emails, are not undone.',
+                                    primaryButton: {
+                                        children: 'Cancel all runs',
+                                        status: 'danger',
+                                        onClick: () => cancelAllInvocations(),
+                                    },
+                                    secondaryButton: { children: 'Keep running' },
+                                })
+                            }}
+                        >
+                            Cancel in-flight runs
+                        </LemonButton>
+                    ) : null}
                     {compact ? null : (
                         <LemonButton
                             size="small"

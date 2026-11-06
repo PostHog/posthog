@@ -5,12 +5,20 @@ from uuid import UUID
 import structlog
 from temporalio import activity
 
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
+from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from products.business_knowledge.backend.logic import get_document_window, rerank_chunks, search_knowledge_for_team
+from products.business_knowledge.backend.logic import (
+    RetrievalTrace,
+    get_document_window,
+    rerank_chunks,
+    search_knowledge_for_team,
+    stable_trace_id,
+)
 from products.business_knowledge.backend.models import KnowledgeChunk
 from products.conversations.backend.temporal.ai_reply.constants import (
     MAX_CHUNKS,
@@ -27,30 +35,30 @@ logger = structlog.get_logger(__name__)
 @close_db_connections
 async def support_retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
     """Search BK + rerank. On widen attempts, also fetch document windows around prior citations."""
+    info = activity.info()
+    # Stable across retries of this activity, so a retried search is counted once.
+    trace_seed = f"{info.workflow_id}:{info.workflow_run_id}:{info.activity_id}"
     async with Heartbeater():
-        return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(
-            input.team_id, input.queries, input.prior_citation_chunk_ids, input.widen
-        )
+        return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(input, trace_seed)
 
 
-def _retrieve_sync(
-    team_id: int, queries: list[str], prior_citation_chunk_ids: list[str], widen: bool
-) -> RetrieveOutput:
-    team = Team.objects.select_related("organization").get(id=team_id)
+def _retrieve_sync(input: RetrieveInput, trace_seed: str) -> RetrieveOutput:
+    team = Team.objects.select_related("organization").get(id=input.team_id)
     all_results = []
     seen_chunk_ids: set[str] = set()
 
-    for query in queries:
-        results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT)
-        reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K)
+    for index, query in enumerate(input.queries):
+        trace = RetrievalTrace(surface="support", trace_id=stable_trace_id(trace_seed, index, query))
+        results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT, trace=trace)
+        reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K, trace=trace)
         for r in reranked:
             cid = str(r.chunk_id)
             if cid not in seen_chunk_ids:
                 seen_chunk_ids.add(cid)
                 all_results.append(r)
 
-    if widen and prior_citation_chunk_ids:
-        for cid_str in prior_citation_chunk_ids[:5]:
+    if input.widen and input.prior_citation_chunk_ids:
+        for cid_str in input.prior_citation_chunk_ids[:5]:
             # Citations can be doc URLs (from the docs-search MCP tool) rather than BK
             # chunk UUIDs — only BK chunks can be widened via get_document_window, so
             # skip anything that isn't a UUID instead of treating it as an error.
@@ -61,9 +69,9 @@ def _retrieve_sync(
             try:
                 # KnowledgeChunk is fail-closed (TeamScopedManager) — scope explicitly
                 # since we're outside any request context (Temporal activity).
-                chunk = KnowledgeChunk.objects.for_team(team_id).get(id=chunk_uuid)
+                chunk = KnowledgeChunk.objects.for_team(input.team_id).get(id=chunk_uuid)
                 window = get_document_window(
-                    team_id=team_id,
+                    team_id=input.team_id,
                     document_id=chunk.document_id,
                     center_ordinal=chunk.ordinal,
                     radius=WIDEN_RADIUS,
@@ -76,4 +84,21 @@ def _retrieve_sync(
             except Exception:
                 logger.warning("support_reply_widen_failed", chunk_id=cid_str, exc_info=True)
 
-    return RetrieveOutput(chunk_ids=[str(r.chunk_id) for r in all_results[:MAX_CHUNKS]])
+    chunk_ids = [str(r.chunk_id) for r in all_results[:MAX_CHUNKS]]
+
+    try:
+        ph_background_capture()(
+            distinct_id=str(team.uuid),
+            event="business knowledge searched",
+            properties={
+                "surface": "support",
+                "query_count": len(input.queries),
+                "result_count": len(chunk_ids),
+                "library_scoped": False,
+            },
+            groups=groups(team=team),
+        )
+    except Exception:
+        logger.warning("business_knowledge_search_capture_failed", team_id=team.id, exc_info=True)
+
+    return RetrieveOutput(chunk_ids=chunk_ids)

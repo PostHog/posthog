@@ -1,0 +1,40 @@
+rules:
+    - id: no-drf-session-authentication
+      message: |
+          Use `posthog.auth.SessionAuthentication` instead of
+          `rest_framework.authentication.SessionAuthentication`.
+
+          Only PostHog's subclass enforces org-level Two-Factor Authentication
+          (`enforce_two_factor`) and verified-domain checking
+          (`enforce_verified_domain`). DRF's class skips both.
+
+          You imported the DRF class. Change to:
+
+              from posthog.auth import SessionAuthentication
+
+          (PostHog's `SessionAuthentication` is a subclass of DRF's, so all
+          `isinstance` checks and type annotations remain compatible.)
+
+          Suppress a legitimate exception with:
+          `# nosemgrep: no-drf-session-authentication -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                - pattern: from rest_framework.authentication import SessionAuthentication
+                - pattern: from rest_framework.authentication import SessionAuthentication as $ALIAS
+                - patterns:
+                      - pattern-inside: |
+                            from rest_framework import authentication
+                            ...
+                      - pattern: authentication.SessionAuthentication
+      paths:
+          include:
+              - common/**/*.py
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'

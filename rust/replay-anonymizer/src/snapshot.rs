@@ -28,16 +28,15 @@ use simd_json::prelude::Writable;
 
 use crate::allow_lists::AllowLists;
 use crate::collect::{CollectedImage, ImageCollection};
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSourceCount};
 use crate::event::{
-    route_data, route_event, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION, SOURCE_INPUT,
-    SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
+    route_data, route_event, JSON_LD_EVENT_TAG, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION,
+    SOURCE_INPUT, SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
     TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL, TYPE_META, TYPE_PLUGIN,
 };
-use crate::images::ImagePolicy;
 use crate::json::{
-    as_f64, as_object, as_small_uint, as_str, parse_untrusted, parse_untrusted_with_buffers,
-    reject_if_too_deep,
+    as_array, as_f64, as_object, as_small_uint, as_str, parse_untrusted,
+    parse_untrusted_with_buffers, reject_if_too_deep,
 };
 use crate::scan::{self, Span};
 use crate::timings::PhaseTimings;
@@ -59,6 +58,8 @@ pub enum FailKind {
     NoValidEvents,
     /// An event could not be scrubbed — fail closed (drop `anonymize_failed`).
     AnonymizeFailed,
+    /// A mobile replay under [`AnonymizeOpts::web_only`] (drop `ml_mirror_non_web_replay`).
+    NonWebReplay,
 }
 
 impl FailKind {
@@ -70,6 +71,7 @@ impl FailKind {
             FailKind::NonSnapshotMessage => "received_non_snapshot_message",
             FailKind::NoValidEvents => "message_contained_no_valid_rrweb_events",
             FailKind::AnonymizeFailed => "anonymize_failed",
+            FailKind::NonWebReplay => "ml_mirror_non_web_replay",
         }
     }
 }
@@ -111,20 +113,32 @@ pub const FLAG_ACTIVE: u8 = 1;
 pub const FLAG_CLICK: u8 = 2;
 pub const FLAG_KEYPRESS: u8 = 4;
 pub const FLAG_MOUSE_ACTIVITY: u8 = 8;
+pub const FLAG_FULL_SNAPSHOT: u8 = 16;
 
 // `DateTime.fromMillis` validity bound (JS Date range: ±8.64e15 ms).
 const MAX_JS_DATE_MS: f64 = 8.64e15;
 
 /// Per-emitted-line metadata, in line order.
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct EventMeta {
     /// The event's `timestamp` (epoch ms; can be fractional).
     pub ts: f64,
-    /// Bitmask of FLAG_ACTIVE / FLAG_CLICK / FLAG_KEYPRESS / FLAG_MOUSE_ACTIVITY.
+    /// Bitmask of FLAG_ACTIVE / FLAG_CLICK / FLAG_KEYPRESS / FLAG_MOUSE_ACTIVITY / FLAG_FULL_SNAPSHOT.
     pub flags: u8,
     /// Post-scrub `hrefFrom(event)` (`data.href` or `data.payload.href`, trimmed, non-empty).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_ld: Option<JsonLdMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonLdMeta {
+    pub root_types: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_snapshot_timestamp: Option<f64>,
 }
 
 /// One collected original image: `offset..offset+len` in [`AnonymizedMessage::image_bytes`].
@@ -165,6 +179,7 @@ pub struct SnapshotMeta {
     pub console_log_count: u32,
     pub console_warn_count: u32,
     pub console_error_count: u32,
+    pub json_ld_event_count: u32,
     pub events: Vec<EventMeta>,
     /// Collected original images (hash-sorted); non-empty only on the image-collection lane.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -172,11 +187,23 @@ pub struct SnapshotMeta {
     /// Collected remote image URLs (hash-sorted); non-empty only on the URL-collection lane.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub urls: Vec<UrlEntry>,
+    /// Collected ref occurrences by bounded replay location, property, and inline or URL lane.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub image_sources: Vec<ImageSourceCount>,
     /// Counts by reason for the URLs the collector refused. Every decline is otherwise invisible,
     /// and the phase that measures this lane would report a smaller URL set than the traffic holds
     /// with nothing to say why.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub url_declines: Vec<UrlDecline>,
+    /// Content the scrub removed outright rather than replaced, by reason.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scrub_drops: Vec<ScrubDrop>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ScrubDrop {
+    pub reason: &'static str,
+    pub count: u32,
 }
 
 /// One reason the collector refused a URL, and how many times it did.
@@ -211,18 +238,27 @@ pub struct AnonymizeOpts {
     /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
     /// back to the parse per event. The differential tests pin both engines by toggling this.
     pub byte_walk: bool,
-    /// How images are scrubbed: inline on the walk thread, or deferred onto the shared worker
-    /// pool with a token-patch pass over the serialized output. The differential tests pin both.
-    pub image_policy: ImagePolicy,
+    /// Refuse a replay whose `$snapshot_source` is not `web`. Mobile SDKs send wireframes and
+    /// screenshots, which none of the scrubbers read.
+    pub web_only: bool,
 }
 
 impl Default for AnonymizeOpts {
     fn default() -> Self {
         Self {
             byte_walk: true,
-            image_policy: ImagePolicy::Inline,
+            web_only: false,
         }
     }
+}
+
+/// Capture writes `web` when a client sends no source, so a missing source never comes from capture.
+pub fn is_web_replay(snapshot_source: Option<&str>) -> bool {
+    snapshot_source == Some("web")
+}
+
+fn non_web_replay() -> Failure {
+    Failure::new(FailKind::NonWebReplay, "replay is not from a web SDK")
 }
 
 #[derive(Debug)]
@@ -291,9 +327,9 @@ pub fn anonymize_kafka_payload_timed(
 
 /// [`anonymize_kafka_payload_timed`] with the URL-collection lane as well.
 ///
-/// A remote image's `src` becomes a ref, and its original URL comes back in `meta.urls`. The
-/// caller passes those to the fetch lane. `None` leaves a remote image on the media placeholder,
-/// which is what every other entry point here does.
+/// A remote image keeps its placeholder while a namespaced sibling attribute carries its ref. Its
+/// original URL comes back in `meta.urls`, which the caller passes to the fetch lane. `None` omits
+/// the sibling ref and leaves the placeholder unchanged.
 pub fn anonymize_kafka_payload_collecting(
     allow: &AllowLists,
     payload: &mut [u8],
@@ -524,14 +560,21 @@ fn anonymize_snapshot_data_inner(
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
-    let mut ctx = Ctx::with_options(allow, timings, opts.image_policy, image_collection)
-        .collecting_urls(url_collection);
+    let mut ctx =
+        Ctx::with_options(allow, timings, image_collection).collecting_urls(url_collection);
+    let counts = ctx.count_checkpoint();
     let mut msg = match stream_message(&ctx, distinct_id, inner, opts)? {
         Some(msg) => msg,
         // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
         // consumed before the signal, so the tree path re-reads the intact buffer.
-        None => anonymize_via_tree_mut(&ctx, distinct_id, inner)?,
+        None => {
+            ctx.restore_counts(counts);
+            anonymize_via_tree_mut(&ctx, distinct_id, inner)?
+        }
     };
+    if opts.web_only && !is_web_replay(msg.meta.snapshot_source.as_deref()) {
+        return Err(non_web_replay());
+    }
     msg.meta.url_declines = ctx
         .take_url_declines()
         .into_iter()
@@ -547,6 +590,7 @@ fn anonymize_snapshot_data_inner(
             domain: u.domain,
         })
         .collect();
+    msg.meta.image_sources = ctx.take_image_source_counts();
     let (entries, image_bytes) = pack_images(ctx.into_collected_images());
     msg.meta.images = entries;
     msg.image_bytes = image_bytes;
@@ -882,6 +926,7 @@ struct Sink {
     line_starts: Vec<usize>,
     events: Vec<EventMeta>,
     console: [u32; 3], // info, warn, error
+    json_ld_events: u32,
     /// simd-json scratch reused across the per-event parses.
     buffers: simd_json::Buffers,
     /// Whether an in-place parse has consumed a span yet — the tree fallback is only sound while
@@ -901,6 +946,7 @@ impl Sink {
             line_starts: Vec::new(),
             events: Vec::new(),
             console: [0; 3],
+            json_ld_events: 0,
             buffers: simd_json::Buffers::default(),
             mutated: false,
             scratch_budget: SCRATCH_BUDGET,
@@ -956,16 +1002,6 @@ fn finish(
         lines.extend_from_slice(&sink.lines[sink.line_starts[i]..body_end]);
         lines.extend_from_slice(b"]\n");
     }
-    // Deferred image jobs resolve here: the block lines are the last surface tokens can be on.
-    let lines = ctx.patch_pending_images(lines);
-    // Nothing downstream can fix a token that gets past this point, and a shipped one is an image
-    // no reader can ever recover (the marker is random per process). Fail closed instead.
-    if crate::images::contains_token(&lines) {
-        return Err(Failure::new(
-            FailKind::AnonymizeFailed,
-            "internal: unresolved image token in anonymized output",
-        ));
-    }
     Ok(AnonymizedMessage {
         lines,
         route,
@@ -980,11 +1016,18 @@ fn finish(
             console_log_count: sink.console[0],
             console_warn_count: sink.console[1],
             console_error_count: sink.console[2],
+            json_ld_event_count: sink.json_ld_events,
             events: sink.events,
             // The collector lives on the Ctx, not the Sink; the entry point packs it in.
             images: Vec::new(),
             urls: Vec::new(),
+            image_sources: Vec::new(),
             url_declines: Vec::new(),
+            scrub_drops: ctx
+                .take_scrub_drops()
+                .into_iter()
+                .map(|(reason, count)| ScrubDrop { reason, count })
+                .collect(),
         },
         image_bytes: Vec::new(),
     })
@@ -1219,6 +1262,7 @@ fn process_event_at(
         let mark = sink.lines.len();
         sink.lines.extend_from_slice(&inner[span.0..data.0]);
         let data_mark = sink.lines.len();
+        let counts = ctx.count_checkpoint();
         match crate::bytewalk::scrub_data_bytes(
             ctx,
             ty,
@@ -1246,10 +1290,14 @@ fn process_event_at(
                     ts,
                     flags: flags_of(ty, source, interaction),
                     href: scanned_href(inner, &es),
+                    json_ld: None,
                 });
                 return Ok(end);
             }
-            None => sink.lines.truncate(mark),
+            None => {
+                sink.lines.truncate(mark);
+                ctx.restore_counts(counts);
+            }
         }
     }
 
@@ -1334,6 +1382,7 @@ fn pass_through(
         ts,
         flags: flags_of(ty, source, interaction),
         href,
+        json_ld: None,
     });
 }
 
@@ -1366,6 +1415,9 @@ fn scanned_href(inner: &[u8], d: &EventScan) -> Option<String> {
 }
 
 fn flags_of(ty: Option<u8>, source: Option<u8>, interaction: Option<u8>) -> u8 {
+    if ty == Some(TYPE_FULL_SNAPSHOT) {
+        return FLAG_FULL_SNAPSHOT;
+    }
     if ty != Some(TYPE_INCREMENTAL) {
         return 0;
     }
@@ -1413,7 +1465,30 @@ fn push_meta_from_data(ty: Option<u8>, ts: f64, data: Option<&Value<'_>>, sink: 
         ts,
         flags: flags_of(ty, source, interaction),
         href,
+        json_ld: if ty == Some(TYPE_CUSTOM)
+            && dobj.and_then(|d| d.get("tag")).and_then(as_str) == Some(JSON_LD_EVENT_TAG)
+        {
+            let mut root_types = Vec::new();
+            if let Some(payload) = dobj.and_then(|d| d.get("payload")) {
+                collect_root_types(payload, &mut root_types);
+            }
+            Some(JsonLdMeta {
+                root_types,
+                full_snapshot_timestamp: dobj
+                    .and_then(|d| d.get("fullSnapshotTimestamp"))
+                    .and_then(as_f64)
+                    .filter(|ts| ts.is_finite() && *ts > 0.0 && *ts <= MAX_JS_DATE_MS),
+            })
+        } else {
+            None
+        },
     });
+
+    if ty == Some(TYPE_CUSTOM)
+        && dobj.and_then(|data| data.get("tag")).and_then(as_str) == Some(JSON_LD_EVENT_TAG)
+    {
+        sink.json_ld_events += 1;
+    }
 
     // rrweb/console@1 counts by level (mirrors `session-console-log-recorder.ts` safeLevel).
     if ty == Some(TYPE_PLUGIN) {
@@ -1430,6 +1505,37 @@ fn push_meta_from_data(ty: Option<u8>, ts: f64, data: Option<&Value<'_>>, sink: 
                     _ => sink.console[0] += 1,
                 }
             }
+        }
+    }
+}
+
+fn collect_root_types(value: &Value<'_>, types: &mut Vec<String>) {
+    if types.len() >= 64 {
+        return;
+    }
+    if let Some(items) = as_array(value) {
+        for item in items {
+            collect_root_types(item, types);
+        }
+    } else if let Some(object) = as_object(value) {
+        if let Some(type_value) = object.get("@type") {
+            let mut add_type = |value: &Value<'_>| {
+                if let Some(name) = as_str(value) {
+                    if types.len() < 64 && !types.iter().any(|t| t == name) {
+                        types.push(name.to_owned());
+                    }
+                }
+            };
+            if let Some(items) = as_array(type_value) {
+                for item in items {
+                    add_type(item);
+                }
+            } else {
+                add_type(type_value);
+            }
+        }
+        if let Some(graph) = object.get("@graph") {
+            collect_root_types(graph, types);
         }
     }
 }

@@ -16,10 +16,170 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 ``facade/hogql.py``, and temporal/source wiring via ``facade/temporal.py`` — not here.
 """
 
+from collections.abc import Sequence
+from dataclasses import field
 from datetime import datetime, time, timedelta
+from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+from posthog.integrations import IntegrationUsage
+
+# The request flag that confirms an edit of credentials that other sources or products also use.
+UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
+
+# The `job_inputs` key of a source API edit that points the source at another credentials row. The API
+# moves the value to the source's `credentials_integration_id` column. The store never saves it in `job_inputs`.
+CREDENTIALS_REFERENCE_INPUT_KEY = "credentials_integration_id"
+
+# The `IntegrationUsage.type` of a warehouse source that uses an integration row.
+WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
+# A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
+UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
+
+
+class SharedCredentialsError(Exception):
+    """An edit would change a credentials row that other sources or products also use.
+
+    `usages` holds the other users, as the integrations SDK reports them. The API returns them in a
+    409 response, and the request can confirm with `update_shared_credentials`.
+    """
+
+    def __init__(self, integration_id: int, usages: Sequence[IntegrationUsage]) -> None:
+        super().__init__(f"Integration {integration_id} is also used by {len(usages)} other objects")
+        self.integration_id = integration_id
+        self.usages = tuple(usages)
+
+
+class UnusableCredentialsReferenceError(ValueError):
+    """An edit points a source at a credentials row that the source cannot use: a row of another team,
+    another kind or another auth type, or a row that no warehouse source made."""
+
+
+class SharedCredentialsEdit(StrEnum):
+    """What a write of a source's inputs does when other sources or products also use its credentials row."""
+
+    # Keep the shared row as it is. Internal writes use this, so they never change credentials of other users.
+    SKIP = "skip"
+    # Raise `SharedCredentialsError`, so the API can ask the person for a confirmation.
+    REFUSE = "refuse"
+    # The person confirmed the edit: write the shared row.
+    CONFIRMED = "confirmed"
+
+
+class UnsupportedSyncTypeError(ValueError):
+    """The stored sync type is not a mode PostHog can run."""
+
+
+class UnreadableSourceInputsError(ValueError):
+    """A source's stored inputs do not decode to a mapping. The message never holds the value, because the
+    value can hold credentials."""
+
+
+# Set in `job_inputs` when the store has moved the connection fields of a source to its credentials row and
+# removed them from `job_inputs`. The value is the time of the strip, as an ISO 8601 string.
+CONNECTION_FIELDS_STRIPPED_KEY = "connection_fields_stripped_at"
+# Keeps a stripped typed-in source typed-in when, without its connection fields, it would read as OAuth (Slack).
+CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY = "connection_fields_stripped_typed_in"
+STRIPPED_STORE_KEYS: frozenset[str] = frozenset(
+    {CONNECTION_FIELDS_STRIPPED_KEY, CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY}
+)
+
+SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
+
+
+class SourceCredentialsMissingError(UnreadableSourceInputsError):
+    """The connection fields of a stripped source are not in its credentials row. `job_inputs` holds no copy,
+    so nothing can replace them: the user must enter the credentials again."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            f"{SOURCE_CREDENTIALS_MISSING_ERROR}. Enter the credentials of the source again, or reconnect its "
+            "account, then enable the sync again."
+        )
+
+
+class UndecryptedConfigError(ValueError):
+    """Raised when a config value reaches conversion still Fernet-encrypted.
+
+    Upstream decryption of the stored job inputs failed (e.g. the key that wrote them is no
+    longer in the keychain), so the raw token would otherwise crash the field converter with an
+    opaque, secret-leaking error such as ``invalid literal for int() with base 10: 'gAAAAA...'``.
+    """
+
+
+class ConfigValueError(ValueError):
+    """Raised when a config field's value can't be converted to its declared type.
+
+    A converter (e.g. ``int``) failing on user-supplied input would otherwise crash with an
+    opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
+    We name the field but never its value, so nothing a user typed reaches logs or error tracking.
+    """
+
+
+@dataclass(frozen=True)
+class SyncedWarehouseTable:
+    table_id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
+class RevenueViewSyncInput:
+    team_id: int
+    source_id: UUID
+    source_type: str
+    schema_name: str
+
+
+@dataclass(frozen=True)
+class PersonPropertySyncProgress:
+    """One produced chunk's counts for one person-property source."""
+
+    team_id: int
+    binding_kind: str
+    binding_id: str
+    source_id: str
+    job_id: str | None
+    trigger: str
+    rows_read: int
+    changed: int
+    existing: int
+    produced: int
+    skipped_missing_person: int
+
+
+@dataclass(frozen=True)
+class RevenueSourceTable:
+    id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
+class RevenueSourceSchema:
+    name: str
+    table: RevenueSourceTable | None
+
+
+@dataclass(frozen=True)
+class RevenueSource:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    enabled: bool
+    include_invoiceless_charges: bool
+    schemas: tuple[RevenueSourceSchema, ...]
+
+
+@dataclass(frozen=True)
+class RevenueSourceSettings:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    deleted: bool
+    enabled: bool
+
 
 # --- Source ---
 
@@ -43,6 +203,22 @@ class ExternalDataSource:
     is_direct_postgres: bool
     is_direct_mysql: bool
     direct_engine: str | None
+
+
+@dataclass(frozen=True)
+class ExternalDataSourceHealth:
+    """A source's sync health: how it is configured, plus its newest completed run and error.
+
+    `status` alone conflates "sync in progress" with "never succeeded", so a consumer needs
+    `last_run_at` to tell a healthy source from one that has never synced.
+    """
+
+    source_type: str
+    status: str | None
+    prefix: str | None
+    created_at: datetime
+    last_run_at: datetime | None
+    latest_error: str | None
 
 
 # --- Schema ---
@@ -97,6 +273,67 @@ class DataWarehouseTable:
     created_at: datetime
 
 
+@dataclass(frozen=True, kw_only=True)
+class ImportedSchemaSnapshot:
+    schema_id: UUID
+    queryable_folder: str | None
+
+
+@dataclass(frozen=True)
+class DuckLakeImportedTable:
+    logical_table_names: tuple[str, ...]
+    physical_table_name: str
+
+
+@dataclass(frozen=True)
+class TableSourceLocation:
+    """Where a synced table is administered: the source and schema its detail page hangs off."""
+
+    source_id: UUID
+    schema_id: UUID
+
+
+@dataclass(frozen=True)
+class TableNames:
+    """The two names one warehouse table answers to.
+
+    ``row_name`` is what the table row stores and a listing shows. ``queryable_key`` is what a
+    query writes, which for a source table is the dotted form. They are equal for a direct-access
+    source and for a table with no source.
+    """
+
+    row_name: str
+    queryable_key: str
+
+
+@dataclass(frozen=True)
+class TableAwaitingFirstSync:
+    """A table that a synced schema will create, but whose first sync has not created yet.
+
+    ``names`` holds the names a query can write for it once it exists.
+    ``first_sync_failed`` is true when the latest sync attempt failed.
+    """
+
+    names: TableNames
+    first_sync_failed: bool
+
+
+WAREHOUSE_OBJECT_TABLE = "table"
+WAREHOUSE_OBJECT_VIEW = "view"
+
+
+@dataclass(frozen=True)
+class WarehouseObjectRef:
+    """Which warehouse object a queryable name resolves to, for a caller that must record identity.
+
+    ``kind`` is ``WAREHOUSE_OBJECT_TABLE`` or ``WAREHOUSE_OBJECT_VIEW``, since a name reaches either
+    a warehouse table or a saved query and the two are stored apart.
+    """
+
+    kind: str
+    id: UUID
+
+
 # --- Job ---
 
 
@@ -140,6 +377,24 @@ class WarehouseColumnAnnotation:
     updated_at: datetime
 
 
+# --- Column statistics ---
+
+
+@dataclass(frozen=True)
+class ColumnStatistics:
+    """The per-column data profile core reads when describing a warehouse table.
+
+    Narrower than the model on purpose: this carries only what schema description consumes.
+    Row counts, provenance and the Delta version stay product-side.
+    """
+
+    table_id: UUID
+    column_name: str
+    null_fraction: float | None
+    min_value: str | None
+    max_value: str | None
+
+
 # --- Credential (read-only metadata; secrets are never exposed) ---
 
 
@@ -150,3 +405,53 @@ class DataWarehouseCredential:
     id: UUID
     team_id: int
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class GitHubSourceCredential:
+    """How a GitHub source authenticates to the repositories it syncs.
+
+    Exactly one field is set. This is the one contract that carries a secret, because a consumer
+    that has to read the same repository the source reads cannot do it without the token. ``repr``
+    omits the token so it cannot reach a log line or a traceback frame.
+    """
+
+    integration_id: int | None = None
+    personal_access_token: str | None = field(default=None, repr=False)
+
+
+# --- File upload sources ---
+
+
+class FileUploadSourceError(Exception):
+    """A request a file upload source can't carry out. The message is for the user."""
+
+
+class UnreadableUploadError(FileUploadSourceError):
+    """ClickHouse couldn't read the uploaded file's columns, or its CSV quoting."""
+
+
+@dataclass(frozen=True)
+class UploadedFileRef:
+    """An upload that `upload_file` stored, as the client names it. The team always comes from the request."""
+
+    upload_id: str
+    filename: str
+    file_format: str
+
+
+@dataclass(frozen=True)
+class UploadReadSettings:
+    """What PostHog learned about an uploaded file when it read the file in place."""
+
+    columns: dict[str, Any]
+    allow_double_quotes: bool | None = None
+
+
+@dataclass(frozen=True)
+class SourceReferencingIntegration:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    # The inputs did not decode, so the source may point at the row. The search counts it as a user.
+    unreadable: bool = False

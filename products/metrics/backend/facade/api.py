@@ -7,24 +7,60 @@ so import-linter's strict-mode contract holds.
 
 import math
 import datetime as dt
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
+from dataclasses import replace
+from functools import partial
 from typing import Any
 
-from posthog.models import Team
+from django.conf import settings
+from django.db import connection
 
+import structlog
+
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
+from posthog.models import Team, User
+
+from products.error_tracking.backend.facade.api import list_latest_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
+    DashboardImportRequest,
+    DashboardImportStatus,
+    DashboardTemplateSummary,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
+    MetricErrorSpike,
     MetricEventSample,
     MetricFilter,
     MetricPoint,
     MetricQueryClause,
+    MetricQueryCount,
     MetricQueryRequest,
     MetricSeries,
+    MetricsOverview,
+    PanelQueryCheckRequest,
+    PanelQueryCheckResult,
+    SuggestedDashboard,
 )
-from products.metrics.backend.facade.enums import FilterOp, MetricAggregation
+from products.metrics.backend.facade.enums import (
+    DashboardTemplateStatus,
+    FilterOp,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+)
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
@@ -33,15 +69,36 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.metric_query_runner import MetricQueryRunner
+from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
+from products.metrics.backend.metric_query_runner import (
+    MAX_QUERY_SPAN,
+    MAX_RAW_SERIES,
+    MetricQueryRunner,
+    _pick_interval,
+)
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.promql import run_promql_range
+from products.metrics.backend.query_concurrency import query_concurrency_slots
+from products.metrics.backend.query_counts import (
+    list_metric_query_counts as _list_metric_query_counts,
+    record_metric_queries,
+    record_promql_query as _record_promql_query,
+)
+from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
+from products.metrics.backend.variables import from_dashboard, with_values
+
+logger = structlog.get_logger(__name__)
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
+# NONE maps to no aggregation, which is not a string.
 _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
     MetricAggregation.SUM: "sum",
     MetricAggregation.AVG: "avg",
     MetricAggregation.COUNT: "count",
+    MetricAggregation.MIN: "min",
+    MetricAggregation.MAX: "max",
     MetricAggregation.RATE: "rate",
     MetricAggregation.INCREASE: "increase",
 }
@@ -52,21 +109,100 @@ def team_has_metrics(team: Team) -> bool:
     return _team_has_metrics(team)
 
 
+def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
+    """One ClickHouse lookup of the ingested UCUM unit per physical series,
+    keyed by `series_fingerprint` and read from `metric_series` (the same table
+    the catalog reads). Per-fingerprint rather than per-name so a metric whose
+    series disagree on the unit never lends one series' unit to another.
+    Returns only series with a non-empty unit; a series with no unit is simply
+    absent, so callers use `.get(fingerprint)`. Kept separate from the
+    per-series data query so the unit costs one small grouped scan regardless
+    of how many series a query returns."""
+    if not metric_names:
+        return {}
+    names = sorted(metric_names)
+    query = parse_select(
+        """
+            SELECT series_fingerprint, any(unit) AS unit
+            FROM posthog.metric_series
+            WHERE metric_name IN {names}
+            GROUP BY series_fingerprint
+        """,
+        placeholders={"names": ast.Tuple(exprs=[ast.Constant(value=n) for n in names])},
+    )
+    response = execute_hogql_query(
+        query_type="MetricUnitsLookup",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        # Same byte cap as the data queries: without it a high-cardinality name set
+        # would make this metadata scan the most expensive read of the request.
+        settings=HogQLGlobalSettings(
+            max_execution_time=30,
+            max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+            read_overflow_mode="throw",
+        ),
+    )
+    return {int(row[0]): str(row[1]) for row in (response.results or []) if row[1]}
+
+
+def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[int, str]) -> str | None:
+    """The ingested unit shared by the physical series one output series
+    aggregated. The unit only applies when every contributing series carries
+    the same one. A disagreement, or a mix of unit and no unit, means the
+    merge has no correct single unit, so it returns None. Series that all
+    carry no unit return "", which `_output_unit` needs to tell a unitless
+    counter (whose rate is still per second) apart from a disagreement."""
+    units = {units_by_fingerprint.get(fp, "") for fp in fingerprints}
+    if len(units) != 1:
+        return None
+    (unit,) = units
+    return unit
+
+
+def _output_unit(ingested: str | None, clause: MetricQueryClause) -> str | None:
+    """The unit of the values a clause returns, which differs from the
+    ingested unit when the clause transforms the values. COUNT returns a
+    number of series, so it has no unit, even after a range function. RATE
+    divides by the bucket length in seconds, so it returns the ingested unit
+    per second, as a UCUM string the frontend formatter reads. Every other
+    aggregation keeps the ingested unit."""
+    if ingested is None or clause.aggregation is MetricAggregation.COUNT:
+        return None
+    if clause.aggregation is MetricAggregation.RATE or clause.range_function is MetricRangeFunction.RATE:
+        return f"{ingested or '1'}/s"
+    return ingested or None
+
+
 # Hard cap on series returned per clause; the largest series (by summed
 # absolute value) win so the most significant groups survive truncation.
-MAX_SERIES_PER_CLAUSE = 100
+# A clause without an aggregation is capped earlier, in the query, at the same number.
+MAX_SERIES_PER_CLAUSE = MAX_RAW_SERIES
 
 
 def _assemble_series(
-    rows: list[dict[str, Any]], *, metric_name: str, clause_name: str, grid: list[str]
+    rows: list[dict[str, Any]],
+    *,
+    clause: MetricQueryClause,
+    grid: list[str],
+    units_by_fingerprint: dict[int, str],
+    zero_fill: bool = True,
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
-    has identical timestamps."""
-    by_labels: dict[tuple[tuple[str, str], ...], dict[str, float | None]] = {}
+    has identical timestamps.
+
+    A row with a `series_key` stays apart from rows of another key, even when
+    their labels match: two physical series can share a label-set."""
+    by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], dict[str, float | None]] = {}
+    fingerprints_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[int]] = {}
+    bounds_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[float]] = {}
     for row in rows:
-        key = tuple(sorted(row["labels"].items()))
+        key = (tuple(sorted(row["labels"].items())), row.get("series_key"))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
+        fingerprints_by_labels.setdefault(key, set()).update(row["series_fingerprints"])
+        if "histogram_bounds" in row:
+            bounds_by_labels.setdefault(key, set()).update(row["histogram_bounds"])
 
     # Rank and truncate on the sparse values BEFORE zero-filling, so a
     # high-cardinality group-by never materializes label_sets x grid points
@@ -77,16 +213,79 @@ def _assemble_series(
     )
     return [
         MetricSeries(
-            labels=dict(key),
-            points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
-            metric_name=metric_name,
-            clause=clause_name,
+            labels=dict(key[0]),
+            points=tuple(MetricPoint(time=time, value=values.get(time, 0.0 if zero_fill else None)) for time in grid),
+            metric_name=clause.metric_name,
+            clause=clause.name,
+            unit=_output_unit(_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint), clause),
+            histogram_bounds=tuple(sorted(bounds_by_labels[key])) if key in bounds_by_labels else None,
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
 
 
-def _resolve_runner_aggregation(clause: MetricQueryClause) -> str:
+def _labels_by_fingerprint(team: Team, metric_name: str, fingerprints: set[int]) -> dict[int, dict[str, str]]:
+    """The label set of each series, for a clause that returns series unaggregated.
+
+    Resource attributes come first, so a datapoint attribute of the same name wins.
+    """
+    if not fingerprints:
+        return {}
+    query = parse_select(
+        """
+            SELECT series_fingerprint, any(resource_attributes), any(attributes)
+            FROM posthog.metric_series
+            WHERE metric_name = {metric_name}
+              AND series_fingerprint IN {fingerprints}
+            GROUP BY series_fingerprint
+        """,
+        placeholders={
+            "metric_name": ast.Constant(value=metric_name),
+            "fingerprints": ast.Tuple(exprs=[ast.Constant(value=fp) for fp in sorted(fingerprints)]),
+        },
+    )
+    response = execute_hogql_query(
+        query_type="MetricSeriesLabelsLookup",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        settings=HogQLGlobalSettings(
+            max_execution_time=30,
+            max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+            read_overflow_mode="throw",
+        ),
+    )
+    return {
+        int(row[0]): {str(key): str(value) for key, value in {**(row[1] or {}), **(row[2] or {})}.items() if value}
+        for row in (response.results or [])
+    }
+
+
+def _attach_series_labels(team: Team, metric_name: str, rows: list[dict[str, Any]]) -> None:
+    """Give each row of an unaggregated clause the labels of its series."""
+    labels = _labels_by_fingerprint(team, metric_name, {fp for row in rows for fp in row["series_fingerprints"]})
+    for row in rows:
+        (fingerprint,) = row["series_fingerprints"]
+        row["labels"] = labels.get(int(fingerprint), {})
+        row["series_key"] = int(fingerprint)
+
+
+def _drop_shared_labels(series: list[MetricSeries]) -> list[MetricSeries]:
+    """With several series, keep only the labels that tell them apart.
+
+    A label that has the same value on every series only repeats in each legend entry.
+    """
+    if len(series) < 2:
+        return series
+    shared = {
+        key for key, value in series[0].labels.items() if all(other.labels.get(key) == value for other in series[1:])
+    }
+    return [replace(s, labels={k: v for k, v in s.labels.items() if k not in shared}) for s in series]
+
+
+def _resolve_runner_aggregation(clause: MetricQueryClause) -> str | None:
+    if clause.aggregation.is_raw:
+        return None
     if clause.aggregation == MetricAggregation.QUANTILE and clause.quantile == 0.95:
         return "p95"
     if clause.aggregation == MetricAggregation.HISTOGRAM_QUANTILE:
@@ -113,7 +312,7 @@ def _evaluate_formula_point(
 
 
 def _evaluate_formula(
-    formula_text: str, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
+    node: Any, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
 ) -> list[MetricSeries]:
     """Combine clause results point-by-point on the shared grid.
 
@@ -122,8 +321,6 @@ def _evaluate_formula(
     single ungrouped series is broadcast to every label-set instead. A
     label-set missing from any non-broadcast clause is dropped.
     """
-    node = parse_formula(formula_text, frozenset(series_by_clause))
-
     broadcasts: dict[str, MetricSeries] = {}
     grouped: dict[str, dict[tuple[tuple[str, str], ...], MetricSeries]] = {}
     for name, series_list in series_by_clause.items():
@@ -153,6 +350,14 @@ def _evaluate_formula(
     return result
 
 
+def _closing_connection(work: Callable[[], None]) -> None:
+    try:
+        work()
+    finally:
+        # The query reads Postgres in the worker thread, and request cleanup only closes the request thread's connection.
+        connection.close()
+
+
 def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricSeries]:
     """Execute a metric query and return one `MetricSeries` per
     (clause, label-set) pair — a single ungrouped clause yields exactly one
@@ -167,10 +372,16 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     (`clause="formula"`); request the clauses separately if you need the
     inputs too. The presentation layer surfaces `ValueError` as a 400.
     """
-    rows_by_clause: dict[str, list[dict[str, Any]]] = {}
+    formula_node_checked = (
+        parse_formula(request.formula, frozenset(clause.name for clause in request.clauses))
+        if request.formula is not None
+        else None
+    )
+    record_metric_queries(team, (clause.metric_name for clause in request.clauses))
+    runners: list[tuple[MetricQueryClause, MetricQueryRunner, bool]] = []
     for clause in request.clauses:
         runner_aggregation = _resolve_runner_aggregation(clause)
-        runner = MetricQueryRunner(
+        runner = build_metric_query_runner(
             team=team,
             metric_name=clause.metric_name,
             aggregation=runner_aggregation,
@@ -181,13 +392,34 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             interval=request.interval,
             quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
             metric_type=clause.metric_type.value if clause.metric_type is not None else None,
+            range_function=clause.range_function.value if clause.range_function is not None else None,
         )
-        rows_by_clause[clause.name] = runner.run()
+        runners.append((clause, runner, runner_aggregation is None))
+    rows_by_clause: dict[str, list[dict[str, Any]]] = {clause.name: [] for clause in request.clauses}
+    units_by_fingerprint: dict[int, str] = {}
 
-    # Validate the formula before any early return so bad formulas always 400.
-    formula_node_checked = (
-        parse_formula(request.formula, frozenset(rows_by_clause)) if request.formula is not None else None
-    )
+    def run_clause(clause: MetricQueryClause, runner: MetricQueryRunner, raw: bool) -> None:
+        rows = runner.run()
+        if raw:
+            _attach_series_labels(team, clause.metric_name, rows)
+        rows_by_clause[clause.name] = rows
+
+    def load_units() -> None:
+        units_by_fingerprint.update(_units_by_fingerprint(team, {clause.metric_name for clause in request.clauses}))
+
+    # The clause queries and the unit lookup do not depend on each other, so a tile waits for the slowest one,
+    # not for their sum. A formula combines clauses of different units, so its series carry no unit.
+    work: list[Callable[[], None]] = [partial(run_clause, *item) for item in runners]
+    if formula_node_checked is None:
+        work.append(load_units)
+    # Django does not make the test transaction visible to another thread.
+    if len(work) <= 1 or settings.IN_UNIT_TESTING:
+        for item in work:
+            item()
+    else:
+        run_in_parallel_threads(
+            [partial(_closing_connection, item) for item in work], thread_name_prefix="metrics_clauses"
+        )
 
     grid = sorted({row["time"] for rows in rows_by_clause.values() for row in rows})
     if not grid:
@@ -197,15 +429,65 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
 
     series_by_clause = {
         clause.name: _assemble_series(
-            rows_by_clause[clause.name], metric_name=clause.metric_name, clause_name=clause.name, grid=grid
+            rows_by_clause[clause.name],
+            clause=clause,
+            grid=grid,
+            units_by_fingerprint=units_by_fingerprint,
+            zero_fill=request.zero_fill,
         )
         for clause in request.clauses
     }
 
-    if request.formula is not None:
-        return _evaluate_formula(request.formula, series_by_clause, grid)
+    if formula_node_checked is not None:
+        return _evaluate_formula(formula_node_checked, series_by_clause, grid)
 
-    return [series for clause in request.clauses for series in series_by_clause[clause.name]]
+    return [
+        series
+        for clause in request.clauses
+        for series in (
+            _drop_shared_labels(series_by_clause[clause.name])
+            if clause.aggregation.is_raw
+            else series_by_clause[clause.name]
+        )
+    ]
+
+
+def list_metric_query_counts(*, team: Team, days: int, limit: int) -> list[MetricQueryCount]:
+    """How often queries read each metric of the team in the last `days` UTC days, the most queried first."""
+    return _list_metric_query_counts(team, days=days, limit=limit)
+
+
+def record_promql_query(*, team: Team, expr: str) -> None:
+    """Count one query for each metric that a PromQL expression selects. A failed write never raises."""
+    _record_promql_query(team, expr)
+
+
+def run_promql_query(
+    *, team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+) -> list[MetricSeries]:
+    """Run a PromQL range query on Snuffle. The caller checks the Snuffle feature flag. `date_to` is exclusive."""
+    if date_to <= date_from:
+        raise ValueError("date_to must be after date_from")
+    if date_to - date_from > MAX_QUERY_SPAN:
+        raise ValueError(f"date range too wide; the maximum span is {MAX_QUERY_SPAN.days} days")
+    with query_concurrency_slots(team):
+        series = run_promql_range(team, expr, date_from, date_to, interval)
+    return [
+        replace(s, points=tuple(p for p in s.points if dt.datetime.fromisoformat(p.time) < date_to)) for s in series
+    ]
+
+
+def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
+    """Hold the concurrency slots of a metrics query runner around `run_metric_query`.
+
+    Use it when you call `run_metric_query` outside a query runner, so the query counts against the same limits.
+    """
+    return query_concurrency_slots(team)
+
+
+def pick_metric_query_interval(*, date_from: dt.datetime, date_to: dt.datetime, max_buckets: int) -> str:
+    """The finest `MetricQueryRequest.interval` that keeps the bucket count at or below `max_buckets`."""
+    return _pick_interval(date_from, date_to, target_bucket_count=max_buckets)
 
 
 def list_metric_names(
@@ -213,35 +495,72 @@ def list_metric_names(
     team: Team,
     search: str = "",
     limit: int = 100,
+    services: Sequence[str] = (),
+    names: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
-    Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
-    most-recently-seen, with exact-name matches floated to the top.
-    Raises `ValueError` for an out-of-range limit.
+    Returns a list of `{"name": str, "metric_type": str}` dicts.
+    Passing `services` narrows the list to names those services reported.
+    Raises `ValueError` for an out-of-range limit or too many services.
+
+    The unsearched list is cached per team and service scope for a minute;
+    searches are not.
     """
-    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
-    return runner.run()
+    if names:
+        return MetricNamesQueryRunner(team=team, services=services, names=names, limit=len(names)).run()
+    return cached_metric_names(team=team, search=search, limit=limit, services=services)
+
+
+def list_metric_picker_names(
+    *,
+    team: Team,
+    search: str = "",
+    limit: int = 100,
+    services: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    """List current metric names and types for the viewer picker, without sparklines or caching."""
+    return MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services).run_picker()
+
+
+def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
+    """Ingestion rollup for the overview page: freshness of the newest
+    datapoint plus window-scoped metric/series counts per service.
+
+    Raises `ValueError` for a non-positive lookback.
+    """
+    if lookback is None:
+        return MetricsOverviewQueryRunner(team=team).run()
+    return MetricsOverviewQueryRunner(team=team, lookback=lookback).run()
 
 
 def list_metric_attribute_keys(
     *,
     team: Team,
+    metric_name: str = "",
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """List distinct attribute keys seen on the team's metrics, most frequent
-    first, for the filter bar's key autocomplete.
+    """List attribute keys by distinct value count, from highest to lowest.
 
-    Datapoint and resource attributes are merged into one list (filters run
-    with scope 'auto', so the split doesn't matter to callers); `service_name`
-    is always surfaced when it matches the search. The window defaults to the
-    last 7 days. Returns `{"name": str}` dicts. Raises `ValueError` for an
-    out-of-range limit or an inverted window.
+    When a metric name is provided, only series that emitted that metric in the
+    recent window supply choices. Datapoint and resource attributes are merged
+    into one list (filters run with scope 'auto', so the split doesn't matter
+    to callers); `service_name` is always surfaced when it matches the search.
+    The window defaults to the last 24 hours. Returns `{"name": str,
+    "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
+    or an inverted window.
     """
-    runner = MetricAttributeKeysQueryRunner(team=team, search=search, date_from=date_from, date_to=date_to, limit=limit)
+    runner = MetricAttributeKeysQueryRunner(
+        team=team,
+        metric_name=metric_name,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
     return runner.run()
 
 
@@ -249,6 +568,7 @@ def list_metric_attribute_values(
     *,
     team: Team,
     key: str,
+    metric_name: str = "",
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
@@ -257,34 +577,102 @@ def list_metric_attribute_values(
     """List observed values for one metric attribute key, most frequent first,
     for the filter bar's value autocomplete.
 
-    `service_name`/`service.name` read the first-class column, matching how
-    filters on it execute. The window defaults to the last 7 days. Returns
+    When a metric name is provided, only values seen on that metric supply
+    choices. `service_name`/`service.name` read the first-class column,
+    matching how filters on it execute. The window defaults to the last 24 hours. Returns
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """
     runner = MetricAttributeValuesQueryRunner(
-        team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+        team=team,
+        key=key,
+        metric_name=metric_name,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
     )
     return runner.run()
+
+
+def check_metric_variable_regex(regex: str | None) -> None:
+    """Raises `ValueError` for a variable regex that the options cannot use."""
+    compile_regex(regex)
+
+
+def list_metric_variable_options(
+    *,
+    team: Team,
+    source: MetricsDashboardVariableSource,
+    query: str | None = None,
+    custom_values: list[str] | None = None,
+    regex: str | None = None,
+    variables: Sequence[MetricsDashboardVariable] = (),
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[str]:
+    """`variables` are the selections of the other variables, which the query can refer to as `$name`.
+
+    `date_from` and `date_to` are a dashboard date filter, such as `-7d`, and resolve as they do for tiles.
+    Raises `ValueError` for a bad query or window, and `ConcurrencyLimitExceeded` when the organization
+    runs too many queries.
+    """
+    # `all` looks up the earliest event, which is a query, so it counts against the same limits.
+    lookup = query_concurrency_slots(team) if date_from == "all" else nullcontext()
+    try:
+        with lookup:
+            window = metrics_query_date_range(team, DateRange(date_from=date_from, date_to=date_to))
+            resolved_from, resolved_to = window.date_from(), window.date_to()
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("The window of the variable options is not a valid date range.") from exc
+    check_options_window(resolved_from, resolved_to)
+    # The caller sends the options that All stands for, so an empty list is a known empty set.
+    selections = {
+        name: with_values(variable, variable.values) if variable.is_all else variable
+        for name, variable in from_dashboard(variables).items()
+    }
+    return list_variable_options(
+        team=team,
+        source=source,
+        query=query,
+        custom_values=custom_values,
+        regex=regex,
+        variables=selections,
+        date_from=resolved_from,
+        date_to=resolved_to,
+        slot=partial(query_concurrency_slots, team),
+    )
 
 
 def list_metric_event_samples(
     *,
     team: Team,
-    metric_name: str,
+    metric_name: str | None = None,
     date_from: dt.datetime,
     date_to: dt.datetime,
     trace_id: str | None = None,
+    span_id: str | None = None,
+    filters: Sequence[MetricFilter] = (),
+    metric_type: MetricType | None = None,
     limit: int = 100,
 ) -> list[MetricEventSample]:
-    """List individual metric emissions (the events model) for a metric,
-    newest first.
+    """List individual metric emissions (the events model), newest first.
 
     Each sample carries its value, attributes, and trace linkage, so the
     Samples view can render raw rows and pivot to the trace behind any one.
-    Pass `trace_id` for the reverse pivot — every emission on a given trace.
-    Raises `ValueError` for an empty metric name, an inverted window, or an
-    out-of-range limit; the presentation layer surfaces these as 400s.
+    Pass `trace_id` for the reverse pivot — every emission on a given trace,
+    across all metric names when `metric_name` is omitted (the tracing
+    product's Metrics tab); `metric_name` or `trace_id` is required. Pass
+    `span_id` (with `trace_id`) to narrow to one span's emissions, so the
+    result stays exact even when the trace has more emissions than `limit`.
+    `filters` and `metric_type` narrow the emissions to the same series a
+    `run_metric_query` call with those arguments charts, so a filtered view
+    and its chart agree. Both are matched against the emission's series, so
+    an emission whose series row hasn't been ingested yet drops out once
+    either is set; both require `metric_name`.
+    Raises `ValueError` for a missing metric name and trace id, an inverted
+    window, an invalid regex filter, or an out-of-range limit; the
+    presentation layer surfaces these as 400s.
     """
     runner = MetricEventSamplesQueryRunner(
         team=team,
@@ -292,9 +680,40 @@ def list_metric_event_samples(
         date_from=date_from,
         date_to=date_to,
         trace_id=trace_id,
+        span_id=span_id,
+        filters=filters,
+        metric_type=metric_type,
         limit=limit,
     )
     return [MetricEventSample(**row) for row in runner.run()]
+
+
+# PoC cap: team-wide — Error Tracking spike events carry no service attribution,
+# so there is no correlation key to scope them to one metric's service yet.
+_ERROR_SPIKES_LIMIT = 200
+
+
+def list_metric_error_spikes(*, team: Team, date_from: dt.datetime, date_to: dt.datetime) -> list[MetricErrorSpike]:
+    """List Error Tracking issue spikes detected in a time window, for the
+    metrics chart's error-spike overlay.
+
+    Team-wide: Error Tracking issues carry no service attribution today, so
+    this cannot be scoped to the metric's own service yet.
+    """
+    events = list_latest_spike_events(
+        team_id=team.id,
+        date_from=date_from.isoformat(),
+        date_to=date_to.isoformat(),
+        limit=_ERROR_SPIKES_LIMIT,
+    )
+    return [
+        MetricErrorSpike(
+            detected_at=event.detected_at.isoformat(),
+            issue_id=str(event.issue.id),
+            issue_name=event.issue.name,
+        )
+        for event in events
+    ]
 
 
 def characterize_metric_anomaly(
@@ -396,3 +815,168 @@ def investigate_incident(*, team: Team, context: IncidentContext) -> Investigati
         filters=filters,
         companions=context.companions,
     )
+
+
+def start_dashboard_import(*, team: Team, user: User, request: DashboardImportRequest) -> DashboardImportStatus:
+    """Start an import of a Grafana dashboard JSON model or a dashboard screenshot as a new dashboard.
+
+    Converts what it can at once. Starts an agent task for the rest, and then the status has an id to poll.
+    Raises `DashboardImportError` with a message for the user.
+    """
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).start(request)
+
+
+def get_dashboard_import(*, team: Team, user: User, import_id: str) -> DashboardImportStatus | None:
+    """The status of the user's import. Builds the dashboard when the agent finished and nothing built it yet."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).status(import_id)
+
+
+def list_dashboard_imports(*, team: Team, user: User) -> list[DashboardImportStatus]:
+    """The user's recent imports that used an agent, newest first, with the progress of the ones that run."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).recent()
+
+
+def finalize_dashboard_import(*, team_id: int, import_id: str) -> None:
+    """Build the dashboard of an import whose agent task ended. Safe to call more than once."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        finalize_import,
+    )
+
+    finalize_import(team_id=team_id, task_id=import_id, background=True)
+
+
+def check_dashboard_import_layout(*, team_id: int, import_id: str, saved_at: dt.datetime | None = None) -> None:
+    """Take the agent's latest answer of a screenshot import, and send it a picture of the dashboard or end it."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        check_import_layout,
+    )
+
+    check_import_layout(team_id=team_id, task_id=import_id, saved_at=saved_at)
+
+
+def check_dashboard_panel_queries(
+    *, team: Team, user: User, panels: Sequence[PanelQueryCheckRequest], import_id: str | None = None
+) -> list[PanelQueryCheckResult]:
+    """Check panel queries the way a dashboard import checks them before it builds the dashboard."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        check_panel_queries,
+    )
+
+    return check_panel_queries(team=team, user=user, panels=panels, import_id=import_id)
+
+
+def list_suggested_dashboards(*, team: Team) -> list[SuggestedDashboard]:
+    """The approved bank dashboards that suit the metrics of the team, best fit first.
+
+    The first call for a team that was never analyzed starts its analysis, so suggestions appear without
+    waiting for its metric names to change.
+    """
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        discovery,
+        service,
+    )
+    from products.metrics.backend.temporal.schedule import (  # noqa: PLC0415 — keeps temporalio off the facade import path
+        start_team_analysis,
+    )
+
+    discovery.record_opened(team.id)
+    if discovery.needs_analysis_on_open(team.id):
+        try:
+            start_team_analysis(team.id, force=True)
+        except Exception:
+            discovery.forget_analysis_on_open(team.id)
+            logger.warning("metrics_suggested_dashboards_first_analysis_not_started", team_id=team.id)
+    return service.list_suggestions(team)
+
+
+def create_suggested_dashboard(*, team: Team, user: User, suggestion_id: str) -> int:
+    """Create the dashboard of a suggestion as the user, and return its id. A second call returns the same id.
+
+    Raises `SuggestedDashboardError` with a message for the user.
+    """
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.create_from_suggestion(team, user, suggestion_id)
+
+
+def analyze_team_metrics_now(*, team: Team) -> None:
+    """Start an analysis of the team's metric names now, even when nothing changed. For the staff review."""
+    from products.metrics.backend.temporal.schedule import (  # noqa: PLC0415 — keeps temporalio off the facade import path
+        start_team_analysis,
+    )
+
+    start_team_analysis(team.id, force=True)
+
+
+def list_dashboard_templates(*, status: DashboardTemplateStatus | None = None) -> list[DashboardTemplateSummary]:
+    """The templates of the metrics dashboard bank, newest first. Instance-wide, for the staff review."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.list_templates(status)
+
+
+def get_dashboard_template(*, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.get_template(template_id)
+
+
+def open_dashboard_template_preview(*, team: Team, user: User, template_id: str) -> int:
+    """The id of an unlisted dashboard in the team that shows the template with live data. Builds it when needed."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.open_preview(team, user, template_id)
+
+
+def approve_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    """Approve a template. The changes on its preview dashboard become the template first."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.approve(user, template_id)
+
+
+def reject_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.reject(user, template_id)
+
+
+def regenerate_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.regenerate(user, template_id)
+
+
+def dashboard_template_picture(*, template_id: str, round_number: int) -> bytes | None:
+    """The PNG that a generation round rendered of the preview dashboard."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.picture(template_id, round_number)

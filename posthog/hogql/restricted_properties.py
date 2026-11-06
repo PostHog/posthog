@@ -1,14 +1,135 @@
+from collections.abc import Iterable
+
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AI_SUBCOLUMN_TO_SOURCE, AiEventsTable
+from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
+from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDimensionalPreAggregatedTable,
+    WebStatsDimensionalPreAggregatedTable,
+)
+
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
+from posthog.constants import GROUP_TYPES_LIMIT
 
 logger = structlog.get_logger(__name__)
 
+# Event property keys under which identify events carry person properties.
+PERSON_PROPERTY_CONTAINERS: tuple[str, ...] = ("$set", "$set_once")
 
-def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
+# JSON blob columns that hold a restrictable property class, so the printer knows which blob reads to wrap in
+# JSONDropKeys. Everything here must be covered by a branch in `restricted_property_keys_for_table_type`, and vice
+# versa — a blob whose table type maps to a property class but whose column is missing here is read unscrubbed.
+RESTRICTABLE_JSON_BLOB_COLUMNS: frozenset[str] = frozenset(
+    {
+        "properties",  # events.properties, persons.properties, groups.group_properties reads via the HogQL name
+        "person_properties",  # EventsPersonSubTable (PoE mode) and FlagEvaluationsPersonSubTable
+        # Not in the catalog. The property resolver reads it as the masked document for a restricted moved property.
+        TEMPORARY_PROPERTIES_COLUMN,
+        "group_properties",  # groups / raw_groups
+        # EventsGroupSubTable (group-on-events mode) exposes each group type's blob on the events table.
+        *(f"group{index}_properties" for index in range(GROUP_TYPES_LIMIT)),
+    }
+)
+
+# flag_evaluations columns that store a verbatim copy of an event property, mapped to the property each copies.
+# The shards compute them from `properties`, so both spellings return one value, and masking only reaches the
+# `properties.<key>` and whole-blob paths. Restricting the property has to mask the column by name too, or the
+# column answers what those two refuse.
+_FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
+    "flag_key": "$feature_flag",
+    "response": "$feature_flag_response",
+    "session_id": "$session_id",
+    "request_id": "$feature_flag_request_id",
+    **{f"$group_{index}": f"$group_{index}" for index in range(GROUP_TYPES_LIMIT)},
+}
+
+
+_AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column in AI_PROPERTY_TO_COLUMN.items()}
+_AI_EVENTS_MIRRORED_COLUMNS |= {
+    subcolumn: _AI_EVENTS_MIRRORED_COLUMNS[source] for subcolumn, source in AI_SUBCOLUMN_TO_SOURCE.items()
+}
+
+# Web analytics dimensional columns, mapped to the event properties the INSERT templates in
+# `web_dimensional_precompute.py` read to fill them. The session-level columns come from the sessions
+# table, which copies them from event properties, so they follow the rule of that event property. The
+# entry and end pathnames are `path($current_url)` there, and they also follow `$pathname` because the
+# SDK derives `$pathname` from the same URL. A guard test fails when a dimension column is missing here.
+WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "host": ("$host",),
+    "device_type": ("$device_type",),
+    "pathname": ("$pathname",),
+    "entry_pathname": ("$current_url", "$pathname"),
+    "end_pathname": ("$current_url", "$pathname"),
+    "browser": ("$browser",),
+    "os": ("$os",),
+    "viewport_width": ("$viewport_width",),
+    "viewport_height": ("$viewport_height",),
+    "referring_domain": ("$referring_domain",),
+    "utm_source": ("utm_source",),
+    "utm_medium": ("utm_medium",),
+    "utm_campaign": ("utm_campaign",),
+    "utm_term": ("utm_term",),
+    "utm_content": ("utm_content",),
+    "has_gclid": ("gclid",),
+    "has_gad_source_paid_search": ("gad_source",),
+    "has_fbclid": ("fbclid",),
+    "country_code": ("$geoip_country_code",),
+    "city_name": ("$geoip_city_name",),
+    "region_code": ("$geoip_subdivision_1_code",),
+    "region_name": ("$geoip_subdivision_1_name",),
+    "mat_metadata_loggedIn": ("metadata.loggedIn",),
+    "mat_metadata_backend": ("metadata.backend",),
+}
+
+
+def mirrored_properties_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> tuple[str, ...]:
+    """The event properties a typed column copies, or an empty tuple when the column copies nothing.
+
+    A caller that prints one of these columns must mask the read when any of the properties is restricted, in a predicate
+    as much as in a SELECT: an unmasked column lets a filter narrow down a value the same user cannot read.
+    `events` exposes mirror columns of its own that nothing consults this for; see ACCESS_CONTROL.md.
+    """
+    if not isinstance(table_type, ast.BaseTableType):
+        return ()
+
+    try:
+        table = table_type.resolve_database_table(context)
+    except Exception:
+        # Fail-open to match restricted_property_keys_for_table_type, whose docstring explains why this is
+        # unreachable today; log so a future table type that can raise does not silently unmask a column.
+        logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
+        return ()
+
+    if isinstance(table, WebStatsDimensionalPreAggregatedTable | WebBouncesDimensionalPreAggregatedTable):
+        return WEB_DIMENSIONAL_MIRRORED_COLUMNS.get(column_name, ())
+    if isinstance(table, AiEventsTable):
+        source = _AI_EVENTS_MIRRORED_COLUMNS.get(column_name)
+    elif isinstance(table, FlagEvaluationsTable):
+        source = _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    else:
+        source = None
+    return (source,) if source is not None else ()
+
+
+def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
+    """The `$feature_flags` map keys of the restricted `$feature/<key>` properties in `keys`, sorted for stable SQL."""
+    return sorted(
+        key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX) for key in keys if key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
+    )
+
+
+def restricted_property_keys_for_table_type(
+    table_type: ast.Type, context: HogQLContext, *, group_type_index: int | None = None
+) -> set[str]:
     """Top-level property names restricted by property-level access control for a table, or an empty set.
 
     Single source of truth shared by the ClickHouse printer (which JSONDropKeys-wraps the blob) and the property
@@ -34,13 +155,97 @@ def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQL
         logger.warning("restricted_property_table_resolution_failed", table_type=type(table_type).__name__)
         return set()
 
-    if isinstance(table, EventsPersonSubTable):
+    # EventsPersonSubTable and EventsGroupSubTable are virtual tables over `events`, not EventsTable subclasses, but
+    # they carry person/group properties — match them before the EventsTable branch either way.
+    if isinstance(table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
         prop_def_type = PropertyDefinition.Type.PERSON
-    elif isinstance(table, EventsTable):
+    elif isinstance(table, EventsGroupSubTable):
+        prop_def_type = PropertyDefinition.Type.GROUP
+        group_type_index = table.group_index
+    elif isinstance(
+        table,
+        (
+            *EVENT_ROW_TABLES,
+            AiEventsTable,
+            WebStatsDimensionalPreAggregatedTable,
+            WebBouncesDimensionalPreAggregatedTable,
+        ),
+    ):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON
+    elif isinstance(table, (GroupsTable, RawGroupsTable)) or (
+        isinstance(table, PostgresTable) and table.postgres_table_name == "posthog_group"
+    ):
+        prop_def_type = PropertyDefinition.Type.GROUP
     else:
+        # PropertyDefinition.Type.SESSION is deliberately absent: the sessions tables expose each session property as
+        # its own column rather than a JSON blob, so there is nothing for this function's callers to scrub. Restricting
+        # a session property therefore has no query-time effect yet — enforcing it needs field-level denial, not a
+        # blob-key drop.
         return set()
 
-    return {name for name, ptype in context.restricted_properties if ptype == prop_def_type}
+    restricted_keys = {
+        restriction.name
+        for restriction in context.restricted_properties
+        if restriction.property_type == prop_def_type
+        and (
+            prop_def_type != PropertyDefinition.Type.GROUP
+            or group_type_index is None
+            or restriction.group_type_index == group_type_index
+        )
+    }
+    native_event_json = context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable))
+    if prop_def_type == PropertyDefinition.Type.EVENT:
+        # Identify events carry person properties inside `$set` / `$set_once`.
+        for restriction in context.restricted_properties:
+            if restriction.property_type == PropertyDefinition.Type.PERSON:
+                for container in PERSON_PROPERTY_CONTAINERS:
+                    restricted_keys.add(f"{container}.{restriction.name}")
+                    if native_event_json and "." in restriction.name:
+                        # Native JSON escapes dots in the property name, but not in the container.
+                        restricted_keys.add(f"{container}.{restriction.name.replace('.', '%2E')}")
+    if restricted_keys and native_event_json:
+        # The native JSON columns store the flat key `a.b` under the path `a%2Eb`, and the printer reads a
+        # requested `a%2Eb` from that same path. Restrict both spellings, or the encoded one reads the value.
+        restricted_keys |= {key.replace(".", "%2E") for key in restricted_keys if "." in key}
+        # Quarantine contains raw property values inside a string, beyond JSONDropKeys' reach.
+        restricted_keys.add(UNPARSEABLE_PROPERTIES_KEY)
+    return restricted_keys
+
+
+def key_read_overlaps_restriction(first_key: str, restricted_keys: Iterable[str]) -> bool:
+    """Whether JSONDropKeys can change what a read of the top-level key `first_key` returns.
+
+    JSONDropKeys matches object keys one dot-separated segment at a time. A restricted `a` also drops the flat key
+    `a.b`, and a restricted `a.b` also filters inside the value of `a`. Any other key reads the same value from the
+    stored blob as from the masked one.
+    """
+    segments = first_key.split(".")
+    for restricted_key in restricted_keys:
+        restricted_segments = restricted_key.split(".")
+        shared = min(len(segments), len(restricted_segments))
+        if segments[:shared] == restricted_segments[:shared]:
+            return True
+    return False
+
+
+def property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
+    """Whether `property_name` is a restricted key, sits under one, or holds one as a child.
+
+    A parent of a restricted child must not resolve to a physical column on either schema: a materialized column for
+    `$set` holds the restricted `email` inside it, and only the blob read is scrubbed.
+    """
+    if not context.restricted_properties:
+        return False
+    return key_read_overlaps_restriction(property_name, restricted_property_keys_for_table_type(table_type, context))
+
+
+def restricted_key_path(keys: Iterable[str | int], restricted_keys: set[str]) -> str | None:
+    """The first dotted prefix of `keys` that names a restricted key, or None when the path is readable."""
+    path = ""
+    for key in keys:
+        path = f"{path}.{key}" if path else str(key)
+        if path in restricted_keys:
+            return path
+    return None

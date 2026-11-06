@@ -8,6 +8,7 @@ from typing import Any
 
 from django.conf import settings
 
+import httpx
 import posthoganalytics
 from google import genai
 from google.genai.errors import APIError
@@ -17,22 +18,40 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    ProviderConnectionError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
+    stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
+    OutputSchema,
     StreamChunk,
     Usage,
 )
-from products.ai_observability.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
+from products.ai_observability.backend.providers.formatters.gemini_formatter import (
+    MessageConversionError,
+    convert_anthropic_messages_to_gemini,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _retry_delay(error: APIError) -> str | None:
+    """The seconds in the error's google.rpc.RetryInfo detail, such as "27" from "27s"."""
+    body = error.details.get("error", {}) if isinstance(error.details, dict) else {}
+    for detail in body.get("details") or []:
+        if isinstance(detail, dict) and str(detail.get("@type", "")).endswith("google.rpc.RetryInfo"):
+            delay = str(detail.get("retryDelay", ""))
+            return delay.removesuffix("s") or None
+    return None
 
 
 class GeminiConfig:
@@ -135,23 +154,52 @@ class GeminiAdapter:
                 usage=usage,
                 parsed=parsed,
             )
-        except APIError as e:
-            error_message = str(e).lower()
-            status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
+        except Exception as e:
+            mapped = self._mapped_error(e, request.model)
+            if mapped is not None:
+                raise mapped from e
+            raise
+
+    def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
+        """Normalize a provider exception into the shared taxonomy, or None when it isn't ours.
+
+        `complete` and `stream` both route through this, so the same provider failure reads the
+        same way whether the caller streamed it or not.
+        """
+        if isinstance(error, MessageConversionError):
+            # The user authored the message that failed to convert, so show the reason.
+            return ProviderRequestRejectedError(str(error))
+        if isinstance(error, APIError):
+            error_message = str(error).lower()
+            status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
             if status_code == 401 or "authentication" in error_message or "api key" in error_message:
-                raise AuthenticationError(str(e))
+                return AuthenticationError(str(error))
             if status_code == 403 or "permission denied" in error_message:
-                raise ModelPermissionError(request.model)
+                return ModelPermissionError(model)
             if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
-                if "quota" in error_message or "billing" in error_message:
-                    raise QuotaExceededError(str(e))
-                raise RateLimitError(str(e))
+                # Per-minute limits also say "quota". Google adds a retry delay when waiting
+                # helps, so its presence separates a rate limit from exhausted billing.
+                retry_delay = _retry_delay(error)
+                if retry_delay is None and ("quota" in error_message or "billing" in error_message):
+                    return QuotaExceededError(str(error))
+                return RetryableRateLimitError(str(error), retry_delay)
             # Google returns a 404-class error (often with "no longer available") when a
             # model is retired/deprecated. Map it so call_llm_judge disables the eval
             # gracefully instead of burning Temporal retries on an unhandled exception.
             if status_code == 404 or "no longer available" in error_message or "not found" in error_message:
-                raise ModelNotFoundError(request.model)
-            raise
+                return ModelNotFoundError(model)
+            # Google cancels a call with a 499/CANCELLED error. The retry policy already covers it,
+            # but the message differs per occurrence, so an unmapped one files a new error tracking
+            # issue every time. Share the transport lane, which the caller retries quietly.
+            if status_code == 499 or "cancelled" in error_message or "canceled" in error_message:
+                return ProviderConnectionError(str(error))
+            return None
+        if isinstance(error, httpx.TransportError):
+            # google-genai doesn't wrap httpx transport failures (connection reset, read timeout)
+            # in APIError, so without this they escape as an unmapped exception and spam error
+            # tracking. Map to a quiet retryable error so the caller retries silently.
+            return ProviderConnectionError(str(error))
+        return None
 
     def stream(
         self,
@@ -181,6 +229,7 @@ class GeminiAdapter:
             temperature=request.temperature,
             max_tokens=request.max_tokens,
             tools=tools,
+            output_schema=request.output_schema,
         )
 
         analytics_kwargs: dict[str, Any] = {}
@@ -190,6 +239,7 @@ class GeminiAdapter:
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),
                 "posthog_properties": analytics.properties or {},
                 "posthog_groups": analytics.groups or {},
+                "posthog_privacy_mode": analytics.privacy_mode,
             }
 
         try:
@@ -212,12 +262,8 @@ class GeminiAdapter:
                         },
                     )
 
-        except APIError as e:
-            logger.exception(f"Gemini API error when streaming response: {e}")
-            yield StreamChunk(type="error", data={"error": "Gemini API error"})
         except Exception as e:
-            logger.exception(f"Unexpected error when streaming response: {e}")
-            yield StreamChunk(type="error", data={"error": "Unexpected error"})
+            yield stream_error_chunk(e, self._mapped_error(e, model_id), logger=logger, provider=self.name)
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
@@ -284,6 +330,7 @@ class GeminiAdapter:
         temperature: float | None = None,
         max_tokens: int | None = None,
         tools: list[dict] | None = None,
+        output_schema: OutputSchema | None = None,
     ) -> dict[str, Any]:
         """Prepare Gemini config kwargs."""
         effective_temperature = temperature if temperature is not None else GeminiConfig.TEMPERATURE
@@ -296,6 +343,9 @@ class GeminiAdapter:
             config_kwargs["max_output_tokens"] = max_tokens
         if tools is not None:
             config_kwargs["tools"] = tools
+        if output_schema is not None:
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_json_schema"] = output_schema.schema
         return config_kwargs
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:

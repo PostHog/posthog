@@ -14,6 +14,7 @@ from posthog.api.github_callback.types import (
     GitHubAuthorizeState,
     team_id_from_next_url,
 )
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.user_permissions import UserPermissions
@@ -43,6 +44,19 @@ def authenticated_user_id(request: Request) -> int:
 
 
 def store_unified_authorize_state(state: GitHubAuthorizeState, *, ttl: int | None = None) -> None:
+    if state.originating_organization_id is None:
+        user = User.objects.filter(pk=state.user_id).first()
+        if user:
+            organization_id = (
+                user.teams.filter(id=state.team_id).values_list("organization_id", flat=True).first()
+                if state.team_id
+                else user.current_organization_id
+            )
+            if (
+                organization_id
+                and OrganizationMembership.objects.filter(user=user, organization_id=organization_id).exists()
+            ):
+                state = state.model_copy(update={"originating_organization_id": organization_id})
     timeout = ttl or GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS
     cache.set(unified_authorize_cache_key(state.token), state.cache_payload(), timeout=timeout)
     cache.set(unified_authorize_pending_cache_key(state.user_id), state.token, timeout=timeout)
@@ -112,6 +126,25 @@ def resolve_github_setup_callback_context(
     return team_id, next_url
 
 
+def callback_authorize_state(user_id: int, state_raw: str | None) -> GitHubAuthorizeState | None:
+    """The authorize state a callback belongs to, or ``None`` when it carries none for this user.
+
+    Resolves the token from the ``state`` query param first, then the user's pending record, the
+    same way ``views._parse_callback`` routes a callback. Read-only, unlike
+    ``consume_github_authorize_state``: callers further down the callback still need the state.
+
+    Any logged-in user can be sent to the callback URL cross-site, so this is what separates a
+    callback the user started from one an attacker handed them.
+    """
+    token, _ = parse_github_authorize_state_param(state_raw)
+    if token is None:
+        pending_token = cache.get(unified_authorize_pending_cache_key(user_id))
+        token = str(pending_token) if pending_token is not None else None
+    if not token:
+        return None
+    return load_authorize_state(token, user_id=user_id)
+
+
 def has_pending_personal_setup_update(user: User, installation_id: str | None) -> bool:
     pending_token = cache.get(unified_authorize_pending_cache_key(user.id))
     if pending_token is None:
@@ -150,6 +183,13 @@ def consume_authorize_state(token: str, *, user_id: int | None = None) -> GitHub
     return state
 
 
+@frozen
+class ConsumedAuthorizeState:
+    state_token: str
+    next_url: str
+    team_id: int | None
+
+
 def consume_github_authorize_state(
     request: Request,
     state_raw: str | None,
@@ -157,7 +197,7 @@ def consume_github_authorize_state(
     setup_action: str = "",
     code: str | None = None,
     installation_id: str | None = None,
-) -> tuple[str, str, int | None]:
+) -> ConsumedAuthorizeState:
     user_id = authenticated_user_id(request)
     pending_token = cache.get(unified_authorize_pending_cache_key(user_id))
     cached = cache.get(unified_authorize_cache_key(str(pending_token))) if pending_token else None
@@ -192,4 +232,4 @@ def consume_github_authorize_state(
 
     cache.delete(unified_authorize_cache_key(expected_token))
     cache.delete(unified_authorize_pending_cache_key(user_id))
-    return expected_token, param_next or cached_next, team_id
+    return ConsumedAuthorizeState(state_token=expected_token, next_url=param_next or cached_next, team_id=team_id)

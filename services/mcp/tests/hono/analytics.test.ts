@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockCaptureToolCall, mockCaptureInitialize, mockCapture } = vi.hoisted(() => ({
+const { mockCaptureToolCall, mockCaptureInitialize, mockCaptureToolsList, mockCapture } = vi.hoisted(() => ({
     mockCaptureToolCall: vi.fn(),
     mockCaptureInitialize: vi.fn(),
+    mockCaptureToolsList: vi.fn(),
     // Raw `capture`; must never be used for the retired legacy `mcp_*` event names.
     mockCapture: vi.fn(),
 }))
@@ -11,12 +12,26 @@ vi.mock('@/lib/posthog', () => ({
     getPostHogClient: vi.fn(() => ({
         captureToolCall: mockCaptureToolCall,
         captureInitialize: mockCaptureInitialize,
+        captureToolsList: mockCaptureToolsList,
         capture: mockCapture,
     })),
 }))
 
-import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall, trackToolSpan } from '@/hono/analytics'
+import {
+    trackExecuteSqlGeneration,
+    trackInitEvent,
+    trackSkillInvoked,
+    trackToolCall,
+    trackToolsList,
+    trackToolSpan,
+} from '@/hono/analytics'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from '@/hono/constants'
+import { InstructionsBuilder } from '@/hono/instructions'
+import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
+import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
+import type { SkillInvocation } from '@/tools/exec-learn'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
 
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
@@ -32,6 +47,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         useSingleExec: true,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {} as any,
         requestContext: {
             authMethod: 'personal_api_key',
@@ -51,6 +67,9 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             mcpConsumer: 'request-consumer',
             mode: 'cli',
             region: 'us',
+            features: ['insights', 'product_analytics', 'insights', 'bad\nvalue'],
+            tools: ['dashboard-get', 'x'.repeat(200)],
+            excludeTools: ['insight-delete'],
             mcpVendorClient: 'ClaudeAI',
         },
         sessionContext: {
@@ -62,11 +81,12 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         },
         allTools: [],
         scopeGatedTools: [],
+        findScopeGatedTool: () => undefined,
+        supportsStepUp: false,
+        flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'distinct-id',
         renderUiEnabled: false,
-        metadata: undefined,
-        groupTypes: undefined,
         ...overrides,
     }
 }
@@ -75,8 +95,39 @@ describe('Hono MCP analytics contexts', () => {
     beforeEach(() => {
         mockCaptureToolCall.mockClear()
         mockCaptureInitialize.mockClear()
+        mockCaptureToolsList.mockClear()
         mockCapture.mockClear()
     })
+
+    it.each([false, true])(
+        'records recruitment diagnostics without exposing them on suppressed calls: %s',
+        async (suppressed) => {
+            const state = makeState({
+                suppressAnalytics: suppressed,
+                interviewRecruitmentDiagnostics: {
+                    reason: 'url_unsupported',
+                    urlSupported: false,
+                    formSupported: true,
+                    campaignId: 'synthetic-study',
+                },
+            })
+            await trackToolCall('user-get', 12, false, state)
+            const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+            if (suppressed) {
+                expect(properties).not.toHaveProperty('interview_recruitment_reason')
+                expect(properties).not.toHaveProperty('interview_recruitment_form_supported')
+            } else {
+                expect(properties).toMatchObject({
+                    interview_recruitment_reason: 'url_unsupported',
+                    interview_recruitment_url_supported: false,
+                    interview_recruitment_form_supported: true,
+                    interview_recruitment_campaign_id: 'synthetic-study',
+                })
+                expect(properties).not.toHaveProperty('interview_recruitment_completed_calls')
+            }
+            expect(mockCapture).not.toHaveBeenCalled()
+        }
+    )
 
     it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
         // Guards against reintroducing the legacy dual-emit, which double-counted every call.
@@ -86,10 +137,99 @@ describe('Hono MCP analytics contexts', () => {
         expect(mockCapture).not.toHaveBeenCalled()
     })
 
+    it.each([
+        'scout-trial-create',
+        'scout-trial-get',
+        'scout-trial-start',
+        'scout-trial-report',
+        'scout-trial-list',
+        'scout-trial-resume',
+        'scout-trial-archive',
+        'scout-trial-setup',
+        'scout-rubric-generate',
+        'scout-rubric-get',
+        'scout-rubric-save',
+    ])('excludes exec discovery metadata for %s with ordinary operator credentials', async (targetTool) => {
+        await trackToolCall(
+            'exec',
+            12,
+            false,
+            makeState({ suppressAnalytics: false }),
+            { $mcp_exec_verb: 'info', $mcp_exec_target_tool: targetTool },
+            { intent: 'Compare synthetic scout variants' }
+        )
+
+        expect(mockCaptureToolCall).not.toHaveBeenCalled()
+        expect(mockCapture).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        { impersonated: true, isError: false },
+        { impersonated: true, isError: true },
+        { impersonated: false, isError: false },
+        { impersonated: false, isError: true },
+    ])('passes impersonated=$impersonated to the SDK with isError=$isError', async ({ impersonated, isError }) => {
+        const state = makeState({ isImpersonated: impersonated, suppressAnalytics: impersonated })
+
+        await trackToolCall('user-get', 12, isError, state, {
+            is_impersonated: !impersonated,
+            suppress_analytics: !impersonated,
+        })
+        await trackInitEvent(state)
+        await trackToolsList(['user-get'], state)
+        await trackExecuteSqlGeneration('execute-sql', { query: 'SELECT 1' }, state, { durationMs: 12, isError })
+        await trackToolSpan('user-get', state, { input: {}, output: {}, durationMs: 12, isError })
+        await trackSkillInvoked(state, { source: 'posthog', skill: 'test-skill', readKind: 'skill' })
+
+        expect(mockCaptureToolCall).toHaveBeenCalledWith(
+            expect.objectContaining({
+                toolName: 'user-get',
+                isError,
+                properties: expect.objectContaining({
+                    is_impersonated: impersonated,
+                    suppress_analytics: impersonated,
+                }),
+            })
+        )
+        for (const capture of [mockCaptureInitialize, mockCaptureToolsList]) {
+            expect(capture).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    properties: expect.objectContaining({
+                        is_impersonated: impersonated,
+                        suppress_analytics: impersonated,
+                    }),
+                })
+            )
+        }
+        expect(mockCapture).toHaveBeenCalledTimes(3)
+        for (const [event] of mockCapture.mock.calls) {
+            expect(event.properties.suppress_analytics).toBe(impersonated)
+        }
+    })
+
+    it.each([
+        [MCP_INTENT_PROMPT_FLAG, true],
+        [MCP_INTENT_PROMPT_FLAG, false],
+        [MCP_INTENT_PROMPT_FLAG, undefined],
+        [MCP_INBOX_FIRST_FLAG, true],
+        [MCP_INBOX_FIRST_FLAG, false],
+        [MCP_INBOX_FIRST_FLAG, undefined],
+    ])('records the evaluated experiment flag %s: %s', async (flagKey, flagValue) => {
+        const state = makeState({ toolFeatureFlags: { [flagKey]: flagValue } })
+
+        await trackToolCall('user-get', 12, false, state)
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${flagKey}`]).toBe(flagValue)
+    })
+
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
         await trackInitEvent(makeState())
 
         expect(mockCaptureInitialize).toHaveBeenCalledTimes(1)
+        // The SDK maps its own `conversationId` field, so the property is stamped only when a
+        // handle exists. An explicit `undefined` would erase the SDK's value.
+        expect(mockCaptureInitialize.mock.calls[0]![0].conversationId).toBe('conversation-request')
+        expect(mockCaptureInitialize.mock.calls[0]![0].properties.$mcp_conversation_id).toBe('conversation-request')
         expect(mockCaptureInitialize.mock.calls[0]![0].properties).toMatchObject({
             $mcp_client_name: 'Claude Desktop',
             $mcp_client_version: '2.0',
@@ -97,18 +237,37 @@ describe('Hono MCP analytics contexts', () => {
             $mcp_protocol_version: '2025-03-26',
             $mcp_transport: 'streamable-http',
             $mcp_session_id: 'mcp-session-request',
-            $mcp_conversation_id: 'conversation-request',
             $mcp_consumer: 'request-consumer',
             $mcp_mode: 'cli',
             $mcp_region: 'us',
             $mcp_auth_method: 'personal_api_key',
-            mcp_vendor_client: 'ClaudeAI',
+            $mcp_vendor_client: 'ClaudeAI',
             mcp_session_client_name: 'claude-code',
             mcp_session_client_version: '1.0',
             mcp_session_protocol_version: '2025-03-26',
             mcp_session_consumer: 'session-consumer',
             mcp_session_vendor_client: 'ClaudeCode',
+            requested_features: ['insights', 'product_analytics'],
+            requested_tools: ['dashboard-get'],
+            requested_exclude_tools: ['insight-delete'],
         })
+    })
+
+    it('stamps the surface as `source` so MCP events join product events', async () => {
+        // Without it, $mcp_* events carry no `source` at all and sit outside the breakdown
+        // that measures MCP adoption. The resolution matrix itself is covered in
+        // tests/event-source.test.ts — this only proves the property reaches the event.
+        await trackToolCall(
+            'user-get',
+            12,
+            false,
+            makeState({
+                apiKeyScopes: ['insight:read', 'internal_run:read'],
+                requestContext: { ...makeState().requestContext, mcpConsumer: 'slack' },
+            })
+        )
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.source).toBe('slack')
     })
 
     it('omits session properties when there is no MCP session context', async () => {
@@ -118,6 +277,16 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.$mcp_client_name).toBe('Claude Desktop')
         expect(properties.mcp_session_client_name).toBeUndefined()
         expect(properties.mcp_session_vendor_client).toBeUndefined()
+    })
+
+    it.each([
+        { llmModel: undefined, llmModelMissingReason: 'unknown' as const, expected: 'unknown' },
+        { llmModel: 'example-model', llmModelMissingReason: 'unknown' as const, expected: undefined },
+        { llmModel: undefined, llmModelMissingReason: undefined, expected: undefined },
+    ])('emits a missing model reason only for unresolved calls: $llmModel', async ({ expected, ...analyticsMeta }) => {
+        await trackToolCall('user-get', 12, false, makeState(), undefined, analyticsMeta)
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_llm_model_missing_reason).toBe(expected)
     })
 
     it('categorizes a proxied third-party tool and names its server', async () => {
@@ -146,7 +315,7 @@ describe('Hono MCP analytics contexts', () => {
             ['$mcp_client_version', 'mcpClientVersion'],
             ['$mcp_protocol_version', 'mcpProtocolVersion'],
             ['$mcp_consumer', 'mcpConsumer'],
-            ['mcp_vendor_client', 'mcpVendorClient'],
+            ['$mcp_vendor_client', 'mcpVendorClient'],
         ] as const)(
             '%s: live value wins when both live and session values are present',
             async (eventProp, contextField) => {
@@ -165,7 +334,7 @@ describe('Hono MCP analytics contexts', () => {
             ['$mcp_client_version', 'mcpClientVersion'],
             ['$mcp_protocol_version', 'mcpProtocolVersion'],
             ['$mcp_consumer', 'mcpConsumer'],
-            ['mcp_vendor_client', 'mcpVendorClient'],
+            ['$mcp_vendor_client', 'mcpVendorClient'],
         ] as const)(
             '%s: falls back to the session-pinned value when the live request has none (the tools/call case)',
             async (eventProp, contextField) => {
@@ -184,7 +353,7 @@ describe('Hono MCP analytics contexts', () => {
             ['$mcp_client_version', 'mcpClientVersion'],
             ['$mcp_protocol_version', 'mcpProtocolVersion'],
             ['$mcp_consumer', 'mcpConsumer'],
-            ['mcp_vendor_client', 'mcpVendorClient'],
+            ['$mcp_vendor_client', 'mcpVendorClient'],
         ] as const)(
             '%s: stays undefined (never an empty string) when both live and session values are absent',
             async (eventProp, contextField) => {
@@ -206,7 +375,7 @@ describe('Hono MCP analytics contexts', () => {
                 $mcp_client_version: '2.0',
                 $mcp_protocol_version: '2025-03-26',
                 $mcp_consumer: 'request-consumer',
-                mcp_vendor_client: 'ClaudeAI',
+                $mcp_vendor_client: 'ClaudeAI',
             })
         })
 
@@ -331,6 +500,31 @@ describe('Hono MCP analytics contexts', () => {
     })
 
     describe('trackToolSpan', () => {
+        it.each(['posthog_ai', 'claude'])(
+            'captures model output without adding native widget data for %s',
+            async (consumer) => {
+                const state = makeState()
+                const appData = { rows: [{ value: 'widget-only-data' }] }
+                const output = {
+                    content: [{ type: 'text', text: '1 row' }],
+                    _meta: { 'com.posthog.mcp/app_data': appData, resourceUri: 'ui://query' },
+                }
+                await trackToolSpan(
+                    'query-trends',
+                    {
+                        ...state,
+                        clientProfile: new MCPClientProfile({ consumer }),
+                    },
+                    { durationMs: 100, isError: false, output }
+                )
+
+                const captured = JSON.parse(mockCapture.mock.calls[0]![0].properties.$ai_output_state)
+                expect(captured.content).toEqual(output.content)
+                expect(captured._meta).toEqual(consumer === 'posthog_ai' ? { resourceUri: 'ui://query' } : output._meta)
+                expect(output._meta['com.posthog.mcp/app_data']).toBe(appData)
+            }
+        )
+
         it.each([
             ['a non-execute-sql tool', 'data-catalog-metric-run', { name: 'mrr' }, true],
             ['any other non-execute-sql tool', 'query-logs', { query: 'SELECT 1' }, true],
@@ -358,6 +552,69 @@ describe('Hono MCP analytics contexts', () => {
             // fields, so capturing the payload would put arbitrary third-party content in
             // analytics to serve evaluations that target PostHog's own tools.
             ['a proxied third-party tool', 'linear__create_issue', { title: 'Customer escalation' }, false],
+            // Its result is a live presigned S3 POST (policy, signature, credential) — output
+            // fields, not secret-shaped keys, so key-based redaction can't catch them.
+            ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png', purpose: 'email' }, false],
+            [
+                'execute-sql wrapped in a connection call',
+                'posthog-connection-call',
+                { connection_id: '1', tool: 'execute-sql', arguments: { query: 'SELECT count() FROM events' } },
+                false,
+            ],
+            [
+                'a connection forward',
+                'posthog-connection-forward',
+                { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
+                false,
+            ],
+            [
+                'an email log search by recipient',
+                'workflows-transactional-emails-list',
+                { search: 'jane@example.com' },
+                false,
+            ],
+            [
+                'one email log entry',
+                'workflows-transactional-email-get',
+                { id: '01a19f0e-9fd0-0001-a1d4-3a2b4579b763' },
+                false,
+            ],
+            [
+                'an email log search through exec',
+                'exec',
+                { command: 'call workflows-transactional-emails-list {"search":"jane@example.com"}' },
+                false,
+            ],
+            ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
+            [
+                'preparing an email send',
+                'workflows-send-email-prepare',
+                { to: 'ada@example.com', html: '<a href="https://example.com/reset?t=1">Reset</a>' },
+                false,
+            ],
+            ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
+            [
+                'an email send through exec',
+                'exec',
+                { command: 'call workflows-send-email-prepare {"to":"ada@example.com","html":"<p>code 123456</p>"}' },
+                false,
+            ],
+            [
+                'an email send forwarded through a PostHog connection',
+                'exec',
+                {
+                    command:
+                        'call posthog-connection-call {"connection_id":"1","tool":"workflows-send-email-prepare","arguments":{"html":"<p>code 123456</p>"}}',
+                },
+                false,
+            ],
+            [
+                'an email send exec rejects for a missing verb',
+                'exec',
+                { command: 'workflows-send-email-prepare {"html":"<p>code 123456</p>"}' },
+                false,
+            ],
+            ['another tool through exec', 'exec', { command: 'call feature-flag-get-all {}' }, true],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 
@@ -420,6 +677,106 @@ describe('Hono MCP analytics contexts', () => {
                 payload: { client_secret: '[redacted]' },
             })
             expect(JSON.parse($ai_output_state)).toEqual({ id: 1, api_key: '[redacted]' })
+        })
+
+        // Redaction is key-name based, so a source whose credential field the
+        // pattern does not name ships that credential verbatim. Cloudflare's
+        // `api_token` did exactly that. These are real field names from
+        // products/warehouse_sources/.../sources/*/source.py, paired with the
+        // metadata and token-count fields the pattern must keep readable.
+        it.each([
+            ['api_token', true],
+            ['database_token', true],
+            ['consumer_key', true],
+            ['signing_key', true],
+            ['key_file', true],
+            ['keypair', true],
+            ['token', true],
+            ['client_secret', true],
+            ['connection_string', true],
+            ['client_certificate', true],
+            ['app_id', true],
+            ['api_id', true],
+            ['basic_auth_username', true],
+            ['username', true],
+            ['server_client_root_ca', false],
+            ['token_id', false],
+            ['token_url', false],
+            ['app_tokens', false],
+            ['input_tokens', false],
+        ])('redacts %s: %s', async (field, redacted) => {
+            await trackToolSpan('external-data-sources-create', makeState(), {
+                durationMs: 100,
+                isError: false,
+                input: { payload: { [field]: 'sensitive-value' } },
+            })
+
+            const { $ai_input_state } = mockCapture.mock.calls[0]![0].properties
+            expect(JSON.parse($ai_input_state).payload[field]).toBe(redacted ? '[redacted]' : 'sensitive-value')
+        })
+    })
+
+    describe('trackSkillInvoked', () => {
+        it.each<SkillInvocation['readKind']>(['skill', 'file', 'file_search', 'file_lines'])(
+            'captures %s reads with skill_read_kind so file-only consumption still counts',
+            async (readKind) => {
+                await trackSkillInvoked(makeState(), {
+                    source: 'posthog',
+                    skill: 'retention-analysis',
+                    path: readKind === 'skill' ? undefined : 'references/functions.md',
+                    readKind,
+                })
+
+                expect(mockCapture).toHaveBeenCalledTimes(1)
+                expect(mockCapture.mock.calls[0]![0]).toMatchObject({
+                    event: 'skill invoked',
+                    properties: {
+                        skill_identifier: 'posthog:retention-analysis',
+                        skill_read_kind: readKind,
+                    },
+                })
+            }
+        )
+    })
+
+    describe('exec learn catalog skill-invoked dedupe', () => {
+        function skillsCatalog(): SkillCatalog {
+            return new SkillCatalog([
+                {
+                    name: 'retention-analysis',
+                    description: 'Retention.',
+                    files: [
+                        makeSkillFile('SKILL.md', '# Retention'),
+                        makeSkillFile('a.md', 'alpha'),
+                        makeSkillFile('b.md', 'beta'),
+                    ],
+                },
+                { name: 'funnels', description: 'Funnels.', files: [makeSkillFile('SKILL.md', '# Funnels')] },
+            ])
+        }
+
+        function skillsState(): ResolvedState {
+            return makeState({
+                clientProfile: { isClaudeChatHost: () => false, isAnthropicConnector: () => false } as any,
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+            })
+        }
+
+        it('counts one skill once per command but each command separately', async () => {
+            const catalog = new InstructionsBuilder('').buildExecLearnCatalog(skillsState(), skillsCatalog())!
+
+            // A batch that reads two files of one skill must dedupe to a single event.
+            await catalog.execute('posthog:retention-analysis a.md b.md')
+            await vi.waitFor(() => expect(mockCapture).toHaveBeenCalledTimes(1))
+
+            // A separate command reading another skill still counts.
+            await catalog.execute('posthog:funnels')
+            await vi.waitFor(() => expect(mockCapture).toHaveBeenCalledTimes(2))
+
+            expect(mockCapture.mock.calls.map((call) => call[0].properties.skill_identifier)).toEqual([
+                'posthog:retention-analysis',
+                'posthog:funnels',
+            ])
         })
     })
 })

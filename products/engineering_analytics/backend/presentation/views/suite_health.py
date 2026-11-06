@@ -21,6 +21,7 @@ from products.engineering_analytics.backend.presentation.serializers.suite_healt
     QuarantineFileSerializer,
     QuarantineRequestResultSerializer,
     QuarantineRequestSerializer,
+    TrunkQuarantineDebtSerializer,
 )
 from products.engineering_analytics.backend.presentation.views._base import (
     _DATE_TO,
@@ -32,9 +33,27 @@ from products.engineering_analytics.backend.presentation.views._base import (
     _optional_int_param,
 )
 
+_TEST = OpenApiParameter(
+    name="test",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Optional case-insensitive substring of the test id to keep, e.g. 'test_cohort' or "
+    "'posthog/api/test/test_user.py'. Applied before the limit, so a test past the cap is still found.",
+)
+
+_TEST_BRANCH = OpenApiParameter(
+    name="branch",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Optional exact branch name. Keeps only tests that failed on it, but the counts still "
+    "cover every branch, so a row shows whether the test also fails elsewhere. Applied before the limit.",
+)
+
 
 class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
-    READ_ACTIONS = ["flaky_tests", "broken_tests", "quarantine"]
+    READ_ACTIONS = ["flaky_tests", "broken_tests", "quarantine", "trunk_quarantine"]
     WRITE_ACTIONS = ["quarantine_request"]
 
     @extend_schema(
@@ -72,13 +91,25 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
                 enum=[runner.value for runner in CITestRunner],
                 description="Optional test runner to return: 'pytest' or 'jest'.",
             ),
+            _TEST,
+            _TEST_BRANCH,
+            OpenApiParameter(
+                name="pr_number",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional pull request number. Keeps only tests that failed in that PR's CI runs, "
+                "but the counts still cover every PR. Pass min_failed_prs=1 too, so a test that failed on "
+                "this PR alone qualifies. Applied before the limit.",
+            ),
             _SOURCE_ID,
             _REPO,
         ],
         responses={
             200: FlakyTestListSerializer,
             400: OpenApiResponse(
-                description="Invalid date, threshold, limit, runner, or source_id, or a window longer than 30 days."
+                description="Invalid date, threshold, limit, runner, pr_number, or source_id, or a window "
+                "longer than 30 days."
             ),
         },
         description=(
@@ -102,17 +133,20 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
                 runner=_optional_enum_param(request, "runner", CITestRunner),
+                test=request.query_params.get("test") or None,
+                branch=request.query_params.get("branch") or None,
+                pr_number=_optional_int_param(request, "pr_number"),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid date, threshold, limit, runner, or source_id")
+            return _bad_request(exc, fallback="Invalid date, threshold, limit, runner, pr_number, or source_id")
         return Response(FlakyTestListSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_broken_tests",
-        parameters=[_SOURCE_ID, _REPO],
+        parameters=[_TEST, _TEST_BRANCH, _SOURCE_ID, _REPO],
         responses={
             200: BrokenTestsResultSerializer,
             400: OpenApiResponse(description="Invalid source_id."),
@@ -120,15 +154,15 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct "
             "failures (by test id + normalized error signature) and classified by how each is behaving right "
-            "now — breaking trunk, blocking the merge queue, a new failure spreading across branches, "
-            "probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. A "
+            "now: breaking trunk, blocking the merge queue, a new failure spreading across branches, "
+            "probably-resolved, flaky, or one PR's own problem: ranked with the most urgent first. A "
             "blocking_merge_queue row is a failure on a merge-queue gate branch that never hit trunk: the "
             "commit had already passed the PR's own CI, so it is the semantic conflict the queue exists to "
             "catch, and it is holding up landings. Also returns breaking_master_jobs, the "
             "default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I "
             "care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. "
             "Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and "
-            "the breaking/resolved distinction needs the job-level source synced — without it those failures "
+            "the breaking/resolved distinction needs the job-level source synced: without it those failures "
             "fall through to flaky/pr_only rather than being misreported."
         ),
     )
@@ -137,6 +171,8 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         try:
             result = api.get_broken_tests(
                 team=self.team,
+                test=request.query_params.get("test") or None,
+                branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
@@ -166,7 +202,7 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "The repository's checked-in .test_quarantine.json: flaky tests temporarily quarantined with a hard "
             "expiry, classified by urgency (overdue, in grace, expiring soon, active). `available` is false when "
-            "the repo has no quarantine file — that is not an error. Parsing is fail-open: malformed entries are "
+            "the repo has no quarantine file: that is not an error. Parsing is fail-open: malformed entries are "
             "reported in parse_errors while well-formed ones are kept."
         ),
     )
@@ -183,6 +219,36 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
             return _bad_request(exc, fallback="Invalid repo or source_id")
         return Response(QuarantineFileSerializer(instance=result).data)
 
+    @extend_schema(
+        operation_id="engineering_analytics_trunk_quarantine",
+        summary="Trunk quarantine debt by owning team",
+        parameters=[_SOURCE_ID, _REPO],
+        responses={
+            200: TrunkQuarantineDebtSerializer,
+            400: OpenApiResponse(description="Invalid repo or source_id."),
+        },
+        description=(
+            "The standing Trunk quarantine debt: every test Trunk currently quarantines (failures "
+            "suppressed in CI), attributed to the team that owns its file in the repository, aged against a "
+            "TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it "
+            "never fixes it, so this is the work queue of tests someone still has to repair or delete. "
+            "`available` is false when no TrunkIo source has the QuarantinedTests endpoint synced: that "
+            "is not an error."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="trunk_quarantine", pagination_class=None)
+    def trunk_quarantine(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_trunk_quarantine(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(TrunkQuarantineDebtSerializer(instance=result).data)
+
     @validated_request(
         request_serializer=QuarantineRequestSerializer,
         operation_id="engineering_analytics_quarantine_request",
@@ -198,8 +264,9 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         },
         summary="Quarantine, extend, or unquarantine a flaky test",
         description=(
-            "Opens a pull request that edits the repository's checked-in .test_quarantine.json — and, for a new "
-            "quarantine, a tracking issue the PR links but does not close. The file stays the source of truth that "
+            "Opens a pull request that edits the repository's checked-in .test_quarantine.json and, for a new "
+            "quarantine, opens a tracking issue that the PR links but does not close. The file stays the source of "
+            "truth that "
             "CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges."
         ),
     )

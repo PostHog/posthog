@@ -8,8 +8,10 @@ from __future__ import annotations
 import os
 import sys
 import errno
+import shlex
 import shutil
 import socket
+import tempfile
 import functools
 import subprocess
 import urllib.parse
@@ -19,37 +21,39 @@ from pathlib import Path
 from typing import Any
 
 import click
+from hogli import telemetry
 from hogli.manifest import get_manifest
 
-from . import mutagen
+from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, signs_with_secure_enclave_key
+from . import (
+    herdr as herdr_app,
+    mutagen,
+)
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
     DEFAULT_REGION,
     DEFAULT_TEMPLATE,
-    DOTFILES_URI_PARAMETER,
-    GIT_EMAIL_PARAMETER,
-    GIT_NAME_PARAMETER,
+    EXPECTED_TAILNET,
     GIT_SIGNING_KEY_SECRET,
     REGIONS,
+    REMOTE_REPO_PATH,
     _diagnose_unreachable_coder,
     _fail,
-    _start_app_param,
+    _ssh_host_alias,
     clone_workspace,
     coder_authenticated,
     coder_installed,
     coder_reachable,
     coder_ssh_alias_configured,
-    create_task,
     create_workspace,
     delete_user_secret,
     delete_workspace,
     ensure_coder_authenticated,
     ensure_coder_installed,
+    ensure_coder_on_path,
     ensure_coder_reachable,
     ensure_runtime_ready,
-    ensure_tailscale_connected,
-    ensure_tailscale_routes_accepted,
     exec_replace,
     extract_workspace_label,
     get_coder_url,
@@ -80,24 +84,29 @@ from .coder import (
     print_setup_summary,
     region_from_workspace_name,
     restart_workspace,
+    run_with_capacity_fallback,
     server_supports_user_secrets,
     share_workspace,
     ssh_replace,
     start_workspace,
     stop_workspace,
-    tailscale_connected,
+    tailscale_state,
     unshare_workspace,
     update_workspace,
-    update_workspace_parameters,
     upsert_user_secret,
     user_secret_exists,
+    wait_for_agent_ready,
 )
 from .config import (
     DevboxConfig,
     clear_dotfiles_uri,
     clear_git_identity,
     clear_region,
+    clear_worktree_auto_sources,
+    clear_worktree_box_cleanup,
+    clear_worktree_provider,
     load_config,
+    load_worktree_boxes,
     save_dotfiles_uri,
     save_git_identity,
     save_region,
@@ -106,15 +115,16 @@ from .config import (
 _LEGACY_KEYCHAIN_SERVICE = "posthog-claude-oauth-token"
 _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering/security#commit-signing"
 
-# Reaching a devbox requires a Tailscale ACL grant. Engineers get it from
-# group:engineering in the cloud-infra tailnet policy; without it the Coder
-# control plane (10.70.0.1:443) is simply unroutable and every devbox command
-# fails at the reachability check.
-_TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
+# Reaching a devbox requires a Tailscale ACL grant. The cloud-infra tailnet
+# policy grants group:employees the remote-dev VPC (10.70.0.0/16) that hosts the
+# Coder control plane; without it every devbox command fails at the
+# reachability check.
 _TAILNET_ACCESS_PREREQ = (
-    "Devbox access needs your email in `group:engineering` in "
-    "posthog-cloud-infra/tailnet-policy.hujson.\n"
-    f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
+    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet. The dev, "
+    "prod-us, prod-eu and internal tailnets are for CI runners and subnet "
+    "routers and don't reach devboxes. Every PostHog employee has access "
+    "through `group:employees` in posthog-cloud-infra/tailnet-policy.hujson.\n"
+    "    Still blocked on the right tailnet? Ask Team DevEx."
 )
 
 WORKSPACE_STATUS_COLORS = {
@@ -127,10 +137,9 @@ WORKSPACE_STATUS_COLORS = {
 }
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
-# Printed whenever --start-app/--no-start-app is passed but cannot be applied:
-# the parameter is only pushed on the pre-start sync of a stopped workspace,
-# so the flag is dropped (not queued) on running/transitioning boxes.
-_START_APP_NOT_APPLIED_NOTE = "Note: --start-app/--no-start-app was not applied; re-run it once the devbox is stopped."
+# The Coder CLI resolves a mutable parameter to its last-build value even when
+# `--parameter` passes a new one, so hogli can only set parameters at creation.
+_CHANGE_PARAMETER_HINT = "To change it on an existing devbox, edit the devbox's parameters in the Coder dashboard."
 
 
 def resolve_workspace_name(
@@ -273,6 +282,33 @@ def _workspace_arg_suffix(name: str) -> str:
     return f" {label}" if label else ""
 
 
+_NOT_READY_REASONS = {
+    "start_error": "A startup script failed, so some setup may be missing.",
+    "start_timeout": "A startup script ran past its time limit, so some setup may be missing.",
+    "wait_timeout": "Its startup scripts are still running.",
+    "build_failed": "Its latest build failed.",
+    "stopped": "It stopped before its startup scripts finished.",
+    "agent_timeout": "Its agent did not connect to Coder.",
+    "unavailable": "hogli could not read its status from Coder.",
+}
+
+
+def _wait_until_ready(name: str) -> None:
+    """Hold the command until startup scripts finish, warning if they did not."""
+    click.echo("Waiting for startup scripts...")
+    state = wait_for_agent_ready(name)
+    telemetry.add_command_properties(devbox_agent_lifecycle=state)
+    if state == "ready":
+        return
+    click.echo(
+        click.style(
+            f"Devbox '{name}' may not be ready. {_NOT_READY_REASONS[state]} "
+            f"Check `hogli devbox:logs{_workspace_arg_suffix(name)}`.",
+            fg="yellow",
+        )
+    )
+
+
 def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Return a workspace or exit with a consistent message when missing."""
     workspace = get_workspace(name, workspaces)
@@ -321,66 +357,73 @@ def _render_sync_status(workspace_name: str) -> str:
     return click.style(f"● {status}", fg="green")
 
 
-def _sync_workspace_parameters(name: str, extra: dict[str, str] | None = None) -> None:
-    """Push local config (git identity, dotfiles) to workspace parameters before start.
+def _pause_sync(name: str) -> bool:
+    """Pause the devbox's running sync session while the box is stopped, and return whether it did.
 
-    `workspace_region` is intentionally not forwarded: it is immutable, so Coder
-    carries it forward on its own and rejects any explicit value on `coder
-    update` (see the comment on `WORKSPACE_REGION_PARAMETER`).
+    mutagen redials a lost box forever. Paused, it leaves the box and Coder
+    alone until `devbox:start` resumes it. A failed pause only warns: stopping
+    the box matters more, and the SSH shim already stops the sync from
+    starting it again.
     """
-    config = load_config()
-    params: dict[str, str] = {}
+    selector = mutagen.workspace_label_selector(name)
+    if all(session.get("paused") for session in mutagen.sync_list(label_selector=selector)):
+        return False
+    try:
+        mutagen.sync_pause(selector)
+    except SystemExit:
+        click.echo(click.style(f"Could not pause the sync to '{name}'. Stopping the box anyway.", fg="yellow"))
+        return False
+    click.echo(f"Paused the sync to '{name}'. `hogli devbox:start` resumes it.")
+    return True
 
-    git_name = config.get("git_name")
-    git_email = config.get("git_email")
-    if git_name and git_email:
-        params[GIT_NAME_PARAMETER] = git_name
-        params[GIT_EMAIL_PARAMETER] = git_email
 
-    dotfiles_uri = config.get("dotfiles_uri")
-    if dotfiles_uri:
-        params[DOTFILES_URI_PARAMETER] = dotfiles_uri
-
-    if extra:
-        params.update(extra)
-
-    if params:
-        update_workspace_parameters(name, params)
+def _resume_sync(name: str) -> None:
+    """Resume the devbox's sync session if `devbox:stop` paused it."""
+    selector = mutagen.workspace_label_selector(name)
+    if any(session.get("paused") for session in mutagen.sync_list(label_selector=selector)):
+        mutagen.sync_resume(selector)
+        click.echo(f"Resumed the sync to '{name}'.")
 
 
 def _start_existing_workspace(
     name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
 ) -> None:
     """Handle `devbox:start` when the workspace already exists."""
+    if start_app is not None:
+        _fail(
+            f"--start-app and --no-start-app only apply when a devbox is created. {_CHANGE_PARAMETER_HINT}",
+            cause="start_app_on_existing",
+        )
+
     status = get_workspace_status(workspace)
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
-        if start_app is not None:
-            # Pushing the parameter needs `coder update`, which rebuilds a
-            # running workspace -- only safe on the pre-start sync below.
-            click.echo(_START_APP_NOT_APPLIED_NOTE)
         _print_connection_info(name)
         return
 
     if status in PENDING_WORKSPACE_STATES:
         click.echo(f"Devbox '{name}' is in state: {status}")
         click.echo("Wait for the current operation to complete.")
-        if start_app is not None:
-            click.echo(_START_APP_NOT_APPLIED_NOTE)
         return
 
-    _sync_workspace_parameters(name, extra=_start_app_param(start_app))
-
     if status == "stopped":
-        click.echo(f"Starting devbox '{name}'...")
-        start_workspace(name, verbose=verbose)
+        if workspace.get("outdated"):
+            click.echo(f"Starting devbox '{name}' on the latest template...")
+            run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
+        else:
+            click.echo(f"Starting devbox '{name}'...")
+            run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
+        _wait_until_ready(name)
         click.echo("Started.")
+        _resume_sync(name)
         _print_connection_info(name)
         return
 
     click.echo(f"Devbox '{name}' is in state: {status}")
     click.echo("Attempting to start...")
-    start_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
+    _wait_until_ready(name)
+    _resume_sync(name)
     _print_connection_info(name)
 
 
@@ -488,16 +531,51 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
+def _ssh_config_without_coder_block() -> str | None:
+    """Return ``~/.ssh/config`` with coder's managed block cut out, or ``None`` when there is nothing to cut.
+
+    The deployment hostname matches the ``Host coder.*`` block that
+    ``coder config-ssh`` writes, so resolving ``IdentityAgent`` against it
+    reads back whatever the previous run wrote. An engineer who started
+    without one therefore never acquires one, however many times they
+    re-run setup.
+    """
+    try:
+        content = (Path.home() / ".ssh" / "config").read_text()
+    except OSError:
+        return None
+    lines = content.splitlines(keepends=True)
+    start = next((i for i, line in enumerate(lines) if "START-CODER" in line), None)
+    end = next((i for i, line in enumerate(lines) if "END-CODER" in line), None)
+    if start is None or end is None or end < start:
+        return None
+    return "".join(lines[:start] + lines[end + 1 :])
+
+
 def _resolve_local_identity_agent_for_coder() -> str | None:
     """Return the IdentityAgent ssh would use to connect to Coder workspaces, or ``None``.
 
     Resolves against the deployment hostname so the engineer's existing
-    ``Host *`` / ``Host *.posthog.dev`` / specific blocks all flow through.
+    ``Host *`` / ``Host *.posthog.dev`` / specific blocks all flow through,
+    reading their config with coder's block removed so a value coder wrote
+    on an earlier run cannot outrank the one they have set today.
+
+    Falls back to the plain lookup, which sees coder's block, so a machine
+    whose only ``IdentityAgent`` is the one coder wrote keeps it.
     """
     coder_host = urllib.parse.urlparse(get_coder_url()).hostname
     if not coder_host:
         return None
-    return _resolve_local_identity_agent(coder_host)
+    stripped = _ssh_config_without_coder_block()
+    if stripped is None:
+        return _resolve_local_identity_agent(coder_host)
+    with tempfile.NamedTemporaryFile("w", suffix="-ssh-config", delete=False) as probe:
+        probe.write(stripped)
+    try:
+        own = _resolve_local_identity_agent(coder_host, config_path=probe.name)
+    finally:
+        os.unlink(probe.name)
+    return own or _resolve_local_identity_agent(coder_host)
 
 
 def _resolve_local_signing_key() -> str | None:
@@ -505,7 +583,7 @@ def _resolve_local_signing_key() -> str | None:
 
     Git accepts three formats: a literal ``ssh-... / ecdsa-... / sk-...``
     string, the same with a ``key::`` prefix (used by tools like Secretive),
-    or a path to a public-key file. All are normalized here. Returns ``None``
+    or a path to a key file. All are normalized here. Returns ``None``
     when the value is unset or the referenced file can't be read.
     """
     result = subprocess.run(
@@ -522,29 +600,112 @@ def _resolve_local_signing_key() -> str | None:
         value = value.removeprefix("key::")
     if value.startswith(("ssh-", "ecdsa-", "sk-")):
         return value
-    try:
-        return Path(os.path.expanduser(value)).read_text().strip() or None
-    except OSError:
+    key_path = Path(os.path.expanduser(value))
+    # git also accepts a private key path. The returned value goes into a Coder secret, so
+    # only public key content is returned, and a private key path falls back to its .pub file.
+    for candidate in (key_path, key_path.with_name(f"{key_path.name}.pub")):
+        try:
+            content = candidate.read_text().strip()
+        except OSError:
+            continue
+        if content.startswith(("ssh-", "ecdsa-", "sk-")):
+            return content
+    return None
+
+
+def _read_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
+    """Return the raw ``identityagent`` value ``ssh -G <host>`` resolves, or ``None`` when ssh fails.
+
+    The raw value carries three meanings the normalized form collapses:
+    a socket path, ``none`` (use no agent at all), and the placeholder
+    ``SSH_AUTH_SOCK`` (fall back to the env var).
+    """
+    args = ["ssh", "-G", host] if config_path is None else ["ssh", "-F", config_path, "-G", host]
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:
         return None
+    for line in result.stdout.splitlines():
+        if line.startswith("identityagent "):
+            return line[len("identityagent ") :].strip()
+    return None
 
 
-def _resolve_local_identity_agent(host: str) -> str | None:
+def _resolve_local_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
     """Return the SSH agent socket ``ssh -G <host>`` would use to authenticate, or ``None`` when no specific agent is configured.
 
     Treats ``none`` (signaling "no agent") and the literal placeholder
     ``SSH_AUTH_SOCK`` (signaling "fall back to the env var") as "no specific
     agent" so callers can decide their own fallback.
     """
-    result = subprocess.run(["ssh", "-G", host], capture_output=True, text=True)
+    value = _read_identity_agent(host, config_path=config_path)
+    if value and value.lower() not in ("none", "ssh_auth_sock"):
+        return value
+    return None
+
+
+@dataclass(frozen=True)
+class SigningAgentStatus:
+    """Whether the agent ssh forwards into devboxes can sign commits, and why not when it can't."""
+
+    ok: bool
+    detail: str
+
+
+def _key_fingerprint(public_key: str) -> str | None:
+    """Return the ``SHA256:...`` fingerprint of an SSH public key, or ``None`` when it will not parse."""
+    result = subprocess.run(["ssh-keygen", "-lf", "-"], input=public_key, capture_output=True, text=True)
     if result.returncode != 0:
         return None
-    for line in result.stdout.splitlines():
-        if line.startswith("identityagent "):
-            value = line[len("identityagent ") :].strip()
-            if value and value.lower() not in ("none", "ssh_auth_sock"):
-                return value
-            return None
-    return None
+    fields = result.stdout.split()
+    return next((field for field in fields if field.startswith("SHA256:")), None)
+
+
+def _forwarded_agent_socket() -> str | None:
+    """Return the agent socket ssh forwards to devboxes, or ``None`` when it forwards nothing.
+
+    Mirrors what ``ssh`` itself does: ``IdentityAgent`` wins over the
+    environment, ``none`` means no agent at all, and everything else falls
+    back to ``$SSH_AUTH_SOCK``.
+    """
+    value = _read_identity_agent(_ssh_host_alias("probe"))
+    if value and value.lower() != "ssh_auth_sock":
+        return None if value.lower() == "none" else value
+    return os.environ.get("SSH_AUTH_SOCK") or None
+
+
+def _diagnose_signing_agent() -> SigningAgentStatus:
+    """Report whether the agent reaching Coder hosts holds the commit-signing key.
+
+    Devbox signing is ``ssh-keygen -Y sign`` against a forwarded agent.
+    Forwarding a socket that holds nothing -- or forwarding none at all --
+    is not an ssh error, so the only symptom is a commit that fails to sign
+    inside the workspace, hours later and far from the cause.
+    """
+    public_key = _resolve_local_signing_key()
+    if not public_key:
+        return SigningAgentStatus(False, "`git config --global user.signingkey` is empty")
+
+    fingerprint = _key_fingerprint(public_key)
+    if not fingerprint:
+        return SigningAgentStatus(False, "`git config --global user.signingkey` is not a readable public key")
+
+    socket_path = _forwarded_agent_socket()
+    if not socket_path:
+        return SigningAgentStatus(
+            False, "ssh forwards no agent to Coder hosts (IdentityAgent none, or $SSH_AUTH_SOCK unset)"
+        )
+
+    listed = subprocess.run(
+        ["ssh-add", "-l"],
+        env={**os.environ, "SSH_AUTH_SOCK": socket_path},
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        return SigningAgentStatus(False, f"no agent responding at {socket_path}")
+    if fingerprint not in listed.stdout:
+        return SigningAgentStatus(False, f"agent at {socket_path} does not hold {fingerprint}")
+    return SigningAgentStatus(True, f"{fingerprint} via {socket_path}")
 
 
 def maybe_configure_git_signing(
@@ -574,6 +735,20 @@ def maybe_configure_git_signing(
     if configure_git_signing is None and already_set:
         return
 
+    # Pushing this public key would make the devbox ask the forwarded agent for a key it can't hold.
+    if signs_with_secure_enclave_key():
+        click.echo()
+        click.echo(click.style("Git commit signing (Secure Enclave keys not supported yet)", bold=True))
+        if already_set:
+            lines = DEVBOX_SIGNING_NOTE
+        else:
+            lines = (
+                "Devbox commits won't be signed, because the forwarded SSH agent can't hold a Secure Enclave key.",
+            )
+        for line in (*lines, DEVBOX_FEEDBACK_HINT):
+            click.echo(f"  {line}")
+        return
+
     public_key = _resolve_local_signing_key()
     if not public_key:
         click.echo()
@@ -594,12 +769,12 @@ def maybe_configure_git_signing(
     click.echo()
     click.echo(click.style("Git commit signing", bold=True))
     click.echo(f"  Pushed signing key from `git config user.signingkey`: {public_key}")
-    agent_socket = _resolve_local_identity_agent_for_coder()
-    if agent_socket:
-        click.echo(f"  IdentityAgent for Coder hosts (from your ssh config): {agent_socket}")
+    signing_agent = _diagnose_signing_agent()
+    if signing_agent.ok:
+        click.echo(f"  Agent forwarded to Coder hosts holds the key: {signing_agent.detail}")
     else:
-        click.echo("  No IdentityAgent detected for Coder hosts -- SSH agent forwarding will use")
-        click.echo(f"  whatever `$SSH_AUTH_SOCK` points to. Configure per: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+        click.echo(click.style(f"  Commits will not sign inside devboxes: {signing_agent.detail}", fg="yellow"))
+        click.echo(f"  Configure per: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
     click.echo()
     click.echo(click.style("If you haven't already:", bold=True))
     click.echo("  1. Open https://github.com/settings/ssh/new")
@@ -725,21 +900,30 @@ def devbox_doctor() -> None:
 
     Safe for an agent to run as a probe -- it never prompts or mutates host
     config the way `devbox:setup` does. Run it first when a devbox command
-    fails, and as step zero of the `setting-up-devbox` skill. The tailnet ACL
-    grant is the prerequisite people most often miss, so it is surfaced
-    explicitly whenever the control plane is unreachable.
+    fails, and as step zero of the `setting-up-devbox` skill. The wrong tailnet
+    is the prerequisite people most often miss, so the access prerequisite is
+    surfaced explicitly whenever the control plane is unreachable.
     """
     click.echo(click.style("Devbox doctor", bold=True))
     click.echo(f"  Coder URL: {get_coder_url()}")
     click.echo()
 
-    _doctor_check("Tailscale connected", tailscale_connected())
+    connected, tailnet = tailscale_state()
+    _doctor_check("Tailscale connected", connected)
+
+    # Being on a per-environment tailnet looks identical to "connected" but
+    # routes nowhere near a devbox, and nothing prompts you about it after the
+    # first sign-in — so name the active tailnet on its own line.
+    _doctor_check(f"Tailnet: {tailnet or 'unknown'} (need {EXPECTED_TAILNET})", tailnet == EXPECTED_TAILNET)
 
     reachable = coder_reachable()
     _doctor_check("Coder control plane reachable", reachable)
 
     if not reachable:
         diagnosis = _diagnose_unreachable_coder()
+        # doctor exits 0 while reporting a broken tailnet, so a failure count
+        # off this property has to filter on command or exit_code.
+        telemetry.add_command_properties(devbox_failure_cause=diagnosis.code)
         click.echo()
         click.echo(click.style(f"  Cause: {diagnosis.cause}", fg="yellow"))
         click.echo(f"  Next:  {diagnosis.next_step}")
@@ -758,6 +942,9 @@ def devbox_doctor() -> None:
     # The Host coder.* block is a wildcard, so any name probes whether
     # `coder config-ssh` has run -- the prerequisite for devbox:ssh/exec.
     _doctor_check("SSH access configured (devbox:ssh/exec)", coder_ssh_alias_configured("probe"))
+
+    signing_agent = _diagnose_signing_agent()
+    _doctor_check(f"Commit signing agent: {signing_agent.detail}", signing_agent.ok)
 
     if not authenticated:
         _doctor_footer()
@@ -819,7 +1006,7 @@ def maybe_configure_claude_secret(configure_claude: bool | None, *, known_secret
         click.echo()
         click.echo(click.style("Claude Code: migrating Keychain token to a Coder user secret", bold=True))
         click.echo("  hogli now stores the Claude OAuth token as a Coder user secret so that")
-        click.echo("  workspaces -- and devbox:task runs -- pick it up automatically.")
+        click.echo("  workspaces pick it up automatically.")
         if click.confirm("Migrate the existing Keychain entry now?", default=True):
             upsert_user_secret(
                 CLAUDE_CODE_OAUTH_ENV,
@@ -835,7 +1022,7 @@ def maybe_configure_claude_secret(configure_claude: bool | None, *, known_secret
 
     click.echo()
     click.echo(click.style("Claude Code (optional)", bold=True))
-    click.echo("  Workspaces and devbox:task runs can use Claude Code if you provide an OAuth token.")
+    click.echo("  Workspaces can use Claude Code if you provide an OAuth token.")
     click.echo("  The token will be stored as a Coder user secret and injected as")
     click.echo(f"  ${CLAUDE_CODE_OAUTH_ENV} into every workspace you start.")
     click.echo("  To generate one, run `claude setup-token` in another terminal.")
@@ -887,24 +1074,43 @@ def _reset_region() -> bool:
 
 
 def _reset_dotfiles() -> bool:
-    """Drop the saved dotfiles URI and push an empty parameter to existing workspaces.
-
-    Clearing the local config alone only affects future workspaces -- existing
-    workspaces keep cloning the old URL until the template parameter is overridden.
-
-    Returns True iff something was cleared.
-    """
+    """Drop the saved dotfiles URI. Returns True iff something was cleared."""
     config = load_config()
     if not config.get("dotfiles_uri"):
         click.echo("Nothing to clear: dotfiles was not set.")
         return False
     clear_dotfiles_uri(config)
-    click.echo("Cleared saved dotfiles repo. Pushing empty parameter to existing workspaces...")
-    for ws in list_user_workspaces():
-        ws_name = ws.get("name")
-        if isinstance(ws_name, str) and ws_name:
-            update_workspace_parameters(ws_name, {DOTFILES_URI_PARAMETER: ""})
-            click.echo(f"  reset on '{ws_name}'")
+    click.echo(f"Cleared saved dotfiles repo. New devboxes won't clone it. {_CHANGE_PARAMETER_HINT}")
+    return True
+
+
+def _reset_worktree_box_cleanup() -> bool:
+    config = load_config()
+    if not config.get("worktree_box_cleanup"):
+        click.echo("Nothing to clear: worktree box cleanup was not set.")
+        return False
+    clear_worktree_box_cleanup(config)
+    click.echo("Cleared worktree box cleanup. `hogli worktrees:clean` now leaves devboxes alone by default.")
+    return True
+
+
+def _reset_worktree_auto_sources() -> bool:
+    config = load_config()
+    if not config.get("worktree_auto_box"):
+        click.echo("Nothing to clear: automatic worktree boxes were off.")
+        return False
+    clear_worktree_auto_sources(config)
+    click.echo("Turned off automatic worktree boxes. New worktrees no longer get a devbox.")
+    return True
+
+
+def _reset_worktree_provider() -> bool:
+    config = load_config()
+    if not config.get("worktree_provider"):
+        click.echo("Nothing to clear: worktree boxes already run on coder.")
+        return False
+    clear_worktree_provider(config)
+    click.echo("Worktree boxes run on coder again.")
     return True
 
 
@@ -978,6 +1184,27 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         needs_secrets=True,
         status=_secret_status(CLAUDE_CODE_OAUTH_ENV),
         reset=lambda: _reset_user_secret(CLAUDE_CODE_OAUTH_ENV),
+    ),
+    _ConfigItem(
+        cli_key="worktree-boxes",
+        label="Worktree box cleanup",
+        needs_secrets=False,
+        status=_field_status("worktree_box_cleanup"),
+        reset=_reset_worktree_box_cleanup,
+    ),
+    _ConfigItem(
+        cli_key="worktree-auto",
+        label="Automatic worktree boxes",
+        needs_secrets=False,
+        status=_field_status("worktree_auto_box"),
+        reset=_reset_worktree_auto_sources,
+    ),
+    _ConfigItem(
+        cli_key="worktree-provider",
+        label="Worktree box provider",
+        needs_secrets=False,
+        status=_field_status("worktree_provider"),
+        reset=_reset_worktree_provider,
     ),
 )
 
@@ -1109,10 +1336,9 @@ def devbox_setup(
     )
 
     click.echo(click.style("Configuring devbox CLI access...", bold=True))
-    ensure_tailscale_connected("rerun `hogli devbox:setup`.")
-    ensure_tailscale_routes_accepted()
-    ensure_coder_reachable()
+    ensure_coder_reachable("rerun `hogli devbox:setup`.")
     ensure_coder_installed(verbose=verbose)
+    ensure_coder_on_path()
     ensure_coder_authenticated()
 
     # One `coder secret list` round trip fuels the status block and both
@@ -1310,9 +1536,8 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @workspace_argument
 @click.option(
     "--disk",
-    type=click.Choice(["100", "200"]),
-    default="100",
-    help="Disk size in GiB (default: 100)",
+    type=int,
+    help="Disk size in GiB (default: set by the template)",
 )
 @click.option(
     "-t",
@@ -1342,15 +1567,12 @@ def _maybe_hint_region_mismatch(name: str) -> None:
     "--start-app/--no-start-app",
     "start_app",
     default=None,
-    help=(
-        "Bring the PostHog app up in the background on every workspace start. "
-        "Sticky on the workspace until flipped with --no-start-app."
-    ),
+    help=("Bring the PostHog app up in the background on every workspace start. Applies when the devbox is created."),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
-    disk: str,
+    disk: int | None,
     template: str,
     preset: str,
     region: str | None,
@@ -1379,21 +1601,23 @@ def devbox_start(
 
     config = load_config()
 
-    click.echo(
-        f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region}, disk={disk}GiB)..."
-    )
-    create_workspace(
+    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region})...")
+    run_with_capacity_fallback(
         name,
-        int(disk),
-        git_name=config.get("git_name"),
-        git_email=config.get("git_email"),
-        dotfiles_uri=config.get("dotfiles_uri"),
-        region=effective_region,
-        template=template,
-        preset=preset,
-        start_app=start_app,
-        verbose=verbose,
+        lambda: create_workspace(
+            name,
+            disk,
+            git_name=config.get("git_name"),
+            git_email=config.get("git_email"),
+            dotfiles_uri=config.get("dotfiles_uri"),
+            region=effective_region,
+            template=template,
+            preset=preset,
+            start_app=start_app,
+            verbose=verbose,
+        ),
     )
+    _wait_until_ready(name)
     click.echo("Created.")
     _print_connection_info(name)
 
@@ -1476,6 +1700,7 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
         template=template,
         verbose=verbose,
     )
+    _wait_until_ready(target_name)
     click.echo("Cloned.")
     _print_connection_info(target_name)
 
@@ -1489,14 +1714,25 @@ def devbox_stop(workspace: str | None, verbose: bool) -> None:
     name, workspaces = resolve_workspace_name(workspace)
     ws = _get_workspace_or_fail(name, workspaces)
 
+    # Also for a box that Coder stopped on its schedule, whose sync still redials it.
+    paused = _pause_sync(name)
+
     status = get_workspace_status(ws)
     if status == "stopped":
         click.echo(f"Devbox '{name}' is already stopped.")
         return
 
     click.echo(f"Stopping '{name}'...")
-    stop_workspace(name, verbose=verbose)
-    click.echo("Stopped. Disk preserved. Run 'hogli devbox:start' to resume.")
+    try:
+        stop_workspace(name, verbose=verbose)
+    except (Exception, SystemExit):
+        if paused:
+            mutagen.sync_resume(mutagen.workspace_label_selector(name))
+            click.echo(f"The box still runs, so the sync to '{name}' is resumed.")
+        raise
+    start_command = f"hogli devbox:start {workspace}" if workspace else "hogli devbox:start"
+    click.echo("Stopped. Billing for the box stops now.")
+    click.echo(f"The disk and your files stay until you destroy the box. Run '{start_command}' to resume it.")
 
 
 @click.command(name="devbox:restart", help="Restart your devbox")
@@ -1508,7 +1744,8 @@ def devbox_restart(workspace: str | None, verbose: bool) -> None:
     name, workspaces = resolve_workspace_name(workspace)
     _get_workspace_or_fail(name, workspaces)
     click.echo(f"Restarting '{name}'...")
-    restart_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: restart_workspace(name, verbose=verbose))
+    _wait_until_ready(name)
     click.echo("Restarted.")
     _print_connection_info(name)
 
@@ -1524,12 +1761,9 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
     if not ws.get("outdated"):
         click.echo(f"Devbox '{name}' is already up to date.")
         return
-    config = load_config()
-    params: dict[str, str] = {}
-    if dotfiles_uri := config.get("dotfiles_uri"):
-        params[DOTFILES_URI_PARAMETER] = dotfiles_uri
     click.echo(f"Updating '{name}' to the latest template...")
-    update_workspace(name, parameters=params, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
+    _wait_until_ready(name)
     click.echo("Updated.")
     click.echo(
         "Note: if your local lockfiles differ from the new AMI's baked versions, "
@@ -1574,30 +1808,56 @@ def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> 
     exec_replace(name, list(command))
 
 
-@click.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
+def _sync_warning(name: str, editor: str) -> str:
+    worktree = next((path for path, record in load_worktree_boxes().items() if record.workspace == name), None)
+    if worktree is None:
+        return f"⚠ Sync is active for '{name}'. Editing in {editor} can conflict with the local source of truth."
+    return (
+        f"⚠ '{name}' mirrors the worktree at {worktree}. Edit files in that worktree, "
+        f"and use {editor} to run the stack and tests. Files edited on the devbox conflict with the mirror."
+    )
+
+
+def _open_in_herdr(name: str, workspaces: list[dict[str, Any]] | None) -> None:
+    ws = _get_workspace_or_fail(name, workspaces)
+    status = get_workspace_status(ws)
+    if status != "running":
+        _fail(
+            f"Devbox '{name}' is {status}. Start it with `hogli devbox:start{_workspace_arg_suffix(name)}`, then retry.",
+            cause="herdr_workspace_not_running",
+        )
+    if not coder_ssh_alias_configured(name):
+        _fail(
+            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry.",
+            cause="herdr_ssh_not_configured",
+        )
+    herdr_app.open_in_herdr(name, folder=REMOTE_REPO_PATH)
+
+
+@click.command(name="devbox:open", help="Open devbox in browser, VS Code, Cursor, or Herdr")
 @workspace_argument
 @click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
 @click.option("--cursor", is_flag=True, help="Open in Cursor via SSH")
 @click.option("--web", is_flag=True, help="Open code-server (VS Code in browser)")
-def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) -> None:
+@click.option("--herdr", is_flag=True, help="Add the devbox to Herdr as a machine and open a space on it")
+def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool, herdr: bool) -> None:
     """Open the devbox in a browser or editor."""
-    chosen = sum([vscode, cursor, web])
+    chosen = sum([vscode, cursor, web, herdr])
     if chosen > 1:
-        raise click.UsageError("Choose one of `--vscode`, `--cursor`, or `--web`.")
+        raise click.UsageError("Choose one of `--vscode`, `--cursor`, `--web`, or `--herdr`.")
 
     ensure_runtime_ready()
-    name, _ = resolve_workspace_name(workspace)
+    name, workspaces = resolve_workspace_name(workspace)
 
-    if (vscode or cursor) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
-        ide = "VS Code" if vscode else "Cursor"
-        click.echo(
-            click.style(
-                f"⚠ Sync is active for '{name}'. Editing in {ide} Remote can conflict with the local source of truth.",
-                fg="yellow",
-            )
-        )
+    if (vscode or cursor or herdr) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
+        editor = "VS Code Remote" if vscode else "Cursor Remote" if cursor else "Herdr terminals on the devbox"
+        click.echo(click.style(_sync_warning(name, editor), fg="yellow"))
 
-    if vscode:
+    target = "vscode" if vscode else "cursor" if cursor else "web" if web else "herdr" if herdr else "browser"
+    telemetry.add_command_properties(devbox_open_target=target)
+    if herdr:
+        _open_in_herdr(name, workspaces)
+    elif vscode:
         click.echo(f"Opening '{name}' in VS Code...")
         open_vscode(name)
     elif cursor:
@@ -1619,51 +1879,6 @@ def devbox_logs(workspace: str | None, follow: bool) -> None:
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
     logs_replace(name, follow)
-
-
-@click.command(name="devbox:task", short_help="Run a background agent task on a fresh devbox")
-@click.argument("prompt", required=False)
-@click.option("--name", "task_name", default=None, help="Task name (auto-generated if omitted)")
-@click.option("-q", "--quiet", is_flag=True, help="Only print the created task's ID")
-@click.option(
-    "-t",
-    "--template",
-    default=DEFAULT_TEMPLATE,
-    show_default=True,
-    help="Coder workspace template to run the task on",
-)
-def devbox_task(prompt: str | None, task_name: str | None, quiet: bool, template: str) -> None:
-    """Start a background Coder task on the chosen workspace template.
-
-    The Coder deployment provisions a fresh workspace per task and hands the
-    prompt to the agent configured in the template. Pass the prompt as a
-    positional argument or pipe it via stdin.
-
-    \b
-    Examples:
-      hogli devbox:task "fix CI on PR #1234"
-      cat prompt.txt | hogli devbox:task
-    """
-    if prompt is None and click.get_text_stream("stdin").isatty():
-        raise click.UsageError(
-            "Provide a prompt as an argument, or pipe it via stdin.\n"
-            'Example: hogli devbox:task "document the ingestion pipeline"'
-        )
-    ensure_runtime_ready()
-    if server_supports_user_secrets() and not has_claude_oauth_secret():
-        click.echo(
-            click.style(
-                f"Warning: no '{CLAUDE_CODE_OAUTH_ENV}' Coder user secret set; the task will run without Claude auth.",
-                fg="yellow",
-            ),
-            err=True,
-        )
-        click.echo(
-            "  Run `hogli devbox:setup --configure-claude` (or `hogli devbox:secret:set "
-            f"{CLAUDE_CODE_OAUTH_ENV}`) to set it.",
-            err=True,
-        )
-    create_task(prompt, task_name=task_name, quiet=quiet, template=template)
 
 
 def _ensure_user_secrets_supported() -> None:
@@ -1758,7 +1973,8 @@ def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
     """Remove one or more saved devbox configuration items.
 
     Valid keys mirror the matching ``--configure-*`` flags on ``devbox:setup``:
-    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``.
+    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``, ``worktree-boxes``,
+    ``worktree-auto``, ``worktree-provider``.
     """
     by_key = _config_items_by_key()
     valid_keys = tuple(by_key)
@@ -1813,6 +2029,7 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
             click.echo(click.style("Warning: failed to terminate sync session; continuing.", fg="yellow"))
 
     delete_workspace(name, verbose=verbose)
+    herdr_app.forget_machine(name)
     click.echo("Destroyed.")
 
 
@@ -1949,12 +2166,14 @@ def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: 
             _fail(
                 "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
             )
-        remote_cmd = ["hogli", "devbox:cleanup:disk"]
+        remote_cmd = ["./bin/hogli", "devbox:cleanup:disk"]
         if prune_docker:
             remote_cmd.append("--docker")
         if prune_cargo:
             remote_cmd.append("--cargo")
-        exec_replace(name, remote_cmd)
+        # `hogli` is not on the devbox PATH, even in a login shell, so run the
+        # checkout's copy from inside the repo.
+        exec_replace(name, ["bash", "-lc", f"cd ~/posthog && {shlex.join(remote_cmd)}"])
         return  # unreachable; exec_replace replaces the process
 
     home = Path.home()

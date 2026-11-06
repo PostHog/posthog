@@ -1,20 +1,22 @@
 import {
+  type CommentTarget,
+  commentScopeFromWire,
+} from "@posthog/core/comments/anchors";
+import type { TaskLinkCommentAnchor } from "@posthog/core/links/task-link";
+import {
   TASK_SERVICE,
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
 import { useService } from "@posthog/di/react";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useTaskChannelMap } from "@posthog/ui/features/canvas/hooks/useTaskChannelMap";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTask as openTaskHelper } from "@posthog/ui/router/useOpenTask";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
 const log = logger.scope("open-task");
 
@@ -25,31 +27,32 @@ const log = logger.scope("open-task");
  * (`useTaskDeepLink`) and the generic notification-target consumer
  * (`useOpenTargetDeepLink`).
  */
+function commentTargetFromAnchor(
+  taskId: string,
+  anchor: TaskLinkCommentAnchor,
+): CommentTarget {
+  const scope = commentScopeFromWire(anchor.scope);
+  if ((scope === "canvas" || scope === "task_artifact") && anchor.itemId) {
+    return { scope, itemId: anchor.itemId };
+  }
+  return { scope: "task", itemId: taskId };
+}
+
 export function useHandleOpenTask(): (
   taskId: string,
   taskRunId?: string,
+  comment?: TaskLinkCommentAnchor,
 ) => Promise<void> {
   const taskService = useService<TaskService>(TASK_SERVICE);
   const { markAsViewed } = useTaskViewed();
   const queryClient = useQueryClient();
 
-  // A task filed to a Project Bluebird channel opens in the channel-organized
-  // view under /website. Gate the channel fetches behind the flag.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const { channels } = useChannels({ enabled: bluebirdEnabled });
-  const channelMap = useTaskChannelMap(channels, { enabled: bluebirdEnabled });
-  // Mirror the latest map into a ref so the stable callback can read it without
-  // listing the map in its deps — otherwise it'd be recreated on every poll.
-  const channelMapRef = useRef(channelMap);
-  useEffect(() => {
-    channelMapRef.current = channelMap;
-  }, [channelMap]);
-
   return useCallback(
-    async (taskId: string, taskRunId?: string) => {
+    async (
+      taskId: string,
+      taskRunId?: string,
+      comment?: TaskLinkCommentAnchor,
+    ) => {
       log.info(
         `Opening task from deep link: ${taskId}${taskRunId ? `, run: ${taskRunId}` : ""}`,
       );
@@ -80,19 +83,25 @@ export function useHandleOpenTask(): (
         queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
 
         markAsViewed(taskId);
-        const channel = bluebirdEnabled
-          ? channelMapRef.current.get(task.id)
-          : undefined;
-        void openTaskHelper(
-          task,
-          channel ? { channelId: channel.id } : undefined,
-        );
+        const channelTarget = task.channel
+          ? { channelId: task.channel, newTab: true }
+          : { newTab: true };
+        void openTaskHelper(task, channelTarget);
+        if (comment) {
+          useCommentNavigationStore
+            .getState()
+            .requestCommentFocus(
+              taskId,
+              commentTargetFromAnchor(taskId, comment),
+              comment.threadId,
+            );
+        }
         log.info(`Opened task from deep link: ${taskId}`);
       } catch (error) {
         log.error("Unexpected error opening task from deep link:", error);
         toast.error("Failed to open task");
       }
     },
-    [markAsViewed, queryClient, taskService, bluebirdEnabled],
+    [markAsViewed, queryClient, taskService],
   );
 }

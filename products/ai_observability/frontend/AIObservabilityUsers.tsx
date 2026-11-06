@@ -3,10 +3,12 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { isHogQLQuery } from '~/queries/utils'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { AIObservabilityInstrumentationCheckEnumApi } from './generated/api.schemas'
+import { useInstrumentationEmptyState } from './hooks/useInstrumentationEmptyState'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { aiObservabilityUsersLogic } from './tabs/aiObservabilityUsersLogic'
 
@@ -15,6 +17,10 @@ export function AIObservabilityUsers(): JSX.Element {
     const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(aiObservabilitySharedLogic)
     const { setUsersSort } = useActions(aiObservabilityUsersLogic)
     const { usersQuery, usersSort } = useValues(aiObservabilityUsersLogic)
+    const instrumentationEmptyState = useInstrumentationEmptyState(
+        AIObservabilityInstrumentationCheckEnumApi.UserIdentity,
+        'Users are not identified in your AI events'
+    )
 
     const { renderSortableColumnTitle } = useSortableColumns(usersSort, setUsersSort)
 
@@ -44,6 +50,7 @@ export function AIObservabilityUsers(): JSX.Element {
                 )
             }}
             context={{
+                ...instrumentationEmptyState,
                 columns: {
                     __llm_person: aiObservabilityColumnRenderers.__llm_person,
                     first_seen: {

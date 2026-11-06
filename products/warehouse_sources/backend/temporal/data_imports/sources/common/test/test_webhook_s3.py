@@ -6,6 +6,7 @@ import functools
 import contextlib
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
@@ -17,17 +18,26 @@ import pyarrow as pa
 import aioboto3
 import pyarrow.parquet as pq
 from aiobotocore.config import AioConfig
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.sync import database_sync_to_async
+
+from products.cdp.backend.facade.models import HogFunction
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookFallback,
     WebhookSourceManager,
-    _db_read_with_retry,
+    WebhookState,
 )
 
 _CLOSE_CONNECTIONS_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.close_old_connections"
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.db.close_old_connections"
 )
-_SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.time.sleep"
+_SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.db.time.sleep"
 
 
 def _table_to_parquet_bytes(table: pa.Table) -> bytes:
@@ -383,6 +393,42 @@ class TestWebhookSourceManager:
         # Only the successfully read file is removed; the vanished one was never touched.
         mock_s3._rm.assert_awaited_once_with("bucket/file.parquet")
 
+    async def test_get_items_merges_files_with_incompatible_column_types(self):
+        schema_id = "test-schema"
+        manager = _make_manager(team_id=1, schema_id=schema_id)
+
+        # Same field infers as int64 in one file and string in the other; concat_tables can't
+        # promote across that, so get_items must fall back to a row-level rebuild instead of raising.
+        file_a = _make_webhook_parquet_bytes([{"id": "1", "total_sales": 5}], team_id=1, schema_id=schema_id)
+        file_b = _make_webhook_parquet_bytes([{"id": "2", "total_sales": "3"}], team_id=1, schema_id=schema_id)
+
+        mock_s3 = AsyncMock()
+        opens = []
+        for parquet_bytes in (file_a, file_b):
+            mock_file = AsyncMock()
+            mock_file.read = AsyncMock(return_value=parquet_bytes)
+            open_cm = AsyncMock()
+            open_cm.__aenter__ = AsyncMock(return_value=mock_file)
+            open_cm.__aexit__ = AsyncMock(return_value=False)
+            opens.append(open_cm)
+        mock_s3.open_async = AsyncMock(side_effect=opens)
+        mock_s3._rm = AsyncMock()
+
+        with (
+            patch.object(
+                manager,
+                "_list_webhook_parquet_files",
+                return_value=["s3://bucket/a.parquet", "s3://bucket/b.parquet"],
+            ),
+            _mock_s3_context(mock_s3),
+        ):
+            tables = [table async for table in manager.get_items()]
+
+        assert len(tables) == 1
+        assert tables[0].num_rows == 2
+        assert pa.types.is_string(tables[0].schema.field("total_sales").type)
+        assert sorted(id for id in tables[0].column("id").to_pylist() if id is not None) == ["1", "2"]
+
     async def test_get_items_yields_nothing_when_no_files(self):
         manager = _make_manager()
 
@@ -397,6 +443,90 @@ class TestWebhookSourceManager:
         assert tables == []
 
 
+class TestWebhookStateAndFallbackStamp(BaseTest):
+    def _setup(
+        self, *, sync_type: str, initial_sync_complete: bool, webhook: str | None
+    ) -> tuple[ExternalDataSource, ExternalDataSchema, ExternalDataJob]:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        other_source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        schema = ExternalDataSchema.objects.create(
+            name="Customer",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=sync_type,
+            initial_sync_complete=initial_sync_complete,
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            pipeline_version=ExternalDataJob.PipelineVersion.V3,
+            schema_snapshot={"name": "Customer", "sync_type": sync_type, "scheduled_full_refresh": True},
+        )
+        if webhook is not None:
+            HogFunction.objects.create(
+                team=self.team,
+                type="warehouse_source_webhook",
+                hog="return event",
+                enabled=webhook != "disabled",
+                deleted=webhook == "deleted",
+                inputs_schema=[{"key": "source_id", "type": "string"}],
+                inputs={"source_id": {"value": str(other_source.pk if webhook == "other_source" else source.pk)}},
+            )
+        return source, schema, job
+
+    @parameterized.expand(
+        [
+            ("no_webhook", "webhook", True, False, None, WebhookState.NO_WEBHOOK),
+            ("disabled_webhook", "webhook", True, False, "disabled", WebhookState.NO_WEBHOOK),
+            ("deleted_webhook", "webhook", True, False, "deleted", WebhookState.NO_WEBHOOK),
+            ("webhook_for_other_source", "webhook", True, False, "other_source", WebhookState.NO_WEBHOOK),
+            ("enabled_webhook", "webhook", True, False, "enabled", WebhookState.ACTIVE),
+            ("initial_sync_pending", "webhook", False, False, None, WebhookState.POLL),
+            ("reset_pipeline", "webhook", True, True, None, WebhookState.POLL),
+            ("not_webhook_sync", "incremental", True, False, None, WebhookState.POLL),
+        ]
+    )
+    def test_fallback_is_stamped_only_when_the_webhook_is_missing(
+        self,
+        _name: str,
+        sync_type: str,
+        initial_sync_complete: bool,
+        reset_pipeline: bool,
+        webhook: str | None,
+        expected_state: WebhookState,
+    ) -> None:
+        source, schema, job = self._setup(
+            sync_type=sync_type, initial_sync_complete=initial_sync_complete, webhook=webhook
+        )
+        inputs = _make_inputs(team_id=self.team.pk, schema_id=str(schema.id), reset_pipeline=reset_pipeline)
+        inputs.source_id = str(source.id)
+        inputs.job_id = str(job.id)
+        manager = WebhookSourceManager(inputs=inputs, logger=AsyncMock())
+
+        # The pool helper runs on another thread, whose connection can't see this test's transaction, and
+        # the read retry closes connections, which would close the test's own.
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
+                database_sync_to_async,
+            ),
+            patch(_CLOSE_CONNECTIONS_PATH),
+        ):
+            state = async_to_sync(manager.webhook_state)()
+            async_to_sync(manager.record_webhook_fallback)(WebhookFallback.INCREMENTAL)
+
+        job.refresh_from_db()
+        assert state is expected_state
+        assert manager.webhook_missing is (expected_state is WebhookState.NO_WEBHOOK)
+        expected_snapshot = {"name": "Customer", "sync_type": sync_type, "scheduled_full_refresh": True}
+        if expected_state is WebhookState.NO_WEBHOOK:
+            expected_snapshot["webhook_fallback"] = "incremental"
+        assert job.schema_snapshot == expected_snapshot
+
+
 class TestDbReadWithRetry:
     def test_rides_out_pool_wait_timeout_then_succeeds(self):
         sentinel = object()
@@ -409,7 +539,7 @@ class TestDbReadWithRetry:
         )
 
         with patch(_CLOSE_CONNECTIONS_PATH) as close, patch(_SLEEP_PATH) as sleep:
-            result = _db_read_with_retry(fn)
+            result = db_read_with_retry(fn)
 
         assert result is sentinel
         assert fn.call_count == 3
@@ -423,7 +553,7 @@ class TestDbReadWithRetry:
 
         with patch(_CLOSE_CONNECTIONS_PATH), patch(_SLEEP_PATH):
             with pytest.raises(OperationalError):
-                _db_read_with_retry(fn)
+                db_read_with_retry(fn)
 
         assert fn.call_count == 4
 
@@ -432,7 +562,7 @@ class TestDbReadWithRetry:
 
         with patch(_CLOSE_CONNECTIONS_PATH), patch(_SLEEP_PATH) as sleep:
             with pytest.raises(ValueError):
-                _db_read_with_retry(fn)
+                db_read_with_retry(fn)
 
         assert fn.call_count == 1
         sleep.assert_not_called()

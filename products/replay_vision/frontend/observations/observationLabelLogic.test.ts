@@ -56,6 +56,59 @@ describe('observationLabelLogic feedback autosave', () => {
         expect(onChange).toHaveBeenCalledWith({ is_correct: isCorrect, feedback: 'scanner missed the refund step' })
     })
 
+    it('saves a note typed just before the page unmounts, which cancels the pending autosave', async () => {
+        mountLogic(false)
+        logic.actions.setFeedbackDraft('wrong: the user finished checkout')
+        await jest.advanceTimersByTimeAsync(300)
+        logic.unmount()
+
+        expect(visionObservationsLabelCreate).toHaveBeenCalledTimes(1)
+        expect(visionObservationsLabelCreate).toHaveBeenCalledWith(TEAM_ID, 'obs-1', {
+            is_correct: false,
+            feedback: 'wrong: the user finished checkout',
+        })
+    })
+
+    it('keeps a rating still in flight when the page unmounts with an unsaved note', async () => {
+        mountLogic(true)
+        ;(visionObservationsLabelCreate as jest.Mock).mockImplementationOnce(() => new Promise(() => {}))
+        logic.actions.rate(false, 'old feedback')
+        logic.actions.setFeedbackDraft('it missed the declined card')
+        logic.unmount()
+
+        expect(visionObservationsLabelCreate).toHaveBeenLastCalledWith(TEAM_ID, 'obs-1', {
+            is_correct: false,
+            feedback: 'it missed the declined card',
+        })
+    })
+
+    it('settles as synced when the API trims the feedback it stores', async () => {
+        // The API trims before storing, so the echoed label never matches a draft with trailing whitespace.
+        ;(visionObservationsLabelCreate as jest.Mock).mockImplementation((_team, _id, body) =>
+            Promise.resolve({ ...body, feedback: body.feedback.trim() })
+        )
+        mountLogic(false)
+        logic.actions.setFeedbackDraft('scanner missed the refund step\n')
+        await jest.advanceTimersByTimeAsync(900)
+
+        expect(logic.values.feedbackSynced).toBe(true)
+        expect(logic.values.saving).toBe(false)
+        // The stored value already covers the draft, so an unchanged draft must not keep resaving.
+        logic.actions.setFeedbackDraft('scanner missed the refund step  ')
+        await jest.advanceTimersByTimeAsync(900)
+        expect(visionObservationsLabelCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports a failed autosave instead of staying on saving', async () => {
+        ;(visionObservationsLabelCreate as jest.Mock).mockRejectedValue({ detail: 'nope' })
+        mountLogic(false)
+        logic.actions.setFeedbackDraft('scanner missed the refund step')
+        await jest.advanceTimersByTimeAsync(900)
+
+        expect(logic.values.saveFailed).toBe(true)
+        expect(logic.values.saving).toBe(false)
+    })
+
     it('a rating click during the debounce wins over the pending autosave', async () => {
         mountLogic(false)
         logic.actions.setFeedbackDraft('scanner missed the refund step')
@@ -92,5 +145,23 @@ describe('observationLabelLogic feedback autosave', () => {
         expect(visionObservationsLabelCreate).not.toHaveBeenCalled()
         expect(logic.values.label).toEqual({ is_correct: true, feedback: 'teammate feedback' })
         expect(logic.values.feedbackDraft).toEqual('teammate feedback')
+    })
+
+    it("keeps a teammate's adopted rating when an edited note saves on unmount", async () => {
+        mountLogic(false)
+        logic.actions.rate(true, 'old feedback')
+        await jest.advanceTimersByTimeAsync(0)
+        observationLabelLogic({
+            observationId: 'obs-1',
+            initialLabel: { is_correct: false, feedback: 'teammate feedback' },
+            onChange,
+        })
+        logic.actions.setFeedbackDraft('teammate feedback, plus mine')
+        logic.unmount()
+
+        expect(visionObservationsLabelCreate).toHaveBeenLastCalledWith(TEAM_ID, 'obs-1', {
+            is_correct: false,
+            feedback: 'teammate feedback, plus mine',
+        })
     })
 })

@@ -1,7 +1,7 @@
-"""Upsert warehouse columns onto person properties from the rows a sync staged to S3.
+"""Upsert warehouse columns onto person properties from the rows a warehouse run staged to S3.
 
-Runs in a post-sync Temporal activity (see data_imports/person_property_sync_job.py). Per enabled
-person-target source for the schema it:
+Runs in a post-run Temporal activity (see data_imports/person_property_sync_job.py). Per enabled
+person-target source for the binding it:
 
 1. reads the staged parquet (already just this run's changed rows),
 2. builds each row's {property: value} bundle keyed by distinct_id,
@@ -12,41 +12,66 @@ person-target source for the schema it:
 6. updates the snapshot, stamps provenance on the person PropertyDefinitions, and clears the staged
    files.
 
+A source binds to either an imported schema or a materialized view (see ``WarehouseBinding``). Both
+write a Delta table on S3 and stage the same row projections, so everything from step 2 on is shared;
+only the staged/snapshot prefix and the full-table Delta location differ per kind.
+
 The source configs (key column + column -> property map) are resolved through the
 ``person_property_sync_sources_for`` hook so this module never imports the customer_analytics
 config models. The pure functions (bundle building, hashing, diff) are unit-tested directly; the
 S3/personhog/Kafka helpers are the boundaries and are mocked in the orchestration test.
 """
 
+import io
 import json
+import uuid
 import asyncio
 import hashlib
 import dataclasses
+from collections.abc import Awaitable, Callable
+from datetime import date, datetime, time
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
 import structlog
 import pyarrow.parquet as pq
+from confluent_kafka import KafkaException
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.models.group.util import get_groups_by_identifiers
-from posthog.models.group_type_mapping import get_group_types_for_team
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.facade.api import aget_s3_client
+from products.data_warehouse.backend.facade.api import aget_s3_client, get_s3_client
+from products.warehouse_sources.backend.facade.person_property_provenance import stamp_person_property_provenance
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    PersonPropertySyncProgress,
     PersonPropertySyncRunRecord,
     PersonPropertySyncSource,
+    WarehouseBinding,
     person_property_sync_sources_for,
+    record_person_property_sync_progress,
     record_person_property_sync_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import delta_storage_options
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
+    job_staged_prefix,
+    snapshot_prefix,
+)
+
+if TYPE_CHECKING:
+    from s3fs import S3FileSystem
 
 logger = structlog.get_logger(__name__)
 
@@ -57,7 +82,38 @@ EVENT_SOURCE = "customer_analytics_person_property_sync"
 _GROUP_TARGET = "group"
 
 
-@dataclasses.dataclass
+def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
+    """Structlog fields naming the warehouse object a run read from."""
+    return {"binding_kind": binding.kind, "binding_id": binding.id}
+
+
+# Identifiers per existence-lookup call. Both personhog helpers return whole Person/Group models,
+# properties included, and accumulate every model before returning. This activity only needs the
+# identifier back, so chunking here caps peak memory at one chunk's models instead of the entire
+# changed set — an organization group carries tens of KB of properties, so a six-figure changed set
+# would otherwise materialize gigabytes and get the worker OOM-killed.
+_EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
+
+# Rows per streamed parquet/Delta batch. Batches are processed then discarded, so peak memory is one
+# batch plus the per-source {distinct_id: bundle} accumulator (bounded by distinct-person cardinality).
+ROW_BATCH_SIZE = 50_000
+
+# Sources folded per pass over the staged files. Every source in a pass keeps its own
+# {distinct_id: bundle} map, so a binding with many sources would otherwise hold one map per source
+# for every person at once. Each extra pass reads only its own sources' columns.
+SOURCES_PER_STAGED_PASS = 4
+
+# Changed entities per produce-and-snapshot step. Each step writes the hashes Kafka confirmed to its own
+# snapshot file before the next step starts, so a run that is stopped part way (a deploy stops the
+# worker) keeps what it delivered, and the next run's diff resumes from there instead of from zero.
+_PRODUCE_CHUNK_SIZE = 50_000
+
+# A concurrent compaction writes its merged file before it deletes the old ones, so a fresh listing
+# after a vanished file almost always reads complete. Giving up means re-sending every row.
+_SNAPSHOT_READ_ATTEMPTS = 3
+
+
+@frozen(frozen=False)
 class PerSourceResult:
     """One source's funnel counts within a run, so the recorder can persist a run row per source."""
 
@@ -67,6 +123,35 @@ class PerSourceResult:
     existing: int = 0
     produced: int = 0
     skipped_missing_person: int = 0
+    # Intents Kafka did not confirm. They are left out of the snapshot so a retry sends them again.
+    undelivered: int = 0
+    # Set when the source can't write anything for a reason its counts alone don't explain, so the
+    # recorder persists a failed run instead of a clean one that produced nothing.
+    error: str | None = None
+
+
+@frozen
+class PerSourceProgress:
+    source_id: str
+    produced_increment: int
+    rows_read_total: int
+    changed_total: int
+    # Missing people have no snapshot, so retries need a total to avoid counting them twice.
+    skipped_missing_person_total: int
+
+
+ProgressCallback = Callable[[PerSourceProgress], Awaitable[None]]
+
+
+class PropertyUpdatesNotDeliveredError(Exception):
+    """Kafka did not confirm some property-update intents. Raised so the run fails and Temporal retries
+    it. The snapshot holds only confirmed intents, so the retry sends only the undelivered ones."""
+
+
+@frozen
+class _SnapshotMerge:
+    hashes: dict[str, str]
+    complete: bool
 
 
 @dataclasses.dataclass
@@ -96,16 +181,36 @@ def bundle_hash(bundle: dict) -> str:
     return hashlib.sha256(json.dumps(bundle, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
+def _json_safe(value: Any) -> Any:
+    """Coerce a warehouse column value into something ``json.dumps`` accepts. Timestamp/date/time
+    columns arrive as datetime objects and numeric columns as Decimal — neither is JSON-serializable,
+    so the Kafka produce (which serializes the intent with plain ``json.dumps``) would raise. Mirrors
+    ``bundle_hash``'s ``default=str`` posture: temporal types get an ISO-8601 string PostHog reads as a
+    DateTime property, decimals become floats, and anything else falls back to ``str``."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return str(value)
+
+
 def build_bundles(rows: list[dict], key_column: str, column_property_map: dict[str, str]) -> list[tuple[str, dict]]:
     """(distinct_id, {person_property: value}) for each row with a non-null key and at least one
     non-null mapped value. Missing columns are simply absent (a misconfigured source degrades to
-    fewer properties rather than erroring)."""
+    fewer properties rather than erroring). Values are coerced to JSON-safe scalars so a timestamp or
+    numeric column doesn't crash the downstream Kafka produce."""
     bundles: list[tuple[str, dict]] = []
     for row in rows:
         key = row.get(key_column)
         if key is None:
             continue
-        bundle = {prop: row[col] for col, prop in column_property_map.items() if row.get(col) is not None}
+        bundle = {prop: _json_safe(row[col]) for col, prop in column_property_map.items() if row.get(col) is not None}
         if bundle:
             bundles.append((str(key), bundle))
     return bundles
@@ -116,65 +221,114 @@ def select_changed(
 ) -> tuple[list[tuple[str, dict]], dict[str, str]]:
     """Keep only bundles whose hash differs from the snapshot. Returns (changed, hashes-for-changed).
     Last write wins when a distinct_id appears twice in one run."""
-    changed: list[tuple[str, dict]] = []
+    changed: dict[str, dict] = {}
     new_hashes: dict[str, str] = {}
-    seen: set[str] = set()
     for distinct_id, bundle in bundles:
         current = bundle_hash(bundle)
         if prior_hashes.get(distinct_id) == current and distinct_id not in new_hashes:
             continue
-        if distinct_id in seen:
-            # replace the earlier bundle for this run with the later one
-            changed = [(d, b) for d, b in changed if d != distinct_id]
-        changed.append((distinct_id, bundle))
+        changed[distinct_id] = bundle
         new_hashes[distinct_id] = current
-        seen.add(distinct_id)
-    return changed, new_hashes
+    return list(changed.items()), new_hashes
+
+
+def _accumulate_bundles(
+    accumulated: dict[str, dict[str, dict]], rows: list[dict], sources: list[PersonPropertySyncSource]
+) -> None:
+    """Fold one batch of rows into {source_id: {distinct_id: bundle}}, last write winning per distinct_id."""
+    for source in sources:
+        bucket = accumulated[str(source.source_id)]
+        for distinct_id, bundle in build_bundles(rows, source.key_column, source.column_property_map or {}):
+            bucket[distinct_id] = bundle
+
+
+def _wanted_columns(sources: list[PersonPropertySyncSource]) -> set[str]:
+    return {column for source in sources for column in (source.key_column, *(source.column_property_map or {}).keys())}
 
 
 # --- S3 / Kafka / personhog boundaries (mocked in tests) ---------------------------------
 
 
-def _staged_prefix(team_id: int, schema_id: str, job_id: str) -> str:
-    return f"{settings.DATAWAREHOUSE_BUCKET}/person_property_sync/{team_id}/{schema_id}/{job_id}"
-
-
-def _snapshot_prefix(team_id: int, schema_id: str, source_id: str) -> str:
-    # A folder, not a single file: each run drops a uniquely-named parquet of the hashes it produced,
-    # and the reader unions every file in the folder. Two writers (a scheduled sync and a backfill)
+def _snapshot_prefix(team_id: int, binding: WarehouseBinding, source_id: str) -> str:
+    # A folder, not a single file: each run drops uniquely-named parquet files of the hashes it
+    # produced (one per chunk, then one compacted file), and the reader unions every file in the folder. Two writers (a scheduled sync and a backfill)
     # for the same source can't clobber each other, since they write different filenames. Growth is
     # bounded by _write_snapshot_hashes, which compacts the folder back down as it writes.
-    return f"{settings.DATAWAREHOUSE_BUCKET}/person_property_snapshot/{team_id}/{source_id}/{schema_id}"
+    return snapshot_prefix(team_id, binding, source_id)
 
 
-async def _read_staged_rows(team_id: int, schema_id: str, job_id: str) -> list[dict]:
-    prefix = _staged_prefix(team_id, schema_id, job_id)
-    rows: list[dict] = []
+@frozen
+class StagedBundleRead:
+    """What one job's staged files yielded for an incremental sync."""
+
+    bundles_by_source: dict[str, dict[str, dict]]
+    rows_read: int
+
+
+def _accumulate_staged_file(
+    s3_client: "S3FileSystem",
+    path: str,
+    sources: list[PersonPropertySyncSource],
+    accumulated: dict[str, dict[str, dict]],
+) -> int:
+    """Stream one staged parquet file batch by batch into ``accumulated``. Returns the rows read."""
+    rows_read = 0
+    with s3_client.open(path, "rb", cache_type="none") as file:
+        parquet = pq.ParquetFile(file, pre_buffer=False)
+        # Staged chunks can differ in columns after schema drift, and requesting an absent column raises.
+        columns = sorted(_wanted_columns(sources) & set(parquet.schema_arrow.names))
+        for batch in parquet.iter_batches(batch_size=ROW_BATCH_SIZE, columns=columns):
+            rows = batch.to_pylist()
+            rows_read += len(rows)
+            _accumulate_bundles(accumulated, rows, sources)
+    return rows_read
+
+
+async def _list_staged_files(team_id: int, binding: WarehouseBinding, job_id: str) -> list[str]:
+    """S3 keys of the job's staged files in write order. Empty when the run staged nothing."""
+    prefix = job_staged_prefix(team_id, binding, job_id)
     async with aget_s3_client() as s3_client:
         try:
             listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
         except FileNotFoundError:
-            # No staged folder — the sync staged nothing for this run (common on a no-change sync).
-            logger.debug("person-property sync: no staged rows folder", team_id=team_id, schema_id=schema_id)
+            # No staged folder — the run staged nothing (common on a no-change incremental run).
+            logger.debug("person-property sync: no staged rows folder", team_id=team_id, **_log_fields(binding))
             return []
-        values = listing.values() if isinstance(listing, dict) else listing
-        files = [f["Key"] for f in values if f.get("type") != "directory"]
-        for file_path in files:
-            data = await s3_client._cat_file(f"s3://{file_path}" if not file_path.startswith("s3://") else file_path)
-            # Decode off the event loop: a large parquet chunk would otherwise block the async
-            # activity long enough to starve the heartbeater and trip its timeout.
-            rows.extend(await asyncio.to_thread(_decode_parquet_rows, data))
-    return rows
+    values = listing.values() if isinstance(listing, dict) else listing
+    files = [f for f in values if f.get("type") != "directory"]
+    # Staged filenames sort in attempt and chunk order, so last-write-wins follows write order.
+    file_keys = sorted(f["Key"] for f in files)
+    logger.info(
+        "person-property sync: reading staged files",
+        team_id=team_id,
+        **_log_fields(binding),
+        job_id=job_id,
+        staged_files=len(file_keys),
+        staged_bytes=sum(f.get("size") or 0 for f in files),
+    )
+    return file_keys
 
 
-def _bytes_reader(data: bytes):
-    import io  # noqa: PLC0415 — local to keep the module import light
+async def _read_staged_bundles(file_keys: list[str], sources: list[PersonPropertySyncSource]) -> StagedBundleRead:
+    """Stream the staged files into {source_id: {distinct_id: bundle}}, one file and one batch at a
+    time, so peak memory tracks distinct persons rather than staged row count."""
+    accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
+    s3_sync_client = get_s3_client()
+    rows_read = 0
+    for key in file_keys:
+        # Read off the event loop so a large file can't starve the heartbeater.
+        rows_read += await asyncio.to_thread(
+            _accumulate_staged_file, s3_sync_client, _s3_uri(key), sources, accumulated
+        )
+    return StagedBundleRead(bundles_by_source=accumulated, rows_read=rows_read)
 
-    return io.BytesIO(data)
 
-
-def _decode_parquet_rows(data: bytes) -> list[dict]:
-    return pq.read_table(_bytes_reader(data)).to_pylist()
+def _merge_snapshot_file(data: bytes, hashes: dict[str, str]) -> None:
+    parquet = pq.ParquetFile(io.BytesIO(data))
+    for batch in parquet.iter_batches(batch_size=ROW_BATCH_SIZE, columns=["distinct_id", "sent_hash"]):
+        distinct_ids = batch.column("distinct_id").to_pylist()
+        sent_hashes = batch.column("sent_hash").to_pylist()
+        hashes.update((str(distinct_id), str(sent_hash)) for distinct_id, sent_hash in zip(distinct_ids, sent_hashes))
 
 
 def _snapshot_file_order(entry: dict) -> tuple:
@@ -207,28 +361,59 @@ async def _list_snapshot_files(s3_client, prefix: str) -> list[str]:
     return [f["Key"] for f in files]
 
 
-async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, str]:
+async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> _SnapshotMerge:
     """Union the given snapshot files into {distinct_id: sent_hash}, later files winning (callers pass
     them oldest-first). Decodes off the event loop so a large parquet can't starve the heartbeater."""
     hashes: dict[str, str] = {}
+    complete = True
     for key in file_keys:
-        data = await s3_client._cat_file(_s3_uri(key))
-        for record in await asyncio.to_thread(_decode_parquet_rows, data):
-            hashes[record["distinct_id"]] = record["sent_hash"]
-    return hashes
+        try:
+            data = await s3_client._cat_file(_s3_uri(key))
+        except FileNotFoundError:
+            # A concurrent _write_snapshot_hashes compacted this file into a new one and deleted it
+            # after we listed the folder but before we read it. Its rows survive in that new file (or
+            # whichever one replaces it next run) — skip rather than fail the whole read.
+            complete = False
+            continue
+        await asyncio.to_thread(_merge_snapshot_file, data, hashes)
+    return _SnapshotMerge(hashes=hashes, complete=complete)
 
 
-async def _read_snapshot_hashes(team_id: int, schema_id: str, source_id: str) -> dict[str, str]:
+async def _read_snapshot_hashes(team_id: int, binding: WarehouseBinding, source_id: str) -> dict[str, str]:
     """Union every parquet file in the source's snapshot folder into {distinct_id: sent_hash}, reading
     oldest file first so a newer run's hash wins for a repeated distinct_id (a stale hash would only
     cost an idempotent re-send, but newest-wins avoids even that). Ordering never affects correctness."""
-    prefix = _snapshot_prefix(team_id, schema_id, source_id)
+    prefix = _snapshot_prefix(team_id, binding, source_id)
     async with aget_s3_client() as s3_client:
-        return await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+        for _ in range(_SNAPSHOT_READ_ATTEMPTS):
+            merge = await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+            if merge.complete:
+                return merge.hashes
+        return {}
+
+
+async def _put_snapshot_file(s3_client, path: str, hashes: dict[str, str]) -> None:
+    import pyarrow as pa  # noqa: PLC0415
+
+    table = pa.table({"distinct_id": list(hashes.keys()), "sent_hash": list(hashes.values())})
+    buffer = pa.BufferOutputStream()
+    pq.write_table(table, buffer, compression="zstd")
+    await s3_client._pipe_file(_s3_uri(path), buffer.getvalue().to_pybytes())
+
+
+async def _write_snapshot_chunk(
+    team_id: int, binding: WarehouseBinding, source_id: str, file_name: str, hashes: dict[str, str]
+) -> None:
+    """Add ``hashes`` to the source's snapshot folder as one new file, without reading or merging the
+    folder. The reader unions this file with the rest, and ``_write_snapshot_hashes`` folds it in when
+    the run compacts. Merging here instead would re-read the whole folder once per chunk."""
+    path = f"{_snapshot_prefix(team_id, binding, source_id)}/{file_name}.parquet"
+    async with aget_s3_client() as s3_client:
+        await _put_snapshot_file(s3_client, path, hashes)
 
 
 async def _write_snapshot_hashes(
-    team_id: int, schema_id: str, source_id: str, run_token: str, hashes: dict[str, str]
+    team_id: int, binding: WarehouseBinding, source_id: str, run_token: str, hashes: dict[str, str]
 ) -> None:
     """Persist this run's produced ``hashes`` and compact the source's snapshot folder in one pass.
     Writes the union of every existing snapshot file and ``hashes`` into ``{run_token}.parquet`` (this
@@ -240,19 +425,19 @@ async def _write_snapshot_hashes(
     listing isn't in the merge set, so it's neither merged-away nor deleted, and its rows still surface
     through the reader's union; the two files collapse on the next run. Write-then-delete keeps a crash
     between the two harmless — the reader unions both the new file and the not-yet-deleted old ones."""
-    import pyarrow as pa  # noqa: PLC0415
-
-    prefix = _snapshot_prefix(team_id, schema_id, source_id)
+    prefix = _snapshot_prefix(team_id, binding, source_id)
     write_path = f"{prefix}/{run_token}.parquet"
     async with aget_s3_client() as s3_client:
         existing_keys = await _list_snapshot_files(s3_client, prefix)
-        merged = await _merge_snapshot_files(s3_client, existing_keys)
-        merged.update(hashes)
-
-        table = pa.table({"distinct_id": list(merged.keys()), "sent_hash": list(merged.values())})
-        buffer = pa.BufferOutputStream()
-        pq.write_table(table, buffer, compression="zstd")
-        await s3_client._pipe_file(_s3_uri(write_path), buffer.getvalue().to_pybytes())
+        if not hashes and len(existing_keys) <= 1:
+            return
+        merge = await _merge_snapshot_files(s3_client, existing_keys)
+        if not hashes and not merge.complete:
+            return
+        merged = {**merge.hashes, **hashes} if merge.complete else hashes
+        await _put_snapshot_file(s3_client, write_path, merged)
+        if not merge.complete:
+            return
 
         # Delete the files we merged, except the one we just wrote (the backfill token reuses its name).
         stale = [key for key in existing_keys if _s3_key(key) != _s3_key(write_path)]
@@ -263,8 +448,8 @@ async def _write_snapshot_hashes(
                 pass
 
 
-async def _clear_staged(team_id: int, schema_id: str, job_id: str) -> None:
-    prefix = _staged_prefix(team_id, schema_id, job_id)
+async def _clear_staged(team_id: int, binding: WarehouseBinding, job_id: str) -> None:
+    prefix = job_staged_prefix(team_id, binding, job_id)
     async with aget_s3_client() as s3_client:
         try:
             await s3_client._rm(f"s3://{prefix}/", recursive=True)
@@ -286,19 +471,33 @@ def _get_schema(team_id: int, schema_id: str) -> ExternalDataSchema | None:
 
 def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: list[str]) -> set[str]:
     """The subset of ``ids`` that resolve to an existing person (or group, for group targets). We only
-    enrich entities that already exist — the same rule for both, just a different lookup."""
+    enrich entities that already exist — the same rule for both, just a different lookup.
+
+    Chunked so only one chunk's models are alive at a time (see ``_EXISTENCE_LOOKUP_CHUNK_SIZE``);
+    each chunk's identifiers are kept and its models dropped before the next call."""
     if not ids:
         return set()
-    if source.target == _GROUP_TARGET:
-        if source.group_type_index is None:
-            return set()
-        return {group.group_key for group in get_groups_by_identifiers(team_id, source.group_type_index, ids)}
-    return set(get_persons_mapped_by_distinct_id(team_id, ids).keys())
+    # Stays None for person targets, so the loop below picks its lookup off this alone.
+    is_group = source.target == _GROUP_TARGET
+    group_type_index = source.group_type_index if is_group else None
+    if is_group and group_type_index is None:
+        return set()
+
+    existing: set[str] = set()
+    for start in range(0, len(ids), _EXISTENCE_LOOKUP_CHUNK_SIZE):
+        chunk = ids[start : start + _EXISTENCE_LOOKUP_CHUNK_SIZE]
+        if group_type_index is not None:
+            existing.update(group.group_key for group in get_groups_by_identifiers(team_id, group_type_index, chunk))
+        else:
+            existing.update(get_persons_mapped_by_distinct_id(team_id, chunk).keys())
+    return existing
 
 
-def _group_type_name(team_id: int, group_type_index: int) -> str | None:
+def _group_type_name(project_id: int, group_type_index: int) -> str | None:
     # $groupidentify carries the group-type *name*; the config stores the index, so resolve it.
-    for group_type in get_group_types_for_team(team_id):
+    # Group types are project-scoped, and GroupTypeMapping stores the project's root team id, so a
+    # team that is a child environment has no rows of its own — resolve by project, not by team.
+    for group_type in get_group_types_for_project(project_id, caller_tag="warehouse_sources/person_property_sync"):
         if group_type.get("group_type_index") == group_type_index:
             return group_type.get("group_type")
     return None
@@ -312,12 +511,13 @@ def _produce_intents(
     *,
     team_uuid: str,
     group_type_name: str | None,
-) -> int:
+) -> set[str]:
     """Produce one property-update intent per entity to Kafka. Person intents map to a `$set` keyed
     by team:distinct_id; group intents map to a `$groupidentify` keyed by team:group_type:group_key so
-    per-group ordering is preserved. The consumer branches on ``kind``. Returns the count produced."""
+    per-group ordering is preserved. The consumer branches on ``kind``. Returns the keys Kafka
+    confirmed as delivered."""
     is_group = source.target == _GROUP_TARGET
-    produced = 0
+    results: list[tuple[str, ProduceResult]] = []
     with producer_scope(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES) as producer:
         for key, bundle in items:
             if is_group:
@@ -344,38 +544,39 @@ def _produce_intents(
                     "event_source": EVENT_SOURCE,
                 }
                 kafka_key = f"{team_id}:{key}"
-            producer.produce(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES, data=data, key=kafka_key)
-            produced += 1
-    return produced
+            results.append(
+                (key, producer.produce(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES, data=data, key=kafka_key))
+            )
+    # The scope flushes on exit. flush() counts only messages still queued, and a failed delivery
+    # leaves the queue, so only each message's result shows whether Kafka accepted it.
+    delivered: set[str] = set()
+    for key, result in results:
+        try:
+            result.get(timeout=0)
+        except (KafkaException, TimeoutError):
+            continue
+        delivered.add(key)
+    return delivered
 
 
-def _stamp_provenance(
-    team_id: int, schema_id: str, source: PersonPropertySyncSource, property_names: list[str]
+def _reconcile_property_definitions(
+    team_id: int,
+    project_id: int,
+    binding: WarehouseBinding,
+    source: PersonPropertySyncSource,
+    property_names: list[str],
 ) -> None:
-    # UPDATE-only on purpose: definitions are created by ingestion's propdef upsert when the $set /
-    # $groupidentify lands, so a brand-new property may not have a row yet on the first sync — the next
-    # sync's stamp catches it. Never inserting means this can't race that upsert.
-    origin = {
-        "source_id": str(source.definition_id),
-        "schema_id": str(schema_id),
-        "custom_property_source_id": str(source.source_id),
-    }
-    query = PropertyDefinition.objects.filter(team_id=team_id)
-    if source.target == _GROUP_TARGET:
-        # Group propdefs are keyed per group type, so the index predicate is mandatory.
-        query = query.filter(type=PropertyDefinition.Type.GROUP, group_type_index=source.group_type_index)
-    else:
-        query = query.filter(type=PropertyDefinition.Type.PERSON)
-
-    # Properties given a description carry it inside their provenance, so stamp those one at a time;
-    # the rest share the base origin and go in a single bulk update.
-    descriptions = source.property_descriptions or {}
-    described = [name for name in property_names if descriptions.get(name)]
-    plain = [name for name in property_names if not descriptions.get(name)]
-    if plain:
-        query.filter(name__in=plain).update(warehouse_origin=origin)
-    for name in described:
-        query.filter(name=name).update(warehouse_origin={**origin, "description": descriptions[name]})
+    stamp_person_property_provenance(
+        team_id=team_id,
+        project_id=project_id,
+        binding=binding,
+        source_id=str(source.source_id),
+        definition_id=str(source.definition_id),
+        target=source.target,
+        group_type_index=source.group_type_index,
+        property_names=property_names,
+        property_descriptions=source.property_descriptions or {},
+    )
 
 
 # --- orchestration -----------------------------------------------------------------------
@@ -384,46 +585,39 @@ def _stamp_provenance(
 async def _process_source_bundles(
     *,
     team_id: int,
-    schema_id: str,
+    project_id: int,
+    binding: WarehouseBinding,
     team_api_token: str,
     team_uuid: str,
     source: PersonPropertySyncSource,
     bundles: list[tuple[str, dict]],
     rows_read: int,
     run_token: str,
+    on_progress: ProgressCallback | None = None,
 ) -> PerSourceResult:
     """Diff one source's bundles against its snapshot, drop entities that don't exist, produce update
-    intents (person `$set` or group `$groupidentify`), stamp provenance, and advance the snapshot.
+    intents (person `$set` or group `$groupidentify`), stamp provenance, and advance the snapshot. Works
+    in chunks of ``_PRODUCE_CHUNK_SIZE`` and snapshots each chunk's confirmed deliveries before the next
+    chunk, so a run stopped part way loses at most one chunk of progress.
     Shared by the incremental sync and the backfill — they differ only in how ``bundles`` are sourced
     (staged rows vs a full Delta read)."""
     ps = PerSourceResult(source_id=str(source.source_id), rows_read=rows_read)
-    prior = await _read_snapshot_hashes(team_id, schema_id, str(source.source_id))
-    changed, new_hashes = select_changed(bundles, prior)
+    prior = await _read_snapshot_hashes(team_id, binding, str(source.source_id))
+    await database_sync_to_async(_reconcile_property_definitions, thread_sensitive=False)(
+        team_id, project_id, binding, source, list((source.column_property_map or {}).values())
+    )
+    # Hashing every bundle is CPU work. Run it in a thread so that the event loop, and the
+    # heartbeater on it, keep running for a large table.
+    changed, new_hashes = await asyncio.to_thread(select_changed, bundles, prior)
     ps.changed = len(changed)
     if not changed:
-        return ps
-
-    existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
-        team_id, source, [key for key, _ in changed]
-    )
-    to_send = [(key, bundle) for key, bundle in changed if key in existing]
-    ps.existing = len(to_send)
-    ps.skipped_missing_person = len(changed) - len(to_send)
-    if not to_send:
-        logger.info(
-            "person-property sync: no existing entities among changed rows for source",
-            team_id=team_id,
-            schema_id=schema_id,
-            source_id=str(source.source_id),
-            target=source.target,
-            changed=len(changed),
-        )
+        await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, {})
         return ps
 
     group_type_name = None
     if source.target == _GROUP_TARGET and source.group_type_index is not None:
         group_type_name = await database_sync_to_async(_group_type_name, thread_sensitive=False)(
-            team_id, source.group_type_index
+            project_id, source.group_type_index
         )
         if group_type_name is None:
             # Without the group-type name the consumer can't build a valid $groupidentify and would
@@ -431,39 +625,118 @@ async def _process_source_bundles(
             logger.warning(
                 "person-property sync: group type not found, skipping source",
                 team_id=team_id,
-                schema_id=schema_id,
+                **_log_fields(binding),
                 source_id=str(source.source_id),
                 group_type_index=source.group_type_index,
             )
             return ps
-    produced = await asyncio.to_thread(
-        _produce_intents, team_id, team_api_token, source, to_send, team_uuid=team_uuid, group_type_name=group_type_name
-    )
-    ps.produced = produced
 
-    # Stamp provenance before advancing the snapshot: the snapshot is the checkpoint that makes
-    # these rows look unchanged on the next run, so anything that must accompany a produce has to
-    # happen first. Stamping is an idempotent update, safe to repeat if a retry re-produces.
-    await database_sync_to_async(_stamp_provenance, thread_sensitive=False)(
-        team_id, schema_id, source, list((source.column_property_map or {}).values())
-    )
+    # Snapshot chunk files get a name unique to this attempt. A Temporal retry reuses ``run_token``, and
+    # its chunk numbering starts again at zero, so a name built from the token and index alone would
+    # overwrite the files that hold the previous attempt's delivered hashes.
+    attempt = uuid.uuid4().hex[:12]
+    chunks_written = 0
+    confirmed_hashes: dict[str, str] = {}
+    for start in range(0, len(changed), _PRODUCE_CHUNK_SIZE):
+        chunk = changed[start : start + _PRODUCE_CHUNK_SIZE]
+        existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
+            team_id, source, [key for key, _ in chunk]
+        )
+        to_send = [(key, bundle) for key, bundle in chunk if key in existing]
+        existing_count = len(to_send)
+        delivered: set[str] = set()
+        if to_send:
+            delivered = await asyncio.to_thread(
+                _produce_intents,
+                team_id,
+                team_api_token,
+                source,
+                to_send,
+                team_uuid=team_uuid,
+                group_type_name=group_type_name,
+            )
+        ps.existing += existing_count
+        ps.skipped_missing_person += len(chunk) - len(to_send)
+        ps.produced += len(delivered)
+        ps.undelivered += len(to_send) - len(delivered)
 
-    # Record only the distinct_ids we actually produced, as this run's snapshot file.
-    sent_ids = {distinct_id for distinct_id, _ in to_send}
-    produced_hashes = {d: h for d, h in new_hashes.items() if d in sent_ids}
-    await _write_snapshot_hashes(team_id, schema_id, str(source.source_id), run_token, produced_hashes)
+        # Write only after Kafka confirms delivery. A hash in the snapshot means "already sent", so a
+        # hash written before delivery would make a lost intent look sent and the next run skip it.
+        # An undelivered id stays out, so the next diff sees it as changed and sends it again.
+        delivered_hashes = {key: new_hashes[key] for key in delivered}
+        if delivered_hashes:
+            await _write_snapshot_chunk(
+                team_id, binding, str(source.source_id), f"{run_token}-{attempt}-{chunks_written:05d}", delivered_hashes
+            )
+            confirmed_hashes.update(delivered_hashes)
+            chunks_written += 1
+
+        if on_progress is not None:
+            # Snapshot first so a retry cannot report these deliveries twice.
+            await on_progress(
+                PerSourceProgress(
+                    source_id=ps.source_id,
+                    produced_increment=len(delivered),
+                    rows_read_total=ps.rows_read,
+                    changed_total=ps.changed,
+                    skipped_missing_person_total=ps.skipped_missing_person,
+                )
+            )
+
+    if chunks_written:
+        # Fold this run's chunk files, and any left by an earlier run that was stopped part way, into
+        # one ``{run_token}.parquet`` so the folder stays at about one file per source.
+        await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, confirmed_hashes)
+
+    if not ps.existing:
+        logger.info(
+            "person-property sync: no existing entities among changed rows for source",
+            team_id=team_id,
+            **_log_fields(binding),
+            source_id=str(source.source_id),
+            target=source.target,
+            changed=len(changed),
+        )
+        return ps
 
     logger.info(
         "person-property sync: source processed",
         team_id=team_id,
-        schema_id=schema_id,
+        **_log_fields(binding),
         source_id=str(source.source_id),
         bundles=len(bundles),
         changed=len(changed),
-        existing=len(to_send),
-        produced=produced,
+        existing=ps.existing,
+        produced=ps.produced,
+        undelivered=ps.undelivered,
     )
     return ps
+
+
+async def _process_accumulated_source(
+    *,
+    team_id: int,
+    team: Team,
+    binding: WarehouseBinding,
+    source: PersonPropertySyncSource,
+    bundles_by_source: dict[str, dict[str, dict]],
+    rows_read: int,
+    run_token: str,
+    on_progress: ProgressCallback | None = None,
+) -> PerSourceResult:
+    bundles = list(bundles_by_source.pop(str(source.source_id)).items())
+    return await _process_source_bundles(
+        team_id=team_id,
+        project_id=team.project_id,
+        binding=binding,
+        team_api_token=team.api_token,
+        team_uuid=str(team.uuid),
+        source=source,
+        bundles=bundles,
+        rows_read=rows_read,
+        run_token=run_token,
+        on_progress=on_progress,
+    )
 
 
 def _accumulate(result: SyncResult, ps: PerSourceResult) -> None:
@@ -474,66 +747,86 @@ def _accumulate(result: SyncResult, ps: PerSourceResult) -> None:
     result.skipped_missing_person += ps.skipped_missing_person
 
 
-async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str) -> SyncResult:
+def _raise_if_undelivered(result: SyncResult) -> None:
+    undelivered = sum(ps.undelivered for ps in result.per_source)
+    if undelivered:
+        raise PropertyUpdatesNotDeliveredError(
+            f"Kafka did not confirm {undelivered} of {undelivered + result.produced} property updates. "
+            "A retry sends the undelivered updates again."
+        )
+
+
+async def run_person_property_sync(
+    *, team_id: int, binding: WarehouseBinding, job_id: str, on_progress: ProgressCallback | None = None
+) -> SyncResult:
     result = SyncResult()
-    sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, schema_id)
+    sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, binding)
     if not sources:
         logger.info(
-            "person-property sync: no enabled person sources for schema, nothing to do",
+            "person-property sync: no enabled person sources for binding, nothing to do",
             team_id=team_id,
-            schema_id=str(schema_id),
+            **_log_fields(binding),
             job_id=job_id,
         )
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    rows = await _read_staged_rows(team_id, str(schema_id), job_id)
+    file_keys = await _list_staged_files(team_id, binding, job_id)
     result.sources = len(sources)
-    result.rows_read = len(rows)
-    logger.info(
-        "person-property sync: read staged rows",
-        team_id=team_id,
-        schema_id=str(schema_id),
-        job_id=job_id,
-        sources=len(sources),
-        rows_read=len(rows),
-    )
 
-    for source in sources:
-        bundles = build_bundles(rows, source.key_column, source.column_property_map or {})
-        ps = await _process_source_bundles(
+    for start in range(0, len(sources), SOURCES_PER_STAGED_PASS):
+        pass_sources = sources[start : start + SOURCES_PER_STAGED_PASS]
+        read = await _read_staged_bundles(file_keys, pass_sources)
+        result.rows_read = read.rows_read
+        logger.info(
+            "person-property sync: read staged rows",
             team_id=team_id,
-            schema_id=str(schema_id),
-            team_api_token=team.api_token,
-            team_uuid=str(team.uuid),
-            source=source,
-            bundles=bundles,
-            rows_read=len(rows),
-            run_token=job_id,
+            **_log_fields(binding),
+            job_id=job_id,
+            sources=len(pass_sources),
+            rows_read=read.rows_read,
         )
-        _accumulate(result, ps)
+        for source in pass_sources:
+            ps = await _process_accumulated_source(
+                team_id=team_id,
+                team=team,
+                binding=binding,
+                source=source,
+                bundles_by_source=read.bundles_by_source,
+                rows_read=read.rows_read,
+                run_token=job_id,
+                on_progress=on_progress,
+            )
+            _accumulate(result, ps)
 
-    await _clear_staged(team_id, str(schema_id), job_id)
+    # Raise before the staged rows are cleared, so the retry can read them again.
+    _raise_if_undelivered(result)
+    await _clear_staged(team_id, binding, job_id)
     return result
 
 
 # --- backfill (full Delta read) ----------------------------------------------------------
-
-# Rows per streamed Delta batch. Batches are processed then discarded, so peak memory is one batch
-# plus the per-source {distinct_id: bundle} accumulator (bounded by distinct-person cardinality).
-BACKFILL_BATCH_SIZE = 50_000
 
 # Backfill runs share one snapshot filename per source (a full-table read replaces the whole set),
 # distinct from the incremental job-id filenames, so the two writers never collide.
 BACKFILL_RUN_TOKEN = "backfill"
 
 
+@frozen
+class DeltaBundleRead:
+    """What one full-table Delta read yielded for a backfill."""
+
+    bundles_by_source: dict[str, dict[str, dict]]
+    rows_read: int
+    sources_missing_key_column: frozenset[str]
+
+
 def _read_delta_bundles(
     uri: str, storage_options: dict[str, str], sources: list[PersonPropertySyncSource]
-) -> tuple[dict[str, dict[str, dict]], int]:
+) -> DeltaBundleRead:
     """Stream the table's Delta files from S3 and accumulate {source_id: {distinct_id: bundle}}
     (last-write-wins per distinct_id). Streams batches — never materializes the whole table — so peak
-    memory tracks distinct persons, not row count. Returns (accumulated, rows_read)."""
+    memory tracks distinct persons, not row count."""
     import deltalake  # noqa: PLC0415 — keeps the heavy delta-rs/pandas stack off the import path
 
     accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
@@ -542,21 +835,20 @@ def _read_delta_bundles(
         # as an empty read rather than erroring, but log it since a persistent empty backfill is a
         # likely "why didn't anything happen" answer.
         logger.warning("person-property backfill: no Delta table at URI, reading 0 rows", uri=uri)
-        return accumulated, 0
+        return DeltaBundleRead(bundles_by_source=accumulated, rows_read=0, sources_missing_key_column=frozenset())
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
     available = set(dataset.schema.names)
-    wanted = {
-        column for source in sources for column in (source.key_column, *(source.column_property_map or {}).keys())
-    }
     # Project only columns that exist — a misconfigured column drops out rather than erroring.
-    project = sorted(wanted & available)
+    project = sorted(_wanted_columns(sources) & available)
 
     # A source whose key column itself is missing produces zero bundles for the whole table, which is
-    # otherwise indistinguishable from a genuinely idle backfill. Log it so a misconfigured mapping
-    # (table dropped/renamed the identifier column) is diagnosable rather than silent.
+    # otherwise indistinguishable from a genuinely idle backfill. Report it back so the caller can fail
+    # the run rather than complete a no-op, and log it for the same reason.
+    missing_key_column: set[str] = set()
     for source in sources:
         if source.key_column not in available:
+            missing_key_column.add(str(source.source_id))
             logger.warning(
                 "person-property backfill: source key column missing from table, will produce nothing",
                 uri=uri,
@@ -565,75 +857,115 @@ def _read_delta_bundles(
             )
 
     rows_read = 0
-    for batch in dataset.to_batches(columns=project, batch_size=BACKFILL_BATCH_SIZE):
+    for batch in dataset.to_batches(columns=project, batch_size=ROW_BATCH_SIZE):
         rows = batch.to_pylist()
         rows_read += len(rows)
-        for source in sources:
-            bucket = accumulated[str(source.source_id)]
-            for distinct_id, bundle in build_bundles(rows, source.key_column, source.column_property_map or {}):
-                bucket[distinct_id] = bundle
-    return accumulated, rows_read
+        _accumulate_bundles(accumulated, rows, sources)
+    return DeltaBundleRead(
+        bundles_by_source=accumulated,
+        rows_read=rows_read,
+        sources_missing_key_column=frozenset(missing_key_column),
+    )
 
 
-async def run_person_property_backfill(*, team_id: int, schema_id: str, trigger: str) -> SyncResult:
-    """Populate person properties from a warehouse table's full Delta data (rather than the
-    incrementally staged rows) — for a new/changed mapping that never saw historical rows. Reads the
-    table once and upserts every enabled person source on the schema; the snapshot diff still skips
-    unchanged values, so re-running is cheap."""
-    result = SyncResult()
-    sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, schema_id)
-    if not sources:
-        logger.info(
-            "person-property backfill: no enabled person sources for schema, nothing to do",
-            team_id=team_id,
-            schema_id=str(schema_id),
-            trigger=trigger,
-        )
-        return result
-
-    schema = await database_sync_to_async(_get_schema, thread_sensitive=False)(team_id, schema_id)
+def _schema_delta_uri(team_id: int, schema_id: str) -> str | None:
+    """The Delta table an imported schema's rows live in, or None when the schema is gone."""
+    schema = _get_schema(team_id, schema_id)
     if schema is None:
-        logger.warning(
-            "person-property backfill: schema no longer exists, nothing to do",
-            team_id=team_id,
-            schema_id=str(schema_id),
-            trigger=trigger,
-        )
-        return result
-
-    team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
+        return None
     # Resolve the Delta folder leaf the same way the loader wrote it: `resolved_s3_folder_name`
     # (or the schema name) normalized, never `normalized_name`. For schema-qualified/migration-pinned
     # sources (e.g. Postgres `public.users` → folder `users`) these diverge, and `normalized_name`
     # would point at a prefix with no Delta log — a silent 0-row no-op.
     folder_leaf = NamingConvention.normalize_identifier(schema.resolved_s3_folder_name or schema.name)
-    uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{folder_leaf}"
-    accumulated, rows_read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{folder_leaf}"
+
+
+def _delta_uri_for_binding(team_id: int, binding: WarehouseBinding) -> str | None:
+    """The Delta table a binding's full row set lives in, or None when there is nothing to read."""
+    if binding.is_saved_query:
+        # Resolved lazily: the data_modeling facade is PEP 562 lazy-loaded over HogQL/temporal-heavy
+        # modules, so a module-top import would pull that chain onto this module's import path.
+        from products.data_modeling.backend.facade.api import get_materialized_table_uri  # noqa: PLC0415
+
+        return get_materialized_table_uri(team_id, binding.id)
+    return _schema_delta_uri(team_id, binding.id)
+
+
+async def run_person_property_backfill(
+    *, team_id: int, binding: WarehouseBinding, trigger: str, on_progress: ProgressCallback | None = None
+) -> SyncResult:
+    """Populate person properties from a warehouse table's full Delta data (rather than the
+    incrementally staged rows) — for a new/changed mapping that never saw historical rows. Reads the
+    table once and upserts every enabled person source on the binding; the snapshot diff still skips
+    unchanged values, so re-running is cheap."""
+    result = SyncResult()
+    sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, binding)
+    if not sources:
+        logger.info(
+            "person-property backfill: no enabled person sources for binding, nothing to do",
+            team_id=team_id,
+            **_log_fields(binding),
+            trigger=trigger,
+        )
+        return result
+
+    uri = await database_sync_to_async(_delta_uri_for_binding, thread_sensitive=False)(team_id, binding)
+    if uri is None:
+        # The schema or view was deleted, or the view was never materialized — either way there is no
+        # Delta table to read, so there is nothing to backfill from.
+        logger.warning(
+            "person-property backfill: no warehouse table to read, nothing to do",
+            team_id=team_id,
+            **_log_fields(binding),
+            trigger=trigger,
+        )
+        return result
+
+    team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
+    read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
     result.sources = len(sources)
-    result.rows_read = rows_read
+    result.rows_read = read.rows_read
     logger.info(
         "person-property backfill: read full Delta table",
         team_id=team_id,
-        schema_id=str(schema_id),
+        **_log_fields(binding),
         trigger=trigger,
         sources=len(sources),
-        rows_read=rows_read,
+        rows_read=read.rows_read,
     )
 
     for source in sources:
-        bundles = list(accumulated[str(source.source_id)].items())
-        ps = await _process_source_bundles(
+        if str(source.source_id) in read.sources_missing_key_column:
+            # Nothing this source can match on, so every later stage is a no-op. Surfaced as a failed
+            # run because the mapping stays broken until someone changes it — a completed run would
+            # clear the source's last error and read as a healthy sync that happened to write nothing.
+            _accumulate(
+                result,
+                PerSourceResult(
+                    source_id=str(source.source_id),
+                    rows_read=read.rows_read,
+                    error=(
+                        f"Key column '{source.key_column}' is not a column of the synced table, so no rows "
+                        "could be matched. It may have been renamed or dropped upstream, or it may be a "
+                        "query-time SQL expression rather than a synced column."
+                    ),
+                ),
+            )
+            continue
+        ps = await _process_accumulated_source(
             team_id=team_id,
-            schema_id=str(schema_id),
-            team_api_token=team.api_token,
-            team_uuid=str(team.uuid),
+            team=team,
+            binding=binding,
             source=source,
-            bundles=bundles,
-            rows_read=rows_read,
+            bundles_by_source=read.bundles_by_source,
+            rows_read=read.rows_read,
             run_token=BACKFILL_RUN_TOKEN,
+            on_progress=on_progress,
         )
         _accumulate(result, ps)
 
+    _raise_if_undelivered(result)
     return result
 
 
@@ -643,7 +975,7 @@ async def run_person_property_backfill(*, team_id: int, schema_id: str, trigger:
 def _record(
     *,
     team_id: int,
-    schema_id: str,
+    binding: WarehouseBinding,
     job_id: str | None,
     trigger: str,
     status: str,
@@ -651,11 +983,13 @@ def _record(
     finished_at: str,
     ps: PerSourceResult,
     error: str | None,
+    count_failure: bool = True,
 ) -> None:
     record_person_property_sync_run(
         PersonPropertySyncRunRecord(
             team_id=team_id,
-            schema_id=schema_id,
+            binding_kind=binding.kind,
+            binding_id=binding.id,
             source_id=ps.source_id,
             job_id=job_id,
             trigger=trigger,
@@ -668,24 +1002,60 @@ def _record(
             produced=ps.produced,
             skipped_missing_person=ps.skipped_missing_person,
             error=error,
+            count_failure=count_failure,
         )
     )
 
 
+def progress_recorder(*, team_id: int, binding: WarehouseBinding, job_id: str | None, trigger: str) -> ProgressCallback:
+    """A callback that adds each chunk's counts to the run row, so a run that stops part way, and a
+    run retried over several attempts, shows everything it delivered. Never raises, because
+    bookkeeping must not fail the sync it describes."""
+
+    async def _record_progress(increment: PerSourceProgress) -> None:
+        try:
+            await database_sync_to_async(record_person_property_sync_progress, thread_sensitive=False)(
+                PersonPropertySyncProgress(
+                    team_id=team_id,
+                    binding_kind=binding.kind,
+                    binding_id=binding.id,
+                    source_id=increment.source_id,
+                    job_id=job_id,
+                    trigger=trigger,
+                    rows_read=increment.rows_read_total,
+                    changed=increment.changed_total,
+                    existing=increment.produced_increment,
+                    produced=increment.produced_increment,
+                    skipped_missing_person=increment.skipped_missing_person_total,
+                )
+            )
+        except Exception as e:
+            logger.exception(
+                "person-property run: failed to record progress",
+                team_id=team_id,
+                **_log_fields(binding),
+                job_id=job_id,
+                trigger=trigger,
+            )
+            capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
+
+    return _record_progress
+
+
 async def record_started_runs(
-    *, team_id: int, schema_id: str, job_id: str | None, trigger: str, started_at: str
+    *, team_id: int, binding: WarehouseBinding, job_id: str | None, trigger: str, started_at: str
 ) -> None:
-    """Open a 'running' run row per source the schema feeds, so a sync in flight shows up in the UI
+    """Open a 'running' run row per source the binding feeds, so a sync in flight shows up in the UI
     instead of appearing only once it finishes. The terminal record reconciles the same row (see
     record_sync_run). Never raises — bookkeeping must not fail the sync it describes."""
     try:
         sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(
-            team_id, schema_id
+            team_id, binding
         )
         for source in sources or []:
             await database_sync_to_async(_record, thread_sensitive=False)(
                 team_id=team_id,
-                schema_id=schema_id,
+                binding=binding,
                 job_id=job_id,
                 trigger=trigger,
                 status="running",
@@ -698,65 +1068,74 @@ async def record_started_runs(
         logger.exception(
             "person-property run: failed to record started runs",
             team_id=team_id,
-            schema_id=schema_id,
+            **_log_fields(binding),
             job_id=job_id,
             trigger=trigger,
         )
-        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})
+        capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
 
 
 async def record_completed_runs(
     *,
     team_id: int,
-    schema_id: str,
+    binding: WarehouseBinding,
     job_id: str | None,
     trigger: str,
     started_at: str,
     finished_at: str,
     result: SyncResult,
 ) -> None:
-    """Persist one completed run row per source. Never raises — the recorder swallows its own errors,
+    """Persist one terminal run row per source: completed, or failed for a source that carried an
+    error the run's counts alone wouldn't explain. Never raises — the recorder swallows its own errors,
     and we still guard here so run bookkeeping can't fail the sync/backfill that produced it (which
     would otherwise trigger a wasteful Temporal retry of an already-successful, produced run)."""
     try:
         for ps in result.per_source:
             await database_sync_to_async(_record, thread_sensitive=False)(
                 team_id=team_id,
-                schema_id=schema_id,
+                binding=binding,
                 job_id=job_id,
                 trigger=trigger,
-                status="completed",
+                status="failed" if ps.error else "completed",
                 started_at=started_at,
                 finished_at=finished_at,
                 ps=ps,
-                error=None,
+                error=ps.error,
             )
     except Exception as e:
         logger.exception(
             "person-property run: failed to record completed runs",
             team_id=team_id,
-            schema_id=schema_id,
+            **_log_fields(binding),
             job_id=job_id,
             trigger=trigger,
         )
-        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})
+        capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
 
 
 async def record_failed_runs(
-    *, team_id: int, schema_id: str, job_id: str | None, trigger: str, started_at: str, finished_at: str, error: str
+    *,
+    team_id: int,
+    binding: WarehouseBinding,
+    job_id: str | None,
+    trigger: str,
+    started_at: str,
+    finished_at: str,
+    error: str,
+    count_failure: bool = True,
 ) -> None:
-    """Persist a failed run row per source the schema feeds, so a failure is visible in the UI (not
+    """Persist a failed run row per source the binding feeds, so a failure is visible in the UI (not
     only in error tracking). Never raises — this runs on the already-failing path, so any error here
     (a bad DB state while resolving sources, or the record write itself) is captured, not propagated,
     to avoid masking the original failure that Temporal needs to see."""
     try:
         sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(
-            team_id, schema_id
+            team_id, binding
         )
         for source in sources or []:
             await database_sync_to_async(_record, thread_sensitive=False)(
                 team_id=team_id,
-                schema_id=schema_id,
+                binding=binding,
                 job_id=job_id,
                 trigger=trigger,
                 status="failed",
@@ -764,13 +1143,35 @@ async def record_failed_runs(
                 finished_at=finished_at,
                 ps=PerSourceResult(source_id=str(source.source_id)),
                 error=error,
+                count_failure=count_failure,
             )
     except Exception as e:
         logger.exception(
             "person-property run: failed to record failed runs",
             team_id=team_id,
-            schema_id=schema_id,
+            **_log_fields(binding),
             job_id=job_id,
             trigger=trigger,
         )
-        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})
+        capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
+
+
+# Failure types Temporal sets when it stops an activity from outside. The activity's own exception
+# handler does not run for these, so there is no message from the activity to show.
+_INTERRUPTION_FAILURE_TYPES = frozenset({"WorkerShutdown", "ActivityPause", "ActivityReset"})
+
+
+def is_worker_interruption(error: ActivityError) -> bool:
+    cause = error.cause
+    return isinstance(cause, CancelledError) or (
+        isinstance(cause, ApplicationError) and cause.type in _INTERRUPTION_FAILURE_TYPES
+    )
+
+
+def failed_run_error(error: ActivityError, next_step: str) -> str:
+    """The error to show on a run whose activity gave up. An exception the activity raised keeps its
+    own message. A timeout, cancellation or worker shutdown says that the run was interrupted."""
+    cause = error.cause
+    if isinstance(cause, ApplicationError) and cause.type and cause.type not in _INTERRUPTION_FAILURE_TYPES:
+        return cause.message
+    return f"This run was interrupted before it finished. {next_step}"

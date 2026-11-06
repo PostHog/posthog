@@ -11,11 +11,15 @@
         },
         "clients": {
             "default": [],
-            "description": "Filter by API clients that generated the activity (from x-posthog-client header).",
+            "description": "Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
             "items": {
                 "type": "string"
             },
             "type": "array"
+        },
+        "cursor": {
+            "description": "The pagination cursor value.",
+            "type": "string"
         },
         "detail_filters": {
             "description": "JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.",

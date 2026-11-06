@@ -9,15 +9,12 @@ from django.core.management import call_command
 
 import psycopg
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BATCH_TABLE,
-    STATUS_TABLE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
-    _BATCH_DEFAULTS,
-    _ensure_tables,
-    _get_test_database_url,
-    _truncate_tables,
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, STATUS_TABLE
+from products.warehouse_sources_queue.backend.testing import (
+    BATCH_DEFAULTS as _BATCH_DEFAULTS,
+    ensure_queue_tables as _ensure_tables,
+    get_test_database_url as _get_test_database_url,
+    truncate_queue_tables as _truncate_tables,
 )
 
 pytestmark = [pytest.mark.django_db]
@@ -136,3 +133,27 @@ class TestBackfillWarehouseQueueState:
 
         assert "Mismatched rows: 1" in out
         assert _columns(queue_conn, bid)[0] == "pending"
+
+    def test_reconcile_backfills_superseded_flag_on_pre_flag_failed_rows(self, queue_conn):
+        # The deploy plan depends on this: rows failed before the superseded
+        # column existed read false, and get_failed_runs holds them back via a
+        # per-row status re-check until reconcile stamps the flag.
+        pre_flag = _insert_batch(queue_conn, batch_index=0)
+        queue_conn.execute(
+            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, error_response, created_at) "
+            "VALUES (%s, 'failed', 0, %s, now())",
+            (pre_flag, '{"error": "superseded by newer attempt", "superseded": true}'),
+        )
+        # Pre-flag dual-writes set state_changed_at to exactly the status row's
+        # created_at; a newer clock would (correctly) fail the monotonic guard.
+        queue_conn.execute(
+            f"UPDATE {BATCH_TABLE} SET latest_state = 'failed', "
+            f"state_changed_at = (SELECT created_at FROM {STATUS_TABLE} WHERE batch_id = {BATCH_TABLE}.id) "
+            "WHERE id = %s",
+            (pre_flag,),
+        )
+
+        _run("reconcile", "--live-run")
+
+        row = queue_conn.execute(f"SELECT superseded FROM {BATCH_TABLE} WHERE id = %s", (pre_flag,)).fetchone()
+        assert row is not None and row[0] is True

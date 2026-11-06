@@ -226,31 +226,31 @@ export class InsightPage {
         // #side-panel, confirming the switch is complete. Scoping to #side-panel
         // avoids matching the hidden inline panel.
         await this.page.locator('#side-panel .scene-panel-actions-section').first().waitFor({ state: 'visible' })
+        await this.dismissToasts()
     }
 
-    async clickDeleteInsight(): Promise<void> {
-        // The delete button is rendered via createPortal into scenePanelElement.
-        // There are two portal targets: a hidden inline panel (Navigation.tsx,
-        // display: none for insights) and the visible side panel (SidePanelInfo).
-        // After opening the Info tab the portal content moves from the inline
-        // panel to the side panel via useEffect. Scope the locator to #side-panel
-        // so we wait for the button in the visible container, not the hidden one.
-        const deleteButton = this.page.locator('#side-panel').getByTestId('insight-delete')
-        await deleteButton.waitFor({ state: 'visible' })
-        await deleteButton.click()
-    }
-
-    async confirmDeleteDialog(): Promise<void> {
-        const dialog = this.page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })
-        await expect(dialog).toBeVisible()
-        await dialog.getByRole('button', { name: 'Delete' }).click()
-    }
-
-    async cancelDeleteDialog(): Promise<void> {
-        const dialog = this.page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })
-        await expect(dialog).toBeVisible()
-        await dialog.getByRole('button', { name: 'Cancel' }).click()
-        await expect(dialog).not.toBeVisible()
+    // Toasts render in the bottom-right corner, which overlaps the bottom of the
+    // side panel. A sticky error toast (the support widget is unavailable in E2E,
+    // so it opens with autoClose:false) or a lingering success/hint toast there
+    // permanently intercepts clicks on the panel's lowest actions — View source
+    // and Delete insight. Close every open toast so those actions are reachable.
+    private async dismissToasts(): Promise<void> {
+        const closeButtons = this.page.locator(
+            '.Toastify__toast [data-attr="toast-close-button"], .Toastify__toast [data-attr="mcp-hint-close"]'
+        )
+        for (let attempt = 0; attempt < 10 && (await closeButtons.count()) > 0; attempt++) {
+            await closeButtons
+                .first()
+                .click({ timeout: 2000 })
+                .catch(() => undefined)
+        }
+        // react-toastify removes a closed toast with a slide-out animation, so a toast
+        // can still intercept clicks for a moment after its close button is clicked. Wait
+        // for the stack to clear so the next action is reachable. Non-fatal: if a stray
+        // toast lingers, the caller's own click retry is the backstop.
+        await expect(this.page.locator('.Toastify__toast'))
+            .toHaveCount(0, { timeout: 5000 })
+            .catch(() => undefined)
     }
 
     async saveAsNew(name: string): Promise<void> {

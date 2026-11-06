@@ -1,16 +1,15 @@
 import json
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from django.urls import resolve
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
+from posthog.schema import CachedLogsQueryResponse, DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
 from posthog.clickhouse.client import sync_execute
+from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.logs.backend.group_by_query_runner import LogsGroupByQueryRunner
 
@@ -31,6 +30,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         minute: int = 0,
         attributes: dict | None = None,
         resource_attributes: dict | None = None,
+        pattern: str = "",
     ) -> dict:
         row: dict = {
             "timestamp": f"2026-06-23 {hour:02d}:{minute:02d}:00.000000",
@@ -44,6 +44,9 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             row["attributes_map_str"] = {f"{k}__str": v for k, v in attributes.items()}
         if resource_attributes:
             row["resource_attributes"] = resource_attributes
+        if pattern:
+            row["pattern"] = pattern
+            row["pattern_version"] = 1
         return row
 
     def _run(
@@ -73,7 +76,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(results, dict)
         return results
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_groups_by_log_attribute_with_counts_and_last_seen(self) -> None:
         self._insert(
             [
@@ -98,6 +101,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "values": ["s1"],
             "log_count": 3,
             "error_count": 2,
+            "first_seen": "2026-06-23T12:00:00+00:00",
             "last_seen": "2026-06-23T12:02:00+00:00",
         }
         assert s2 == {
@@ -105,6 +109,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "values": ["s2"],
             "log_count": 2,
             "error_count": 0,
+            "first_seen": "2026-06-23T12:05:00+00:00",
             "last_seen": "2026-06-23T12:06:00+00:00",
         }
 
@@ -114,7 +119,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("top_level_column", "severity_level", "column", ["error", "info"]),
         ]
     )
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_groups_by_source(self, _name: str, group_by: str, source: str, expected_values: list[str]) -> None:
         self._insert(
             [
@@ -129,7 +134,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert [g["value"] for g in results["groups"]] == expected_values
         assert [g["log_count"] for g in results["groups"]] == [2, 1]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_limit_truncates_but_reports_full_totals(self) -> None:
         self._insert(
             [self._log(attributes={"session_id": f"s{i}"}, minute=i) for i in range(3)]
@@ -144,7 +149,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["total_logs"] == 4
         assert results["truncated"] is True
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_order_groups_by_error_count_reranks(self) -> None:
         self._insert(
             [self._log(attributes={"session_id": "noisy"}, severity="info", minute=m) for m in range(3)]
@@ -157,7 +162,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert [g["value"] for g in by_count["groups"]] == ["noisy", "failing"]
         assert [g["value"] for g in by_errors["groups"]] == ["failing", "noisy"]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_window_bounds_are_row_precise_not_day_precise(self) -> None:
         # The shared filter builder bounds only time_bucket (day precision); the runner must
         # add per-row timestamp bounds or same-day rows outside the window leak into counts.
@@ -173,7 +178,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["total_logs"] == 1
         assert results["groups"][0]["log_count"] == 1
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_respects_service_filter(self) -> None:
         self._insert(
             [
@@ -186,7 +191,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [g["value"] for g in results["groups"]] == ["s1"]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_combined_dimensions_group_by_value_tuples(self) -> None:
         # Combined grouping must count per value-combination with values in request order;
         # a row missing one of the log-attribute dimensions is not a group member.
@@ -211,7 +216,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             (["s2", "info"], 1, 0),
         ]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_combined_resource_dimension_joins_without_fanout(self) -> None:
         # A resource dimension inside a combination still translates via the fingerprint
         # join; broken composition would drop rows (missed join) or double-count (fan-out).
@@ -234,6 +239,83 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
             (["prod", "error"], 1),
             (["prod", "info"], 1),
         ]
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_groups_by_pattern_column_with_service(self) -> None:
+        self._insert(
+            [
+                self._log(service="checkout", severity="error", minute=1, pattern="timeout after <*> ms"),
+                self._log(service="checkout", severity="error", minute=4, pattern="timeout after <*> ms"),
+                self._log(service="checkout", severity="info", minute=2, pattern="request done"),
+                self._log(service="billing", severity="error", minute=3, pattern="timeout after <*> ms"),
+                self._log(service="billing", severity="error", minute=5),
+            ]
+        )
+
+        results = self._run(
+            group_bys=[("service_name", "column"), ("pattern", "column")], order_groups_by="error_count"
+        )
+
+        assert results["total_logs"] == 4
+        assert [
+            (g["values"], g["log_count"], g["error_count"], g["first_seen"], g["last_seen"]) for g in results["groups"]
+        ] == [
+            (["checkout", "timeout after <*> ms"], 2, 2, "2026-06-23T12:01:00+00:00", "2026-06-23T12:04:00+00:00"),
+            (["billing", "timeout after <*> ms"], 1, 1, "2026-06-23T12:03:00+00:00", "2026-06-23T12:03:00+00:00"),
+            (["checkout", "request done"], 1, 0, "2026-06-23T12:02:00+00:00", "2026-06-23T12:02:00+00:00"),
+        ]
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_repeat_query_is_served_from_the_short_cache(self) -> None:
+        self._insert([self._log(attributes={"session_id": "s1"})])
+        query = LogsQuery(
+            dateRange=_WINDOW,
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            severityLevels=[],
+            serviceNames=[],
+        )
+
+        def runner(group_bys: list[tuple[str, str]]) -> LogsGroupByQueryRunner:
+            return LogsGroupByQueryRunner(team=self.team, query=query, group_bys=group_bys)
+
+        first = runner([("session_id", "log")]).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        second = runner([("session_id", "log")]).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        other = runner([("severity_level", "column")]).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert isinstance(first, CachedLogsQueryResponse) and not first.is_cached
+        assert isinstance(second, CachedLogsQueryResponse) and second.is_cached
+        assert second.results == first.results
+        assert isinstance(other, CachedLogsQueryResponse) and not other.is_cached
+
+        with time_machine.travel("2026-06-23T13:01:01Z", tick=False):
+            stale = runner([("session_id", "log")]).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        assert isinstance(stale, CachedLogsQueryResponse) and not stale.is_cached
+
+    @parameterized.expand(
+        [
+            ("group_bys", {"group_bys": [("session_id", "log")]}, {"group_bys": [("trace_id", "column")]}),
+            (
+                "order",
+                {"group_bys": [("session_id", "log")], "order_groups_by": "log_count"},
+                {"group_bys": [("session_id", "log")], "order_groups_by": "error_count"},
+            ),
+            (
+                "limit",
+                {"group_bys": [("session_id", "log")], "group_limit": 10},
+                {"group_bys": [("session_id", "log")], "group_limit": 20},
+            ),
+        ]
+    )
+    def test_runner_arguments_reach_the_cache_key(self, _name: str, first: dict, second: dict) -> None:
+        query = LogsQuery(
+            dateRange=_WINDOW,
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            serviceNames=[],
+            severityLevels=[],
+        )
+        first_key = LogsGroupByQueryRunner(team=self.team, query=query, **first).get_cache_key()
+        second_key = LogsGroupByQueryRunner(team=self.team, query=query, **second).get_cache_key()
+        assert first_key != second_key
 
     @parameterized.expand(
         [
@@ -281,16 +363,7 @@ class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
-    @classmethod
-    def setUpClass(cls) -> None:
-        super().setUpClass()
-        # The process's first request imports the URLconf, which transitively pulls
-        # langchain's pydantic.v1 shim — an import that crashes if it first runs under
-        # freeze_time (FakeDate breaks pydantic.v1's date metaclass). Load it unfrozen
-        # so no frozen test is the one to trigger it.
-        resolve("/")
-
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_endpoint_returns_grouped_results(self) -> None:
         sync_execute(
             "INSERT INTO logs FORMAT JSONEachRow\n"
@@ -326,11 +399,12 @@ class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
                 "values": ["s1"],
                 "log_count": 1,
                 "error_count": 1,
+                "first_seen": "2026-06-23T12:00:00+00:00",
                 "last_seen": "2026-06-23T12:00:00+00:00",
             }
         ]
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_endpoint_accepts_combined_dimensions(self) -> None:
         # Wiring guard for the groupBys request shape: the view must parse the dimension
         # list (not fall back to the legacy single-key fields) and surface per-dimension
@@ -366,6 +440,42 @@ class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert [g["values"] for g in data["groups"]] == [["s1", "error"]]
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_endpoint_accepts_pattern_column(self) -> None:
+        sync_execute(
+            "INSERT INTO logs FORMAT JSONEachRow\n"
+            + "".join(
+                json.dumps(
+                    {
+                        "team_id": self.team.id,
+                        "timestamp": "2026-06-23 12:00:00.000000",
+                        "body": "timeout after 30 ms",
+                        "severity_text": "error",
+                        "service_name": "checkout",
+                        "pattern": "timeout after <*> ms",
+                        "pattern_version": 1,
+                    }
+                )
+                + "\n"
+                for _ in range(2)
+            )
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/group-by",
+            data={
+                "query": {
+                    "dateRange": {"date_from": "2026-06-23T12:00:00Z", "date_to": "2026-06-23T13:00:00Z"},
+                    "groupBys": [{"key": "pattern", "source": "column"}],
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert [(g["values"], g["log_count"]) for g in data["groups"]] == [(["timeout after <*> ms"], 2)]
 
     def test_endpoint_rejects_too_many_dimensions(self) -> None:
         response = self.client.post(

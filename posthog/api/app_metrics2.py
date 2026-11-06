@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.utils import action
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
@@ -50,6 +51,30 @@ class AppMetricsTotalsResponseSerializer(DataclassSerializer):
         dataclass = AppMetricsTotalsResponse
 
 
+MAX_REQUESTED_BREAKDOWN_VALUES = 50
+
+MAX_TREND_BUCKETS = 100_000
+
+MAX_ZERO_FILLED_CELLS = 1_000_000
+
+TREND_INTERVAL_STEPS: dict[str, timedelta] = {
+    "hour": timedelta(hours=1),
+    "day": timedelta(days=1),
+    "week": timedelta(weeks=1),
+}
+
+
+def _split_requested_values(value: str) -> list[str]:
+    values = list(dict.fromkeys(part.strip() for part in value.split(",") if part.strip()))
+    if not values:
+        raise serializers.ValidationError("Enter at least one value. Separate values with commas.")
+    if len(values) > MAX_REQUESTED_BREAKDOWN_VALUES:
+        raise serializers.ValidationError(
+            f"Request at most {MAX_REQUESTED_BREAKDOWN_VALUES} distinct values, got {len(values)}."
+        )
+    return values
+
+
 class AppMetricsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -72,11 +97,11 @@ class AppMetricsRequestSerializer(serializers.Serializer):
     )
     name = serializers.CharField(
         required=False,
-        help_text="Comma-separated metric names to filter by.",
+        help_text="Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.",
     )
     kind = serializers.CharField(
         required=False,
-        help_text="Comma-separated metric kinds to filter by, e.g. 'success,failure'.",
+        help_text="Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.",
     )
     breakdown_by = serializers.ChoiceField(
         choices=["name", "kind"],
@@ -84,6 +109,25 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         default="kind",
         help_text="Group the series by metric 'name' or 'kind'. Defaults to 'kind'.",
     )
+
+    def validate_name(self, value: str) -> list[str]:
+        return _split_requested_values(value)
+
+    def validate_kind(self, value: str) -> list[str]:
+        return _split_requested_values(value)
+
+
+def _requested_breakdown_values(breakdown_by: str, name: list[str], kind: list[str]) -> list[str]:
+    return name if breakdown_by == "name" else kind
+
+
+def _trend_range_start(after: datetime, interval: str) -> datetime:
+    if interval == "hour":
+        return after.replace(minute=0, second=0, microsecond=0)
+    start = after.replace(hour=0, minute=0, second=0, microsecond=0)
+    if interval == "week":
+        start -= timedelta(days=start.weekday())
+    return start
 
 
 def fetch_app_metrics_trends(
@@ -103,11 +147,30 @@ def fetch_app_metrics_trends(
     name = name or []
     kind = kind or []
 
+    range_start = _trend_range_start(after, interval)
+    step = TREND_INTERVAL_STEPS[interval]
+    bucket_count = (before - range_start) // step + 1 if before >= range_start else 0
+    if bucket_count > MAX_TREND_BUCKETS:
+        raise ValidationError(
+            f"This range has {bucket_count:,} {interval} buckets, more than the limit of {MAX_TREND_BUCKETS:,}. "
+            "Use a shorter range or a larger interval."
+        )
+
+    requested_breakdown_values = _requested_breakdown_values(breakdown_by, name, kind)
+    if len(requested_breakdown_values) * bucket_count > MAX_ZERO_FILLED_CELLS:
+        raise ValidationError(
+            f"This request asks for {len(requested_breakdown_values)} series over {bucket_count:,} {interval} buckets, "
+            f"more than the limit of {MAX_ZERO_FILLED_CELLS:,} values. "
+            "Request fewer names or kinds, a shorter range, or a larger interval."
+        )
+
     clickhouse_kwargs: dict[str, Any] = {}
 
+    # The bucket alias must not be `timestamp`. ClickHouse resolves SELECT aliases inside WHERE, so the
+    # range filter would compare the bucket start to `after` and drop the first, partial bucket.
     clickhouse_query = f"""
         SELECT
-            toStartOfInterval(timestamp, INTERVAL 1 {interval}) as timestamp,
+            toStartOfInterval(timestamp, INTERVAL 1 {interval}) as bucket,
             metric_{breakdown_by} as breakdown,
             sum(count) as count
         FROM app_metrics2
@@ -119,8 +182,8 @@ def fetch_app_metrics_trends(
         {"AND instance_id = %(instance_id)s" if instance_id else ""}
         {"AND metric_name IN %(name)s" if name else ""}
         {"AND metric_kind IN %(kind)s" if kind else ""}
-        GROUP BY timestamp, breakdown
-        ORDER BY timestamp ASC
+        GROUP BY bucket, breakdown
+        ORDER BY bucket ASC
     """
 
     clickhouse_kwargs["team_id"] = team_id
@@ -128,8 +191,9 @@ def fetch_app_metrics_trends(
     clickhouse_kwargs["app_source_id"] = app_source_id
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
-    clickhouse_kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
-    clickhouse_kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    # Keep the microseconds: a `before` of "now" truncated to the second excludes rows written earlier in that second.
+    clickhouse_kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    clickhouse_kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")
     clickhouse_kwargs["instance_id"] = instance_id
     clickhouse_kwargs["name"] = name
     clickhouse_kwargs["kind"] = kind
@@ -141,32 +205,13 @@ def fetch_app_metrics_trends(
         raise ValueError("Unexpected results from ClickHouse")
 
     # We create the x values based on the date range and interval
-    labels: list[str] = []
     label_format = "%Y-%m-%dT%H:%M" if interval == "hour" else "%Y-%m-%d"
-
-    range_date = after
-    # Normalize the start of the range to the start of the interval
-    if interval == "hour":
-        range_date = range_date.replace(minute=0, second=0, microsecond=0)
-    elif interval == "day":
-        range_date = range_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    elif interval == "week":
-        range_date = range_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        range_date -= timedelta(days=range_date.weekday())
-
-    while range_date <= before:
-        labels.append(range_date.strftime(label_format))
-        if interval == "hour":
-            range_date += timedelta(hours=1)
-        elif interval == "day":
-            range_date += timedelta(days=1)
-        elif interval == "week":
-            range_date += timedelta(weeks=1)
+    labels = [(range_start + step * i).strftime(label_format) for i in range(bucket_count)]
 
     response = AppMetricsResponse(labels=[], series=[])
     data_by_breakdown: dict[str, dict[str, int]] = {}
 
-    breakdown_names = {row[1] for row in results}
+    breakdown_names = dict.fromkeys([*requested_breakdown_values, *(row[1] for row in results)])
 
     for result in results:
         timestamp, breakdown, count = result
@@ -198,6 +243,7 @@ def fetch_app_metric_totals(
     instance_id: Optional[str] = None,
     name: Optional[list[str]] = None,
     kind: Optional[list[str]] = None,
+    before_exclusive: bool = False,
 ) -> AppMetricsTotalsResponse:
     """
     Calculate the totals for the app metrics over the given period.
@@ -208,13 +254,19 @@ def fetch_app_metric_totals(
 
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    # Keep the microseconds: a `before` of "now" truncated to the second excludes rows written earlier in that second.
     clickhouse_kwargs: dict[str, Any] = {
         "team_id": team_id,
         "app_source": app_source,
         "app_source_id": app_source_id,
-        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
-        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") if after else None,
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") if before else None,
+        "instance_id": instance_id,
+        "name": name,
+        "kind": kind,
     }
+
+    before_operator = "<" if before_exclusive else "<="
 
     clickhouse_query = f"""
         SELECT
@@ -225,7 +277,7 @@ def fetch_app_metric_totals(
         AND app_source = %(app_source)s
         AND app_source_id = %(app_source_id)s
         {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
-        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        {f"AND timestamp {before_operator} toDateTime64(%(before)s, 6)" if before else ""}
         {"AND instance_id = %(instance_id)s" if instance_id else ""}
         {"AND metric_name IN %(name)s" if name else ""}
         {"AND metric_kind IN %(kind)s" if kind else ""}
@@ -237,7 +289,9 @@ def fetch_app_metric_totals(
     if not isinstance(results, list):
         raise ValueError("Unexpected results from ClickHouse")
 
-    totals = {row[0]: row[1] for row in results}
+    totals = dict.fromkeys(_requested_breakdown_values(breakdown_by, name, kind), 0) | {
+        row[0]: row[1] for row in results
+    }
     return AppMetricsTotalsResponse(totals=totals)
 
 
@@ -247,6 +301,7 @@ def fetch_app_metric_totals_by_source(
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
     name: Optional[list[str]] = None,
+    hour_aligned: bool = False,
 ) -> dict[str, dict[str, int]]:
     """Per-`app_source_id` metric totals for a whole team in one grouped query.
 
@@ -258,6 +313,13 @@ def fetch_app_metric_totals_by_source(
 
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    # Hour-aligned bounds compare on toStartOfHour(timestamp) with a half-open upper bound. The
+    # table's sorting key collapses rows per clock hour and keeps one arbitrary raw timestamp, so a
+    # mid-hour bound on the raw column includes or excludes a whole collapsed hour by luck. Callers
+    # pass hour-start datetimes; whole hours are then in or out deterministically.
+    bound_expr = "toStartOfHour(timestamp)" if hour_aligned else "timestamp"
+    before_op = "<" if hour_aligned else "<="
+
     clickhouse_kwargs: dict[str, Any] = {
         "team_id": team_id,
         "app_source": app_source,
@@ -274,8 +336,8 @@ def fetch_app_metric_totals_by_source(
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
-        {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
-        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
+        {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
         AND metric_name IN %(name)s
         GROUP BY app_source_id, metric_name
     """
@@ -288,6 +350,156 @@ def fetch_app_metric_totals_by_source(
     totals: dict[str, dict[str, int]] = {}
     for app_source_id, metric_name, count in results:
         totals.setdefault(app_source_id, {})[metric_name] = count
+    return totals
+
+
+def fetch_app_metric_totals_by_team_and_source(
+    app_source: str,
+    name: list[str],
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+    team_ids: Optional[list[int]] = None,
+    min_totals: Optional[dict[str, int]] = None,
+    any_min_totals: Optional[dict[str, int]] = None,
+    hour_aligned: bool = False,
+    per_source: bool = True,
+) -> dict[int, dict[str, dict[str, int]]]:
+    """Per-`app_source_id` metric totals across many teams in one grouped query.
+
+    Unlike `fetch_app_metric_totals_by_source` (one team), this groups by `team_id` as
+    well, so a background sweep gets the whole fleet from a single query instead of a
+    query per team. Returns `{team_id: {app_source_id: {metric_name: count}}}`.
+
+    Each requested metric name becomes its own `sumIf` column, which is what lets the
+    thresholds be pushed down: `min_totals` requires every named metric to reach its
+    value and `any_min_totals` requires at least one to, both evaluated in `HAVING`. Use
+    a pushdown, a `team_ids` list, or both. Unfiltered, the result set grows with the
+    fleet, and a sweep that has to stream every object's counts back to Python stops
+    being affordable.
+    """
+    if not name:
+        raise ValueError("At least one metric name is required")
+
+    # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
+    # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    # Hour-aligned bounds compare on toStartOfHour(timestamp) with a half-open upper bound. The
+    # table's sorting key collapses rows per clock hour and keeps one arbitrary raw timestamp, so a
+    # mid-hour bound on the raw column includes or excludes a whole collapsed hour by luck. Callers
+    # pass hour-start datetimes; whole hours are then in or out deterministically.
+    bound_expr = "toStartOfHour(timestamp)" if hour_aligned else "timestamp"
+    before_op = "<" if hour_aligned else "<="
+
+    clickhouse_kwargs: dict[str, Any] = {
+        "app_source": app_source,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "name": name,
+        "team_ids": team_ids,
+    }
+
+    # Alias per metric rather than the metric name itself: metric names are caller-supplied and
+    # would have to be interpolated raw into the SQL to be usable as identifiers.
+    aliases = {metric_name: f"metric_{index}" for index, metric_name in enumerate(name)}
+    for metric_name, alias in aliases.items():
+        clickhouse_kwargs[f"{alias}_name"] = metric_name
+
+    selects = ", ".join(f"sumIf(count, metric_name = %({alias}_name)s) AS {alias}" for alias in aliases.values())
+
+    having_clauses: list[str] = []
+    for metric_name, minimum in (min_totals or {}).items():
+        alias = aliases[metric_name]
+        clickhouse_kwargs[f"{alias}_min"] = minimum
+        having_clauses.append(f"{alias} >= %({alias}_min)s")
+    any_clauses: list[str] = []
+    for metric_name, minimum in (any_min_totals or {}).items():
+        alias = aliases[metric_name]
+        clickhouse_kwargs[f"{alias}_any_min"] = minimum
+        any_clauses.append(f"{alias} >= %({alias}_any_min)s")
+    if any_clauses:
+        having_clauses.append(f"({' OR '.join(any_clauses)})")
+
+    # per_source=False gates and groups at the team level: a caller discovering candidates must not
+    # exclude a team whose per-source rows each sit under a gate while their sum crosses it. The
+    # source key in the result is then a single empty string.
+    source_select = "app_source_id," if per_source else "'' AS app_source_id,"
+    group_by = "team_id, app_source_id" if per_source else "team_id"
+    clickhouse_query = f"""
+        SELECT
+            team_id,
+            {source_select}
+            {selects}
+        FROM app_metrics2
+        WHERE app_source = %(app_source)s
+        {"AND team_id IN %(team_ids)s" if team_ids else ""}
+        {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
+        {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
+        AND metric_name IN %(name)s
+        GROUP BY {group_by}
+        {f"HAVING {' AND '.join(having_clauses)}" if having_clauses else ""}
+    """
+
+    results = sync_execute(clickhouse_query, clickhouse_kwargs)
+
+    if not isinstance(results, list):
+        raise ValueError("Unexpected results from ClickHouse")
+
+    totals: dict[int, dict[str, dict[str, int]]] = {}
+    for row in results:
+        team_id, app_source_id = row[0], row[1]
+        totals.setdefault(team_id, {})[app_source_id] = dict(zip(name, (int(value) for value in row[2:])))
+    return totals
+
+
+def fetch_app_metric_daily_totals_by_team(
+    app_source: str,
+    name: list[str],
+    after: datetime,
+    before: Optional[datetime] = None,
+    team_ids: Optional[list[int]] = None,
+    workload: Workload = Workload.DEFAULT,
+) -> dict[int, dict[str, dict[str, int]]]:
+    """Daily metric totals per team, keyed `{team_id: {"YYYY-MM-DD": {metric_name: count}}}`.
+
+    Days rather than a single total, because "sent at least X on each of N days" cannot be told
+    apart from one burst of the same size once the window is summed.
+
+    Called without team_ids, the daily tier sweep scans the whole fleet. The result is bounded per
+    team, at most one row per metric name per day, but it grows linearly with the number of sending
+    teams because app_source alone does not prune the app_metrics2 primary key. This is affordable at
+    the current scale and runs on the LONG_RUNNING queue. If the sending fleet grows large, batch by
+    team or aggregate to one row per team here.
+    """
+    clickhouse_kwargs: dict[str, Any] = {
+        "app_source": app_source,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "name": name,
+        "team_ids": team_ids,
+    }
+
+    clickhouse_query = f"""
+        SELECT
+            team_id,
+            toDate(timestamp) as day,
+            metric_name,
+            sum(count) as count
+        FROM app_metrics2
+        WHERE app_source = %(app_source)s
+        {"AND team_id IN %(team_ids)s" if team_ids else ""}
+        AND timestamp >= toDateTime64(%(after)s, 6)
+        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        AND metric_name IN %(name)s
+        GROUP BY team_id, day, metric_name
+    """
+
+    results = sync_execute(clickhouse_query, clickhouse_kwargs, workload=workload)
+
+    if not isinstance(results, list):
+        raise ValueError("Unexpected results from ClickHouse")
+
+    totals: dict[int, dict[str, dict[str, int]]] = {}
+    for team_id, day, metric_name, count in results:
+        totals.setdefault(team_id, {}).setdefault(day.strftime("%Y-%m-%d"), {})[metric_name] = count
     return totals
 
 
@@ -338,8 +550,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
             after=after_date,
             before=before_date,
             breakdown_by=params.get("breakdown_by"),
-            name=params["name"].split(",") if params.get("name") else None,
-            kind=params["kind"].split(",") if params.get("kind") else None,
+            name=params.get("name") or None,
+            kind=params.get("kind") or None,
         )
 
         serializer = AppMetricResponseSerializer(instance=data)
@@ -380,8 +592,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
             after=after_date,
             before=before_date,
             breakdown_by=params.get("breakdown_by"),
-            name=params["name"].split(",") if params.get("name") else None,
-            kind=params["kind"].split(",") if params.get("kind") else None,
+            name=params.get("name") or None,
+            kind=params.get("kind") or None,
         )
 
         serializer = AppMetricsTotalsResponseSerializer(instance=data)

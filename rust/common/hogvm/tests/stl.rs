@@ -8,6 +8,12 @@ use serde_json::{json, Value};
 
 // Opcode numeric values (mirror common/hogvm/python/operation.py).
 const OP_CALL_GLOBAL: i64 = 2;
+const OP_EQ: i64 = 11;
+const OP_NOT_EQ: i64 = 12;
+const OP_GT: i64 = 13;
+const OP_GT_EQ: i64 = 14;
+const OP_LT: i64 = 15;
+const OP_LT_EQ: i64 = 16;
 const OP_STRING: i64 = 32;
 const OP_INTEGER: i64 = 33;
 const OP_RETURN: i64 = 38;
@@ -57,6 +63,33 @@ fn call_str(name: &str, arg: &str) -> Value {
 }
 
 #[test]
+fn sortable_semver_arrays_support_every_comparison_operation() {
+    // Tilde, caret, and wildcard ranges compile to a lower-bound GT_EQ and an upper-bound LT.
+    let cases = [
+        ("equals", OP_EQ, "1.2.3", "1.2.3", true),
+        ("equals", OP_EQ, "1.2.3", "1.2.4", false),
+        ("not equals", OP_NOT_EQ, "1.2.3", "1.2.4", true),
+        ("not equals", OP_NOT_EQ, "1.2.3", "1.2.3", false),
+        ("greater than", OP_GT, "2.0.0", "1.9.9", true),
+        ("greater than", OP_GT, "1.9.9", "2.0.0", false),
+        ("greater than or equal", OP_GT_EQ, "2.0.0", "2.0.0", true),
+        ("greater than or equal", OP_GT_EQ, "1.9.9", "2.0.0", false),
+        ("less than", OP_LT, "2.9.0", "2.10.0", true),
+        ("less than", OP_LT, "2.10.0", "2.10.0", false),
+        ("less than or equal", OP_LT_EQ, "2.10.0", "2.10.0", true),
+        ("less than or equal", OP_LT_EQ, "2.10.1", "2.10.0", false),
+    ];
+
+    for (label, operation, left, right, expected) in cases {
+        let mut comparison = call("sortableSemver", &[str_lit(right)]);
+        comparison.extend(call("sortableSemver", &[str_lit(left)]));
+        comparison.push(json!(operation));
+
+        assert_eq!(run(comparison), json!(expected), "{left} {label} {right}");
+    }
+}
+
+#[test]
 fn crypto_and_encoding_known_answers() {
     // Known-answer vectors — these are RFC/spec fixed, so they pin both our wiring and the
     // md-5 / sha2 / base64 dependencies to the correct output.
@@ -80,6 +113,18 @@ fn crypto_and_encoding_known_answers() {
     for (name, input, expected) in cases {
         assert_eq!(call_str(name, input), json!(expected), "{name}({input:?})");
     }
+}
+
+#[test]
+fn hogql_sha1_returns_lowercase_hex_or_null() {
+    for (input, expected) in [
+        ("abc", "a9993e364706816aba3e25717850c26c9cd0d89d"),
+        ("", "da39a3ee5e6b4b0d3255bfef95601890afd80709"),
+        ("🦔", "b1495135295ac36752f6579e93ba02140604590f"),
+    ] {
+        assert_eq!(call_str("sha1", input), json!(expected));
+    }
+    assert_eq!(run(call("sha1", &[vec![json!(31)]])), Value::Null);
 }
 
 #[test]
@@ -146,6 +191,31 @@ fn hmac_sha1_chain_rekeys_and_encodes() {
     assert_eq!(
         run(call("sha1HmacChain", &[data()])),
         run(call("sha1HmacChainHex", &[data()]))
+    );
+}
+
+#[test]
+fn hmac_sha256_base64_key_matches_svix() {
+    // Known answer from the Svix webhook verification docs. The key decodes to bytes that are not
+    // valid UTF-8, so this fails if the key is read as a string.
+    let key = || str_lit("MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw");
+    let payload = || str_lit("msg_p5jXN8AQM9LWM0D4loKWxJek.1614265330.{\"test\": 2432232314}");
+    assert_eq!(
+        run(call(
+            "sha256HmacBase64Key",
+            &[key(), payload(), str_lit("base64")]
+        )),
+        json!("g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=")
+    );
+    assert_eq!(
+        run(call(
+            "sha256HmacBase64Key",
+            &[str_lit("YWI"), str_lit("data")]
+        )),
+        run(call(
+            "sha256HmacBase64Key",
+            &[str_lit("YWI="), str_lit("data")]
+        ))
     );
 }
 

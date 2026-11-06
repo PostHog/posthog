@@ -1,9 +1,43 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "baselineDateRange": {
+            "description": "Explicit baseline window. Takes precedence over `query.compare`.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                }
+            },
+            "type": "object"
+        },
         "query": {
             "description": "The services aggregation query to execute.",
             "properties": {
+                "compare": {
+                    "default": "none",
+                    "description": "Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n* `none` - No baseline\n* `previous_period` - Previous period\n* `previous_day` - Same window a day earlier\n* `previous_week` - Same window a week earlier",
+                    "enum": ["none", "previous_period", "previous_day", "previous_week"],
+                    "type": "string"
+                },
                 "dateRange": {
                     "description": "Date range for the services aggregation. Defaults to last hour.",
                     "properties": {
@@ -32,12 +66,17 @@
                     },
                     "type": "object"
                 },
+                "environment": {
+                    "description": "Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. \"(none)\" matches logs without one.",
+                    "maxLength": 200,
+                    "type": "string"
+                },
                 "filterGroup": {
                     "description": "Property filters for the query.",
                     "items": {
                         "properties": {
                             "key": {
-                                "description": "Attribute key. For type \"log\", use \"message\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                                "description": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
                                 "type": "string"
                             },
                             "operator": {
@@ -87,6 +126,11 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "serviceNameSearch": {
+                    "description": "Case-insensitive substring match on service name, applied before aggregation. Use to reach services beyond the response cap.",
+                    "maxLength": 200,
+                    "type": "string"
                 },
                 "severityLevels": {
                     "description": "Filter by log severity levels.",

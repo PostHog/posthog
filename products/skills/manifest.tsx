@@ -1,13 +1,18 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Skills',
+    activityDescribers: {
+        [ActivityScope.LLM_SKILL]: () =>
+            import('./frontend/activityDescriber').then((module) => module.skillActivityDescriber),
+    },
     scenes: {
         Skills: {
             import: () => import('./frontend/LLMSkillsScene'),
@@ -16,6 +21,7 @@ export const manifest: ProductManifest = {
             description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
             layout: 'app-container',
             iconType: 'llm_prompts',
+            docsHref: 'https://posthog.com/docs/skills',
         },
         Skill: {
             import: () => import('./frontend/LLMSkillScene'),
@@ -24,16 +30,28 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
+        CommunitySkills: {
+            import: () => import('./frontend/CommunitySkillsScene'),
+            projectBased: true,
+            name: 'Community skills',
+            description: 'Discover and install agent skills shared by the PostHog community.',
+            layout: 'app-container',
+            iconType: 'llm_prompts',
+        },
     },
     routes: {
         '/skills': ['Skills', 'skills'],
-        // Category tabs (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they
-        // aren't captured as a skill named after the tab. Route order = match precedence.
+        // Tab routes (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they
+        // aren't captured as a skill named after the tab. Route order = match precedence. Every
+        // slug here is also in RESERVED_SKILL_NAMES so no skill can claim a shadowed name.
         '/skills/scouts': ['Skills', 'skillsScouts'],
         '/skills/review-hog': ['Skills', 'skillsReviewHog'],
+        '/skills/community': ['CommunitySkills', 'communitySkills'],
         '/skills/:name': ['Skill', 'skill'],
     },
     redirects: {
+        '/community-skills': (_params, searchParams, hashParams) =>
+            combineUrl(urls.communitySkills(), searchParams, hashParams).url,
         '/prompt-management/skills': (_params, searchParams, hashParams) =>
             combineUrl(urls.skills(), searchParams, hashParams).url,
         '/prompt-management/skills/:name': (params, searchParams, hashParams) =>
@@ -49,6 +67,7 @@ export const manifest: ProductManifest = {
         skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
         skill: (name: string, params?: { file?: string; version?: number }): string =>
             combineUrl(`/skills/${name}`, params).url,
+        communitySkills: (): string => '/skills/community',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -58,9 +77,17 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.SKILLS],
             category: ProductItemCategory.TOOLS,
             type: 'llm_skills',
-            iconType: 'llm_prompts' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+            iconType: 'skill',
+            iconColor: ['var(--color-product-skills-light)', 'var(--color-product-skills-dark)'],
             href: urls.skills(),
+            searchKeywords: ['agent instructions', 'playbooks'],
+            searchTabs: [
+                {
+                    name: 'Community skills',
+                    href: urls.communitySkills(),
+                    flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS,
+                },
+            ],
             sceneKey: 'Skills',
         },
     ],

@@ -1,11 +1,13 @@
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
+import { shortIdActivityLink } from 'lib/components/ActivityLog/activityDescriptions/shortIdActivityLink'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
-    Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
@@ -14,18 +16,12 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { Link } from 'lib/lemon-ui/Link'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/currency'
 import { isObject } from 'lib/utils/guards'
-import { pluralize } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { ExperimentsConfig } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    CorrelationConfigType,
-    GroupType,
-    PathCleaningFilter,
-    TeamSurveyConfigType,
-    TeamType,
-} from '~/types'
+import { ActivityScope, GroupType, PathCleaningFilter, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
 import { coreEventsConfigurationDescriber } from './core_events_config/coreEventsConfigurationDescriber'
@@ -156,10 +152,48 @@ function createFixedVerbValueHandler(
     }
 }
 
-const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) => ChangeMapping | null> = {
+function createExperimentsDefaultHandler(fieldName: string, format: (value: unknown) => string = String) {
+    return (change: ActivityChange): ChangeMapping | null => {
+        if (change.after === null || change.after === undefined) {
+            return { description: [<>cleared the {fieldName}</>] }
+        }
+        return {
+            description: [
+                <>
+                    changed the {fieldName} to <em>{format(change.after)}</em>
+                </>,
+            ],
+        }
+    }
+}
+
+const TEAM_PROPERTIES_MAPPING: Record<
+    | keyof TeamType
+    | keyof ExperimentsConfig
+    | 'heatmaps_screenshot_allowed_hostnames'
+    | 'conversations_signing_secret'
+    | 'conversations_signing_secret_previous'
+    | 'events_retention_months',
+    (change: ActivityChange) => ChangeMapping | null
+> = {
     // API-related tokens
     api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
+    conversations_signing_secret: createApiTokenHandler(
+        'Conversations identity verification secret',
+        'generated',
+        'rotated'
+    ),
+    conversations_signing_secret_previous: (change) => {
+        if (change.action !== 'deleted') {
+            return null
+        }
+        return {
+            description: [<>Expired the previous Conversations identity verification secret</>],
+        }
+    },
+    heatmaps_screenshot_secret: createApiTokenHandler('heatmap screenshot value', 'generated', 'rotated'),
+    heatmaps_screenshot_allowed_hostnames: createArrayChangeHandler('approved screenshot hostnames'),
     secret_api_token_backup: (change) => {
         if (change.after === undefined || change.action !== 'deleted') {
             return null
@@ -389,7 +423,15 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
 
         if (before?.appearance?.displayThankYouMessage !== after?.appearance?.displayThankYouMessage) {
             descriptions.push(
-                `${preamble} displayThankYouMessage was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+                `${preamble} displayThankYouMessage was ${
+                    after?.appearance?.displayThankYouMessage ? 'enabled' : 'disabled'
+                }`
+            )
+        }
+
+        if (before?.appearance?.displayIntroScreen !== after?.appearance?.displayIntroScreen) {
+            descriptions.push(
+                `${preamble} Survey intro screen was ${after?.appearance?.displayIntroScreen ? 'enabled' : 'disabled'}`
             )
         }
 
@@ -401,10 +443,24 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         propertyChangeDesc('borderColor', (c) => c?.appearance?.borderColor)
         propertyChangeDesc('placeholder', (c) => c?.appearance?.placeholder)
         propertyChangeDesc('thankYouMessageHeader', (c) => c?.appearance?.thankYouMessageHeader)
+        propertyChangeDesc('intro screen header', (c) => c?.appearance?.introScreenHeader)
         propertyChangeDesc('position', (c) => c?.appearance?.position)
 
         return { description: descriptions }
     },
+
+    // Events retention
+    events_retention_months: (change) => ({
+        description: [
+            change.after === null ? (
+                <>removed the project's events retention window</>
+            ) : (
+                <>
+                    set the events retention window to <em>{String(change.after)} months</em>
+                </>
+            ),
+        ],
+    }),
 
     // Logs
     logs_settings: () => {
@@ -445,6 +501,43 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
     receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
     require_evaluation_contexts: createBooleanToggleHandler('require evaluation context tags'),
+    feature_flag_policy_config: (change) => {
+        const before = isObject(change.before) ? change.before : {}
+        const after = isObject(change.after) ? change.after : {}
+        const descriptions: JSX.Element[] = []
+        if (!!before.require_tags !== !!after.require_tags) {
+            descriptions.push(
+                <>
+                    {after.require_tags ? 'enabled' : 'disabled'} <em>required tags on feature flags</em>
+                </>
+            )
+        }
+        const lists = [
+            ['blocked_hosts', 'blocked domains for feature flag requests'],
+            ['blocked_ips', 'blocked IP addresses for feature flag requests'],
+        ] as const
+        for (const [field, label] of lists) {
+            const beforeEntries = (before[field] ?? []) as string[]
+            const afterEntries = (after[field] ?? []) as string[]
+            const added = afterEntries.filter((entry) => !beforeEntries.includes(entry))
+            const removed = beforeEntries.filter((entry) => !afterEntries.includes(entry))
+            if (added.length) {
+                descriptions.push(
+                    <>
+                        added <code>{added.join(', ')}</code> to the <em>{label}</em>
+                    </>
+                )
+            }
+            if (removed.length) {
+                descriptions.push(
+                    <>
+                        removed <code>{removed.join(', ')}</code> from the <em>{label}</em>
+                    </>
+                )
+            }
+        }
+        return descriptions.length ? { description: descriptions } : null
+    },
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters
@@ -590,6 +683,28 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
             ],
         }
     },
+    home_tab_dashboard: (change) => {
+        if (!change.after) {
+            return {
+                description: [
+                    <>
+                        reset the <em>Home tab dashboard</em> to the generic view
+                    </>,
+                ],
+            }
+        }
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the <em>Home tab dashboard</em> to{' '}
+                    <Link to={urls.dashboard(change.after as number)}>
+                        <em>{String(change.after)}</em>
+                    </Link>
+                </>,
+            ],
+        }
+    },
     flags_persistence_default: (change) => {
         return {
             description: [
@@ -672,59 +787,49 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
             ],
         }
     },
-    correlation_config: (change) => {
-        const before = change.before as CorrelationConfigType
-        const after = change.after as CorrelationConfigType
-
-        const descriptions = []
-
-        const sameArray = (a: string[], b: string[]): boolean => {
-            if (a.length !== b.length) {
-                return false
-            }
-            return a.every((x) => b.includes(x)) && b.every((x) => a.includes(x))
-        }
-
-        if (
-            after.excluded_person_property_names &&
-            !sameArray(before.excluded_person_property_names || [], after.excluded_person_property_names)
-        ) {
-            descriptions.push(
-                <>
-                    set <em>excluded person properties</em> to{' '}
-                    <code>{after.excluded_person_property_names.join(', ')}</code>
-                </>
-            )
-        }
-
-        if (
-            after.excluded_event_property_names &&
-            !sameArray(before.excluded_event_property_names || [], after.excluded_event_property_names)
-        ) {
-            descriptions.push(
-                <>
-                    set <em>excluded event properties</em> to{' '}
-                    <code>{after.excluded_event_property_names.join(', ')}</code>
-                </>
-            )
-        }
-
-        if (after.excluded_event_names && !sameArray(before.excluded_event_names || [], after.excluded_event_names)) {
-            descriptions.push(
-                <>
-                    set <em>excluded event names</em> to <code>{after.excluded_event_names.join(', ')}</code>
-                </>
-            )
-        }
-
-        return { description: descriptions }
-    },
 
     // Complex configs that require a custom describer
     customer_analytics_config: customerAnalyticsConfigurationDescriber,
     marketing_analytics_config: marketingAnalyticsConfigurationDescriber,
     revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
     core_events_config: coreEventsConfigurationDescriber,
+
+    // Experiments defaults, written by the experiments_config endpoint and logged under the Team scope
+    default_experiment_stats_method: createExperimentsDefaultHandler('default statistical method for experiments'),
+    default_experiment_confidence_level: createExperimentsDefaultHandler(
+        'default confidence level for experiments',
+        (value) => `${Math.round(Number(value) * 100)}%`
+    ),
+    default_minimum_detectable_effect: createExperimentsDefaultHandler(
+        'default minimum detectable effect for experiments',
+        (value) => `${value}%`
+    ),
+    default_only_count_matured_users: createBooleanToggleHandler(
+        'only counting matured users by default in experiments'
+    ),
+    default_cuped_enabled: createBooleanToggleHandler('CUPED by default for experiments'),
+    default_cuped_lookback_days: createExperimentsDefaultHandler('default CUPED lookback window', (value) =>
+        pluralize(Number(value), 'day')
+    ),
+    default_sequential_testing_enabled: createBooleanToggleHandler('sequential testing by default for experiments'),
+    default_sequential_tuning_parameter: createExperimentsDefaultHandler(
+        'default tuning parameter for sequential testing'
+    ),
+    experiment_recalculation_times: (change) => {
+        if (!Array.isArray(change.after)) {
+            return { description: [<>reset the experiment recalculation time to the default</>] }
+        }
+        // Stored as HH:00:00 strings; the seconds carry no information.
+        const times = change.after.map((time: string) => time.slice(0, 5)).join(', ')
+        return {
+            description: [
+                <>
+                    changed the experiment recalculation time to <em>{times} UTC</em>
+                </>,
+            ],
+        }
+    },
+    flag_cleanup_repository: createExperimentsDefaultHandler('default repository for experiment flag cleanup PRs'),
 
     // Conversations
     conversations_enabled: createBooleanToggleHandler('conversations'),
@@ -753,19 +858,55 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
     managed_viewsets: () => null,
+    flag_evaluations_mode: () => null,
     workflows_config: () => null,
-    event_retention_months: () => null,
-    events_retention_enforced: () => null,
 }
 
-function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
-    return logItem?.detail?.short_id ? (
-        <Link to={urls.notebook(logItem.detail.short_id)}>{logItem?.detail.name || 'unknown'}</Link>
-    ) : logItem?.detail.name ? (
-        <>{logItem?.detail.name}</>
-    ) : (
-        <i>Untitled</i>
-    )
+function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedChange {
+    const wasSuspended = logItem.activity === 'email_sending_suspended'
+    const reason = logItem.detail?.context?.reason as string | undefined
+    return {
+        summary: activityLogSummary(
+            logItem,
+            wasSuspended ? 'Suspended workflow email sending' : 'Re-enabled workflow email sending',
+            shortIdActivityLink(logItem, urls.notebook),
+            wasSuspended ? reason : undefined
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
+                sending on {shortIdActivityLink(logItem, urls.notebook)}
+                {wasSuspended && reason ? <> (reason: {reason})</> : null}
+            </>
+        ),
+    }
+}
+
+function describeWorkflowEmailTierChange(logItem: ActivityLogItem): HumanizedChange {
+    const changes = logItem.detail?.changes || []
+    const tierChange = changes.find((change) => change.field === 'email_sending_tier')
+    const pinChange = changes.find((change) => change.field === 'email_sending_tier_pinned')
+    const contextReason = logItem.detail?.context?.reason as string | undefined
+    // A staff-set tier has no decision behind it, so the row says "set" and shows no reason.
+    const setByStaff = contextReason === 'staff_set'
+    const reason = setByStaff ? undefined : contextReason
+    const target = shortIdActivityLink(logItem, urls.notebook)
+    const pinVerb = pinChange ? (pinChange.after ? 'pinned' : 'unpinned') : null
+    const verb = tierChange ? (setByStaff ? 'set' : 'moved') : (pinVerb ?? 'changed')
+    const tierMove = tierChange ? ` from ${String(tierChange.before)} to ${String(tierChange.after)}` : ''
+    const pinSuffix = tierChange && pinVerb ? ` and ${pinVerb === 'pinned' ? 'pinned it there' : 'unpinned it'}` : ''
+    const action = `${verb} the workflow email sending tier`
+    return {
+        summary: activityLogSummary(logItem, `${capitalizeFirstLetter(action)}${tierMove}${pinSuffix}`, target, reason),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {action} on {target}
+                {tierMove}
+                {pinSuffix}
+                {reason ? <> (reason: {reason})</> : null}
+            </>
+        ),
+    }
 }
 
 export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -775,56 +916,24 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
     }
 
     if (logItem.activity === 'email_sending_suspended' || logItem.activity === 'email_sending_unsuspended') {
-        const wasSuspended = logItem.activity === 'email_sending_suspended'
-        const reason = logItem.detail?.context?.reason as string | undefined
-        return {
-            description: (
-                <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
-                    {wasSuspended ? 'suspended' : 're-enabled'} workflow email sending on {nameAndLink(logItem)}
-                    {wasSuspended && reason ? <> (reason: {reason})</> : null}
-                </>
-            ),
-        }
+        return describeWorkflowEmailSuspension(logItem)
+    }
+
+    if (logItem.activity === 'email_sending_tier_changed') {
+        return describeWorkflowEmailTierChange(logItem)
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
-        let changes: Description[] = []
-        let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !(change.field in TEAM_PROPERTIES_MAPPING)) {
-                continue //  not all fields are describable
-            }
-
-            const actionHandler = TEAM_PROPERTIES_MAPPING[change.field as keyof TeamType]
-            const processedChange = actionHandler(change)
-            if (processedChange === null) {
-                continue // some logs are indescribable
-            }
-
-            const { description, suffix } = processedChange
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        const changes = describeMappedChanges(
+            logItem,
+            TEAM_PROPERTIES_MAPPING,
+            shortIdActivityLink(logItem, urls.notebook),
+            <>on {shortIdActivityLink(logItem, urls.notebook)}</>
+        )
+        if (changes) {
+            return changes
         }
     }
 
-    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
+    return defaultDescriber(logItem, asNotification, shortIdActivityLink(logItem, urls.notebook))
 }

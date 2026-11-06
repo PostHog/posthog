@@ -13,10 +13,10 @@ import {
     elementsToAction,
 } from 'scenes/activity/explore/createActionFromEvent'
 import {
-    filterToActionStep,
-    generateActionNameFromFilter,
+    generateActionNameFromSeriesNode,
+    seriesNodeToActionStep,
 } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/saveAsActionUtils'
-import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -123,7 +123,7 @@ export function openSaveAsActionDialog({ suggestedName, step, createInFolder }: 
                     steps: [step],
                     ...(createInFolder ? { _create_in_folder: createInFolder } : {}),
                 })
-                actionsModel.findMounted()?.actions.loadActions()
+                actionsModel.findMounted({ shouldLoad: true })?.actions.loadActions(true)
                 lemonToast.success(
                     <>
                         Action created. <Link to={urls.action(action.id)}>View action</Link>
@@ -137,10 +137,10 @@ export function openSaveAsActionDialog({ suggestedName, step, createInFolder }: 
     })
 }
 
-export function saveActionFromFilter(filter: LocalFilter): void {
+export function saveActionFromSeriesNode(node: SeriesNode): void {
     openSaveAsActionDialog({
-        suggestedName: generateActionNameFromFilter(filter),
-        step: filterToActionStep(filter),
+        suggestedName: generateActionNameFromSeriesNode(node),
+        step: seriesNodeToActionStep(node),
     })
 }
 

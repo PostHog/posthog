@@ -1,10 +1,11 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
-import { objectsEqual } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { isUsageAtOrOverLimit } from 'lib/logic/billing/usageLimits'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { isAddonVisible } from 'scenes/billing/billing-utils'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { BillingSpendResponse, billingSpendLogic } from 'scenes/billing/billingSpendLogic'
 import { BillingUsageResponse, billingUsageLogic } from 'scenes/billing/billingUsageLogic'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
@@ -85,7 +86,6 @@ export interface MaxBillingContext {
     has_active_subscription: boolean
     subscription_level: MaxBillingContextSubscriptionLevel
     billing_plan: string | null
-    is_deactivated?: boolean
 
     // Products information
     products: MaxProductInfo[]
@@ -181,7 +181,7 @@ export const billingToMaxContext = (
                     name: addon.name,
                     description: addon.description || '',
                     is_used: (addon.current_usage || 0) > 0,
-                    has_exceeded_limit: (addon.percentage_usage || 0) > 1,
+                    has_exceeded_limit: isUsageAtOrOverLimit(addon.percentage_usage),
                     current_usage: addon.current_usage || 0,
                     usage_limit: addon.usage_limit,
                     percentage_usage: addon.percentage_usage,
@@ -194,7 +194,7 @@ export const billingToMaxContext = (
             name: product.name,
             description: product.description || '',
             is_used: (product.current_usage || 0) > 0,
-            has_exceeded_limit: product.percentage_usage > 1,
+            has_exceeded_limit: isUsageAtOrOverLimit(product.percentage_usage),
             current_usage: product.current_usage,
             usage_limit: product.usage_limit,
             percentage_usage: product.percentage_usage || 0,
@@ -213,7 +213,6 @@ export const billingToMaxContext = (
             (billing.subscription_level as MaxBillingContextSubscriptionLevel) ||
             MaxBillingContextSubscriptionLevel.FREE,
         billing_plan: billing.billing_plan || null,
-        is_deactivated: billing.deactivated,
         products: maxProducts,
         total_current_amount_usd: billing.current_total_amount_usd,
         projected_total_amount_usd: billing.projected_total_amount_usd,

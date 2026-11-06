@@ -137,16 +137,14 @@ export function stripHTTP(url: string): string {
 export function isDomain(url: string | URL): boolean {
     try {
         const parsedUrl = typeof url === 'string' ? new URL(url) : url
-        if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
-            return true
-        }
-        if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
-            return true
-        }
+        // Trailing slashes do not make a path, but everything else does, including the `//host`
+        // path that a doubled protocol such as `https://https://example.com` parses into.
+        // The match is start-anchored, because an end-anchored one retries at every slash and
+        // takes quadratic time on a long run of slashes.
+        return parsedUrl.pathname === '' || /^\/+$/.test(parsedUrl.pathname)
     } catch {
         return false
     }
-    return false
 }
 
 export function isURL(input: any): boolean {
@@ -163,6 +161,31 @@ export function isExternalLink(input: any): boolean {
     }
     const regexp = /^(https?:|mailto:|\/api\/)/
     return !!input.trim().match(regexp)
+}
+
+/** True for a target the browser runs as script, so it must never become an href or a navigation. */
+export function hasDangerousScheme(url: string): boolean {
+    // Browsers ignore leading control chars/whitespace and any tabs/newlines embedded in the scheme,
+    // so strip them all before matching.
+    const normalized = url.replace(/[\u0000-\u0020]/g, '').toLowerCase()
+    return /^(javascript|vbscript):/.test(normalized)
+}
+
+/**
+ * True for a value that parses as an `https://` URL. Whitespace around the value is ignored,
+ * because `new URL()` ignores it too. A caller that needs a host allowlist, or that wants to
+ * reject embedded credentials, adds that check itself.
+ */
+export function isHttpsUrl(value: string): boolean {
+    const trimmed = value.trim()
+    if (!trimmed) {
+        return false
+    }
+    try {
+        return new URL(trimmed).protocol === 'https:'
+    } catch {
+        return false
+    }
 }
 
 export function isEmail(string: string, options?: { requireTLD?: boolean }): boolean {
@@ -189,6 +212,15 @@ export function parseGithubRepoURL(url: string): Record<string, string> {
     return { user, repo, type, path }
 }
 
+function pathOf(url: URL): string | null {
+    // Dot-segment removal can turn '/.//evil.com' into the pathname '//evil.com', which a browser
+    // then loads as a protocol-relative URL on another origin.
+    if (url.pathname.startsWith('//')) {
+        return null
+    }
+    return url.pathname + url.search + url.hash
+}
+
 function resolveSameOriginPath(candidate: string, location: Location): string | null {
     // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
     if (candidate.startsWith('//')) {
@@ -204,7 +236,7 @@ function resolveSameOriginPath(candidate: string, location: Location): string | 
             if (url.origin !== location.origin) {
                 return null
             }
-            return url.pathname + url.search + url.hash
+            return pathOf(url)
         } catch {
             return null
         }
@@ -214,7 +246,7 @@ function resolveSameOriginPath(candidate: string, location: Location): string | 
     try {
         const url = new URL(candidate)
         if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
-            return url.pathname + url.search + url.hash
+            return pathOf(url)
         }
         return null
     } catch {

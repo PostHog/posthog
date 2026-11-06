@@ -1,6 +1,8 @@
 import { browserSupportsWebAuthnAutofill, startAuthentication } from '@simplewebauthn/browser'
 import { expectLogic } from 'kea-test-utils'
 
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -94,6 +96,123 @@ describe('passkeyLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(beginHandler).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('re-authentication', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+
+        beforeEach(() => {
+            ;(startAuthentication as jest.Mock).mockResolvedValue({ id: 'cred-1', response: {} })
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [{ id: 'cred-1', type: 'public-key' }],
+                            userVerification: 'required',
+                        },
+                    ],
+                    '/api/webauthn/login/complete/': () => [200, {}],
+                },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('signals the sensitive action waiting on re-authentication', async () => {
+            const onSuccess = jest.fn()
+            const onFailure = jest.fn()
+            // A sensitive action (e.g. inviting members) parks this pair while it awaits re-auth.
+            // Without the signal it stays pending forever and its button spins.
+            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, onFailure])
+
+            logic.actions.beginPasskeyLogin(undefined, { reauth: 'true' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onSuccess).toHaveBeenCalledTimes(1)
+            expect(onFailure).not.toHaveBeenCalled()
+            expect(apiStatusLogic.values.timeSensitiveAuthenticationRequired).toBe(false)
+        })
+
+        it('clears the gate even when the sensitive action throws', async () => {
+            const onSuccess = jest.fn(() => {
+                throw new Error('sensitive action failed')
+            })
+            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+
+            logic.actions.beginPasskeyLogin(undefined, { reauth: 'true' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onSuccess).toHaveBeenCalledTimes(1)
+            expect(apiStatusLogic.values.timeSensitiveAuthenticationRequired).toBe(false)
+            expect(logic.values.isReauth).toBe(false)
+        })
+    })
+
+    describe('SSO-enforced account', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+
+        beforeEach(() => {
+            ;(startAuthentication as jest.Mock).mockResolvedValue({ id: 'cred-1', response: {} })
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [],
+                            userVerification: 'required',
+                        },
+                    ],
+                    '/api/webauthn/login/complete/': () => [
+                        400,
+                        {
+                            error: 'You can only login with SSO for this account.',
+                            code: 'sso_enforced',
+                            sso_enforcement: 'google-oauth2',
+                            email: 'user@example.com',
+                        },
+                    ],
+                    '/api/login/precheck': () => [200, { sso_enforcement: 'google-oauth2', saml_available: false }],
+                },
+            })
+            initKeaTests()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('names the required provider and runs the precheck for the returned email', async () => {
+            logic.actions.beginPasskeyLogin()
+            await expectLogic(loginLogic).toDispatchActions(['precheckSuccess'])
+
+            expect(loginLogic.values.generalError).toEqual({
+                code: 'passkey_error',
+                detail: 'Your organization requires you to log in with Google.',
+            })
+            expect(loginLogic.values.login.email).toBe('user@example.com')
+            expect(loginLogic.values.precheckResponse).toMatchObject({
+                email: 'user@example.com',
+                sso_enforcement: 'google-oauth2',
+            })
         })
     })
 })

@@ -10,14 +10,16 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { McpDateFilter } from './components/McpDateFilter'
+import { McpIntervalFilter } from './components/McpIntervalFilter'
+import { McpSharedFilters } from './components/McpSharedFilters'
 import { mcpAnalyticsToolQualityLogic, mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
 
 function FilterBar(): JSX.Element {
-    const { availableCategories, selectedCategories, scopeShare, dateFilter, dateRangeLabel } =
+    const { availableCategories, selectedCategories, scopeShare, dateRangeLabel, interval, intervalOptions } =
         useValues(mcpAnalyticsToolQualityLogic)
-    const { setSelectedCategories, setDateFilter } = useActions(mcpAnalyticsToolQualityLogic)
+    const { setSelectedCategories, setPinnedInterval } = useActions(mcpAnalyticsToolQualityLogic)
 
     const hasScope = selectedCategories.length > 0
     const sharePct = scopeShare.pct === null ? null : Math.round(scopeShare.pct * 10) / 10
@@ -34,11 +36,11 @@ function FilterBar(): JSX.Element {
                     dataAttr="mcp-tool-quality-category-scope"
                 />
             </div>
-            <McpDateFilter
-                dateFrom={dateFilter.dateFrom}
-                dateTo={dateFilter.dateTo}
-                onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                dataAttr="mcp-tool-quality-date-filter"
+            <McpIntervalFilter
+                interval={interval}
+                options={intervalOptions}
+                onChange={setPinnedInterval}
+                dataAttr="mcp-tool-quality-interval-filter"
             />
             {hasScope && sharePct !== null ? (
                 <Tooltip
@@ -54,13 +56,13 @@ function FilterBar(): JSX.Element {
 }
 
 function ChartsScopeHeader(): JSX.Element {
-    const { selectedTool, dateFilter } = useValues(mcpAnalyticsToolQualityLogic)
+    const { selectedTool, dateFilter, pinnedInterval } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
     if (!selectedTool) {
         return (
             <div className="text-sm text-secondary">
-                Trends across all tools in scope — select a row above to drill down.
+                Trends across all tools in scope. Select a tool in the table below to drill down.
             </div>
         )
     }
@@ -74,7 +76,7 @@ function ChartsScopeHeader(): JSX.Element {
             <Button
                 variant="outline"
                 size="sm"
-                render={<LinkPrimitive to={mcpToolReportUrl(selectedTool, dateFilter)} />}
+                render={<LinkPrimitive to={mcpToolReportUrl(selectedTool, dateFilter, pinnedInterval)} />}
                 data-attr="mcp-tool-quality-full-report"
             >
                 Full tool report
@@ -93,24 +95,58 @@ function ChartsScopeHeader(): JSX.Element {
 }
 
 export function MCPAnalyticsToolQuality(): JSX.Element {
-    const { dailyChartData, dailyStatsLoading, interval, incompleteTail } = useValues(mcpAnalyticsToolQualityLogic)
+    const {
+        dailyChartData,
+        dailyStatsLoading,
+        interval,
+        incompleteTail,
+        dateFilter,
+        availableCategoriesLoading,
+        categoryCountsLoading,
+        toolRowsPageLoading,
+        chartViews,
+        latencyBoxes,
+    } = useValues(mcpAnalyticsToolQualityLogic)
+    const { setDateFilter, reloadAll, setChartView } = useActions(mcpAnalyticsToolQualityLogic)
     const { timezone } = useValues(teamLogic)
 
     const theme = useChartTheme()
 
     return (
-        <div className="flex flex-col gap-4" data-quill>
-            <FilterBar />
-            <ChartsScopeHeader />
-            <ToolQualityCharts
-                data={dailyChartData}
-                loading={dailyStatsLoading}
-                theme={theme}
-                timezone={timezone}
-                interval={interval}
-                incompleteTail={incompleteTail}
-            />
-            <ToolQualityTable />
+        <div className="flex flex-col gap-4">
+            <McpSharedFilters
+                pageKey="mcp-tool-quality"
+                dataAttrPrefix="mcp-tool-quality"
+                onRefresh={reloadAll}
+                refreshing={
+                    dailyStatsLoading || availableCategoriesLoading || categoryCountsLoading || toolRowsPageLoading
+                }
+            >
+                <McpDateFilter
+                    dateFrom={dateFilter.dateFrom}
+                    dateTo={dateFilter.dateTo}
+                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                    dataAttr="mcp-tool-quality-date-filter"
+                />
+            </McpSharedFilters>
+            <div data-quill>
+                <FilterBar />
+            </div>
+            <div className="flex flex-col gap-4" data-quill>
+                <ChartsScopeHeader />
+                <ToolQualityCharts
+                    data={dailyChartData}
+                    loading={dailyStatsLoading}
+                    theme={theme}
+                    timezone={timezone}
+                    interval={interval}
+                    incompleteTail={incompleteTail}
+                    views={chartViews}
+                    latencyBoxes={latencyBoxes}
+                    onViewChange={setChartView}
+                />
+                <ToolQualityTable />
+            </div>
         </div>
     )
 }

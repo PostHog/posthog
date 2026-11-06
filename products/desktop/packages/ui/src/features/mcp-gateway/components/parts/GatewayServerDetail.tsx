@@ -15,6 +15,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import type {
+  McpAgentGrantScope,
   McpApprovalState,
   McpGatewayServer,
 } from "@posthog/api-client/posthog-client";
@@ -24,17 +25,27 @@ import {
   gatewayConnectNeedsCredentials,
 } from "@posthog/core/mcp-gateway/gatewayConnect";
 import {
+  agentShareMessage,
+  canEditGatewayPolicyScope,
   countPoliciesByState,
   formatAgo,
   getGatewayServerRemovalAction,
 } from "@posthog/core/mcp-gateway/gatewayServers";
 import { usableInstallationId } from "@posthog/core/mcp-gateway/gatewayToolDiscovery";
+import {
+  Button as QuillButton,
+  Switch as QuillSwitch,
+  Tooltip as QuillTooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
 import {
   gatewayUserName,
   RobotAvatar,
-  UserAvatar,
 } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import { GatewayConnectDialog } from "@posthog/ui/features/mcp-gateway/components/parts/GatewayConnectDialog";
 import { GatewayDeleteServerDialog } from "@posthog/ui/features/mcp-gateway/components/parts/GatewayDeleteServerDialog";
@@ -51,6 +62,8 @@ import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGat
 import { useGatewayToolPolicies } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayToolPolicies";
 import { useServiceAccounts } from "@posthog/ui/features/mcp-gateway/hooks/useServiceAccounts";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
   Badge,
@@ -58,7 +71,6 @@ import {
   Flex,
   IconButton,
   Separator,
-  Spinner,
   Switch,
   Text,
   TextField,
@@ -143,7 +155,12 @@ export function GatewayServerDetail({
       list.push(initialScope);
     }
     if (canManageAgentAccess) {
+      // One chip per agent: an agent shared by several members carries one
+      // access row per sharer, but its tool policy is a single agent scope.
+      const seenAgentIds = new Set<string>();
       for (const agent of server.agents) {
+        if (seenAgentIds.has(agent.service_account_id)) continue;
+        seenAgentIds.add(agent.service_account_id);
         list.push({
           scopeType: "agent",
           scopeServiceAccountId: agent.service_account_id,
@@ -158,15 +175,15 @@ export function GatewayServerDetail({
     return (
       <Flex direction="column" gap="4">
         <BackButton onNavigate={onNavigate} />
-        <Flex align="center" justify="center" py="6">
-          {gateway.serversLoading ? (
-            <Spinner size="2" />
-          ) : (
+        {gateway.serversLoading ? (
+          <LoadingState className="py-6" />
+        ) : (
+          <div className="flex items-center justify-center py-6">
             <Text color="gray" className="text-sm">
               Server not found.
             </Text>
-          )}
-        </Flex>
+          </div>
+        )}
       </Flex>
     );
   }
@@ -203,10 +220,11 @@ export function GatewayServerDetail({
   const bulkEditableCount = hasToolSearch
     ? filteredEditablePolicies.length
     : editableCount;
-  const scopeEditable =
-    isAdmin ||
-    scope.scopeType === "member" ||
-    (scope.scopeType === "agent" && canManageAgentAccess);
+  const scopeEditable = canEditGatewayPolicyScope(server, scope, {
+    isAdmin,
+    canManageAgentAccess,
+    currentUserId: currentUser?.id ?? null,
+  });
   // Any connected member can re-list — it runs against their own credential,
   // and it is the manual retry when auto-discovery failed.
   const refreshInstallationId = liveInstallationId;
@@ -222,13 +240,13 @@ export function GatewayServerDetail({
   };
 
   const connectButton = connecting ? (
-    <Button variant="solid" size="2" disabled>
-      <Spinner size="1" /> Authorizing…
-    </Button>
+    <QuillButton variant="primary" size="sm" disabled>
+      <Spinner /> Authorizing…
+    </QuillButton>
   ) : needsReconnect ? (
-    <Button
-      variant="solid"
-      size="2"
+    <QuillButton
+      variant="primary"
+      size="sm"
       onClick={() =>
         gateway.reconnect({
           installationId: yourConnection.installation_id,
@@ -238,11 +256,11 @@ export function GatewayServerDetail({
       disabled={gateway.reconnectPending}
     >
       <Key size={12} /> Reconnect your account
-    </Button>
+    </QuillButton>
   ) : (
-    <Button
-      variant="solid"
-      size="2"
+    <QuillButton
+      variant="primary"
+      size="sm"
       onClick={() =>
         // Custom servers and api-key templates collect credentials first;
         // plain OAuth templates go straight to the browser round-trip.
@@ -252,7 +270,7 @@ export function GatewayServerDetail({
       }
     >
       <Key size={12} /> Connect your account
-    </Button>
+    </QuillButton>
   );
 
   const handleConnectSubmit = (credentials: GatewayConnectCredentials) => {
@@ -264,15 +282,29 @@ export function GatewayServerDetail({
     <Flex direction="column" gap="4" className="min-w-0">
       <BackButton onNavigate={onNavigate} />
 
-      {/* Hero */}
-      <Flex align="start" gap="3">
+      {needsReconnect && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-destructive-foreground/30 bg-destructive p-3">
+          <div className="flex min-w-[200px] flex-1 flex-col gap-0.5">
+            <span className="font-medium text-foreground text-sm">
+              Reconnect required
+            </span>
+            <span className="text-muted-foreground text-xs">
+              {server.name} tools are not available to you or your agents until
+              you reconnect.
+            </span>
+          </div>
+          {connectButton}
+        </div>
+      )}
+
+      <div className="flex items-start gap-3">
         <ServerIcon
           iconDomain={template?.icon_domain}
           serverUrl={server.url}
           size={56}
         />
-        <Flex direction="column" gap="1" className="min-w-0 flex-1">
-          <Flex align="center" gap="2">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex items-center gap-2">
             <Text truncate className="font-bold text-xl">
               {server.name}
             </Text>
@@ -281,13 +313,13 @@ export function GatewayServerDetail({
                 Off
               </Badge>
             )}
-          </Flex>
+          </div>
           {server.description && (
             <Text color="gray" className="text-sm">
               {server.description}
             </Text>
           )}
-          <Flex gap="3" align="center" mt="1">
+          <div className="mt-1 flex flex-wrap items-center gap-3">
             {server.created_by && (
               <Text color="gray" className="flex items-center gap-1 text-xs">
                 <User size={12} /> {gatewayUserName(server.created_by)}
@@ -303,36 +335,13 @@ export function GatewayServerDetail({
                 <ArrowUpRight size={11} /> Docs
               </a>
             )}
-          </Flex>
-        </Flex>
-        <Flex direction="column" align="end" gap="2" className="shrink-0">
-          {(deletesForEveryone || deleteInstallationId) && (
-            <Tooltip content="Delete server">
-              <IconButton
-                variant="ghost"
-                color="red"
-                size="2"
-                aria-label="Delete server"
-                onClick={() => setDeleteServerOpen(true)}
-              >
-                <Trash size={14} />
-              </IconButton>
-            </Tooltip>
-          )}
-          {yourConnection && (
-            <Tooltip
-              content={
-                selfEnabled
-                  ? "Disable this server for you"
-                  : "Enable this server for you"
-              }
-            >
-              {/* Tooltip stamps its own data-state on its child, which would
-                  overwrite the Switch's checked/unchecked state and leave the
-                  track stuck on the accent color. Give it a span to stamp. */}
-              <span className="inline-flex">
-                <Switch
-                  size="1"
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {yourConnection && (
+              <div className="mr-1 flex items-center gap-2 text-muted-foreground text-xs">
+                <QuillSwitch
+                  size="sm"
+                  aria-label="Enable this server for you"
                   checked={selfEnabled}
                   onCheckedChange={(enabled) =>
                     gateway.toggleYourConnection({
@@ -341,34 +350,48 @@ export function GatewayServerDetail({
                     })
                   }
                 />
-              </span>
-            </Tooltip>
-          )}
-          {yourConnection ? (
-            <Flex direction="column" align="end" gap="2">
-              {!deletesForEveryone && !deleteInstallationId && (
-                <Button
-                  variant="ghost"
-                  color="gray"
-                  size="2"
-                  disabled={gateway.disconnectPending}
-                  onClick={() =>
-                    gateway.disconnect({
-                      installationId: yourConnection.installation_id,
-                      serverName: server.name,
-                    })
+                {selfEnabled ? "Enabled for you" : "Disabled for you"}
+              </div>
+            )}
+            {yourConnection
+              ? !deletesForEveryone &&
+                !deleteInstallationId && (
+                  <QuillButton
+                    variant="outline"
+                    size="sm"
+                    disabled={gateway.disconnectPending}
+                    onClick={() =>
+                      gateway.disconnect({
+                        installationId: yourConnection.installation_id,
+                        serverName: server.name,
+                      })
+                    }
+                  >
+                    <X size={12} /> Disconnect
+                  </QuillButton>
+                )
+              : connectButton}
+            {(deletesForEveryone || deleteInstallationId) && (
+              <QuillTooltip>
+                <TooltipTrigger
+                  render={
+                    <QuillButton
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label="Delete server"
+                      className="text-destructive-foreground"
+                      onClick={() => setDeleteServerOpen(true)}
+                    >
+                      <Trash size={14} />
+                    </QuillButton>
                   }
-                >
-                  <X size={12} /> Disconnect
-                </Button>
-              )}
-              {needsReconnect && connectButton}
-            </Flex>
-          ) : (
-            connectButton
-          )}
-        </Flex>
-      </Flex>
+                />
+                <TooltipContent>Delete server</TooltipContent>
+              </QuillTooltip>
+            )}
+          </div>
+        </div>
+      </div>
 
       <Separator size="4" />
 
@@ -401,6 +424,8 @@ export function GatewayServerDetail({
           server={server}
           gateway={gateway}
           isAdmin={isAdmin}
+          currentUserId={currentUser?.id ?? null}
+          accessPending={serviceAccounts.setAccessPending}
           onShareWithAgent={() => setGiveAccessOpen(true)}
           onSetMemberAccess={(userId, name, enabled) =>
             members.setMemberAccess({
@@ -412,12 +437,21 @@ export function GatewayServerDetail({
                 : `${name} can no longer use ${server.name}`,
             })
           }
+          onSetAgentScope={(accountId, name, scope) =>
+            serviceAccounts.setAccess({
+              accountId,
+              serverId: server.id,
+              enabled: true,
+              scope,
+              successMessage: agentShareMessage(server.name, name, scope),
+            })
+          }
           onRevokeAgent={(accountId, name) =>
             serviceAccounts.setAccess({
               accountId,
               serverId: server.id,
               enabled: false,
-              successMessage: `${name} no longer has access to ${server.name}`,
+              successMessage: `${name} no longer has access to your ${server.name} connection`,
             })
           }
         />
@@ -503,13 +537,15 @@ export function GatewayServerDetail({
             );
           })}
           <div className="ml-auto flex items-center gap-1">
-            <BulkTrio
-              label={`Set all for ${scope.label}`}
-              filtered={hasToolSearch}
-              disabled={tools.setAllPending || bulkEditableCount === 0}
-              allowNeedsApproval={!agentScope}
-              onSet={setBulkPolicy}
-            />
+            {scopeEditable && (
+              <BulkTrio
+                label={`Set all for ${scope.label}`}
+                filtered={hasToolSearch}
+                disabled={tools.setAllPending || bulkEditableCount === 0}
+                allowNeedsApproval={!agentScope}
+                onSet={setBulkPolicy}
+              />
+            )}
             {refreshInstallationId && (
               <RefreshToolsButton
                 pending={tools.refreshPending}
@@ -552,9 +588,7 @@ export function GatewayServerDetail({
       )}
 
       {tools.policiesLoading && tools.policies.length === 0 ? (
-        <Flex align="center" justify="center" py="6">
-          <Spinner size="2" />
-        </Flex>
+        <LoadingState className="py-6" />
       ) : tools.policies.length === 0 ? (
         <Flex
           direction="column"
@@ -607,6 +641,7 @@ export function GatewayServerDetail({
           open
           serverName={server.name}
           fixedAuthType={gatewayConnectAuthType(server)}
+          isCustomServer={!server.template_id}
           onSubmit={handleConnectSubmit}
           onClose={() => setConnectOpen(false)}
         />
@@ -615,10 +650,11 @@ export function GatewayServerDetail({
         open={giveAccessOpen}
         server={server}
         accounts={serviceAccounts.accounts}
+        currentUserId={currentUser?.id ?? null}
         toolPolicies={teamTools.policies}
         pending={serviceAccounts.setAccessPending}
         onClose={() => setGiveAccessOpen(false)}
-        onGrant={(accountId, policies) => {
+        onGrant={(accountId, policies, scope) => {
           const account = serviceAccounts.accounts.find(
             (entry) => entry.id === accountId,
           );
@@ -627,8 +663,13 @@ export function GatewayServerDetail({
               accountId,
               serverId: server.id,
               enabled: true,
+              scope,
               policies,
-              successMessage: `${account?.name ?? "Agent"} can now use ${server.name}`,
+              successMessage: agentShareMessage(
+                server.name,
+                account?.name ?? "agent",
+                scope,
+              ),
             },
             { onSuccess: () => setGiveAccessOpen(false) },
           );
@@ -707,7 +748,7 @@ function RefreshToolsButton({
         onClick={onRefresh}
       >
         {pending ? (
-          <Spinner size="1" />
+          <Spinner size="sm" />
         ) : (
           <ArrowClockwise size={11} weight="bold" />
         )}
@@ -785,11 +826,19 @@ interface AccessSectionProps {
   server: McpGatewayServer;
   gateway: ReturnType<typeof useGatewayServers>;
   isAdmin: boolean;
+  currentUserId: number | null;
+  /** True while any agent-access mutation is in flight. */
+  accessPending: boolean;
   onShareWithAgent: () => void;
   onSetMemberAccess: (
     userId: number,
     firstName: string,
     enabled: boolean,
+  ) => void;
+  onSetAgentScope: (
+    accountId: string,
+    name: string,
+    scope: McpAgentGrantScope,
   ) => void;
   onRevokeAgent: (accountId: string, name: string) => void;
 }
@@ -798,8 +847,11 @@ function AccessSection({
   server,
   gateway,
   isAdmin,
+  currentUserId,
+  accessPending,
   onShareWithAgent,
   onSetMemberAccess,
+  onSetAgentScope,
   onRevokeAgent,
 }: AccessSectionProps) {
   const yourInstallationId = server.your_connection?.installation_id;
@@ -818,12 +870,12 @@ function AccessSection({
           >
             <div>
               <Text as="div" className="font-medium text-sm">
-                Available to team members
+                Enabled for your organization
               </Text>
               <Text as="div" color="gray" className="text-[13px]">
                 {server.is_team_enabled
-                  ? `Members can connect their own ${server.name} account.`
-                  : `Turned off — members can't see or call ${server.name}.`}
+                  ? `Anyone in your organization can find and use ${server.name}. Each person connects with their own account.`
+                  : `${server.name} is turned off for everyone in your organization.`}
               </Text>
             </div>
             <Switch
@@ -878,7 +930,7 @@ function AccessSection({
                       accessRevoked ? "bg-gray-2 opacity-60" : ""
                     }`}
                   >
-                    <UserAvatar user={connection.user} />
+                    <UserAvatar user={connection.user} size="sm" />
                     <Flex direction="column" className="min-w-0 flex-1">
                       <Flex align="center" gap="2">
                         <Text truncate className="font-medium text-sm">
@@ -981,54 +1033,58 @@ function AccessSection({
         </Text>
       ) : (
         <div className="rounded-md border border-gray-5 bg-gray-2">
-          {server.agents.map((agent) => (
-            <Flex
-              key={agent.service_account_id}
-              align="center"
-              gap="3"
-              className="group border-gray-5 border-b px-3 py-2 last:border-b-0"
-            >
-              <RobotAvatar />
-              <Flex direction="column" className="min-w-0 flex-1">
-                <Text truncate className="font-medium text-sm">
-                  {agent.name}
-                </Text>
-                <Text color="gray" truncate className="text-xs">
-                  <span className="font-mono">{agent.handle}</span>
-                  {agent.granted_by
-                    ? ` · shared by ${gatewayUserName(agent.granted_by)}`
-                    : " · shared with this agent"}
-                </Text>
-              </Flex>
-              <Button
-                variant="ghost"
-                color="red"
-                size="1"
-                className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                onClick={() =>
-                  onRevokeAgent(agent.service_account_id, agent.name)
-                }
+          {server.agents.map((agent) => {
+            const isYourShare = agent.user.id === currentUserId;
+            const teamShared = agent.scope === "team";
+            return (
+              <div
+                key={`${agent.service_account_id}:${agent.user.id}`}
+                className="group flex flex-wrap items-center gap-x-3 gap-y-2 border-gray-5 border-b px-3 py-2 last:border-b-0"
               >
-                <X size={11} /> Revoke
-              </Button>
-              <Flex align="center" gap="2" className="shrink-0">
-                <span
-                  className={`h-[6px] w-[6px] rounded-full ${
-                    agent.status === "active" ? "bg-(--green-9)" : "bg-gray-8"
-                  }`}
-                />
-                <Text color="gray" className="text-xs">
-                  {agent.status === "active"
-                    ? `Active${
-                        formatAgo(agent.last_active_at)
-                          ? ` ${formatAgo(agent.last_active_at)}`
-                          : ""
-                      }`
-                    : "Paused"}
-                </Text>
-              </Flex>
-            </Flex>
-          ))}
+                <RobotAvatar />
+                <div className="flex min-w-[160px] flex-1 flex-col">
+                  <Text truncate className="font-medium text-sm">
+                    {agent.name}
+                  </Text>
+                  <Text color="gray" truncate className="text-xs">
+                    <span className="font-mono">{agent.handle}</span>
+                    {` · shared ${teamShared ? "to the team " : ""}by ${
+                      isYourShare ? "you" : gatewayUserName(agent.user)
+                    }`}
+                  </Text>
+                </div>
+                {/* Revoking removes only the caller's own share, so the scope
+                    toggle and Revoke appear only on rows backed by the caller's
+                    connection. */}
+                {isYourShare && (
+                  <div className="ml-auto flex shrink-0 items-center gap-3">
+                    <AgentScopeToggle
+                      value={agent.scope}
+                      disabled={accessPending}
+                      onChange={(scope) =>
+                        onSetAgentScope(
+                          agent.service_account_id,
+                          agent.name,
+                          scope,
+                        )
+                      }
+                    />
+                    <Button
+                      variant="ghost"
+                      color="red"
+                      size="1"
+                      className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                      onClick={() =>
+                        onRevokeAgent(agent.service_account_id, agent.name)
+                      }
+                    >
+                      <X size={11} /> Revoke
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </Flex>

@@ -1,6 +1,6 @@
 import json
 
-from freezegun import freeze_time
+import time_machine
 
 from parameterized import parameterized
 
@@ -98,10 +98,6 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
             [{"name": CUSTOMER_RESOURCE_NAME, "table_name": None}]
         )
 
-        # Set the table to None to simulate missing table
-        customer_schema = self.get_stripe_schema_by_name(CUSTOMER_RESOURCE_NAME)
-        customer_schema.table = None
-
         query = build(self.stripe_handle)
 
         # Test the query structure
@@ -190,7 +186,7 @@ class TestCustomerStripeMetadataResolution(RevenueAnalyticsTestBase):
         self.view_name = f"stripe.posthog_test.{CUSTOMER_SCHEMA.source_suffix}"
 
     def _query_metadata(self) -> dict[str, dict]:
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select(f"SELECT id, metadata FROM {self.view_name} ORDER BY id"),
                 self.team,

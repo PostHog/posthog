@@ -1,18 +1,27 @@
+from datetime import datetime
 from functools import cache
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.conf import settings
 
 from psycopg.conninfo import conninfo_to_dict
+from pydantic import model_validator
 
+from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import FunctionCallTable
+from posthog.hogql.database.models import DatabaseField, ExpressionField, FunctionCallTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.persons_db import persons_db_url
 from posthog.scopes import APIScopeObject
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @cache
@@ -83,6 +92,15 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
     return f"postgresql({address}, {db}, {table}, {user}, {password})"
 
 
+class _FieldNameCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.names.add(str(node.chain[0]))
+
+
 class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
@@ -97,10 +115,53 @@ class PostgresTable(FunctionCallTable):
     # to the foreign key pointing at that parent (e.g. system.dashboard_tiles -> "dashboard_id"),
     # so denying the parent also hides its child rows.
     access_control_id_field: Optional[str] = None
+    # Column holding the id of the user who created the access-controlled object, mirroring REST's
+    # creator exemption in `filter_queryset_by_access_level`: a creator keeps access to their own
+    # object even when object-level rules deny it.
+    access_control_creator_id_field: Optional[str] = None
+    # Set when object-level grants under `access_scope` can never key this table's rows: it holds
+    # team-level definitions shared across every object of that resource and is gated at resource
+    # level only (e.g. system.message_categories under "hog_flow"). Grant ids then live in a
+    # different space than this table's ids, so its rows can't be narrowed to a grant and
+    # resource-level access is required to query it at all.
+    resource_level_access_only: bool = False
+    # Column the entitlement-derived retention floor filters on, for tables whose rows are only
+    # readable back as far as the organization's plan allows. The floor is pushed into the federated
+    # read next to the team guard (see ClickHousePrinter._print_table_ref), so it prunes in Postgres
+    # rather than after the rows have been copied out. None means the table has no retention window.
+    retention_field: Optional[str] = None
+    # Keep the team guard next to the table function even when the table has predicates. A table that
+    # is too large to read in full needs this: as the right side of a LEFT JOIN its guard sits in the
+    # ON clause, which ClickHouse does not send to Postgres. The predicates then run in ClickHouse.
+    push_team_guard_with_predicates: bool = False
+    postgres_pushdown_values: dict[str, str | int | bool] = {}
     predicates: list[Expr] = []
 
-    def get_predicates(self) -> list[Expr]:
+    @model_validator(mode="after")
+    def _isolate_hidden_backed_expression_fields(self) -> "PostgresTable":
+        # A query can't qualify a hidden column, so an expression over one must resolve against
+        # this table. Otherwise a join with another table that has the same hidden column is ambiguous.
+        hidden_names = {
+            name for name, field in self.fields.items() if isinstance(field, DatabaseField) and field.hidden
+        }
+        for field in self.fields.values():
+            if isinstance(field, ExpressionField) and field.isolate_scope is None:
+                collector = _FieldNameCollector()
+                collector.visit(field.expr)
+                if collector.names & hidden_names:
+                    field.isolate_scope = True
+        return self
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         return self.predicates
+
+    def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
+        """Oldest `retention_field` value this team may read, or None when unrestricted.
+
+        Each table owns its own window, so two tables that declare `retention_field` can never end
+        up sharing one. Tables with no window inherit this default and are never floored.
+        """
+        return None
 
     @property
     def primary_key(self) -> Optional[str]:
@@ -108,7 +169,42 @@ class PostgresTable(FunctionCallTable):
 
     @property
     def access_control_id(self) -> Optional[str]:
+        if self.resource_level_access_only:
+            return None
         return self.access_control_id_field or self.primary_key
+
+    @property
+    def access_control_creator_id(self) -> Optional[str]:
+        """Creator column to exempt from object-level filtering, or None when there is nothing to exempt.
+
+        Only meaningful when the rows ARE the access-controlled object: a child row's own creator
+        says nothing about who created the parent the grant is keyed on, so the exemption is dropped
+        for child tables rather than applied to the wrong person.
+        """
+        if self.access_control_id_field is not None or self.resource_level_access_only:
+            return None
+        return self.access_control_creator_id_field
+
+    def blocked_object_ids(self, user_access_control: "UserAccessControl", team_id: Optional[int]) -> frozenset[str]:
+        """Ids in the `access_control_id` column that the user is denied.
+
+        The default reads the rules on the objects of `access_scope`. A table overrides it when a
+        rule on another object also denies its rows, because those rules do not name the rows.
+        """
+        if self.access_scope is None:
+            return frozenset()
+        return user_access_control.blocked_resource_ids_by_scope.get(self.access_scope, frozenset())
+
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        """Ids in the `access_control_id` column of objects the user created, among `candidate_ids`
+        (or among all ids when it is None).
+
+        The guard keeps these rows, so a child table can follow its parent's creator exemption. The
+        default is empty: a child row carries no creator of the parent to compare against.
+        """
+        return frozenset()
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

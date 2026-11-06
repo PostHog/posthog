@@ -1,10 +1,11 @@
 # Web analytics precomputation
 
-PostHog web analytics has two parallel precomputation systems. They target the same problem (avoid scanning raw events on every dashboard load) but use different mechanisms and apply to different query shapes.
+PostHog web analytics has two production precomputation systems, plus an experimental third (the dimensional tables).
+They target the same problem (avoid scanning raw events on every dashboard load) but use different mechanisms and apply to different query shapes.
 
 For how these tiers fit into the full serving ladder (fast paths, full join, dispatch order, query_type tags), see [docs/internal/web-analytics-query-serving.md](../../docs/internal/web-analytics-query-serving.md).
 
-## The two systems
+## The systems
 
 ### v2 pre-aggregated tables
 
@@ -16,6 +17,43 @@ DAG-warmed ClickHouse tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bo
 - **Population**: scheduled Dagster jobs in `products/web_analytics/dags/`
 - **Coverage**: stats table queries, web overview (partial)
 - **Adoption** (as of 2026-05): effectively zero — only one team has the modifier on in prod
+
+### Dimensional pre-aggregated tables (experimental)
+
+**Status: experimental, write-only.**
+The precomputation-framework successor to the v2 tables: an experiment in whether v2's fixed-dimension read model can run on the lazy-computation framework (per-team jobs + TTLs) instead of v2's staging-table + partition-swap ETL.
+No read path is merged — the runner never reads these tables today (PR #62437, the read path, is closed).
+
+Two ClickHouse tables carry the same fixed dimension set as v2 (`host`, `device_type`, `pathname`, `browser`, `os`, `viewport`, `referring_domain`, `utm_*`, geoip, …):
+
+- `web_stats_dimensional_preaggregated` — stats (persons / sessions / pageviews states).
+- `web_bounces_dimensional_preaggregated` — bounces (adds bounce / duration / session-count states).
+
+Both are `ReplacingMergeTree` (version column `computed_at`), sharded by `sipHash64(job_id)` on the AUX cluster, partitioned by `toYYYYMMDD(expires_at)`.
+
+- **Owned by**: web analytics team, on the analytics_platform framework.
+- **Population**: the `web_dimensional_precompute_job` Dagster job, every 20 minutes (`products/web_analytics/dags/web_dimensional_precompute.py`).
+  For each team on a region-scoped allowlist it drives `ensure_precomputed` over a rolling 92-day window, chunked to one UTC day per INSERT.
+  92 UTC days hold the start of a `-90d` read in every team timezone.
+  Every window is a `PreaggregationJob` (Postgres) with a `job_id` and a TTL by age (today 45 minutes, ≤2 days 1 day, older 90 days plus a stable per-day offset of up to 7 days); re-runs recompute only expired windows. The offset spreads older days over different runs, so each run rebuilds a few of them. Each run builds both tables for a day, newest day first.
+  The TTL bands start at UTC midnight, like the windows, so the current UTC day keeps its 1h TTL in every team timezone.
+  The allowlist defaults per Cloud region (`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) and is overridable via `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS`; an empty list disables the job.
+  The inserts carry the legacy job's memory and time ceilings, because one UTC day of a very large team outgrew the interactive defaults (#117339).
+  They also narrow HogQL's 3-day session lookback to 25 hours, after the wider read ran the shared sessions node out of memory (#117872).
+  The job has no stale grace or forced refresh of its own: today's window rebuilds only when a run finds its job expired.
+  So today's data can lag by up to the TTL plus one cron period (20 minutes).
+- **Monitoring**: after the writers, a second op reads the READY jobs back for each team and table, merges their intervals, and fails the run when a UTC day in the writers' window has no fresh job or the newest job for the writers' current day is older than the TTL plus two runs. The check takes the window and the current day from the writers, so a run that crosses UTC midnight does not report the new day as missing.
+  A failed run alerts `#alerts-web-analytics` through `notify_slack_on_failure`, which routes on the job's `owner` tag.
+  The op also pushes `web_dimensional_precompute_coverage_missing_days` and `web_dimensional_precompute_today_lag_seconds` gauges, labeled by `team_id` and `table`, to the Prometheus push gateway.
+- **Coverage**: the same stats-breakdown and overview shapes v2 serves — about 45% of user-facing web-analytics reads by shape (stats breakdowns on the stored dimensions, plus overview).
+  Not goals, vitals, frustration metrics, external clicks, or the other engines (Trends / Retention / HogQL).
+  Its differentiator over lazy: arbitrary multi-dimension filters within the fixed set resolve from one table, with no per-filter-combination warming.
+- **Adoption**: none in prod — a write-only pilot for a v2 side-by-side.
+
+Read-cost finding (2026-08): for clean single-generation reads these tables match v2 on rows and bytes (within ±7%) and use far less query memory.
+Because `job_id` is in the `ORDER BY`, recompute generations never collapse, so a read spanning un-deduped generations inflates scan cost roughly linearly with the generation count — that, not the schema, is the historical "not as fast" result.
+Reviving the read path needs precise ready-job filtering plus a way to collapse superseded generations.
+Schema: `posthog/clickhouse/preaggregation/web_*_dimensional_preaggregated_sql.py`; INSERT templates: `products/web_analytics/backend/hogql_queries/web_dimensional_precompute.py`.
 
 ### Lazy computation
 
@@ -86,7 +124,7 @@ The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effecti
 - `query.sampling.enabled` is True
 - `query.modifiers.sessionsV2JoinMode == "uuid"` (column type mismatch — temporary; should be re-enabled by re-typing `uniq_sessions_state` to `(uniq, UUID)`)
 - The team has any property-level access controls (`team_has_property_access_rules`) — precompute results are built userless and shared by a user-independent cache key, so they can't honor per-user property restrictions; the query falls through to the live path, which enforces them per requesting user
-- Date range exceeds `MAX_PRECOMPUTE_DAYS` (90)
+- Date range exceeds `MAX_PRECOMPUTE_DAYS`
 - Either date_from or date_to is None
 
 Any event/person filter shape is accepted: the `query.properties` list is translated via `property_to_expr`, and each distinct filter set becomes its own cache key (namespace). Session and cohort filters are refused (they fall through to the live path) — the userless precompute INSERT would apply them, but the live runners handle those types differently per family (web vitals drops them), so precomputing them would serve a different population than the live fallback. Filters the INSERT can't express fail the job and fall back to the live query automatically. Because any filter combination mints a new namespace, `web_ensure_precomputed` enforces a per-team distinct-shape ceiling (`WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM`, default 1000): once a team holds that many live shapes, a build for a _new_ shape drops to a check-only pass and serves live instead, while shapes the team already holds keep serving and refreshing. It is a coarse backstop, not a quota; 0 disables it.
@@ -105,9 +143,16 @@ Different freshness per how recent the data is:
 | 8–14d     | 7 days  | Distinct per-week TTLs force weekly job boundaries, keeping INSERT scans bounded |
 | 15–21d    | 10 days | —                                                                                |
 | 22–35d    | 12–14 d | —                                                                                |
-| 36d+      | 21 days | Bounded in practice by hash rotations (AST-affecting deploys rebuild everything) |
+| 36d+      | 90 days | A year-long shape must not rescan a year of events each time the band expires    |
 
 Stored via the `LAZY_TTL_SECONDS` dict in `web_lazy_precompute_common.py` (see the comment there for the full freshness-vs-job-sizing reasoning); consumed by `lazy_computation_executor.parse_ttl_schedule` against the team's timezone.
+For the framework mechanisms behind it, see [design decisions](../analytics_platform/backend/lazy_computation/README.md#design-decisions).
+
+A user forced refresh treats today's bucket as expired for that read only (#86699): the 4-hour today band otherwise left hourly graphs hours behind after a Reload.
+The forced read goes live, but the stored bucket is not rebuilt early: the revalidation it enqueues runs as a background build with the normal TTL, finds the job still fresh, and reuses it.
+Later non-forced reads keep serving that bucket until its normal TTL lapses.
+Background builds never get this rule, because the same schedule stamps `expires_at` and the revalidation task runs in the forced mode, so it would store buckets that expire after 1 second.
+A forced refresh also never gets the stale grace, or repeated Reloads kept serving the stale row they were meant to clear (#73693).
 
 ### Read path
 
@@ -244,7 +289,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 
 ### Eligibility gate
 
-`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, explicit per-query opt-out (`useWebAnalyticsPrecompute=False` — an untouched toggle defaults on), conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, missing date range, and date range over 90 days. Any event/person property-filter shape is accepted (each distinct set becomes its own cache key, bounded by the per-team shape ceiling — see the web overview eligibility gate above); session/cohort filters fall through to live.
+`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, explicit per-query opt-out (`useWebAnalyticsPrecompute=False` — an untouched toggle defaults on), conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, missing date range, and date range over `MAX_PRECOMPUTE_DAYS`. Any event/person property-filter shape is accepted (each distinct set becomes its own cache key, bounded by the per-team shape ceiling — see the web overview eligibility gate above); session/cohort filters fall through to live.
 
 ### Observability
 
@@ -264,7 +309,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 A cold or expired shape's first read serves the live path and only warms in the background — but for high-traffic teams the dashboard's main tiles are requested constantly, and there's no reason to let the first user of every cycle take that live-path miss. The eager job pre-warms the same lazy precompute cache (and the Django response cache) for a fixed query matrix, ahead of users.
 
 - **Location**: `products/web_analytics/dags/eager_web_analytics_precompute.py`
-- **Schedule**: `5 * * * *` (hourly, offset 5 min from the existing `cache_warming_schedule` at `0 * * * *`); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
+- **Schedule**: `53 * * * *` (hourly, with its start outside the demand warmer's release window); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
 - **Window**: trailing 28 days. The lazy precompute stores per-day buckets, so a 28-day warm naturally covers any sub-window the dashboard asks for.
 - **Matrix per team**: `WebOverviewQuery` + `WebGoalsQuery` + `WebVitalsPathBreakdownQuery` + one `WebStatsTableQuery` per `WebStatsBreakdown` rendered by the dashboard (~23 breakdowns including `FrustrationMetrics`).
 - **Per-query toggle**: every warmer query sets `useWebAnalyticsPrecompute=True` explicitly. Precompute now defaults on for enrolled teams (only an explicit `False` opts out), so this is redundant — kept to make the warmer's intent explicit.
@@ -276,6 +321,26 @@ A cold or expired shape's first read serves the live path and only warms in the 
 Because the eager job and the lazy read path consult the same flag, the warming audience never drifts from the audience the read path will actually serve — there is no second flag to keep in sync.
 
 This job is complementary to `cache_warming.py`, which replays whatever queries users actually ran in the last N days. The eager job covers the fixed UI matrix; the replay job covers the long tail of team-specific filter combinations.
+
+## Trend tiles and Active Hours (precompute-backed trends)
+
+The dashboard's graph tiles run vanilla `TrendsQuery`, routed at dispatch to `WebTrendsQueryRunner` when the query carries `tags.productKey == "web_analytics"` AND the `web-analytics-trends-precompute` flag (locally evaluated, fails closed) is on for the team. The runner serves eligible single-series shapes — unique visitors, page views, sessions, avg session duration, bounce rate — from the same hourly `web_overview_preaggregated` buckets the overview tile keeps warm (the query is mapped to an inner `WebOverviewQuery`, so the precompute job hash is identical and buckets are shared), and falls back to the standard trends path for everything else. The Active Hours unique-visitors tab is served the same way by `WebCalendarHeatmapTrendsQueryRunner`.
+
+Rollout gates, in order:
+
+1. `WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS` (env, deploy-time) — dogfooding list that short-circuits the flag.
+2. `web-analytics-trends-precompute` PostHog feature flag — the percentage ramp; also folded into the runner's cache key so disabling it invalidates cached precompute-served results immediately.
+3. The shared enrollment gate (`web-analytics-precompute-toggle` / `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`) still applies underneath.
+
+Accepted semantic differences vs vanilla trends (the tiles align with the overview tile instead): session-start-hour attribution, HLL uniques, `$pageview + $screen` counted together, sessionless events excluded. The per-query "Allow precompute" opt-out does not reach trend tiles (TrendsQuery deliberately carries no web-analytics fields); the flag is the kill switch.
+
+The Active Hours path is stricter than the trend tiles: it falls back to the live heatmap for teams that track both `$pageview` and `$screen` (the buckets carry no event dimension, and the live heatmap filters exactly to the requested event), for teams aggregating by distinct ID, and for date bounds that are not hour-aligned in UTC (explicit sub-hour ranges, fractional-offset timezones).
+
+### Web Vitals tab timeseries
+
+The Web Vitals tab's timeseries tile sends a `WebVitalsQuery` wrapper whose `source` is a TrendsQuery of four `$web_vitals` percentile series. With the `web-analytics-vitals-precompute` flag (locally evaluated, fails closed) on for the team, dispatch routes it to `WebVitalsQueryRunner`, which merges the per-path quantile states of the `web_vitals_paths_preaggregated` buckets into per-day tab-level percentiles — the same buckets the path-breakdown tile on the same tab keeps warm, so the inner ensure hashes to the sibling tile's job family and both tiles share one set of jobs. With the flag off the kind has no runner branch and `process_query_model` unwraps to the source TrendsQuery, the pre-existing live path.
+
+Servable shapes: the canonical four-series tab query with a shared p75/p90/p99 percentile, day-aligned ranges, and day/week/month intervals (buckets are team-tz daily, so hour interval falls back). p95, compare, breakdowns, formulas, per-series filters, per-series math multipliers, and conversion goals fall back. Only the line-graph display is servable; any other display (total-value, cumulative, and the displays with dedicated runners — calendar heatmap, box plot, slope graph) unwraps to its source TrendsQuery so the source's own dispatch handles it. Accepted semantic difference vs the live path: events with a NULL `$pathname` are absent from the buckets, so they are excluded from the served percentiles.
 
 ## Related code
 
@@ -290,5 +355,7 @@ This job is complementary to `cache_warming.py`, which replays whatever queries 
 - `products/web_analytics/backend/hogql_queries/web_vitals_path_breakdown.py` — vitals runner
 - `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` — vitals lazy path
 - `posthog/clickhouse/preaggregation/web_vitals_paths_preaggregated_sql.py` — vitals schema
+- `products/web_analytics/backend/hogql_queries/web_trends.py` + `web_trends_lazy_precompute.py` — trend tiles lazy path
+- `products/web_analytics/backend/hogql_queries/web_calendar_heatmap.py` — Active Hours lazy path
 - `products/analytics_platform/backend/lazy_computation/` — framework + CONSISTENCY.md + README
 - `products/web_analytics/dags/eager_web_analytics_precompute.py` — hourly baseline pre-warmer

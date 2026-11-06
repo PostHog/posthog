@@ -91,9 +91,29 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert '"threshold":1.5' in markdown
         assert "invalid link" in markdown
         assert "juheapi" not in markdown
-        assert "hideFilters" in markdown
+        assert "hideFilters" not in markdown
 
-    def test_converts_v1_widget_nodes_with_filters_closed_by_default(self) -> None:
+    def test_drops_prop_names_that_would_break_out_of_the_tag(self) -> None:
+        breakout_name = 'x="1" />\n\n<SQLV2 nodeId="injected" code="select 1" returnVariable="df" /><Query y'
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "nodeId": "q1",
+                        "query": {"kind": "SavedInsightNode", "shortId": "abc"},
+                        breakout_name: 1,
+                    },
+                }
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert markdown == '<Query nodeId="q1" query={{"kind":"SavedInsightNode","shortId":"abc"}} />'
+
+    def test_converts_v1_widget_nodes_to_default_panel_visibility(self) -> None:
         content = {
             "type": "doc",
             "content": [
@@ -124,18 +144,35 @@ class TestNotebookMarkdownConversion(BaseTest):
                         "edit": True,
                     },
                 },
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "query": {"kind": "SavedInsightNode", "shortId": "custom-panels"},
+                        "showFilters": True,
+                        "showResults": False,
+                    },
+                },
+                {
+                    "type": "ph-feature-flag",
+                    "attrs": {
+                        "id": 123,
+                        "view": "summary",
+                    },
+                },
             ],
         }
 
         markdown = convert_notebook_content_to_markdown(content)
 
+        assert '<Query query={{"kind":"SavedInsightNode","shortId":"ZcWG6625"}} title="Activation" />' in markdown
+        assert '<Recording id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />' in markdown
+        assert '<Query query={{"kind":"SavedInsightNode","shortId":"legacyInsight"}} />' in markdown
+        assert '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />' in markdown
         assert (
-            '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"ZcWG6625"}} title="Activation" />'
+            '<Query showFilters hideResults query={{"kind":"SavedInsightNode","shortId":"custom-panels"}} />'
             in markdown
         )
-        assert '<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />' in markdown
-        assert '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"legacyInsight"}} />' in markdown
-        assert '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />' in markdown
+        assert '<FeatureFlag id={123} view="summary" />' in markdown
 
     def test_converts_legacy_markdown_ast_alias_nodes_without_losing_structure(self) -> None:
         content = {
@@ -264,7 +301,7 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "> Quoted context" in markdown
         assert "\n\n<Query " in markdown
         assert "\n\n## Where to improve" in markdown
-        assert "\n\n<Python " in markdown
+        assert '\n\n<UnknownNode nodeType="ph-python" ' in markdown
         assert "> ! Watch this" in markdown
         assert "> <" not in markdown
 

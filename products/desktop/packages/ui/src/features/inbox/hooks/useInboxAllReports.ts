@@ -1,25 +1,21 @@
 import {
+  buildArchiveListOrdering,
   buildPriorityFilterParam,
   buildSignalReportListOrdering,
   buildSuggestedReviewerFilterParam,
   filterReportsBySearch,
   INBOX_PIPELINE_STATUS_FILTER,
   INBOX_PULL_REQUEST_STATUS_FILTER,
-  INBOX_REFETCH_INTERVAL_MS,
 } from "@posthog/core/inbox/reportFiltering";
 import {
   INBOX_SCOPE_FOR_YOU,
-  isExcludedFromInbox,
-  isPullRequestReport,
-  isReportTabReport,
   parseTeammateInboxScope,
 } from "@posthog/core/inbox/reportMembership";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import {
-  useInboxReports,
-  useInboxReportsInfinite,
-} from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
+import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { useMemo } from "react";
@@ -37,25 +33,54 @@ const EMPTY_FILTER_ARRAY: never[] = [];
  *
  * When `ignoreFilters` is set, the filter-store selectors return constant
  * values so unrelated filter changes don't re-render the consumer.
+ *
+ * `withPullRequestCount` and `withReportsCount` choose which totals `counts`
+ * carries; one backend count request serves both, and it is skipped when
+ * neither is set.
  */
 export function useInboxAllReports(options?: {
+  enabled?: boolean;
   ignoreScope?: boolean;
   ignoreFilters?: boolean;
   pullRequestsOnly?: boolean;
+  hasImplementationPr?: boolean;
+  actionabilityFilter?: string;
+  withPullRequestCount?: boolean;
+  withReportsCount?: boolean;
   refetchIntervalMs?: number;
+  /**
+   * Overrides the pipeline status set (server-side, part of the query key).
+   * Callers sharing one dataset must pass the same value.
+   */
+  statusFilter?: string;
+  /**
+   * Apply the persisted source filter to the query. The sectioned inbox hides
+   * that control, so it opts out to avoid a stored value filtering the list.
+   */
+  applySourceFilter?: boolean;
+  /** Ignore the shared search value on surfaces that do not render search. */
+  applySearchFilter?: boolean;
+  /** Keep statuses interleaved by the selected sort instead of grouping them. */
+  groupByStatus?: boolean;
 }) {
+  const enabled = options?.enabled ?? true;
   const ignoreScope = options?.ignoreScope ?? false;
   const ignoreFilters = options?.ignoreFilters ?? false;
+  const applySourceFilter = options?.applySourceFilter ?? true;
+  const applySearchFilter = options?.applySearchFilter ?? true;
+  const groupByStatus = options?.groupByStatus ?? true;
   const refetchIntervalMs =
-    options?.refetchIntervalMs ?? INBOX_REFETCH_INTERVAL_MS;
+    options?.refetchIntervalMs ?? DESKTOP_INBOX_REFETCH_INTERVAL_MS;
   // The Pull requests tab fetches a server-filtered list (reports that have a
   // shipped PR) so its list body comes from the same source as its count — a PR
   // sitting past the broad list's first page no longer renders an empty tab
   // under a positive badge.
   const pullRequestsOnly = options?.pullRequestsOnly ?? false;
+  const withPullRequestCount = options?.withPullRequestCount ?? true;
+  const withReportsCount = options?.withReportsCount ?? false;
   const scope = useInboxReviewerScopeStore((s) => s.scope);
   const searchQuery = useInboxSignalsFilterStore((s) =>
-    ignoreFilters ? "" : s.searchQuery,
+    ignoreFilters || !applySearchFilter ? "" : s.searchQuery,
   );
   const sortField = useInboxSignalsFilterStore((s) =>
     ignoreFilters ? "updated_at" : s.sortField,
@@ -64,19 +89,24 @@ export function useInboxAllReports(options?: {
     ignoreFilters ? "desc" : s.sortDirection,
   );
   const sourceProductFilter = useInboxSignalsFilterStore((s) =>
-    ignoreFilters ? EMPTY_FILTER_ARRAY : s.sourceProductFilter,
+    ignoreFilters || !applySourceFilter
+      ? EMPTY_FILTER_ARRAY
+      : s.sourceProductFilter,
   );
   const priorityFilter = useInboxSignalsFilterStore((s) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : s.priorityFilter,
   );
+  const isForYou = !ignoreScope && scope === INBOX_SCOPE_FOR_YOU;
+  const teammateUuid = ignoreScope ? null : parseTeammateInboxScope(scope);
   const client = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({ client });
+  const { data: currentUser } = useCurrentUser({
+    client,
+    enabled: enabled && isForYou && teammateUuid === null,
+  });
 
   // Reviewer scope is applied server-side via `suggested_reviewers`: "For you"
   // filters on the current user, a teammate scope on theirs, "Entire project"
   // and the Runs tab (`ignoreScope`) send nothing.
-  const isForYou = !ignoreScope && scope === INBOX_SCOPE_FOR_YOU;
-  const teammateUuid = ignoreScope ? null : parseTeammateInboxScope(scope);
   const reviewerUuid =
     teammateUuid ?? (isForYou ? (currentUser?.uuid ?? null) : null);
 
@@ -86,9 +116,13 @@ export function useInboxAllReports(options?: {
       // matching its count query and the PostHog Cloud inbox.
       status: pullRequestsOnly
         ? INBOX_PULL_REQUEST_STATUS_FILTER
-        : INBOX_PIPELINE_STATUS_FILTER,
-      has_implementation_pr: pullRequestsOnly ? true : undefined,
-      ordering: buildSignalReportListOrdering(sortField, sortDirection),
+        : (options?.statusFilter ?? INBOX_PIPELINE_STATUS_FILTER),
+      has_implementation_pr:
+        options?.hasImplementationPr ?? (pullRequestsOnly ? true : undefined),
+      actionability: options?.actionabilityFilter,
+      ordering: groupByStatus
+        ? buildSignalReportListOrdering(sortField, sortDirection)
+        : buildArchiveListOrdering(sortField, sortDirection),
       source_product:
         sourceProductFilter.length > 0
           ? sourceProductFilter.join(",")
@@ -103,24 +137,19 @@ export function useInboxAllReports(options?: {
       // filter, so hold the query until that uuid resolves rather than firing a
       // throwaway project-wide fetch first. Other scopes don't depend on the
       // user and run immediately.
-      enabled: !isForYou || reviewerUuid != null,
+      enabled: enabled && (!isForYou || reviewerUuid != null),
       refetchInterval: refetchIntervalMs,
       refetchIntervalInBackground: false,
     },
   );
 
-  // True count of pull-request reports for the active scope. The infinite list
-  // only holds the first page(s), so deriving pulls from loaded reports caps at
-  // the page size and depends on ordering (a PR can sit past page 1). A cheap
-  // `limit: 1` count query with the server-side `has_implementation_pr` filter
-  // returns the real total regardless of page size.
-  const pullRequestCountQuery = useInboxReports(
+  // The badges need true totals, but the list only holds the first page(s), so
+  // deriving them from loaded reports caps at the page size and depends on
+  // ordering. One backend count returns both totals under the list's scope and
+  // filters without fetching or enriching a report row.
+  const withCounts = withPullRequestCount || withReportsCount;
+  const sectionCountsQuery = useInboxSectionCounts(
     {
-      status: INBOX_PULL_REQUEST_STATUS_FILTER,
-      has_implementation_pr: true,
-      // Mirror the list query's active filters so the badge matches the tab
-      // body. These are empty when `ignoreFilters` is set (sidebar usage), so
-      // the count stays scope-only there.
       source_product:
         sourceProductFilter.length > 0
           ? sourceProductFilter.join(",")
@@ -129,15 +158,18 @@ export function useInboxAllReports(options?: {
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
-      limit: 1,
     },
     {
-      enabled: !isForYou || reviewerUuid != null,
+      enabled: enabled && withCounts && (!isForYou || reviewerUuid != null),
       refetchInterval: refetchIntervalMs,
-      refetchIntervalInBackground: false,
     },
   );
-  const pullRequestTotal = pullRequestCountQuery.data?.count ?? 0;
+  const pullRequestTotal = withPullRequestCount
+    ? (sectionCountsQuery.data?.pull_requests ?? 0)
+    : 0;
+  const reportsTotal = withReportsCount
+    ? (sectionCountsQuery.data?.reports ?? 0)
+    : 0;
 
   const scopedReports = useMemo(() => {
     // Reviewer scope is already applied server-side via `suggested_reviewers`.
@@ -148,30 +180,24 @@ export function useInboxAllReports(options?: {
       : query.allReports;
   }, [query.allReports, searchQuery]);
 
-  const counts = useMemo(() => {
-    // Derive Reports from the backend total (the loaded list caps at the page
-    // size), subtracting PRs and the other non-report items the total includes.
-    // Scope is server-side, so no client reviewer recheck here either.
-    const loadedOtherNonReport = query.allReports.filter(
-      (r) =>
-        !isExcludedFromInbox(r) &&
-        !isReportTabReport(r) &&
-        !isPullRequestReport(r),
-    ).length;
-    return {
-      // True backend counts, unaffected by the list's page-size cap.
-      pulls: pullRequestTotal,
-      reports: Math.max(
-        0,
-        query.totalCount - pullRequestTotal - loadedOtherNonReport,
-      ),
-    };
-  }, [query.allReports, query.totalCount, pullRequestTotal]);
+  // Both are backend counts under the same server-side scope and filters as the
+  // list, so they are unaffected by its page-size cap and need no client-side
+  // reviewer recheck.
+  const counts = useMemo(
+    () => ({ pulls: pullRequestTotal, reports: reportsTotal }),
+    [pullRequestTotal, reportsTotal],
+  );
+
+  // The counts are their own request, so the list can succeed while they are
+  // still in flight and `counts` still reads 0. Anything that records the counts
+  // once and never revises them has to wait for this rather than for the list.
+  const countsReady = !withCounts || sectionCountsQuery.isSuccess;
 
   return {
     ...query,
     scopedReports,
     counts,
+    countsReady,
     scope,
     // The effective filter values used for this query. Surfaced so consumers
     // (e.g. analytics) can read them without subscribing to the filter store a
@@ -180,5 +206,7 @@ export function useInboxAllReports(options?: {
     searchQuery,
     sourceProductFilter,
     priorityFilter,
+    sortField,
+    sortDirection,
   };
 }

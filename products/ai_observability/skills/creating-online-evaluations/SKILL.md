@@ -2,15 +2,14 @@
 name: creating-online-evaluations
 description: >
   Author continuously-running online evaluations in PostHog AI observability, grounded in real failure
-  modes you've identified. Use when the user wants evaluations that automatically score new generations
-  or whole traces going forward — "create an eval to catch X", "continuously check that responses do Y",
-  "turn these failures into evals". Covers letting the explored data decide how many evals to create,
-  proposing that set in plain language and asking the user which ones they want, choosing the target and
-  eval type (hog / llm_judge / sentiment), configuring a provider, model, and usable provider key for an
-  llm_judge eval, scoping which generations trigger it via conditions, creating disabled, verifying scope,
-  and enabling. Falls back to proposing a sentiment eval when no failure mode is worth catching.
-  Finding and ranking the failure modes worth evaluating is its own job — use exploring-ai-failures first.
-  To debug or manage evaluations that already exist, use exploring-llm-evaluations.
+  modes you've identified. Use when the user wants evaluations that automatically score new generations or
+  whole traces going forward — "create an eval to catch X", "continuously check that responses do Y",
+  "turn these failures into evals", or after reading traces finds a recurring failure. Covers letting the explored data decide how many evals to create,
+  proposing that set for the user to pick, choosing the target and eval type (hog / llm_judge /
+  sentiment), configuring an llm_judge's provider and model, scoping which generations trigger it via conditions, creating disabled, verifying scope,
+  enabling, and backfilling past data. Proposes a sentiment eval when no failure mode is worth catching. Finding and ranking the
+  failure modes worth evaluating is its own job — use exploring-ai-failures first. To debug or manage
+  evaluations that already exist, use exploring-llm-evaluations.
 ---
 
 # Creating online evaluations
@@ -22,7 +21,9 @@ failure modes are identified and turns them into scoped, continuously-running ev
 
 **One eval per failure mode, and as many evals as the data justifies.** How many to create is a judgment
 call you make from what the traces actually showed — sometimes one, often three or four. Never assume the
-answer is one, and never bundle several modes into one evaluator.
+answer is one, and never bundle unrelated modes into one evaluator. The exception is a set of modes that are
+outcomes of the same check, such as the reasons a reply missed the user's request: one categorical eval with
+a category per mode fits that (2.1).
 
 **Propose before you create.** Bring the user a short list of candidate evals and let them pick which ones
 they want (Phase 1.1). Creating evals they didn't ask for costs them money and noise.
@@ -37,19 +38,24 @@ debugging a live eval), defer to `exploring-llm-evaluations`.
 
 ## Tools
 
-| Tool                                       | Purpose                                                       |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| `posthog:llma-evaluation-config-get`       | Check the active provider key used by unpinned judges         |
-| `posthog:llma-provider-key-list`           | Find a usable (`ok` state) provider key to pin                |
-| `posthog:llma-evaluation-judge-models`     | List valid provider+model combos                              |
-| `posthog:llma-evaluation-directory-list`   | List directories available for organizing the evaluation      |
-| `posthog:llma-evaluation-directory-create` | Create a directory when the user asks for a new one           |
-| `posthog:llma-evaluation-test-hog`         | Dry-run Hog source against recent generations before creating |
-| `posthog:llma-evaluation-create`           | Create the evaluation (always `enabled: false` first)         |
-| `posthog:llma-evaluation-run`              | Spot-run a draft eval against one generation                  |
-| `posthog:llma-evaluation-update`           | Iterate config, then flip `enabled: true`                     |
-| `posthog:execute-sql`                      | Verify a condition matches the events and volume you expect   |
-| `posthog:generate-app-url`                 | Build a region- and project-qualified deep link to the eval   |
+| Tool                                        | Purpose                                                       |
+| ------------------------------------------- | ------------------------------------------------------------- |
+| `posthog:llma-evaluation-config-get`        | Check the active provider key used by unpinned judges         |
+| `posthog:llma-provider-key-list`            | Find a usable (`ok` state) provider key to pin                |
+| `posthog:llma-evaluation-judge-models`      | List valid provider+model combos                              |
+| `posthog:llma-evaluation-directory-list`    | List directories available for organizing the evaluation      |
+| `posthog:llma-evaluation-directory-create`  | Create a directory when the user asks for a new one           |
+| `posthog:llma-evaluation-test-hog`          | Dry-run Hog source against recent generations before creating |
+| `posthog:llma-evaluation-create`            | Create the evaluation (always `enabled: false` first)         |
+| `posthog:llma-evaluation-run`               | Spot-run a draft eval against one generation                  |
+| `posthog:llma-evaluation-update`            | Iterate config, then flip `enabled: true`                     |
+| `posthog:llma-evaluation-backfill-estimate` | Count what a backfill over past data would evaluate           |
+| `posthog:llma-evaluation-backfill-create`   | Evaluate past data, only after the user confirms the estimate |
+| `posthog:llma-evaluation-backfill-get`      | Track a backfill's progress and coverage                      |
+| `posthog:llma-evaluation-backfill-list`     | Find an evaluation's backfills, including one already running |
+| `posthog:llma-evaluation-backfill-cancel`   | Stop a running backfill when the user asks                    |
+| `posthog:execute-sql`                       | Verify a condition matches the events and volume you expect   |
+| `posthog:generate-app-url`                  | Build a region- and project-qualified deep link to the eval   |
 
 The full create payload (every field, the config schemas, the exact `conditions` shape) is in
 [references/evaluation-payload.md](references/evaluation-payload.md).
@@ -129,13 +135,36 @@ set into production, which is noise and (for a judge) cost the user didn't agree
 
 ### 2.1 — Choose the eval type
 
-| Use…        | When the criterion is…                                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**              |
-| `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs a provider, model, and usable provider key.         |
-| `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill). |
+| Use…        | When the criterion is…                                                                                                                                                            |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**                                                          |
+| `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs a provider and model. A usable provider key is only needed to enable it, not to create a draft. |
+| `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill).                                             |
 
 Reach for `hog` first, escalate to `llm_judge` if there is no deterministic way to check for what we want to check.
+
+Then choose what one run returns. `hog` and `llm_judge` support all three output types:
+
+| `output_type` | When the failure mode is…                                                                                  |
+| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| `boolean`     | One yes/no criterion. The default. Set `true_is_failure: true` when the check detects a problem.           |
+| `numeric`     | A matter of degree (a 1–5 quality rating) or a measured value (length, latency, cost).                     |
+| `categorical` | One check whose outcome falls into named buckets, such as which of several related failure modes happened. |
+
+- **Numeric:** set `min` and `max` so out-of-range scores are skipped, not graded. For pass rates and
+  reports, add a `passing_rule` (`gte` or `lte` a threshold). `step` is only a hint: a judge can return
+  a fractional score such as `3.7` with `step: 1`, and the score is stored as returned.
+- **Categorical:** define `options` as stable lowercase keys with display labels. Use `single` selection
+  when exactly one outcome applies, and `multiple` when several problems can co-occur. For pass rates and
+  reports, set `passing_rule.categories` to the keys that count as a pass. In `single` mode that is usually
+  a "no problem" key. In `multiple` mode, define no "no problem" key and set `categories: []`, so only an
+  empty result passes. Any listed key makes an empty result fail.
+- Without a passing rule, numeric and categorical results are still recorded, but there are no pass rates
+  or reports.
+
+When an `llm_judge` returns `numeric` or `categorical`, PostHog tells the judge the output format. The prompt
+only describes what each score or category means. Full config fields:
+[references/evaluation-payload.md](references/evaluation-payload.md).
 
 ### 2.2 — Choose the target
 
@@ -210,27 +239,40 @@ when exact structure matters.
 
 ### 2.3 — Configure the LLM judge
 
-An `llm_judge` evaluation requires a valid `provider` and `model`. It also needs a usable provider key
-when it runs. `provider_key_id` controls whether the evaluation pins one specific key:
+An `llm_judge` evaluation requires only a valid `provider` and `model` to create as a draft. A usable
+provider key is needed to enable it, not to save it, so no `ok` key is a reason to keep the eval disabled,
+not a reason to stop. `provider_key_id` controls whether the evaluation pins one specific key:
 
 - Set `provider_key_id` to the UUID of an `ok`-state key for the same provider to pin it.
-- Set `provider_key_id` to `null` to use the team's active provider key. The active key must be in the
-  `ok` state and use the same provider as `model_configuration.provider`.
+- Set `provider_key_id` to `null` to use the team's active provider key. This is always a valid saved
+  value. To enable the eval, the active key must be in the `ok` state and use the same provider as
+  `model_configuration.provider`.
 
 Hog and sentiment evaluations skip this step.
 
 ```json
 posthog:llma-evaluation-config-get        // check active_provider_key for an unpinned judge
 posthog:llma-provider-key-list            // find an ok-state key to pin
-posthog:llma-evaluation-judge-models      // { "provider": "openai" } → valid models
+posthog:llma-evaluation-judge-models      // {} → every provider and its models; { "provider": "openai" } narrows it
 ```
 
-Confirm the provider and model with `llma-evaluation-judge-models`. Prefer pinning the chosen key so a later
-team-wide active-key change does not change how the evaluation runs. Leave `provider_key_id` as `null` only
-after `llma-evaluation-config-get` confirms the active key is usable and its provider matches.
+Confirm the provider and model with `llma-evaluation-judge-models`.
+Call it with no arguments to see the whole catalog at once.
+Providers PostHog funds no models for come back empty unless you pass `key_id` for one of the team's keys; the response's `providers` list flags which ones those are.
+A listed model is not a free model. Running any `llm_judge` needs one of the team's own provider keys, so enabling fails until a usable key exists.
+Prefer pinning the chosen key so a later team-wide active-key change does not change how the evaluation runs.
+Leave `provider_key_id` as `null` to run on the team's active key; before enabling, confirm with
+`llma-evaluation-config-get` that the active key is usable and its provider matches.
 
-If there is no usable key, you may still create a disabled draft for the user to review. Do not spot-run or
-enable it. Ask the user to add or validate a key in the UI before continuing.
+No usable key does not block creating the judge. Keys cannot be added through MCP, so:
+
+- If the team has an `ok` key that the judge isn't set to use, pin it with `provider_key_id` instead of asking
+  for a new one.
+- If the team has no usable key, still create the judge with `enabled: false`. Do not spot-run or enable it.
+- Tell the user plainly that the judge starts scoring once a project admin adds a key in Settings > AI
+  observability > Bring your own key (BYOK) and enables it. A judge left disabled with no word to the user
+  never runs, so this message is part of the job, including when a create with `enabled: true` is rejected
+  for a missing key and you retry it disabled.
 
 ### 2.4 — Create it disabled
 
@@ -259,8 +301,9 @@ posthog:llma-evaluation-create
 ```
 
 For `llm_judge`, swap `evaluation_config` to `{ "prompt": "…" }` and add
-`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": "<uuid of an ok-state key from llma-provider-key-list>" }`.
-Use `null` only when the active team key is `ok` and uses the same provider. Full field reference:
+`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null }`.
+Pin `provider_key_id` to the UUID of an `ok`-state key from `llma-provider-key-list` to run on one specific
+key; `null` runs on the team's active key. Either value saves a draft. Full field reference:
 [references/evaluation-payload.md](references/evaluation-payload.md).
 
 ### 2.5 — Verify the scope before enabling
@@ -281,7 +324,10 @@ For generation targets, `count()` is the run volume. For trace targets, count di
 `$ai_trace_id` values because matching generations from the same trace schedule only one run.
 
 If volume is high, set `rollout_percentage` below 100 to sample. Spot-check the evaluator with
-`llma-evaluation-test-hog` (hog) or `llma-evaluation-run` against one generation (llm_judge).
+`llma-evaluation-test-hog` (hog) or `llma-evaluation-run` against one generation (llm_judge; skip the
+spot-run for a judge with no usable key, per 2.3). For a numeric or categorical Hog eval, pass the same
+`output_type` and `output_config` to `llma-evaluation-test-hog`, so the preview validates the scores or
+category keys the saved eval will accept.
 Both tools currently use generation samples; for a trace target they can check shared source or prompt behavior,
 but they do not reproduce the complete settled trace. Review the first live trace results before increasing rollout.
 
@@ -301,9 +347,39 @@ Each now runs on every new matching generation, or once per matching trace for a
 one-and-done: the user should be aware that they need to keep an eye on results and iterate if the outcome
 is not the expected one. To wire results into a Slack feed, see `feature-usage-feed`.
 
+If the user asked to see results before anything goes live, show the test results for the whole set and ask
+once, in the same reply: "Enable these N now?" Enable the ones they approve right away, in this session. Don't
+end the conversation on a list of drafts: an eval nobody answered about stays disabled and never runs.
+
 Close the loop across the whole set at once — one short list of what's now live with a link each, not a
-play-by-play per eval. Mention any candidate you left disabled (no usable provider key, volume too high to
-enable yet) and what would unblock it.
+play-by-play per eval. Mention any candidate you left disabled (the user said no, no usable provider key,
+volume too high to enable yet), what would unblock it, and the link to enable it later.
+
+### 2.7 — Offer to evaluate past data
+
+An enabled eval only scores traffic from now on. If the user wants results on data they already have, offer
+a backfill over a recent window, at most the last 30 days. `posthog:llma-evaluation-backfill-create` refuses a
+disabled eval, so enable it first (see 2.6).
+
+1. Call `posthog:llma-evaluation-backfill-estimate` with the window, `conditions`, and `rerun_existing` the
+   user wants. Tell the user `total_units`, the
+   returned window (it is clamped, so it can differ from the one you asked for), and what each unit costs:
+   one run of the eval, counted as an AI observability event, plus a model call for an `llm_judge`.
+   `already_evaluated_units` already have a result and are left out unless `rerun_existing` is true.
+2. Call `posthog:llma-evaluation-backfill-create` only after the user says yes. Pass the `window_start` and
+   `window_end` the estimate returned, not the ones you asked for, with the same `conditions` and
+   `rerun_existing`, so the run matches what they approved.
+3. Track it with `posthog:llma-evaluation-backfill-get`. Skipped units were already being evaluated by the
+   eval itself, so they are covered, not missed. Once it completes, a `remaining_count` above zero means
+   units were left without a result; offer another backfill over the same range. Offer it once. If the
+   second run leaves units behind again, the eval keeps failing on them, so tell the user instead of
+   offering a third.
+4. If `posthog:llma-evaluation-backfill-create` says it could not confirm the start, call
+   `posthog:llma-evaluation-backfill-list` before trying again, because the backfill may be running.
+5. To stop a backfill, call `posthog:llma-evaluation-backfill-cancel`. Evaluations it already started
+   still finish.
+
+One backfill runs per evaluation at a time.
 
 ## Scoping with conditions
 
@@ -339,7 +415,8 @@ creating so the user can review and toggle it in the UI.
   back to a real bad output is noise.
 - **One eval, one failure mode — and as many evals as the data justifies.** Different failure modes need
   different evals; don't make one eval try to catch everything, and don't default to creating exactly one
-  when the traces showed several modes worth watching.
+  when the traces showed several modes worth watching. Related modes that one check tells apart are the
+  exception: they fit one categorical eval.
 - **Propose, then create what they picked.** Show the candidate set in plain language, a line or two each,
   and wait for the user to choose. Long per-eval write-ups get skimmed, not read.
 - **Nothing found still has an answer.** Traces read but no failure mode worth an eval means proposing a
@@ -352,8 +429,12 @@ creating so the user can review and toggle it in the UI.
   criterion genuinely can't be coded.
 - **Always create disabled, verify scope, then enable.** An eval firing on the wrong events is worse than
   none — noise, and (for llm_judge) cost.
-- **Configure llm_judge credentials before running.** A judge needs a valid provider and model plus a usable
-  provider key. `provider_key_id` may be `null` only when the matching active team key can be used.
+- **A judge draft needs only a provider and model.** A usable provider key is needed to enable it, not to
+  save it, so no `ok` key means keep it disabled — not stop. `provider_key_id` may be `null` to run on the
+  team's active key.
+- **Online evals are for live traffic, not a registry.** Don't create disabled online evals as records or
+  placeholders for evals that run elsewhere (CI, a local eval folder, a test suite). Record those as offline
+  experiments (`analyzing-offline-evaluations`). Every online eval you create should be one you mean to enable.
 - **`bytecode` is server-written** for hog evals — never pass it; send only `evaluation_config.source`.
 - For cluster-scoped evals, identify the cluster with `exploring-llm-clusters`, then translate its event
   filter into `conditions`.

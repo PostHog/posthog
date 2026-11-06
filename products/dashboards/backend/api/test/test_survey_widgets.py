@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -17,7 +19,7 @@ from products.surveys.backend.responses.fetch_rows import SurveyResponseRow
 
 
 def _block_survey_for_member(team: Team, survey: Survey, member: User) -> None:
-    from ee.models.rbac.access_control import AccessControl  # noqa: PLC0415
+    from products.access_control.backend.models.access_control import AccessControl  # noqa: PLC0415
 
     team.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
     team.organization.save()
@@ -31,7 +33,7 @@ def _block_survey_for_member(team: Team, survey: Survey, member: User) -> None:
     )
 
 
-class TestSurveyResultsWidgetConfig(APIBaseTest):
+class TestSurveyResultsWidgetConfig(SimpleTestCase):
     def test_config_defaults_to_unconfigured(self) -> None:
         validated = validate_widget_config(SURVEY_RESULTS_WIDGET_TYPE, {})
         assert validated.get("surveyId") is None

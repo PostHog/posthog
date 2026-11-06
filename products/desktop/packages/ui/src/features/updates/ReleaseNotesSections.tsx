@@ -1,33 +1,50 @@
+import { Text } from "@posthog/quill";
 import type { CategorizedNotes } from "@posthog/ui/features/updates/releaseNotes";
-import { Flex } from "@radix-ui/themes";
+import type { ReactElement } from "react";
 
-function ReleaseSection({ title, items }: { title: string; items: string[] }) {
+function ReleaseSection({
+  title,
+  items,
+}: {
+  title: string;
+  items: string[];
+}): ReactElement | null {
   if (items.length === 0) return null;
   return (
-    <Flex direction="column" gap="1">
-      <span className="font-medium text-[11px] text-gray-10 uppercase tracking-wide">
+    <div className="flex flex-col gap-1">
+      <Text
+        render={<span />}
+        size="xxs"
+        weight="medium"
+        variant="muted"
+        className="uppercase tracking-wide"
+      >
         {title}
-      </span>
+      </Text>
       <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
         {items.map((item) => (
           <li
             key={`${title}-${item}`}
-            className="flex gap-2 text-[13px] text-gray-12 leading-relaxed"
+            className="flex gap-2 text-foreground text-xs leading-relaxed"
           >
-            <span className="mt-px select-none text-gray-9">•</span>
+            <span className="mt-px select-none text-muted-foreground">•</span>
             <span className="min-w-0">{item}</span>
           </li>
         ))}
       </ul>
-    </Flex>
+    </div>
   );
 }
 
-export function ReleaseNotesSections({ notes }: { notes: CategorizedNotes }) {
+export function ReleaseNotesSections({
+  notes,
+}: {
+  notes: CategorizedNotes;
+}): ReactElement {
   return (
-    <Flex direction="column" gap="3">
+    <div className="flex flex-col gap-3">
       <ReleaseSection title="Improved" items={notes.improved} />
       <ReleaseSection title="Fixed" items={notes.fixed} />
-    </Flex>
+    </div>
   );
 }

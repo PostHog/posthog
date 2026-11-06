@@ -1,0 +1,118 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
+
+import { ExperimentMetricForm } from 'scenes/experiments/ExperimentMetricForm'
+import { exposureCriteriaModalLogic } from 'scenes/experiments/ExperimentView/exposureCriteriaModalLogic'
+import { resolveFilterTestAccounts, resolvedExposureEvent } from 'scenes/experiments/exposureContract'
+
+import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
+import type { Experiment } from '~/types'
+
+import {
+    alignMetricsWithExposure,
+    getWarehouseNativeExposure,
+    getWarehouseNativeMetricError,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
+
+import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
+
+export function ExperimentMetricModal({
+    experiment,
+    exposureCriteria,
+    onSave,
+    onDelete,
+}: {
+    experiment: Experiment
+    exposureCriteria: ExperimentExposureCriteria | undefined
+    onSave: (metric: ExperimentMetric, context: MetricContext) => void
+    onDelete: (metric: ExperimentMetric, context: MetricContext) => void
+}): JSX.Element | null {
+    const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
+    const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
+    const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
+
+    if (!isModalOpen || !metric) {
+        return null
+    }
+
+    // The exposure can change while this modal is open, and the API rejects a metric on another connection or unit
+    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+    const metricToSave = warehouseExposure ? alignMetricsWithExposure([metric], warehouseExposure)[0] : metric
+
+    return (
+        <LemonModal
+            isOpen={isModalOpen}
+            onClose={closeExperimentMetricModal}
+            title={isCreateMode ? 'Create experiment metric' : 'Edit experiment metric'}
+            footer={
+                <div className="flex items-center w-full">
+                    {isEditMode && (
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Delete this metric?',
+                                    content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        onClick: () => onDelete(metric, context),
+                                        size: 'small',
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                        size: 'small',
+                                    },
+                                })
+                            }}
+                        >
+                            Delete
+                        </LemonButton>
+                    )}
+                    <div className="flex items-center gap-2 ml-auto">
+                        <LemonButton
+                            form="edit-experiment-metric-form"
+                            type="secondary"
+                            onClick={closeExperimentMetricModal}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            form="edit-experiment-metric-form"
+                            onClick={() => onSave(metricToSave, context)}
+                            type="primary"
+                            data-attr="save-experiment-metric"
+                            disabledReason={getWarehouseNativeMetricError(metricToSave) ?? undefined}
+                        >
+                            {isCreateMode ? 'Create' : 'Save'}
+                        </LemonButton>
+                    </div>
+                </div>
+            }
+        >
+            <div className="mb-4">
+                <LemonLabel className="mb-1">Name (optional)</LemonLabel>
+                <LemonInput
+                    value={metric.name}
+                    onChange={(newName) => {
+                        setModalMetric({
+                            ...metric,
+                            name: newName,
+                        })
+                    }}
+                />
+            </div>
+            <ExperimentMetricForm
+                metric={metric}
+                handleSetMetric={setModalMetric}
+                filterTestAccounts={resolveFilterTestAccounts(experiment.exposure_criteria)}
+                exposureCriteria={exposureCriteria}
+                openExposureCriteriaModal={openExposureCriteriaModal}
+                resolvedExposureEvent={resolvedExposureEvent(experiment)}
+            />
+        </LemonModal>
+    )
+}

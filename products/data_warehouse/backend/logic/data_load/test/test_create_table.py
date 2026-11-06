@@ -6,16 +6,18 @@ from unittest.mock import AsyncMock, patch
 from posthog.models import Team
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.tasks import refresh_downstream_view_columns
 from products.data_warehouse.backend.logic.data_load.create_table import create_table_from_saved_query
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_concurrent_materializations_share_one_backing_table(team: Team) -> None:
+@pytest.mark.parametrize("name", ["concurrent_model", "models.concurrent_model"])
+async def test_concurrent_materializations_share_one_backing_table(team: Team, name: str) -> None:
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
         team=team,
-        name="concurrent_model",
+        name=name,
         query={"kind": "HogQLQuery", "query": "SELECT 1"},
     )
     first_job, second_job = await asyncio.gather(
@@ -53,27 +55,34 @@ async def test_concurrent_materializations_share_one_backing_table(team: Team) -
     assert first_result.table.id == second_result.table.id
     assert saved_query.table_id == first_result.table.id
     assert table_count == 1
+    assert first_result.table.created_via == DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Team) -> None:
+@pytest.mark.parametrize("name", ["snapshot_model", "models.snapshot_model"])
+async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Team, name: str) -> None:
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
         team=team,
-        name="snapshot_model",
+        name=name,
         query={"kind": "HogQLQuery", "query": "SELECT 1"},
     )
     baseline_columns = {"baseline": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
-    table = await DataWarehouseTable.objects.acreate(
-        team=team,
-        name=saved_query.name,
-        format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-        url_pattern=saved_query.url_pattern,
-        queryable_folder="baseline-folder",
-        columns=baseline_columns,
-        column_order=["baseline"],
-        row_count=10,
-        size_in_s3_mib=10.0,
+    # bulk_create skips save() validation, like a backing table written before created_via existed.
+    [table] = await DataWarehouseTable.objects.abulk_create(
+        [
+            DataWarehouseTable(
+                team=team,
+                name=saved_query.name,
+                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                url_pattern=saved_query.url_pattern,
+                queryable_folder="baseline-folder",
+                columns=baseline_columns,
+                column_order=["baseline"],
+                row_count=10,
+                size_in_s3_mib=10.0,
+            )
+        ]
     )
     saved_query.table = table
     await saved_query.asave(update_fields=["table", "updated_at"])
@@ -108,6 +117,7 @@ async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Tea
             new_callable=AsyncMock,
             return_value=20.0,
         ),
+        patch.object(refresh_downstream_view_columns, "delay") as refresh_delay,
     ):
         await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, "replacement-folder")
 
@@ -125,3 +135,5 @@ async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Tea
     assert table.column_order == ["replacement"]
     assert table.row_count == 20
     assert table.size_in_s3_mib == 20.0
+    assert table.created_via == DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
+    refresh_delay.assert_called_once_with(team.pk, str(saved_query.id), None)

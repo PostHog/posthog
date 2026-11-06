@@ -4,6 +4,7 @@ import type {
   CloudMcpServerRelayDesignation,
   CloudRunSource,
   McpServerConnection,
+  ModelAccess,
   PrAuthorshipMode,
 } from "@posthog/shared";
 import type { Task, TaskRun } from "@posthog/shared/domain-types";
@@ -13,6 +14,8 @@ export interface CreateTaskRunClientOptions {
   mode?: "interactive" | "background";
   branch?: string | null;
   adapter?: Adapter;
+  claudeModelAccess?: ModelAccess;
+  codexModelAccess?: ModelAccess;
   piRuntime?: boolean;
   model?: string;
   reasoningLevel?: string;

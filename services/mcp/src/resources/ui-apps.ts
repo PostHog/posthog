@@ -48,8 +48,12 @@ export interface UiAppResourceMeta {
  * are blocked whenever that host differs from the connected server origin
  * (e.g. mcp.us.posthog.com assets vs mcp.posthog.com origin).
  */
-export function buildUiAppResourceMeta(baseUrl: string, analyticsBaseUrl: string | undefined): UiAppResourceMeta {
-    const resourceDomains: string[] = [baseUrl]
+export function buildUiAppResourceMeta(
+    baseUrl: string,
+    analyticsBaseUrl: string | undefined,
+    additionalResourceDomains: string[] = []
+): UiAppResourceMeta {
+    const resourceDomains: string[] = [baseUrl, ...additionalResourceDomains]
     const connectDomains: string[] = []
 
     if (analyticsBaseUrl) {
@@ -95,15 +99,16 @@ interface RegisterAppParams {
     uri: string
     description: string
     appDir: string
+    resourceDomains?: string[]
 }
 
 function registerApp(
     server: McpServer,
     context: Context,
-    { name, uri, description, appDir }: RegisterAppParams,
+    { name, uri, description, appDir, resourceDomains }: RegisterAppParams,
     baseUrl: string
 ): void {
-    const meta = buildUiAppResourceMeta(baseUrl, context.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL)
+    const meta = buildUiAppResourceMeta(baseUrl, context.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL, resourceDomains)
     const html = buildAppStubHtml(appDir, baseUrl)
 
     // `_meta` goes on the registration too, so a host that builds the iframe CSP from

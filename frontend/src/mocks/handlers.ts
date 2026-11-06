@@ -15,7 +15,7 @@ import {
 
 import { HttpResponse } from 'msw'
 
-import { STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
+import { STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
 
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
@@ -98,19 +98,40 @@ function posthogCORSResponse(info: MockResolverInfo): Response {
 
 export const defaultMocks: Mocks = {
     get: {
+        '/api/projects/:team_id/marketing_analytics/source_validation/': { errors_by_source: {} },
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/events_retention/': {
+            retention_months: null,
+            retained_from: null,
+            docs_url: 'https://posthog.com/docs/data/events-retention',
+            project_retention_months: null,
+            next_deletion_on: null,
+            next_deletion_before: null,
+            scheduled_pass_on: null,
+            first_pass_on: '2027-02-03',
+            default_period_deletes: false,
+            organization_retention_months: null,
+            default_retention_months: 84,
+            default_is_grandfathered: true,
+            plan_retention_months: 84,
+            min_retention_months: 1,
+            max_retention_months: 84,
+            retention_months_choices: [1, 3, 12, 24, 36, 60, 84],
+            next_monthly_cleanup_on: '2026-11-03',
+        },
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/data_catalog/metrics/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/cohorts/': toPaginatedResponse([MOCK_DEFAULT_COHORT]),
         '/api/environments/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/alerts/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
-        '/api/environments/:team_id/user_product_list/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates/repository/': [],
         '/api/environments/:team_id/external_data_sources/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/external_data_sources/exists/': { exists: false },
         '/api/projects/:team_id/notebooks': () => {
             // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
             return [
@@ -152,6 +173,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_saved_query_folders/': [],
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
         '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
@@ -164,11 +186,61 @@ export const defaultMocks: Mocks = {
             },
         ],
         '/api/organizations/:organization_id/roles/': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/:organization_id/events_retention_setting/': {
+            organization_retention_months: null,
+            default_retention_months: 84,
+            default_is_grandfathered: true,
+            plan_retention_months: 84,
+            min_retention_months: 1,
+            max_retention_months: 84,
+            retention_months_choices: [1, 3, 12, 24, 36, 60, 84],
+            next_monthly_cleanup_on: '2026-11-03',
+        },
         '/api/organizations/:organization_id/resource_access': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/members/': toPaginatedResponse([
             MOCK_DEFAULT_ORGANIZATION_MEMBER,
             MOCK_SECOND_ORGANIZATION_MEMBER,
         ]),
+        '/api/organizations/:organization_id/members/project_access/': {
+            results: [
+                {
+                    organization_membership_id: MOCK_DEFAULT_ORGANIZATION_MEMBER.id,
+                    projects: [
+                        {
+                            team_id: MOCK_DEFAULT_TEAM.id,
+                            team_name: MOCK_DEFAULT_TEAM.name,
+                            access_level: 'admin',
+                            resolved: {
+                                access_level: 'admin',
+                                source: 'org_admin',
+                                source_subject: null,
+                                source_resource: 'project',
+                                source_resource_id: null,
+                                subject_name: null,
+                            },
+                        },
+                    ],
+                },
+                {
+                    organization_membership_id: MOCK_SECOND_ORGANIZATION_MEMBER.id,
+                    projects: [
+                        {
+                            team_id: MOCK_DEFAULT_TEAM.id,
+                            team_name: MOCK_DEFAULT_TEAM.name,
+                            access_level: 'member',
+                            resolved: {
+                                access_level: 'member',
+                                source: 'object',
+                                source_subject: 'default',
+                                source_resource: 'project',
+                                source_resource_id: String(MOCK_DEFAULT_TEAM.id),
+                                subject_name: null,
+                            },
+                        },
+                    ],
+                },
+            ],
+        },
         '/api/organizations/:organization_id/invites/': toPaginatedResponse([MOCK_DEFAULT_ORGANIZATION_INVITE]),
         '/api/organizations/:organization_id/plugins/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN]),
         '/api/organizations/:organization_id/plugins/repository/': [],
@@ -189,7 +261,10 @@ export const defaultMocks: Mocks = {
                 pending_invites: [],
             },
         ],
-        '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
+        '/api/users/@me/two_factor_status/': () => [
+            200,
+            { is_enabled: true, backup_codes_remaining: 0, method: 'TOTP' },
+        ],
         '/api/users/@me/hedgehog_config/': {
             color: null,
             enabled: false,
@@ -233,6 +308,20 @@ export const defaultMocks: Mocks = {
 
         '/api/billing/spend/': { results: [] },
         '/api/billing/usage/': { results: [] },
+        '/api/billing/usage/team_options/': { team_id_options: [] },
+        '/api/organizations/:organization_id/billing/spend/timeseries/': {
+            count: 0,
+            next: null,
+            previous: null,
+            results: [],
+        },
+        '/api/organizations/:organization_id/billing/usage/timeseries/': {
+            count: 0,
+            next: null,
+            previous: null,
+            results: [],
+        },
+        '/api/organizations/:organization_id/billing/projects/': { count: 0, next: null, previous: null, results: [] },
         [`${STATUS_PAGE_BASE}/api/v1/summary`]: statusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
@@ -276,7 +365,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/event_ingestion_restrictions/': [],
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
-        'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/integrations/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/quick_filters/': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/assignment_rules': EMPTY_PAGINATED_RESPONSE,
@@ -290,6 +379,12 @@ export const defaultMocks: Mocks = {
         '/api/team_sdk_versions/': teamSdkVersions,
         '/api/environments/:team_id/endpoints/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/signals/source_configs/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/signals/onboarding/': {
+            draft: null,
+            completed_at: null,
+            github_optional_available: false,
+        },
+        '/api/projects/:team_id/signals/scout/notes/': [],
         '/api/projects/:team_id/feature_flags/:feature_flag_id/dependent_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_prompts/resolve/': {},
         '/api/environments/:team_id/llm_analytics/': {},

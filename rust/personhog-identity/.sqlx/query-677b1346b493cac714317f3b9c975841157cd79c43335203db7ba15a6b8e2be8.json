@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_flip_target' */ SELECT person_id FROM lifecycle_op_person_tmp WHERE op_id = $1 AND role = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "677b1346b493cac714317f3b9c975841157cd79c43335203db7ba15a6b8e2be8"
+}

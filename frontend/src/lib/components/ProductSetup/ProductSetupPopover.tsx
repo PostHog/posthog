@@ -3,14 +3,13 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconExternal, IconLock, IconSparkles, IconTarget } from '@posthog/icons'
+import { IconCheck, IconExternal, IconLock, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -135,9 +134,6 @@ export function ProductSetupPopover({
     const onboardingTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'onboarding')
     const exploreTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'explore')
     const aiTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'ai')
-
-    // Skip the rainbow animation in Storybook so visual-regression snapshots don't flake on the moving gradient.
-    const aiTitleClassName = `rainbow-text${inStorybook() || inStorybookTestRunner() ? '' : ' rainbow-text-animating'}`
 
     const productName = config?.title.replace('Get started with ', '') || ''
 
@@ -306,8 +302,6 @@ export function ProductSetupPopover({
                                                 onMarkComplete={handleMarkComplete}
                                                 onUnmarkComplete={handleUnmarkComplete}
                                                 onHover={handleTaskHover}
-                                                titleClassName={aiTitleClassName}
-                                                titleIcon={<IconSparkles className="size-3 shrink-0 text-warning" />}
                                             />
                                         )}
                                     </>
@@ -374,7 +368,9 @@ function PopoverHeader({
             <div className="px-3 py-2 border-b border-border">
                 <div className="text-center py-2">
                     <span className="text-lg">🎉</span>
-                    <p className="font-semibold text-sm mt-1">You've completed {productName}!</p>
+                    <p className="font-semibold text-sm mt-1">
+                        You've completed <span translate="no">{productName}</span>!
+                    </p>
                     {otherProductsWithTasks.length > 0 ? (
                         <p className="text-xs text-muted">Try another product to continue your setup</p>
                     ) : (
@@ -398,7 +394,10 @@ function PopoverHeader({
                         options={productOptions}
                     />
                 )}
-                <span className="text-xs text-muted ml-auto">
+                {/* Three bare text nodes that change as tasks complete. React tracks each one, so
+                    after page translation swaps them for `<font>` wrappers the next update throws
+                    (react#11538). Counts have nothing to translate. */}
+                <span className="text-xs text-muted ml-auto" translate="no">
                     {completedCount}/{totalTasks}
                 </span>
             </div>
@@ -473,7 +472,9 @@ function ProductSuggestionItem({ product, onSelect }: ProductSuggestionItemProps
         >
             <IconTarget className="w-4 h-4 text-muted" />
             <span className="flex-1 text-sm">{product.name}</span>
-            <span className="text-xs text-muted">{product.remainingCount} tasks</span>
+            <span className="text-xs text-muted">
+                <span translate="no">{product.remainingCount}</span> tasks
+            </span>
         </div>
     )
 }
@@ -502,13 +503,19 @@ function TaskHoverDescription({ task, anchored = false }: TaskHoverDescriptionPr
                     {task.lockedReason && (
                         <p className="text-xs text-warning mt-auto pt-1">
                             <strong>Depends on:</strong>{' '}
-                            {task.lockedReason.replace('Complete "', '').replace('" first', '')}
+                            {/* The hover card mounts and unmounts on every task hover, and this
+                                text node sits next to element siblings. On a translated page React
+                                inserts before, or removes, a node it no longer owns, and the commit
+                                throws (react#11538). Its own element keeps the node React tracks
+                                the sole child of a parent React can rewrite whole. */}
+                            <span>{task.lockedReason.replace('Complete "', '').replace('" first', '')}</span>
                         </p>
                     )}
                     {task.requiresManualCompletion && !task.completed && !task.skipped && (
                         <p className="text-xs text-muted mt-1 italic">
-                            Manual task – {task.docsUrl ? 'click for instructions, then ' : ''}
-                            mark as complete when done.
+                            <span>Manual task – </span>
+                            {task.docsUrl ? <span>click for instructions, then </span> : null}
+                            <span>mark as complete when done.</span>
                         </p>
                     )}
                 </>
@@ -557,8 +564,6 @@ interface TaskSectionProps {
     onUnmarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
     onHover?: (task: SetupTaskWithState | null, element?: HTMLElement) => void
     actionButton?: React.ReactNode
-    titleClassName?: string
-    titleIcon?: React.ReactNode
 }
 
 function TaskSection({
@@ -571,18 +576,13 @@ function TaskSection({
     onUnmarkComplete,
     onHover,
     actionButton,
-    titleClassName,
-    titleIcon,
 }: TaskSectionProps): JSX.Element {
     const completedCount = tasks.filter((t) => t.completed || t.skipped).length
 
     return (
         <div className="py-1" role="group" aria-label={`${title} (${completedCount} of ${tasks.length} complete)`}>
             <div className="px-3 py-1 flex items-center justify-between">
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
-                    {titleIcon}
-                    <span className={titleClassName ?? 'text-muted'}>{title}</span>
-                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted">{title}</span>
                 {actionButton}
             </div>
             <div role="list">

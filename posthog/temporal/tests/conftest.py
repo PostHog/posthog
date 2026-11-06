@@ -1,6 +1,6 @@
 import random
 import signal
-import asyncio
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -8,7 +8,6 @@ from django.conf import settings
 
 import psycopg
 import pytest_asyncio
-import temporalio.worker
 from asgiref.sync import sync_to_async
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
@@ -18,6 +17,7 @@ from posthog.models.user import User
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
+from posthog.temporal.tests.utils.logger import restored_structlog_config
 
 
 @pytest.fixture(autouse=True)
@@ -127,58 +127,12 @@ async def temporal_client():
     yield client
 
 
-@pytest_asyncio.fixture()
-async def workflows(request):
-    """Return Temporal workflows to initialize a test worker.
-
-    By default (no parametrization), we return all available workflows. Optionally,
-    with @pytest.mark.parametrize it is possible to customize which workflows the worker starts with.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        from products.batch_exports.backend.temporal import WORKFLOWS
-
-        return WORKFLOWS
-
-
-@pytest_asyncio.fixture()
-async def activities(request):
-    """Return Temporal activities to initialize a test worker.
-
-    By default (no parametrization), we return all available activities. Optionally,
-    with @pytest.mark.parametrize it is possible to customize which activities the worker starts with.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        from products.batch_exports.backend.temporal import ACTIVITIES
-
-        return ACTIVITIES
-
-
-@pytest_asyncio.fixture
-async def temporal_worker(temporal_client, workflows, activities):
-    worker = temporalio.worker.Worker(
-        temporal_client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
-        workflows=workflows,
-        activities=activities,
-        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-    )
-
-    worker_run = asyncio.create_task(worker.run())
-
-    yield worker
-
-    worker_run.cancel()
-    await asyncio.wait([worker_run])
-
-
 @pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
-async def configure_logger_auto() -> None:
+async def configure_logger_auto() -> AsyncIterator[None]:
     """Configure logger for running temporal tests."""
-    configure_logger(cache_logger_on_first_use=False)
+    with restored_structlog_config():
+        configure_logger(cache_logger_on_first_use=False)
+        yield
 
 
 @pytest_asyncio.fixture

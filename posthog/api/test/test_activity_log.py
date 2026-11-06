@@ -2,21 +2,34 @@ from datetime import timedelta
 from typing import Any, Optional
 from uuid import uuid4
 
-from freezegun import freeze_time
-from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory, TickingDateTimeFactory
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.advanced_activity_logs import ActivityLogSerializer
+from posthog.api.my_notifications import MyNotificationsSerializer
+from posthog.auth import JwtAuthentication
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.session.activity import session_public_id
+from posthog.test.authentication_checks import covers_authentication
+from posthog.test.insight_queries import default_pageview_query
+
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.csv_exporter import add_query_params
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -69,8 +82,8 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         if team_id is None:
             team_id = self.team.id
 
-        if "filters" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+        if "query" not in data:
+            data["query"] = default_pageview_query()
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
         self.assertEqual(response.status_code, expected_status)
@@ -79,27 +92,27 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         return response_json.get("id", None), response_json
 
     def _create_and_edit_things(self):
-        with freeze_time("2023-08-17") as frozen_time:
+        with time_machine.travel("2023-08-17", tick=False) as frozen_time:
             # almost every change below will be more than 5 minutes apart
             created_insights = []
             for _ in range(0, 11):
-                frozen_time.tick(delta=timedelta(minutes=6))
+                frozen_time.shift(timedelta(minutes=6))
                 insight_id, _ = self._create_insight({})
                 created_insights.append(insight_id)
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
             flag_one = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 _feature_flag_json_payload("one"),
             ).json()["id"]
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
             flag_two = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 _feature_flag_json_payload("two"),
             ).json()["id"]
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
 
             notebook_json = self.client.post(
                 f"/api/projects/{self.team.id}/notebooks/",
@@ -135,18 +148,18 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         notebook_short_id: str,
         notebook_version: int,
         the_user: User,
-        frozen_time: FrozenDateTimeFactory | StepTickTimeFactory | TickingDateTimeFactory,
+        frozen_time: time_machine.Traveller,
     ) -> int:
         self.client.force_login(the_user)
         for created_insight_id in created_insights[:7]:
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{created_insight_id}",
                 {"name": f"{created_insight_id}-insight-changed-by-{the_user.id}"},
             )
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-            frozen_time.tick(delta=timedelta(minutes=6))
+            frozen_time.shift(timedelta(minutes=6))
         assert (
             self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_one}",
@@ -155,7 +168,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             == status.HTTP_200_OK
         )
 
-        frozen_time.tick(delta=timedelta(minutes=6))
+        frozen_time.shift(timedelta(minutes=6))
         assert (
             self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_two}",
@@ -164,7 +177,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             == status.HTTP_200_OK
         )
 
-        frozen_time.tick(delta=timedelta(minutes=6))
+        frozen_time.shift(timedelta(minutes=6))
         # notebooks save while you're typing so, we get multiple activities per edit
         for typed_text in [
             "print",
@@ -173,7 +186,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             "print('hello world again from ",
             f"print('hello world again from {the_user.id}')",
         ]:
-            frozen_time.tick(delta=timedelta(seconds=5))
+            frozen_time.shift(timedelta(seconds=5))
             assert (
                 self.client.patch(
                     f"/api/projects/{self.team.id}/notebooks/{notebook_short_id}",
@@ -195,6 +208,20 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert res.status_code == status.HTTP_200_OK
         assert len(res.json()["results"]) == 39
 
+    def test_list_query_count_does_not_grow_with_page_size(self) -> None:
+        def query_count(page_size: int) -> int:
+            with CaptureQueriesContext(connection) as ctx:
+                res = self.client.get(f"/api/projects/{self.team.id}/activity_log?page_size={page_size}")
+            assert res.status_code == status.HTTP_200_OK
+            assert len(res.json()["results"]) == page_size
+            return len(ctx)
+
+        query_count(1)
+        few = query_count(2)
+        many = query_count(8)
+
+        assert few == many, f"listing 8 entries cost {many} queries vs {few} for 2, so something N+1s"
+
     def test_can_list_all_activity_filtered_by_scope(self) -> None:
         res = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=FeatureFlag")
         assert res.status_code == status.HTTP_200_OK
@@ -203,6 +230,105 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
 
 class TestActivityLogAuditLogsGate(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("activity_log/",),
+            ("advanced_activity_logs/",),
+            ("advanced_activity_logs/?is_csv_export=1",),
+            ("advanced_activity_logs/?schema=ocsf&include_values=true",),
+        ]
+    )
+    def test_legacy_destination_values_are_masked(self, endpoint: str) -> None:
+        detail = {
+            "name": "Example destination",
+            "changes": [
+                {
+                    "type": "HogFunction",
+                    "field": field,
+                    "action": "changed",
+                    "before": "example-private-before",
+                    "after": "example-private-after",
+                }
+                for field in ("inputs", "mappings", "draft", "encrypted_inputs", "draft_encrypted_inputs", "transpiled")
+            ]
+            + [
+                {"type": "HogFunction", "field": "name", "action": "changed", "before": "Old name", "after": "New name"}
+            ],
+        }
+        entry = ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="HogFunction",
+            activity="updated",
+            item_id="example-function",
+            detail=detail,
+        )
+        flow_entry = ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="HogFlow",
+            activity="updated",
+            item_id="example-flow",
+            detail={
+                "name": "Example workflow",
+                "changes": [
+                    {
+                        "type": "HogFlow",
+                        "field": "actions",
+                        "action": "changed",
+                        "before": [{"config": {"inputs": {"token": {"value": "example-private-flow"}}}}],
+                        "after": [],
+                    }
+                ],
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        assert str(entry.id) in body
+        assert str(flow_entry.id) in body
+        assert "example-private" not in body
+        assert "masked" in body
+        assert "New name" in body
+        entry.refresh_from_db()
+        assert entry.detail == detail
+
+    @parameterized.expand(
+        [
+            ("activity_log/",),
+            ("advanced_activity_logs/",),
+            ("advanced_activity_logs/?is_csv_export=1",),
+            ("advanced_activity_logs/?schema=ocsf",),
+        ]
+    )
+    def test_only_allowlisted_credential_ids_reach_the_endpoint(self, endpoint: str) -> None:
+        for credential_type, credential_id, impersonated_by_id in (
+            ("personal_api_key", "example-key-id", None),
+            ("service_jwt", "example-internal-audience", 424242),
+        ):
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                user=self.user,
+                scope="Experiment",
+                activity="created",
+                credential_type=credential_type,
+                credential_id=credential_id,
+                impersonated_by_id=impersonated_by_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        assert "personal_api_key" in body
+        assert "example-key-id" in body
+        assert "example-internal-audience" not in body
+        assert "impersonated_by_id" not in body
+        assert "424242" not in body
+
     @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
     def test_endpoint_blocked_on_cloud_without_audit_logs_feature(self, endpoint: str) -> None:
         self.organization.available_product_features = []
@@ -336,6 +462,34 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         # Cross-org row does NOT appear
         assert "flag-outside" not in item_ids
 
+    @parameterized.expand(
+        [
+            ("project_activity_log", "projects", "activity_log"),
+            ("project_advanced_activity_logs", "projects", "advanced_activity_logs"),
+            ("organization_advanced_activity_logs", "organizations", "advanced_activity_logs"),
+        ]
+    )
+    def test_legacy_loop_rows_are_hidden(self, _name: str, parent: str, endpoint: str) -> None:
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id="loop-1",
+            scope="Loop",
+            activity="updated",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
+        parent_id = self.team.id if parent == "projects" else self.organization.id
+
+        res = self.client.get(f"/api/{parent}/{parent_id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_200_OK
+        item_ids = {row["item_id"] for row in res.json()["results"]}
+        assert "flag-1" in item_ids
+        assert "loop-1" not in item_ids
+
     def test_invalid_filter_is_rejected(self) -> None:
         # Wiring guard: the viewset must run AdvancedActivityLogFiltersSerializer on the query params.
         # The exhaustive filter-shape matrix is unit-tested without a DB in
@@ -437,23 +591,87 @@ class TestOrganizationAdvancedActivityLogsAvailableFilters(APIBaseTest):
 class TestActivityLogBearerAuthAttribution(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
-    def _create_experiment_and_get_activity(self, auth_header: str, flag_key: str) -> ActivityLog:
+    def _create_experiment_and_get_activity(
+        self, auth_header: str | None, flag_key: str, extra_headers: dict[str, str] | None = None
+    ) -> ActivityLog:
+        headers = dict(extra_headers or {})
+        if auth_header:
+            headers["authorization"] = auth_header
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {"name": "Bearer auth experiment", "feature_flag_key": flag_key},
-            headers={"authorization": auth_header},
+            headers=headers,
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return ActivityLog.objects.get(scope="Experiment", activity="created", item_id=str(response.json()["id"]))
 
-    def test_personal_api_key_write_is_attributed_to_key_owner(self) -> None:
+    def _create_personal_api_key(self) -> tuple[str, PersonalAPIKey]:
         value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(value), scopes=["*"])
+        key = PersonalAPIKey.objects.create(
+            label="Test", user=self.user, secure_value=hash_key_value(value), scopes=["*"]
+        )
+        return value, key
+
+    def test_personal_api_key_write_is_attributed_to_key_owner(self) -> None:
+        value, key = self._create_personal_api_key()
 
         log = self._create_experiment_and_get_activity(f"Bearer {value}", "pat-attribution-flag")
 
         assert log.is_system is False
         assert log.user == self.user
+        assert (log.credential_type, log.credential_id, log.impersonated_by_id) == ("personal_api_key", key.id, None)
+
+    def test_session_write_records_the_session_public_id(self) -> None:
+        self.client.force_login(self.user)
+
+        log = self._create_experiment_and_get_activity(None, "session-attribution-flag")
+
+        session_key = self.client.session.session_key
+        assert session_key is not None
+        assert log.user == self.user
+        assert (log.credential_type, log.credential_id) == ("session", str(session_public_id(session_key)))
+        assert activity_storage.get_credential() is None
+
+    @parameterized.expand([("personal_api_key",), ("oauth",)])
+    def test_bearer_credential_replaces_the_session_credential(self, credential_type: str) -> None:
+        self.client.force_login(self.user)
+        if credential_type == "personal_api_key":
+            value, key = self._create_personal_api_key()
+            auth_header, expected_id = f"Bearer {value}", key.id
+        else:
+            token = self._create_oauth_token()
+            auth_header, expected_id = f"Bearer {token.token}", str(token.application_id)
+
+        log = self._create_experiment_and_get_activity(
+            auth_header,
+            f"{credential_type}-over-session-flag",
+            extra_headers={"x-posthog-client": "session"},
+        )
+
+        assert (log.credential_type, log.credential_id) == (credential_type, expected_id)
+        assert log.client == "session"
+
+    def test_login_records_the_session_it_creates(self) -> None:
+        self.user.is_email_verified = True
+        self.user.save()
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        log = ActivityLog.objects.get(scope="User", activity="logged_in", item_id=str(self.user.id))
+        session_key = self.client.session.session_key
+        assert session_key is not None
+        assert (log.credential_type, log.credential_id) == ("session", str(session_public_id(session_key)))
+
+    @covers_authentication(JwtAuthentication)
+    def test_internal_jwt_write_is_attributed_to_the_token_user(self) -> None:
+        token = encode_jwt({"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER)
+
+        log = self._create_experiment_and_get_activity(f"Bearer {token}", "internal-jwt-attribution-flag")
+
+        assert log.is_system is False
+        assert log.user == self.user
+        assert (log.credential_type, log.credential_id) == ("internal_jwt", None)
 
     def _create_oauth_token(self, impersonated_by: User | None = None) -> OAuthAccessToken:
         application = OAuthApplication.objects.create(
@@ -482,6 +700,11 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert log.is_system is False
         assert log.user == self.user
         assert log.was_impersonated is False
+        assert (log.credential_type, log.credential_id, log.impersonated_by_id) == (
+            "oauth",
+            str(token.application_id),
+            None,
+        )
 
     def test_impersonation_minted_oauth_token_write_is_marked_impersonated(self) -> None:
         staff_user = User.objects.create_and_join(self.organization, "staff@posthog.com", None)
@@ -491,3 +714,119 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
 
         assert log.user == self.user
         assert log.was_impersonated is True
+        assert log.impersonated_by_id == staff_user.id
+
+    @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
+    def test_activity_log_export_preserves_oauth_authorization(self, _mock_exporter_task) -> None:
+        token = self._create_oauth_token()
+        token.scope = "activity_log:read"
+        token.save(update_fields=["scope"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/advanced_activity_logs/export/",
+            {"format": "csv"},
+            headers={"authorization": f"Bearer {token.token}"},
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
+        assert exported_asset.source_credential_id == str(token.id)
+
+
+class TestAdvancedActivityLogExportPath(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        for item_id, user, activity in (
+            ("flag-created", self.user, "created"),
+            ("flag-updated", self.other_user, "updated"),
+            ("flag-deleted", None, "deleted"),
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=user,
+                was_impersonated=False,
+                item_id=item_id,
+                scope="FeatureFlag",
+                activity=activity,
+                detail=Detail(name=item_id),
+                force_save=True,
+            )
+
+    @parameterized.expand(
+        [
+            ("multiple_users", "users", lambda self: [str(self.user.uuid), str(self.other_user.uuid)]),
+            ("multiple_activities", "activities", lambda _self: ["created", "updated"]),
+            ("explicit_false", "is_system", lambda _self: False),
+        ]
+    )
+    @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
+    def test_export_path_keeps_every_filter_value(
+        self, _name: str, filter_key: str, value: Any, _mock_exporter_task: Any
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/advanced_activity_logs/export/",
+            {"format": "csv", "filters": {filter_key: value(self)}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.export_context is not None
+        export_path = exported_asset.export_context["path"]
+
+        # The exporter rewrites the stored path and replays it against the list endpoint, so a
+        # filter must survive both the stored encoding and that rewrite.
+        replay = self.client.get(add_query_params(export_path, {"limit": "100", "is_csv_export": "1"}))
+
+        assert replay.status_code == status.HTTP_200_OK
+        assert {row["item_id"] for row in replay.json()["results"]} == {"flag-created", "flag-updated"}
+
+
+class TestActivityLogSerializerFields(SimpleTestCase):
+    def test_credential_fields_are_not_serialized_in_notifications(self) -> None:
+        log = ActivityLog(
+            scope="Experiment",
+            activity="created",
+            credential_type="personal_api_key",
+            credential_id="key-id",
+            impersonated_by_id=1,
+        )
+
+        data = MyNotificationsSerializer(log).data
+
+        assert {"credential_type", "credential_id", "impersonated_by_id"}.isdisjoint(data)
+
+    @parameterized.expand(
+        [
+            ("session", "session", "session-public-id", False, None, "session-public-id"),
+            ("personal_api_key", "personal_api_key", "key-id", False, None, "key-id"),
+            ("project_secret_key", "project_secret_key", "key-id", False, None, "key-id"),
+            ("oauth_hides_the_application", "oauth", "application-id", False, None, None),
+            ("service_jwt_hides_the_audience", "service_jwt", "internal-service", False, None, None),
+            ("impersonated_session_hides_the_staff_session", "session", "session-public-id", True, 1, None),
+        ]
+    )
+    def test_advanced_serializer_shows_credential_id_only_for_allowlisted_types(
+        self,
+        _name: str,
+        credential_type: str,
+        credential_id: str,
+        was_impersonated: bool,
+        impersonated_by_id: Optional[int],
+        expected_credential_id: Optional[str],
+    ) -> None:
+        log = ActivityLog(
+            scope="Experiment",
+            activity="created",
+            was_impersonated=was_impersonated,
+            credential_type=credential_type,
+            credential_id=credential_id,
+            impersonated_by_id=impersonated_by_id,
+        )
+
+        data = ActivityLogSerializer(log).data
+
+        assert (data["credential_type"], data["credential_id"]) == (credential_type, expected_credential_id)
+        assert "impersonated_by_id" not in data

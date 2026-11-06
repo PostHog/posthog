@@ -19,6 +19,7 @@ const ISSUE: ErrorTrackingIssue = {
     description: 'Something broke',
     library: 'web',
     status: 'active',
+    severity: 'high',
     assignee: null,
     first_seen: '2026-05-01T10:00:00.000Z',
     last_seen: '2026-05-26T08:00:00.000Z',
@@ -60,8 +61,18 @@ describe('ErrorTrackingIssueListRow', () => {
         expect(screen.getAllByRole('link')).toHaveLength(1)
         const link = screen.getByText(/TypeError: undefined is not a function/i).closest('a')
         expect(link?.getAttribute('href')).toMatch(
-            /\/error_tracking\/issue-abc\?timestamp=2026-05-26T08%3A00%3A00\.000Z$/
+            /\/error-tracking\/issue-abc\?timestamp=2026-05-26T08%3A00%3A00\.000Z$/
         )
+    })
+
+    it('shows severity', () => {
+        render(
+            <Provider>
+                <ErrorTrackingIssueListRow issue={ISSUE} />
+            </Provider>
+        )
+
+        expect(screen.getByText('High')).toBeInTheDocument()
     })
 })
 

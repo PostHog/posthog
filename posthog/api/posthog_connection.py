@@ -31,10 +31,21 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthIntegration, posthog_connect_base_url
-from posthog.permissions import get_authenticator_scopes
+from posthog.auth import (
+    MCP_USER_AGENT_MARKER,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    is_mcp_request,
+)
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions import InsufficientScope
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import posthog_connect_base_url
+from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
+from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
+from posthog.scopes import scopes_covered_by_legacy_fallback
 
 logger = structlog.get_logger(__name__)
 
@@ -74,18 +85,15 @@ class ForwardResult:
     gateway_error: bool = False
 
 
-def _connection_access_token(integration: Integration) -> str:
-    oauth = OauthIntegration(integration)
-    if oauth.access_token_expired():
-        oauth.refresh_access_token()
-        integration.refresh_from_db()
-    token = integration.sensitive_config.get("access_token")
+def _connection_access_token(integration: IntegrationRecord) -> str:
+    refreshed = IntegrationManager.posthog.oauth.refresh_access_token(integration.team_id, integration.id)
+    token = refreshed.sensitive_config.get("access_token")
     if not token:
         raise ValidationError("This PostHog connection has no usable access token — reconnect it.")
     return token
 
 
-def _enforce_caller_covers_connection_scopes(request: Request, integration: Integration) -> None:
+def _enforce_caller_covers_connection_scopes(request: Request, integration: IntegrationRecord) -> None:
     """A connection acts with the creator's stored grant, which may be broader than the API key making
     this call. Require that key to itself carry the scopes the connection was granted, so a narrowly
     scoped (or leaked) key can't wield the connection to exceed its own authority. Session auth and
@@ -103,10 +111,14 @@ def _enforce_caller_covers_connection_scopes(request: Request, integration: Inte
             "full-access API key or a session. Reconnect it to record its scopes."
         )
     missing = granted - set(caller_scopes)
+    # A legacy `task:*` key may use a connection granted the `inbox:*` scopes split off it, as the target accepts it.
+    missing -= set(scopes_covered_by_legacy_fallback(caller_scopes, missing))
     if missing:
-        raise PermissionDenied(
-            "Your API key must carry the scopes this connection was granted to use it. "
-            f"Missing: {', '.join(sorted(missing))}."
+        missing_scopes = sorted(missing)
+        raise InsufficientScope(
+            missing_scopes,
+            detail="Your API key must carry the scopes this connection was granted to use it. "
+            f"Missing: {', '.join(missing_scopes)}.",
         )
 
 
@@ -146,16 +158,28 @@ def _inflight_slot(integration_id: int) -> Iterator[bool]:
 
 
 def _forward_through_connection(
-    integration: Integration,
+    integration: IntegrationRecord,
     method: str,
     path: str,
     *,
     query: dict[str, Any] | None = None,
     data: Any = None,
+    mcp_origin: bool = False,
+    sandbox_origin: bool = False,
 ) -> ForwardResult:
-    """Replay one request against the connected project, injecting the connection's token."""
+    """Replay one request against the connected project, injecting the connection's token.
+
+    Pass mcp_origin=True to stamp the outbound request with the MCP user agent, so the
+    target organization applies its MCP read-only policy to a write that an MCP client
+    started through this connection. A forward that did not start from an MCP request must
+    not be marked: the target organization restricts MCP, not connections."""
     token = _connection_access_token(integration)
     base = posthog_connect_base_url(integration.config.get("region"))
+    headers = {"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"}
+    if sandbox_origin:
+        headers[SANDBOX_ORIGIN_HEADER] = "1"
+    if mcp_origin:
+        headers["User-Agent"] = f"posthog-connection; {MCP_USER_AGENT_MARKER}"
 
     raw = bytearray()
     timed_out = False
@@ -168,7 +192,7 @@ def _forward_through_connection(
                 f"{base}/{path}",
                 params=query or None,
                 json=data if method in _METHODS_WITH_BODY else None,
-                headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
+                headers=headers,
                 timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
                 # A compromised/misconfigured target must not be able to 30x us into resending the
                 # bearer token to another origin.
@@ -176,6 +200,8 @@ def _forward_through_connection(
                 # Stream so an oversized body is capped below rather than fully buffered by requests.
                 stream=True,
             )
+            if res.headers.get("X-PostHog-Suppress-Analytics") == "true":
+                tag_queries(is_scout_experiment=True)
             with res:
                 # Bound the *total* time we hold a worker, not just each socket read. A target that
                 # trickles a long-lived stream (SSE keepalives, say) would otherwise keep this read
@@ -269,13 +295,15 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     scope_object = "integration"
     serializer_class = PostHogConnectionForwardSerializer
+    # A connection replays requests with its creator's own grant, which a workload token must not borrow.
+    permission_classes = [DenyWorkloadAccessToken]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action in ("forward", "target"):
             return [PostHogConnectionForwardThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
-    def _authorized_connection(self, request: Request, pk: str | None) -> Integration:
+    def _authorized_connection(self, request: Request, pk: str | None) -> IntegrationRecord:
         # Refuse to forward a request that itself arrived through a connection, so a same-region (or
         # cross-region) connection can't be chained into itself and tie up workers one hop at a time.
         if request.headers.get(CONNECTION_MARKER_HEADER):
@@ -284,12 +312,12 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         _enforce_caller_covers_connection_scopes(request, integration)
         return integration
 
-    def _get_connection(self, pk: str | None) -> Integration:
+    def _get_connection(self, pk: str | None) -> IntegrationRecord:
         if pk is None:
             raise NotFound("No PostHog connection with that id in this project.")
         try:
-            integration = Integration.objects.get(team_id=self.team_id, id=pk, kind=POSTHOG_CONNECT_KIND)
-        except (Integration.DoesNotExist, ValueError, ValidationError):
+            integration = IntegrationManager.posthog.oauth.get(self.team_id, int(pk))
+        except (IntegrationNotFound, ValueError):
             raise NotFound("No PostHog connection with that id in this project.")
         # A connection acts as the user who consented to it. Restrict use to that user so a broad,
         # any-scope grant can't become a team-wide confused deputy in the target project.
@@ -317,6 +345,8 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             _validate_target_path(payload["path"]),
             query=payload.get("query"),
             data=payload.get("data"),
+            mcp_origin=is_mcp_request(request),
+            sandbox_origin=is_sandbox_origin_request(request),
         )
         body = {"status": result.status, "data": result.data}
         # A failure on this side is mirrored as the outer status too, so a caller that only reads the

@@ -18,72 +18,47 @@ pytestmark = [
 
 
 @pytest.mark.parametrize(
-    "auth_type,credentials,expected_status",
+    "auth_type,credentials,expected_detail",
     [
-        # Password auth type tests
         (
             "password",
             {"password": "abc123"},
-            status.HTTP_201_CREATED,
+            "Configuration has unknown field/s: 'account', 'authentication_type', 'password', 'user'",
         ),
-        (
-            "password",
-            {},
-            status.HTTP_400_BAD_REQUEST,
-        ),
-        # Key pair auth type tests
         (
             "keypair",
             {"private_key": "SECRET_KEY"},
-            status.HTTP_201_CREATED,
-        ),
-        (
-            "keypair",
-            {},
-            status.HTTP_400_BAD_REQUEST,
+            "Configuration has unknown field/s: 'account', 'authentication_type', 'private_key', 'user'",
         ),
     ],
 )
-def test_create_snowflake_batch_export_validates_credentials(
-    client: HttpClient, auth_type, credentials, expected_status, temporal, organization, team, user
+def test_create_snowflake_batch_export_with_inline_credentials_is_rejected(
+    client: HttpClient, auth_type, credentials, expected_detail, temporal, organization, team, user
 ):
-    """Test creating a BatchExport with Snowflake destination validates credentials based on auth type."""
-
-    destination_data = {
-        "type": "Snowflake",
-        "config": {
-            "account": "my-account",
-            "user": "user",
-            "database": "my-db",
-            "warehouse": "COMPUTE_WH",
-            "schema": "public",
-            "table_name": "my_events",
-            "authentication_type": auth_type,
-            **credentials,
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-snowflake-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
-
     response = create_batch_export(
         client,
         team.pk,
-        batch_export_data,
+        {
+            "name": "my-export",
+            "interval": "hour",
+            "destination": {
+                "type": "Snowflake",
+                "config": {
+                    "account": "my-account",
+                    "user": "user",
+                    "database": "my-db",
+                    "warehouse": "COMPUTE_WH",
+                    "schema": "public",
+                    "table_name": "my_events",
+                    "authentication_type": auth_type,
+                    **credentials,
+                },
+            },
+        },
     )
-
-    assert response.status_code == expected_status
-
-    if expected_status == status.HTTP_400_BAD_REQUEST:
-        if auth_type == "password":
-            assert "Password is required if authentication type is password" in response.json()["detail"]
-        else:
-            assert "Private key is required if authentication type is key pair" in response.json()["detail"]
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == expected_detail
 
 
 def test_create_snowflake_batch_export_using_integration(client: HttpClient, temporal, organization, team, user):
@@ -124,4 +99,4 @@ def test_create_snowflake_batch_export_rejects_mismatched_integration_kind(
         },
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == "Integration is not a Snowflake integration."
+    assert response.json()["detail"] == ("Integration provided is not a Snowflake integration (got kind='aws-s3')")

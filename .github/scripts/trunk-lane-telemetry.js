@@ -13,9 +13,11 @@
 //
 // Raw paths are deliberately not sent. A PR can touch thousands of them, they
 // blow past property limits, and in aggregate the directory histogram answers
-// the same questions. The exception is tripwire_files, which names the handful
-// of paths that widened the PR, because that is the field that says which rule
-// to go tune, alongside tripwire_domains for how far each one reached.
+// the same questions. The first exception is tripwire_files, which names the
+// handful of paths that widened the PR, because that is the field that says
+// which rule to go tune, alongside tripwire_domains for how far each one reached.
+// The second is the two cross_lane file lists, capped the same way, because the
+// CI report names those files to the author.
 //
 // Input:  changed file paths, one per line, on stdin
 //         IMPACTED_TARGETS — the JSON uploaded to Trunk, {"impactedTargets": ...}
@@ -26,10 +28,12 @@ const {
     ALL,
     allKnownTargets,
     buildContext,
+    findDeletedFiles,
     isTripwire,
     tripwireDomain,
     REPO_ROOT,
 } = require('./trunk-impacted-targets')
+const { crossLaneFiles } = require('./trunk-cross-lane')
 
 // Enough to name the culprit without turning a wide PR into a huge payload.
 const MAX_LISTED = 20
@@ -44,7 +48,7 @@ function domainOf(target) {
 // universe tells them apart. Without it the dashboard would read every widening
 // as a PR that legitimately claimed every lane, which is the distinction this
 // event exists to make.
-function buildProperties(changedFiles, impactedTargets, universe) {
+function buildProperties(changedFiles, impactedTargets, universe, crossLane = null, semgrepDomains = null) {
     const targets = Array.isArray(impactedTargets) ? impactedTargets : []
     const isAll = impactedTargets === ALL || (Boolean(universe) && targets.length === universe.length)
     const isProse = targets.length === 1 && targets[0] === 'prose'
@@ -70,7 +74,6 @@ function buildProperties(changedFiles, impactedTargets, universe) {
     // Which blast radius each tripwire claimed, so a domain that turns out to
     // widen more than its share is visible without re-deriving it from paths.
     const tripwireDomains = {}
-    let semgrepDomains = null
     for (const file of tripwireFiles) {
         let domain = tripwireDomain(file)
         if (domain === 'semgrep') {
@@ -80,6 +83,16 @@ function buildProperties(changedFiles, impactedTargets, universe) {
             } catch (error) {
                 domain = 'universal'
             }
+        }
+        // A cross-domain rule holds a list of members (domains or explicit
+        // {lanes: [...]} objects); one stable joined key keeps the counts per
+        // rule rather than per member.
+        if (Array.isArray(domain)) {
+            domain = domain
+                .map((member) => (member && typeof member === 'object' ? member.lanes.join('+') : member))
+                .join('+')
+        } else if (domain && typeof domain === 'object') {
+            domain = domain.lanes.join('+')
         }
         tripwireDomains[domain] = (tripwireDomains[domain] || 0) + 1
     }
@@ -96,6 +109,12 @@ function buildProperties(changedFiles, impactedTargets, universe) {
         target_domains: targetDomains,
         tripwire_files: tripwireFiles.slice(0, MAX_LISTED),
         tripwire_domains: tripwireDomains,
+        // Null when no verdict could be given.
+        cross_lane: crossLane ? crossLane.mixed : null,
+        cross_lane_heavy_files: crossLane ? crossLane.heavyFiles.slice(0, MAX_LISTED) : [],
+        cross_lane_light_files: crossLane ? crossLane.lightFiles.slice(0, MAX_LISTED) : [],
+        cross_lane_heavy_file_count: crossLane ? crossLane.heavyFiles.length : 0,
+        cross_lane_light_file_count: crossLane ? crossLane.lightFiles.length : 0,
         // Separates the three ways a PR ends up in one lane: a rule that
         // deliberately widened it, a path no rule claimed (the early warning
         // that the script needs a rule for a directory someone just added), and
@@ -111,7 +130,30 @@ function buildProperties(changedFiles, impactedTargets, universe) {
     }
 }
 
-module.exports = { buildProperties }
+function summarizeLane(changedFiles, impactedTargets, context, deletedFiles = null) {
+    let universe = null
+    try {
+        universe = context ? allKnownTargets(context) : null
+    } catch (error) {
+        console.error(`Could not enumerate the target universe (${error.message}); is_all reports the sentinel only`)
+    }
+    let crossLane = null
+    if (context) {
+        try {
+            crossLane = crossLaneFiles(changedFiles, {
+                ...context,
+                deletedFiles: deletedFiles ?? findDeletedFiles(changedFiles),
+            })
+        } catch (error) {
+            console.error(
+                `Could not classify the change set by lane side (${error.message}); cross_lane reports unknown`
+            )
+        }
+    }
+    return buildProperties(changedFiles, impactedTargets, universe, crossLane, context?.semgrepDomains)
+}
+
+module.exports = { buildProperties, summarizeLane }
 
 if (require.main === module) {
     const changedFiles = fs
@@ -125,11 +167,11 @@ if (require.main === module) {
     } catch (error) {
         console.error(`Could not read IMPACTED_TARGETS (${error.message}); reporting the file side only`)
     }
-    let universe = null
+    let context = null
     try {
-        universe = allKnownTargets(buildContext(REPO_ROOT))
+        context = buildContext(REPO_ROOT)
     } catch (error) {
-        console.error(`Could not enumerate the target universe (${error.message}); is_all reports the sentinel only`)
+        console.error(`Could not build the lane context (${error.message})`)
     }
-    process.stdout.write(JSON.stringify(buildProperties(changedFiles, impactedTargets, universe)))
+    process.stdout.write(JSON.stringify(summarizeLane(changedFiles, impactedTargets, context)))
 }

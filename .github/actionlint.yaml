@@ -5,7 +5,12 @@ self-hosted-runner:
         - depot-ubuntu-24.04
         - depot-ubuntu-24.04-4
         - depot-ubuntu-24.04-8
+        - depot-ubuntu-24.04-16
         - depot-macos-15
+        - depot-macos-26
+        - depot-ubuntu-24.04-arm-4
+        - depot-windows-2022-4
+        - ubuntu-24.04-8core
 
 # The vendored .github/actions/paths-filter emits one output per filter name at
 # runtime, but action.yml can only declare the static `changes` output, so
@@ -20,3 +25,8 @@ paths:
     '.github/workflows/**/*.yaml':
         ignore:
             - 'property ".+" is not defined in object type \{changes: string\}'
+    # GitHub's stacked PRs added the `stacked` activity type after actionlint's event list.
+    # The broad glob also matches the copies hogli lint:workflows checks outside .github.
+    '**/*.yml':
+        ignore:
+            - 'invalid activity type "stacked" for "pull_request" Webhook event'

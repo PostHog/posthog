@@ -118,6 +118,12 @@ export function getNodeFingerprint(node: NotebookBlockNode): string {
     return fingerprint
 }
 
+/** Adopt a known fingerprint for a node copy whose fingerprint inputs are shared with the
+ * original (same tagName and props), so the copy skips re-encoding them. */
+export function seedNodeFingerprint(node: NotebookBlockNode, fingerprint: string): void {
+    nodeFingerprintCache.set(node, fingerprint)
+}
+
 function getUncachedNodeFingerprint(node: NotebookBlockNode): string {
     if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote') {
         return JSON.stringify({
@@ -319,6 +325,23 @@ export function toSerializablePropValue(value: unknown): NotebookPropValue | und
         return undefined
     }
     return JSON.parse(serialized) as NotebookPropValue
+}
+
+// Project a set of node attributes onto the props a component block can carry, dropping the keys
+// whose values markdown can't represent.
+export function getSerializableProps<T extends object>(attributes: T): NotebookComponentProps {
+    return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
+        // Normalize before validating. isNotebookPropValue rejects an object that holds a nested
+        // `undefined`, so an unnormalized value loses its whole key: a person-property filter with
+        // an absent `label` or `group_type_index` inside `query.source.properties` takes the entire
+        // `query` prop with it. Normalizing first drops those keys, so the guard sees a value
+        // markdown can actually carry.
+        const normalized = toSerializablePropValue(value)
+        if (normalized !== undefined && isNotebookPropValue(normalized)) {
+            props[key] = normalized
+        }
+        return props
+    }, {})
 }
 
 function sortProps(props: NotebookComponentProps): NotebookComponentProps {

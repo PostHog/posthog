@@ -1,17 +1,23 @@
-from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.auth import mint_export_renderer_token
 from posthog.clickhouse.client import sync_execute
-from posthog.models import PersonalAPIKey, SessionRecording
+from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.models import PersonalAPIKey, SessionRecording, SharingConfiguration
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
-from posthog.session_recordings.session_recording_v2_service import RecordingBlock
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock, listing_cache_key
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -141,6 +147,122 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert call_args_list[0].kwargs.get("decompress") is True
         assert call_args_list[1].args == ("key1", 101, 200, session_id, self.team.id)
         assert call_args_list[1].kwargs.get("decompress") is True
+
+    @parameterized.expand(
+        [
+            ("logged_in", "session", True, True, True),
+            ("logged_in_flag_off", "session", False, True, False),
+            ("logged_in_unencrypted_recording", "session", True, False, False),
+            ("personal_api_key", "personal_api_key", True, True, False),
+            ("export_renderer", "export_renderer", True, True, True),
+            ("share_link", "share_link", True, True, False),
+        ]
+    )
+    @override_settings(
+        REPLAY_PROXY_JWT_SECRET="replay-proxy-key",
+        RECORDING_API_BLOCKS_JWT_SECRET="replay-blocks-key",
+        CLOUD_DEPLOYMENT="DEV",
+    )
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.recordings.replay_blocks_jwt.posthoganalytics.feature_enabled")
+    def test_sources_listing_gives_player_tokens_only_to_the_player(
+        self,
+        _name: str,
+        auth: str,
+        flag_on: bool,
+        encrypted: bool,
+        expects_block_urls: bool,
+        mock_feature_enabled,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_feature_enabled.return_value = flag_on
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key=f"key{i}",
+                start_byte=0,
+                end_byte=10,
+                start_timestamp=f"2026-01-01T00:00:0{i}Z",
+                end_timestamp=f"2026-01-01T00:00:0{i}Z",
+                ref=f"v1.ref{i}" if encrypted else None,
+            )
+            for i in range(2)
+        ]
+        is_player = auth != "personal_api_key"
+        headers = {}
+        query = ""
+        viewer = f"u{self.user.pk}"
+        if auth == "export_renderer":
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"session_recording_id": session_id},
+            )
+            renderer_token = mint_export_renderer_token(
+                user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
+            )
+            headers = {"authorization": f"Bearer {renderer_token}"}
+        if auth == "share_link":
+            recording = SessionRecording.objects.create(session_id=session_id, team=self.team)
+            sharing = SharingConfiguration.objects.create(team=self.team, recording=recording, enabled=True)
+            mock_get_session_recording.return_value = recording
+            query = f"?sharing_access_token={sharing.access_token}"
+            self.client.logout()
+        if auth == "personal_api_key":
+            personal_api_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Test Key",
+                user=self.user,
+                secure_value=hash_key_value(personal_api_key),
+                scopes=["session_recording:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers = {"authorization": f"Bearer {personal_api_key}"}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/{query}", headers=headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        if is_player:
+            claims = decode_jwt(
+                body["replay_proxy_token"], PosthogJwtAudience.REPLAY_PROXY, verification_keys=["replay-proxy-key"]
+            )
+            assert claims["team_id"] == self.team.pk
+        else:
+            assert body["replay_proxy_token"] is None
+
+        urls = [source.get("url") for source in body["sources"]]
+        if expects_block_urls:
+            assert urls == [
+                f"http://testserver/replay-blocks/{self.team.pk}/{session_id}/{viewer}/v1.ref{i}" for i in range(2)
+            ]
+            claims = decode_jwt(
+                body["block_token"], PosthogJwtAudience.REPLAY_BLOCKS, verification_keys=["replay-blocks-key"]
+            )
+            assert {k: claims[k] for k in ("team_id", "session_id", "sub", "tier")} == {
+                "team_id": self.team.pk,
+                "session_id": session_id,
+                "sub": viewer,
+                "tier": "browser",
+            }
+            assert isinstance(claims["iat"], int)
+            assert body["block_token_expires_at"] is not None
+        else:
+            assert urls == [None, None]
+            assert body["block_token"] is None
+        for flag_call in mock_feature_enabled.call_args_list:
+            assert flag_call.kwargs["person_properties"] == {"cloud_deployment": "DEV", "team_id": self.team.pk}
 
     @parameterized.expand(
         [
@@ -317,137 +439,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "Block index out of range" in response.json()["detail"]
-
-    @freeze_time("2023-01-01T00:00:00Z")
-    @patch(
-        "posthog.session_recordings.session_recording_api.list_blocks",
-        side_effect=Exception(
-            "if the LTS loading works then we'll not call list_blocks, we throw in the mock to enforce this"
-        ),
-    )
-    @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_get_snapshot_sources_blobby_v2_from_lts(
-        self,
-        _mock_feature_enabled: MagicMock,
-        _mock_exists: MagicMock,
-        _mock_v2_list_blocks: MagicMock,
-    ) -> None:
-        session_id = str(uuid7())
-
-        SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_id,
-            deleted=False,
-            full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        response_data = response.json()
-
-        assert response_data == {
-            "sources": [
-                {
-                    "source": "blob_v2_lts",
-                    "blob_key": "the_lts_path/the_session_uuid",
-                    # it's ok for these to be None, since we don't use the data anyway
-                    # and this key is the whole session
-                    "start_timestamp": None,
-                    "end_timestamp": None,
-                },
-            ]
-        }
-
-    @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.recording_s3_client.recording_s3_client")
-    @patch(
-        "posthog.session_recordings.session_recording_api.list_blocks",
-        side_effect=Exception(
-            "if the LTS loading works then we'll not call list_blocks, we throw in the mock to enforce this"
-        ),
-    )
-    @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_get_snapshot_for_lts_source_blobby_v2(
-        self,
-        _mock_feature_enabled: MagicMock,
-        _mock_exists: MagicMock,
-        _mock_v2_list_blocks: MagicMock,
-        mock_object_storage_client: MagicMock,
-    ) -> None:
-        session_id = str(uuid7())
-
-        mock_client_instance = MagicMock()
-        mock_object_storage_client.return_value = mock_client_instance
-        mock_client_instance.download_file_decompressed.return_value = """
-            {"timestamp": 1000, "type": "snapshot1"}
-            {"timestamp": 2000, "type": "snapshot2"}
-        """
-
-        SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_id,
-            deleted=False,
-            full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
-        )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?source=blob_v2_lts&blob_key=/the_lts_path/the_session_uuid"
-        )
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert (
-            response.content
-            == b"""
-            {"timestamp": 1000, "type": "snapshot1"}
-            {"timestamp": 2000, "type": "snapshot2"}
-        """
-        )
-
-    @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.recording_s3_client.recording_s3_client")
-    @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    def test_cannot_load_lts_data_for_different_session(
-        self,
-        _mock_exists: MagicMock,
-        mock_object_storage_client: MagicMock,
-    ) -> None:
-        session_a = str(uuid7())
-        session_b = str(uuid7())
-
-        SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_a,
-            deleted=False,
-            full_recording_v2_path="s3://the_bucket/lts_path/session_a_uuid?range=0-1000",
-        )
-
-        SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_b,
-            deleted=False,
-            full_recording_v2_path="s3://the_bucket/lts_path/session_b_uuid?range=0-2000",
-        )
-
-        mock_client_instance = MagicMock()
-        mock_object_storage_client.return_value = mock_client_instance
-        mock_client_instance.download_file_decompressed.return_value = '{"timestamp": 9999, "type": "session_b_data"}'
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_a}/snapshots"
-            f"?source=blob_v2_lts&blob_key=lts_path/session_b_uuid"
-        )
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(
         [
@@ -1018,3 +1009,85 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.status_code == status.HTTP_410_GONE
         assert response.json()["error"] == "recording_deleted"
         assert response.json()["deleted_at"] == 1700000000
+
+    @parameterized.expand(
+        [("enforced", True, status.HTTP_429_TOO_MANY_REQUESTS), ("log_only", False, status.HTTP_200_OK)]
+    )
+    @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_user_quota(
+        self,
+        _name,
+        enforced,
+        expected_status_over_quota,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_recording_api_client,
+        _mock_rate_limit_enabled,
+    ):
+        cache.clear()
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(return_value=b'{"timestamp": 1}')
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
+
+        with override_settings(SNAPSHOT_USER_RATE_BURST="2/minute", SNAPSHOT_USER_RATE_LIMIT_ENFORCED=enforced):
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+            assert self.client.get(url).status_code == expected_status_over_quota
+        cache.clear()
+
+    @patch(
+        "posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_sources_listing_reports_a_deletion_despite_a_cached_listing(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_fetch_blocks,
+    ):
+        session_id = str(uuid7())
+        recording = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_get_session_recording.return_value = recording
+        cache.set(
+            listing_cache_key(recording),
+            [
+                RecordingBlock(
+                    key="key0",
+                    start_byte=0,
+                    end_byte=100,
+                    start_timestamp="2024-01-01T00:00:00Z",
+                    end_timestamp="2024-01-01T00:01:00Z",
+                )
+            ],
+        )
+        mock_fetch_blocks.side_effect = RecordingDeletedError("Recording has been deleted", deleted_at=1700000000)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/")
+
+        assert response.status_code == status.HTTP_410_GONE
+        assert response.json()["error"] == "recording_deleted"

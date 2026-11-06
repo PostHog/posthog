@@ -1,9 +1,13 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconGithub, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { buildGithubDisconnectDescription } from 'lib/integrations/githubDisconnectCopy'
+import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { userGithubIntegrationLogic } from 'lib/integrations/userGithubIntegrationLogic'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -15,15 +19,28 @@ import {
     PersonalSlackIntegration,
 } from './personalIntegrationsLogic'
 
+// Personal integrations are a separate table with their own connect surface, so they get
+// their own event: saved insights already count `integration_connect_clicked` unfiltered and
+// would silently start including personal links.
+function reportPersonalIntegrationConnectClicked(kind: string): void {
+    posthog.capture('personal integration connect clicked', { integration_kind: kind })
+}
+
 function GitHubInstallationRow({ integration }: { integration: PersonalGitHubIntegration }): JSX.Element {
-    const { disconnectGitHub } = useActions(personalIntegrationsLogic)
+    const { disconnectGitHub, connectGitHub } = useActions(personalIntegrationsLogic)
+    const { githubConnecting } = useValues(personalIntegrationsLogic)
 
     const installationId = integration.installation_id
     const accountType = integration.account?.type
     const accountName = integration.account?.name
 
-    const logic = installationId ? userGithubIntegrationLogic({ installationId }) : null
-    const { repositories, repositoriesLoading } = useValues(logic ?? userGithubIntegrationLogic({ installationId: '' }))
+    const repositorySelection = integration.repository_selection
+    const logic = installationId ? userGithubIntegrationLogic({ installationId, repositorySelection }) : null
+    const { repositories, repositoriesLoading, repositoriesTotal } = useValues(
+        logic ?? userGithubIntegrationLogic({ installationId: '' })
+    )
+    const installationUnavailable = integration.installation_status === 'unavailable'
+    const needsReauthorization = !!integration.needs_reauthorization
 
     const handleDisconnect = (): void => {
         LemonDialog.open({
@@ -35,8 +52,11 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                         open pull requests on GitHub.
                     </LemonBanner>
                     <p>
-                        PostHog will no longer be able to access repos from this installation or act on your behalf
-                        there.
+                        {buildGithubDisconnectDescription(
+                            accountName || 'this account',
+                            !!integration.installation_shared,
+                            'account'
+                        )}
                     </p>
                 </>
             ),
@@ -57,13 +77,18 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                 </div>
             </div>
             <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold">{accountName || 'GitHub'}</span>
                     {accountType === 'Organization' ? (
                         <span className="text-xs text-muted bg-surface-secondary px-1.5 py-0.5 rounded">Org</span>
                     ) : (
                         <span className="text-xs text-muted bg-surface-secondary px-1.5 py-0.5 rounded">Personal</span>
                     )}
+                    {needsReauthorization ? (
+                        <LemonTag type="warning" size="small">
+                            Needs reconnecting
+                        </LemonTag>
+                    ) : null}
                 </div>
                 <div className="mt-0.5 text-xs text-secondary">
                     {integration.created_at ? (
@@ -82,8 +107,42 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                         installationId={installationId}
                         accountType={accountType}
                         accountName={accountName}
+                        repositorySelection={repositorySelection}
+                        total={repositoriesTotal}
                     />
                 </div>
+                {installationUnavailable ? (
+                    <LemonBanner type="error" className="mt-2">
+                        The PostHog app was removed from GitHub. Disconnect this installation, then connect again if you
+                        still need it.
+                    </LemonBanner>
+                ) : null}
+                {needsReauthorization ? (
+                    <LemonBanner
+                        type="warning"
+                        className="mt-2"
+                        alignItems="start"
+                        action={{
+                            children: 'Reconnect',
+                            icon: <IconRefresh />,
+                            onClick: () => {
+                                reportPersonalIntegrationConnectClicked('github')
+                                connectGitHub()
+                            },
+                            loading: githubConnecting,
+                            disabledReason: githubConnecting ? 'Starting GitHub authorization…' : undefined,
+                        }}
+                    >
+                        GitHub stopped accepting this connection
+                        {integration.needs_reauthorization_at ? (
+                            <>
+                                {' '}
+                                <TZLabel time={integration.needs_reauthorization_at} className="align-baseline" />
+                            </>
+                        ) : null}
+                        . Reconnect to let PostHog read your repos and open pull requests as you again.
+                    </LemonBanner>
+                ) : null}
             </div>
             <div className="flex shrink-0 items-center">
                 <LemonButton
@@ -160,8 +219,16 @@ function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }
 }
 
 export function PersonalGitHubIntegrations(): JSX.Element {
-    const { integrations, integrationsLoading, githubConnecting } = useValues(personalIntegrationsLogic)
-    const { connectGitHub } = useActions(personalIntegrationsLogic)
+    const { integrations, healthyIntegrations, integrationsLoading, githubConnecting } =
+        useValues(personalIntegrationsLogic)
+    const { connectGitHub, startPolling, stopPolling } = useActions(personalIntegrationsLogic)
+
+    // Refresh the personal rows while this section stays mounted, so an App removed on GitHub shows
+    // its unavailable notice without a manual reload.
+    useOnMountEffect(() => {
+        startPolling()
+        return () => stopPolling()
+    })
 
     if (integrationsLoading && integrations.length === 0) {
         return (
@@ -172,36 +239,48 @@ export function PersonalGitHubIntegrations(): JSX.Element {
     }
 
     return (
-        <div className="divide-y rounded border bg-surface-primary">
-            {integrations.length === 0 ? (
-                <div className="px-4 py-6 text-center text-sm text-secondary">
-                    <IconGithub className="text-3xl mb-2 opacity-40" />
-                    <p className="mb-1">No GitHub installations connected yet</p>
-                    <p className="text-xs text-muted text-balance">
-                        Connect to let PostHog access your repos, attribute commits, open pull requests, and assign
-                        issues as you. You can add multiple installations for different accounts or organizations.
-                    </p>
+        <div className="flex flex-col gap-2">
+            <GitHubInstallRequestsBanner
+                onFinishConnecting={() => {
+                    reportPersonalIntegrationConnectClicked('github')
+                    connectGitHub()
+                }}
+            />
+            <div className="divide-y rounded border bg-surface-primary">
+                {integrations.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm text-secondary">
+                        <IconGithub className="text-3xl mb-2 opacity-40" />
+                        <p className="mb-1">No GitHub installations connected yet</p>
+                        <p className="text-xs text-muted text-balance">
+                            Connect to let PostHog access your repos, attribute commits, open pull requests, and assign
+                            issues as you. You can add multiple installations for different accounts or organizations.
+                        </p>
+                    </div>
+                ) : (
+                    integrations.map((integration: PersonalGitHubIntegration) => (
+                        <GitHubInstallationRow key={integration.installation_id} integration={integration} />
+                    ))
+                )}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={() => {
+                            reportPersonalIntegrationConnectClicked('github')
+                            connectGitHub()
+                        }}
+                        loading={githubConnecting}
+                        disabledReason={githubConnecting ? 'Starting GitHub installation…' : undefined}
+                    >
+                        {healthyIntegrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
+                    </LemonButton>
+                    <span className="text-xs text-secondary text-balance">
+                        Heads up: if GitHub's <strong>Save</strong> button is disabled at the end of the flow, flip
+                        between <strong>All repositories</strong> and <strong>Only select repositories</strong> to
+                        proceed.
+                    </span>
                 </div>
-            ) : (
-                integrations.map((integration: PersonalGitHubIntegration) => (
-                    <GitHubInstallationRow key={integration.installation_id} integration={integration} />
-                ))
-            )}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlus />}
-                    onClick={connectGitHub}
-                    loading={githubConnecting}
-                    disabledReason={githubConnecting ? 'Starting GitHub installation…' : undefined}
-                >
-                    {integrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
-                </LemonButton>
-                <span className="text-xs text-secondary text-balance">
-                    Heads up: if GitHub's <strong>Save</strong> button is disabled at the end of the flow, flip between{' '}
-                    <strong>All repositories</strong> and <strong>Only select repositories</strong> to proceed.
-                </span>
             </div>
         </div>
     )

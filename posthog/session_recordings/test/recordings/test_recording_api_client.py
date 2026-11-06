@@ -1,10 +1,33 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import aiohttp
 
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import (
+    BlockFetchError,
+    RecordingApiConfigurationError,
+    RecordingDeletedError,
+)
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
+from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
+
+AUTH_HEADERS = {"Authorization": "Bearer test-token"}
+
+
+@pytest.fixture(autouse=True)
+def fixed_recording_api_token():
+    # Default to no legacy secret so the header assertions below see only the Bearer token; the
+    # rollout tests set INTERNAL_API_SECRET explicitly to exercise dual-send.
+    with (
+        override_settings(INTERNAL_API_SECRET=""),
+        patch(
+            "posthog.session_recordings.recordings.recording_api_jwt.mint_recording_api_token",
+            return_value="test-token",
+        ) as mint,
+    ):
+        yield mint
 
 
 class TestRecordingApiClient:
@@ -56,6 +79,7 @@ class TestFetchBlock:
         mock_session.get.assert_called_once_with(
             "http://localhost:6740/api/projects/1/recordings/session-123/block",
             params={"key": "key", "start_byte": 0, "end_byte": 100},
+            headers=AUTH_HEADERS,
         )
 
     @pytest.mark.asyncio
@@ -82,6 +106,7 @@ class TestFetchBlock:
         mock_session.get.assert_called_once_with(
             "http://localhost:6740/api/projects/1/recordings/session-123/block",
             params={"key": "key", "start_byte": 0, "end_byte": 100, "decompress": "true"},
+            headers=AUTH_HEADERS,
         )
 
     @pytest.mark.asyncio
@@ -103,24 +128,31 @@ class TestFetchBlock:
             )
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("deleted_at", [1700000000, None])
-    async def test_410_raises_recording_deleted_error(self, client, mock_session, deleted_at):
+    @pytest.mark.parametrize("call", ["fetch_block", "list_blocks"])
+    @pytest.mark.parametrize(
+        "body,deleted_at",
+        [
+            ({"error": "recording_deleted", "deleted_at": 1700000000}, 1700000000),
+            ({"error": "recording_deleted", "deleted_at": None}, None),
+            (ValueError("not JSON"), None),
+        ],
+    )
+    async def test_410_raises_recording_deleted_error(self, client, mock_session, call, body, deleted_at):
         mock_response = AsyncMock()
         mock_response.status = 410
-        mock_response.json = AsyncMock(return_value={"error": "Recording has been deleted", "deleted_at": deleted_at})
+        mock_response.json = (
+            AsyncMock(side_effect=body) if isinstance(body, Exception) else AsyncMock(return_value=body)
+        )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
         mock_session.get = MagicMock(return_value=mock_response)
 
         with pytest.raises(RecordingDeletedError, match="Recording has been deleted") as exc_info:
-            await client.fetch_block(
-                "key",
-                0,
-                100,
-                "session-123",
-                1,
-            )
+            if call == "fetch_block":
+                await client.fetch_block("key", 0, 100, "session-123", 1)
+            else:
+                await client.list_blocks("session-123", 1)
         assert exc_info.value.deleted_at == deleted_at
 
     @pytest.mark.asyncio
@@ -194,6 +226,7 @@ class TestListBlocks:
         ]
         mock_session.get.assert_called_once_with(
             "http://localhost:6740/api/projects/1/recordings/session-123/blocks",
+            headers=AUTH_HEADERS,
         )
 
     @pytest.mark.asyncio
@@ -275,6 +308,7 @@ class TestDeleteRecordings:
         mock_session.post.assert_called_once_with(
             "http://localhost:6740/api/projects/1/recordings/delete",
             json={"session_ids": ["s1", "s2"], "deleted_by": "test@posthog.com"},
+            headers=AUTH_HEADERS,
         )
 
     @pytest.mark.asyncio
@@ -360,47 +394,71 @@ class TestRecordingApiClientContextManager:
                 call_kwargs = mock_client_session.call_args[1]
                 assert call_kwargs["timeout"].total == 30
                 assert call_kwargs["timeout"].connect == 5
-                assert call_kwargs["headers"] == {}
+                # Auth is per-request (Bearer), so the session carries no auth header.
+                assert "headers" not in call_kwargs
+
+
+class TestPerRequestAuthScoping:
+    @pytest.fixture
+    def mock_session(self):
+        return MagicMock(spec=aiohttp.ClientSession)
+
+    @pytest.fixture
+    def client(self, mock_session):
+        return RecordingApiClient(mock_session, "http://localhost:6740")
+
+    def _ok_get(self, mock_session, payload):
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_response.read = AsyncMock(return_value=b"x")
+        mock_response.json = AsyncMock(return_value=payload)
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_response)
+        mock_session.post = MagicMock(return_value=mock_response)
 
     @pytest.mark.asyncio
-    async def test_warns_when_secret_missing_in_production(self):
-        with (
-            patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings,
-            patch("posthog.session_recordings.recordings.recording_api_client.logger") as mock_logger,
-            patch(
-                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession"
-            ) as mock_client_session,
-        ):
-            mock_settings.RECORDING_API_URL = "http://test-api:8080"
-            mock_settings.INTERNAL_API_SECRET = ""
-            mock_settings.DEBUG = False
+    async def test_fetch_block_mints_read_token_for_team(self, client, mock_session, fixed_recording_api_token):
+        self._ok_get(mock_session, {})
+        await client.fetch_block("key", 0, 1, "session-1", 42)
+        fixed_recording_api_token.assert_called_once_with(42, "read")
 
-            mock_session = AsyncMock()
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock(return_value=None)
-            mock_client_session.return_value = mock_session
+    @pytest.mark.asyncio
+    async def test_list_blocks_mints_read_token_for_team(self, client, mock_session, fixed_recording_api_token):
+        self._ok_get(mock_session, {"blocks": []})
+        await client.list_blocks("session-1", 42)
+        fixed_recording_api_token.assert_called_once_with(42, "read")
 
+    @pytest.mark.asyncio
+    async def test_delete_mints_delete_token_for_team(self, client, mock_session, fixed_recording_api_token):
+        self._ok_get(mock_session, [])
+        await client.delete_recordings(["s1"], 42, deleted_by="t@posthog.com")
+        fixed_recording_api_token.assert_called_once_with(42, "delete")
+
+
+class TestAuthHeaders:
+    @override_settings(RECORDING_API_JWT_SECRET="dev-secret", INTERNAL_API_SECRET="internal")
+    def test_sends_only_the_bearer_token_when_internal_secret_is_set(self):
+        # mint is patched to "test-token" by the autouse fixture.
+        assert recording_api_auth_headers(7, "read") == {"Authorization": "Bearer test-token"}
+
+
+class TestClientPreconditions:
+    @pytest.mark.asyncio
+    @override_settings(
+        RECORDING_API_URL="http://recording-api:6738", RECORDING_API_JWT_SECRET="", INTERNAL_API_SECRET="internal"
+    )
+    async def test_no_signing_secret_is_a_configuration_error_not_a_401(self):
+        # Without a credential the request goes out unauthenticated and comes back 401, which the
+        # tolerant listing handlers flatten into "this recording has no blocks".
+        with pytest.raises(RecordingApiConfigurationError):
             async with recording_api_client():
                 pass
 
-            mock_logger.warning.assert_called_once_with("recording_api_client.missing_internal_api_secret")
-
     @pytest.mark.asyncio
-    async def test_passes_internal_api_secret_header(self):
-        with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
-            mock_settings.RECORDING_API_URL = "http://test-api:8080"
-            mock_settings.INTERNAL_API_SECRET = "test-secret"
-
-            with patch(
-                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession"
-            ) as mock_client_session:
-                mock_session = AsyncMock()
-                mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-                mock_session.__aexit__ = AsyncMock(return_value=None)
-                mock_client_session.return_value = mock_session
-
-                async with recording_api_client() as client:
-                    assert client.session == mock_session
-
-                call_kwargs = mock_client_session.call_args[1]
-                assert call_kwargs["headers"] == {"X-Internal-Api-Secret": "test-secret"}
+    @override_settings(RECORDING_API_URL="", RECORDING_API_JWT_SECRET="dev-secret", INTERNAL_API_SECRET="")
+    async def test_missing_url_is_a_configuration_error(self):
+        with pytest.raises(RecordingApiConfigurationError):
+            async with recording_api_client():
+                pass

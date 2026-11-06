@@ -7,7 +7,9 @@ use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
+use personhog_common::grpc::{
+    tracked_tcp_incoming_until, until_incoming_ends, GrpcLoadShedLayer, GrpcMetricsLayer,
+};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
@@ -48,6 +50,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                     .min(config.bulk_max_pg_connections),
                 max_connections: config.bulk_max_pg_connections,
                 acquire_timeout: config.bulk_acquire_timeout(),
+                test_before_acquire: true,
                 statement_timeout_ms: config.bulk_statement_timeout(),
                 pool_name: Some("bulk_primary".to_string()),
                 ..primary_pool_config.clone()
@@ -98,6 +101,15 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 "BULK_CHUNK_SIZE must be at least 1"
             );
             assert!(
+                config.tombstoned_delete_max_rows >= 1,
+                "TOMBSTONED_DELETE_MAX_ROWS must be at least 1"
+            );
+            assert!(
+                (1..=i32::MAX as u64).contains(&config.hash_key_override_statement_timeout_ms),
+                "HASH_KEY_OVERRIDE_STATEMENT_TIMEOUT_MS must be between 1 and {}",
+                i32::MAX
+            );
+            assert!(
                 config.bulk_max_concurrent_chunks >= 1,
                 "BULK_MAX_CONCURRENT_CHUNKS must be at least 1"
             );
@@ -115,6 +127,8 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 bulk_replica_pool,
                 config.bulk_chunk_size,
                 config.bulk_max_concurrent_chunks,
+                config.tombstoned_delete_max_rows,
+                config.hash_key_override_statement_timeout_ms,
             ))
         }
         other => {
@@ -304,6 +318,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let http2_windows = config.grpc_http2_windows();
     let max_connection_age = config.grpc_max_connection_age();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
@@ -351,10 +366,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
         };
-        let incoming = tracked_tcp_incoming(listener);
-        let mut server = Server::builder()
-            .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout);
+        let incoming = tracked_tcp_incoming_until(listener, grpc_handle.shutdown_token());
+        let mut server = http2_windows.apply_to_server(
+            Server::builder()
+                .http2_keepalive_interval(keepalive_interval)
+                .http2_keepalive_timeout(keepalive_timeout),
+        );
         if let Some(age) = max_connection_age {
             server = server.max_connection_age(age);
         }
@@ -373,7 +390,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv),
             )
-            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, until_incoming_ends())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

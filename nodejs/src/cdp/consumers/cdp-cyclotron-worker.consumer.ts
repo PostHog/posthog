@@ -1,3 +1,5 @@
+import { Histogram } from 'prom-client'
+
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -14,6 +16,14 @@ import {
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
 import { dualWrite } from '../utils/dual-store'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+
+// instrumented_function_duration_seconds buckets start at 25 ms, which hides a change of a few ms.
+const cyclotronWorkerPhaseDuration = new Histogram({
+    name: 'cdp_cyclotron_worker_phase_duration_seconds',
+    help: 'Wall time of one phase of a cyclotron worker batch. invocations blocks the dequeue loop, while background overlaps the next batch.',
+    labelNames: ['queue', 'phase'],
+    buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
 
 /**
  * CDP worker that consumes and processes hog function / hogflow jobs.
@@ -61,7 +71,11 @@ export class CdpCyclotronWorker<
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationHogFunction[]> {
         const loadedInvocations: CyclotronJobInvocationHogFunction[] = []
-        const failedInvocations: CyclotronJobInvocation[] = []
+        const failedInvocations: {
+            invocation: CyclotronJobInvocation | CyclotronJobInvocationHogFunction
+            errorKind: string
+            error: string
+        }[] = []
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -71,7 +85,11 @@ export class CdpCyclotronWorker<
                         id: item.functionId,
                     })
 
-                    failedInvocations.push(item)
+                    failedInvocations.push({
+                        invocation: item,
+                        errorKind: 'function_not_found',
+                        error: 'The function could not be found, so this invocation was skipped.',
+                    })
 
                     return
                 }
@@ -81,7 +99,21 @@ export class CdpCyclotronWorker<
                         id: item.functionId,
                     })
 
-                    failedInvocations.push(item)
+                    failedInvocations.push({
+                        // Attach the loaded function so the terminal 'failed' row serializes the
+                        // real invocation globals instead of '{}'. The row wins the
+                        // ReplacingMergeTree argMax over the earlier 'running' row, so without
+                        // its globals the rerun paginator can't rehydrate the invocation and a
+                        // re-run after re-enabling would silently skip. Fall back to the raw item
+                        // when state globals are absent (nothing to preserve).
+                        invocation: item.state?.globals
+                            ? { ...item, state: item.state as CyclotronJobInvocationHogFunction['state'], hogFunction }
+                            : item,
+                        errorKind: hogFunction.deleted ? 'function_deleted' : 'function_disabled',
+                        error: hogFunction.deleted
+                            ? 'The function was deleted, so this invocation was skipped.'
+                            : 'The function was disabled, so this invocation was skipped.',
+                    })
 
                     return
                 }
@@ -100,7 +132,11 @@ export class CdpCyclotronWorker<
                         tags: { functionId: item.functionId, teamId: String(item.teamId) },
                     })
 
-                    failedInvocations.push(item)
+                    failedInvocations.push({
+                        invocation: item,
+                        errorKind: 'malformed_invocation',
+                        error: 'The invocation data was malformed, so it was skipped.',
+                    })
 
                     return
                 }
@@ -133,7 +169,25 @@ export class CdpCyclotronWorker<
             })
         )
 
-        await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
+        if (failedInvocations.length) {
+            // Record the terminal lifecycle row BEFORE dequeuing (same ordering as the
+            // janitor's poison-pill recovery). Dropping the job without one leaves the
+            // invocation stuck 'running' in the runs UI and permanently un-rerunnable.
+            const recorded = await Promise.all(
+                failedInvocations.map(({ invocation, errorKind, error }) =>
+                    this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(
+                        invocation,
+                        { errorKind, error }
+                    )
+                )
+            )
+            // Keep any job whose terminal row could not be produced so a later fetch retries
+            // it, unless lifecycle recording is disabled (then there is no row to go stale).
+            const dequeueable = failedInvocations.filter(
+                (_, i) => recorded[i] || !this.config.HOG_INVOCATION_RESULTS_ENABLED
+            )
+            await this.cyclotronJobQueue.dequeueInvocations(dequeueable.map((x) => x.invocation))
+        }
 
         return loadedInvocations
     }
@@ -154,16 +208,23 @@ export class CdpCyclotronWorker<
         // batch would otherwise blow past stallTimeoutMs and get poisoned.
         const stopHeartbeat = this.startPeriodicHeartbeat(invocations)
 
+        const endInvocations = cyclotronWorkerPhaseDuration.startTimer({ queue: this.queue, phase: 'invocations' })
         let invocationResults: CyclotronJobInvocationResult[]
         try {
             invocationResults = await this.processInvocations(invocations)
         } catch (e) {
             stopHeartbeat()
             throw e
+        } finally {
+            endInvocations()
         }
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
-        const backgroundTask = this.runBackgroundTasks(invocationResults).finally(stopHeartbeat)
+        const endBackground = cyclotronWorkerPhaseDuration.startTimer({ queue: this.queue, phase: 'background' })
+        const backgroundTask = this.runBackgroundTasks(invocationResults).finally(() => {
+            endBackground()
+            stopHeartbeat()
+        })
 
         return { backgroundTask, invocationResults }
     }

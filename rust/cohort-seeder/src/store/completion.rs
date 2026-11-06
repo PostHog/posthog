@@ -29,7 +29,7 @@ use std::fmt;
 use crate::domain::{
     CompletionParts, CompletionPhase, CompletionStatus, DispatchEpoch, MarkerWatch,
     ObservationEnds, PartitionBitmap, PartitionBitmapError, ReconcileHwms, ReconcileScope, RunId,
-    ScopeKind, ShapeHashError, WatchPositions, MARKER_WATCH_SCHEMA,
+    ScopeKind, ShapeHashError, WatchPositions, WithheldCohort, WithheldReason, MARKER_WATCH_SCHEMA,
 };
 
 use super::runs::RunKind;
@@ -61,6 +61,13 @@ macro_rules! reconciling_status {
 macro_rules! confirmed_chunk_status {
     () => {
         "'confirmed'"
+    };
+}
+// Readiness waits only for the days before the boundary. A trailing chunk, the only kind that
+// carries a claim hold, is scanned after the run stamps readiness.
+macro_rules! readiness_chunk {
+    () => {
+        "claimable_after IS NULL"
     };
 }
 
@@ -99,7 +106,8 @@ const DISCOVER_COMPLETION_ONLY: &str = concat!(
     reconciling_status!(),
     ")",
     "\n      AND backfill_kind = ANY($2)",
-    "\n      AND team_id = ANY($1)",
+    "\n      AND ",
+    processing_team!(),
     "\n      AND (status = ",
     seeding_status!(),
     " OR reconcile_observed_at IS NULL)",
@@ -125,7 +133,8 @@ const COUNT_RECONCILING_ONLY: &str = concat!(
     "\n    WHERE status = ",
     reconciling_status!(),
     "\n      AND backfill_kind = ANY($2)",
-    "\n      AND team_id = ANY($1)",
+    "\n      AND ",
+    processing_team!(),
     "\n    GROUP BY backfill_kind\n"
 );
 
@@ -141,6 +150,8 @@ const CAS_RUN_RECONCILING: &str = concat!(
     "\n              SELECT 1 FROM cohort_backfill_chunks",
     "\n              WHERE run_id = $1 AND status <> ",
     confirmed_chunk_status!(),
+    " AND ",
+    readiness_chunk!(),
     "\n          )",
     "\n        RETURNING id, reconcile_dispatched_at\n"
 );
@@ -152,6 +163,8 @@ const RUNS_WITH_ALL_CHUNKS_CONFIRMED: &str = concat!(
     "\n        SELECT 1 FROM cohort_backfill_chunks",
     "\n        WHERE run_id = candidate.run_id AND status <> ",
     confirmed_chunk_status!(),
+    " AND ",
+    readiness_chunk!(),
     "\n    )\n"
 );
 
@@ -363,9 +376,10 @@ pub async fn read_planning_stamp(
 }
 
 /// CAS a seeding run into `reconciling`. Admits the transition only once planning is proven and every
-/// chunk has confirmed, freezing the chunk ledger (`claim_next`/`heartbeat`/`plan_chunks` all require
-/// `seeding`). `None` means the CAS was lost — another dispatcher won, chunks reappeared, or the run
-/// left `seeding`.
+/// chunk readiness waits for has confirmed, freezing the chunk ledger while the run reconciles:
+/// `plan_chunks` requires `seeding`, and `claim_next`/`heartbeat` require `seeding` or `trailing`,
+/// with a held chunk claimable only under `trailing`. `None` means the CAS was lost — another
+/// dispatcher won, chunks reappeared, or the run left `seeding`.
 pub async fn cas_run_reconciling(
     pool: &PgPool,
     run_id: RunId,
@@ -445,11 +459,13 @@ pub async fn persist_observation_ends(
 /// fenced transaction. The bit merge is idempotent (`bits | $bits`), so a replayed flush is a no-op.
 /// Repeated cohort ids in `bit_updates` are folded with `bit_or` first: `UPDATE ... FROM` applies a
 /// single source row per target, so unfolded duplicates would silently drop every bit but one's.
+/// The same transaction supersedes withheld cohorts, sparing completed and stamped ones.
 pub async fn persist_marker_observations(
     pool: &PgPool,
     run_id: RunId,
     epoch: DispatchEpoch,
     bit_updates: &[(CohortId, PartitionBitmap)],
+    withheld: &[WithheldCohort],
     positions: &WatchPositions,
     marker_topic: &str,
 ) -> Result<(), CompletionStoreError> {
@@ -512,8 +528,47 @@ pub async fn persist_marker_observations(
         .await?;
     }
 
+    if !withheld.is_empty() {
+        let cohort_ids: Vec<i32> = withheld.iter().map(|cohort| cohort.cohort_id.0).collect();
+        let errors: Vec<String> = withheld.iter().map(withheld_error).collect();
+        sqlx::query(
+            r#"
+            UPDATE cohort_backfill_run_cohorts c
+            SET superseded_at = COALESCE(c.superseded_at, now()),
+                error = CASE WHEN c.superseded_at IS NULL THEN u.error ELSE c.error END
+            FROM unnest($2::int[], $3::text[]) AS u(cohort_id, error)
+            WHERE c.run_id = $1 AND c.cohort_id = u.cohort_id
+              AND c.stamped_at IS NULL AND c.reconcile_completed_at IS NULL
+            "#,
+        )
+        .bind(run_id)
+        .bind(cohort_ids)
+        .bind(errors)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     tx.commit().await?;
     Ok(())
+}
+
+fn withheld_error(cohort: &WithheldCohort) -> String {
+    let partition = cohort.partition.get();
+    let reason = cohort.reason.as_str();
+    match cohort.reason {
+        WithheldReason::PartialCoverage { covered_since } => {
+            let since = DateTime::<Utc>::from_timestamp_millis(covered_since.0)
+                .map_or_else(|| covered_since.0.to_string(), |at| at.to_rfc3339());
+            format!(
+                "reconcile withheld by partition {partition} ({reason}): its slice holds history \
+                 only since {since}, after this run's boundary; a recovery run needs a boundary at \
+                 or after that instant"
+            )
+        }
+        WithheldReason::Catalog(_) => {
+            format!("reconcile withheld by partition {partition} ({reason})")
+        }
+    }
 }
 
 /// Mark one cohort's reconcile complete (64/64 markers). Idempotent via the `IS NULL` guard, and
@@ -587,8 +642,7 @@ pub async fn record_participation_partial(
 }
 
 /// Record a retryable shortfall: markers short but the hash still matches (a partially-gated fleet,
-/// marker loss, allowlist shrink). Error only — `superseded_at` stays NULL so the run is
-/// re-dispatchable.
+/// marker loss). Error only — `superseded_at` stays NULL so the run is re-dispatchable.
 pub async fn record_participation_shortfall(
     pool: &PgPool,
     run_id: RunId,
@@ -798,7 +852,8 @@ pub async fn load_current_shape_hashes(
     Ok(current)
 }
 
-/// Which of the candidate runs have a fully confirmed chunk ledger, in one round trip. The driver
+/// Which of the candidate runs have confirmed every chunk their readiness waits for, in one round
+/// trip. The driver
 /// ticks inside the orchestrator's poll arm ahead of its liveness heartbeat, so a per-run round trip
 /// would scale one tick's cost with the seeding backlog.
 pub async fn runs_with_all_chunks_confirmed(
@@ -829,6 +884,8 @@ pub struct DiscoveredCompletion {
 /// classify each. Rows whose status or kind is outside the vocabulary the query already bounds are
 /// skipped defensively. An observed run is the driver's exit condition, so it is filtered in SQL
 /// rather than hydrated and then matched away — [`count_reconciling_by_kind`] still sees it.
+/// `allowlist` is the env list. `Only` also admits the grants that `processing_team!` reads from the
+/// access record.
 pub async fn discover_completions(
     pool: &PgPool,
     allowlist: &TeamAllowlist,
@@ -863,6 +920,8 @@ pub async fn discover_completions(
 /// is the whole point: while the person readiness gate is shut, that backlog is the only thing the
 /// `seeder_runs_reconciling` gauge has to report, and it is exactly what the driver cannot act on.
 /// One aggregate, so the gauge costs a count rather than a hydration of every parked row.
+/// `allowlist` is the env list. `Only` also admits the grants that `processing_team!` reads from the
+/// access record.
 pub async fn count_reconciling_by_kind(
     pool: &PgPool,
     allowlist: &TeamAllowlist,

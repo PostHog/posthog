@@ -1,0 +1,34 @@
+.OnboardingDottedBg {
+    background-color: var(--color-bg-surface-primary);
+}
+
+// Each background layer needs independent sizing and repetition, which Tailwind cannot express.
+@media (min-width: 640px) {
+    .OnboardingDottedBg {
+        background-color: #dbe8f4;
+        background-image:
+            radial-gradient(80% 70% at 50% 30%, rgb(255 255 255 / 55%), transparent 70%),
+            linear-gradient(180deg, #eef4fa 0%, #dbe8f4 55%, #c4d8ea 100%),
+            radial-gradient(rgb(30 56 84 / 9%) 1.4px, transparent 1.4px);
+        background-repeat: no-repeat, no-repeat, repeat;
+        background-size:
+            auto,
+            auto,
+            16px 16px;
+    }
+
+    [theme='dark'] .OnboardingDottedBg {
+        background-color: #101a24;
+        background-image:
+            radial-gradient(72% 72% at 50% 38%, rgb(150 185 220 / 12%), transparent 70%),
+            radial-gradient(rgb(255 255 255 / 6%) 1.4px, transparent 1.4px);
+    }
+}
+
+.OnboardingProductCard {
+    background-color: rgb(255 255 255 / 55%);
+}
+
+[theme='dark'] .OnboardingProductCard {
+    background-color: var(--color-bg-surface-secondary);
+}

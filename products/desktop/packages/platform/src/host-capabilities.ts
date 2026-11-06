@@ -11,6 +11,13 @@ export interface HostCapabilities {
    * (connected-GitHub-org) repositories and cloud workspaces.
    */
   readonly localWorkspaces: boolean;
+
+  /**
+   * Whether the host can hold a custom PostHog instance: the sign-in screen
+   * offers the Custom region, and the host serves the `customCloud` routes.
+   * Desktop (Electron) has it; the browser host has no store for it.
+   */
+  readonly customCloud: boolean;
 }
 
 export const HOST_CAPABILITIES = Symbol.for(

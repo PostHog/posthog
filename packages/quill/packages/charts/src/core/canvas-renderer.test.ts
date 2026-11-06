@@ -10,12 +10,14 @@ import {
     drawGrid,
     drawLine,
     drawLineSeriesLayer,
+    drawPoints,
     drawSelectionRect,
     drawTickMarks,
     resolveAxisLineColor,
+    traceScatterMarker,
     withVerticalClip,
 } from './canvas-renderer'
-import type { ChartDrawArgs, ChartTheme } from './types'
+import type { ChartDrawArgs, ChartTheme, ScatterMarkerShape } from './types'
 
 function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
     return {
@@ -119,12 +121,22 @@ describe('hog-charts canvas-renderer', () => {
                 expectedMoveTo: 0,
                 expectedLineTo: 0,
             },
-        ])('$name', ({ labels, data, gapValues, expectedBeginPath, expectedMoveTo, expectedLineTo }) => {
+            {
+                name: 'bridges the gap with connectNulls',
+                labels: ['a', 'b', 'c'],
+                data: [10, 50, 90],
+                gapValues: new Set([50]),
+                connectNulls: true,
+                expectedBeginPath: 1,
+                expectedMoveTo: 1,
+                expectedLineTo: 1,
+            },
+        ])('$name', ({ labels, data, gapValues, connectNulls, expectedBeginPath, expectedMoveTo, expectedLineTo }) => {
             const ctx = mockCanvasContext()
             const series = makeSeries({ key: 's1', data })
             const drawCtx =
                 gapValues.size > 0 ? makeDrawContextWithGaps(ctx, labels, gapValues) : makeDrawContext(ctx, labels)
-            drawLine(drawCtx, series)
+            drawLine({ ...drawCtx, connectNulls }, series)
             expect(ctx.beginPath).toHaveBeenCalledTimes(expectedBeginPath)
             expect(ctx.moveTo).toHaveBeenCalledTimes(expectedMoveTo)
             expect(ctx.lineTo).toHaveBeenCalledTimes(expectedLineTo)
@@ -138,6 +150,73 @@ describe('hog-charts canvas-renderer', () => {
             expect(ctx.moveTo).toHaveBeenCalledTimes(1)
             expect(ctx.lineTo).toHaveBeenCalledTimes(1)
         })
+    })
+
+    describe('drawPoints — isolated points', () => {
+        it.each([
+            { name: 'draws a dot for a single-value series', labels: ['a'], data: [10], radius: undefined, arcs: [3] },
+            {
+                name: 'draws no dots for a connected line',
+                labels: ['a', 'b'],
+                data: [10, 90],
+                radius: undefined,
+                arcs: [],
+            },
+            {
+                name: 'draws a dot for a point between two gaps',
+                labels: ['a', 'b', 'c'],
+                data: [50, 10, 50],
+                radius: undefined,
+                arcs: [3],
+            },
+            {
+                name: 'keeps an explicit radius on every point',
+                labels: ['a', 'b'],
+                data: [10, 90],
+                radius: 5,
+                arcs: [5, 5],
+            },
+            { name: 'draws no dot when the radius is explicitly zero', labels: ['a'], data: [10], radius: 0, arcs: [] },
+            {
+                name: 'draws no dots for points bridged by connectNulls',
+                labels: ['a', 'b', 'c'],
+                data: [10, 50, 90],
+                radius: undefined,
+                connectNulls: true,
+                arcs: [],
+            },
+        ])('$name', ({ labels, data, radius, connectNulls, arcs }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data, points: radius === undefined ? undefined : { radius } })
+            drawPoints({ ...makeDrawContextWithGaps(ctx, labels, new Set([50])), connectNulls }, series)
+            expect(ctx.arc.mock.calls.map((call) => call[2])).toEqual(arcs)
+        })
+    })
+
+    describe('drawLine — stroke width', () => {
+        it.each([
+            { name: 'defaults to the standard width', stroke: undefined, lineWidth: 2, strokes: 1 },
+            { name: 'uses stroke.width', stroke: { width: 5 }, lineWidth: 5, strokes: 1 },
+            { name: 'draws nothing for a zero width', stroke: { width: 0 }, lineWidth: 0, strokes: 0 },
+            { name: 'draws nothing for a NaN width', stroke: { width: NaN }, lineWidth: 0, strokes: 0 },
+        ])('$name', ({ stroke, lineWidth, strokes }) => {
+            const ctx = mockCanvasContext()
+            drawLine(makeDrawContext(ctx, ['a', 'b']), makeSeries({ key: 's1', data: [10, 90], stroke }))
+            expect(ctx.lineWidth).toBe(lineWidth)
+            expect(ctx.stroke).toHaveBeenCalledTimes(strokes)
+        })
+    })
+
+    // Round caps close a dash gap narrower than the width, so the default gap grows with it.
+    it.each([
+        { name: 'the default width', width: undefined, custom: undefined, expected: [10, 10] },
+        { name: 'a 10px line', width: 10, custom: undefined, expected: [10, 18] },
+        { name: 'a custom pattern on a 10px line', width: 10, custom: [2, 8], expected: [2, 8] },
+    ])('keeps the incomplete-period dash open for $name', ({ width, custom, expected }) => {
+        const ctx = mockCanvasContext()
+        const stroke = { width, partial: { fromIndex: 1, pattern: custom } }
+        drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), makeSeries({ key: 's1', data: [10, 50, 30], stroke }))
+        expect(dashCalls(ctx)).toContainEqual(expected)
     })
 
     describe('drawLine — monotone smoothing and yFloor', () => {
@@ -371,6 +450,19 @@ describe('hog-charts canvas-renderer', () => {
             // Solid [0..2]: moveTo + 2 lineTos. Dashed [2..4]: moveTo + 2 lineTos.
             expect(ctx.moveTo).toHaveBeenCalledTimes(2)
             expect(ctx.lineTo).toHaveBeenCalledTimes(4)
+        })
+
+        it.each([
+            { smooth: false, segment: 'lineTo' as const, partial: { fromIndex: 2 } },
+            { smooth: true, segment: 'bezierCurveTo' as const, partial: { fromIndex: 2 } },
+            { smooth: false, segment: 'lineTo' as const, partial: { toIndex: 1 } },
+        ])('dashes a bridged gap on the dash boundary ($partial, smooth: $smooth)', ({ smooth, segment, partial }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 50, 30], stroke: { partial } })
+            const drawCtx = makeDrawContextWithGaps(ctx, ['a', 'b', 'c'], new Set([50]))
+            drawLine({ ...drawCtx, smooth, connectNulls: true }, series)
+            expect(ctx[segment]).toHaveBeenCalledTimes(1)
+            expect(dashCalls(ctx)).toEqual([[10, 10], []])
         })
 
         it('applies partial dashing against the yValues override length, not series.data', () => {
@@ -697,12 +789,20 @@ describe('hog-charts canvas-renderer', () => {
                 gapValues: new Set([999, 998]),
                 expectedFillCount: 0,
             },
-        ])('$name', ({ labels, data, gapValues, expectedFillCount }) => {
+            {
+                name: 'fills one segment across a gap with connectNulls',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 999, 80, 90],
+                gapValues: new Set([999]),
+                connectNulls: true,
+                expectedFillCount: 1,
+            },
+        ])('$name', ({ labels, data, gapValues, connectNulls, expectedFillCount }) => {
             const ctx = mockCanvasContext()
             const series = makeSeries({ key: 's1', data })
             const drawCtx =
                 gapValues.size > 0 ? makeDrawContextWithGaps(ctx, labels, gapValues) : makeDrawContext(ctx, labels)
-            drawArea(drawCtx, series)
+            drawArea({ ...drawCtx, connectNulls }, series)
             expect(ctx.fill).toHaveBeenCalledTimes(expectedFillCount)
         })
     })
@@ -930,6 +1030,20 @@ describe('hog-charts canvas-renderer', () => {
                 }
             )
         })
+
+        it('draws value lines at valueTicks for a plain value-to-pixel yScale, as a custom chart passes', () => {
+            const ctx = mockCanvasContext()
+            const plotBottom = dimensions.plotTop + dimensions.plotHeight
+            const y = (value: number): number => plotBottom - value
+            const snap = (coord: number): number => Math.round(coord) + 0.5
+
+            drawGrid({ ctx, dimensions, yScale: y }, { frame: false, valueTicks: [0, 50, 100] })
+
+            expect(ctx.moveTo.mock.calls).toEqual([
+                [dimensions.plotLeft, snap(y(50))],
+                [dimensions.plotLeft, snap(y(100))],
+            ])
+        })
     })
 
     describe('composeDrawHoverWithCrosshair', () => {
@@ -944,7 +1058,7 @@ describe('hog-charts canvas-renderer', () => {
         it('always invokes the underlying drawHover', () => {
             const ctx = mockCanvasContext()
             const drawHover = jest.fn()
-            const composed = composeDrawHoverWithCrosshair(() => drawHover, {
+            const composed = composeDrawHoverWithCrosshair(drawHover, {
                 crosshairColor: '#f00',
                 showCrosshair: true,
             })
@@ -954,7 +1068,7 @@ describe('hog-charts canvas-renderer', () => {
 
         it('dashes the crosshair with crosshairDash and resets to solid for subsequent hover drawing', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+            const composed = composeDrawHoverWithCrosshair(jest.fn(), {
                 crosshairColor: '#f00',
                 crosshairDash: [3, 3],
                 showCrosshair: true,
@@ -965,7 +1079,7 @@ describe('hog-charts canvas-renderer', () => {
 
         it('skips crosshair when showCrosshair is false', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+            const composed = composeDrawHoverWithCrosshair(jest.fn(), {
                 crosshairColor: '#f00',
                 showCrosshair: false,
             })
@@ -975,7 +1089,7 @@ describe('hog-charts canvas-renderer', () => {
 
         it('skips crosshair when crosshairColor is undefined', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+            const composed = composeDrawHoverWithCrosshair(jest.fn(), {
                 crosshairColor: undefined,
                 showCrosshair: true,
             })
@@ -985,7 +1099,7 @@ describe('hog-charts canvas-renderer', () => {
 
         it('skips crosshair when hoverIndex is negative', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+            const composed = composeDrawHoverWithCrosshair(jest.fn(), {
                 crosshairColor: '#f00',
                 showCrosshair: true,
             })
@@ -995,7 +1109,7 @@ describe('hog-charts canvas-renderer', () => {
 
         it('skips crosshair when scales.x returns a non-finite value', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+            const composed = composeDrawHoverWithCrosshair(jest.fn(), {
                 crosshairColor: '#f00',
                 showCrosshair: true,
             })
@@ -1006,7 +1120,7 @@ describe('hog-charts canvas-renderer', () => {
         it('draws the crosshair on the happy path', () => {
             const ctx = mockCanvasContext()
             const drawHover = jest.fn()
-            const composed = composeDrawHoverWithCrosshair(() => drawHover, {
+            const composed = composeDrawHoverWithCrosshair(drawHover, {
                 crosshairColor: '#abc',
                 showCrosshair: true,
             })
@@ -1020,7 +1134,7 @@ describe('hog-charts canvas-renderer', () => {
             const ctx = mockCanvasContext()
             const drawHover = jest.fn()
             const labelToCoord = jest.fn((label: string) => (label === 'Tue' ? 150 : undefined))
-            const composed = composeDrawHoverWithCrosshair(() => drawHover, {
+            const composed = composeDrawHoverWithCrosshair(drawHover, {
                 crosshairColor: '#0f0',
                 showCrosshair: true,
                 axisOrientation: 'horizontal',
@@ -1034,22 +1148,6 @@ describe('hog-charts canvas-renderer', () => {
             const lastLine = lines[lines.length - 1]
             expect(lastMove[1]).toBeCloseTo(lastLine[1])
             expect(lastMove[0]).not.toBeCloseTo(lastLine[0])
-        })
-
-        it('reads the latest drawHover via the getter on each call', () => {
-            const ctx = mockCanvasContext()
-            const first = jest.fn()
-            const second = jest.fn()
-            let current = first
-            const composed = composeDrawHoverWithCrosshair(() => current, {
-                crosshairColor: '#f00',
-                showCrosshair: false,
-            })
-            composed(makeArgs(ctx, 0, 100))
-            current = second
-            composed(makeArgs(ctx, 0, 100))
-            expect(first).toHaveBeenCalledTimes(1)
-            expect(second).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -1180,6 +1278,73 @@ describe('hog-charts canvas-renderer', () => {
                 expect(rectCall[2]).toBe(expectedWidth)
             }
         )
+    })
+
+    describe('drawLineSeriesLayer — yFloor', () => {
+        // A NaN width draws no line, so its fill rests on the baseline itself rather than vanishing.
+        it.each([
+            { name: 'the default stroke', stroke: undefined, fill: undefined, expectedY: 367 },
+            { name: 'a 10px stroke', stroke: { width: 10 }, fill: undefined, expectedY: 363 },
+            { name: 'the fill of a NaN-width stroke', stroke: { width: NaN }, fill: {}, expectedY: 368 },
+        ])('rests $name on the x-axis line at y=$expectedY', ({ stroke, fill, expectedY }) => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b']
+            const xScale = scalePoint<string>().domain(labels).range([48, 784]).padding(0)
+            const yScale = scaleLinear().domain([0, 100]).range([368, 16])
+            drawLineSeriesLayer({
+                ctx,
+                dimensions,
+                labels,
+                series: [makeSeries({ key: 's1', data: [0, 0], stroke, fill })],
+                xScale,
+                resolveYScale: () => yScale,
+                yFloor: 367,
+            })
+            expect(ctx.moveTo).toHaveBeenCalledWith(48, expectedY)
+        })
+    })
+
+    describe('traceScatterMarker', () => {
+        it.each<[ScatterMarkerShape, 'arc' | 'rect', number[]]>([
+            ['circle', 'arc', [10, 20, 6, 0, Math.PI * 2]],
+            ['square', 'rect', [4, 14, 12, 12]],
+        ])('traces a %s as one path spanning the radius on every side', (shape, method, args) => {
+            const ctx = mockCanvasContext()
+
+            traceScatterMarker(ctx, shape, 10, 20, 6)
+
+            expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+            expect(ctx[method]).toHaveBeenCalledWith(...args)
+        })
+
+        it('centers a triangle on the data point, not on its bounding box', () => {
+            const ctx = mockCanvasContext()
+
+            traceScatterMarker(ctx, 'triangle', 10, 20, 6)
+
+            const vertices = [...ctx.moveTo.mock.calls, ...ctx.lineTo.mock.calls]
+            expect(vertices).toHaveLength(3)
+            const centroid = vertices.reduce(([sx, sy], [x, y]) => [sx + x / 3, sy + y / 3], [0, 0])
+            expect(centroid).toEqual([10, 20])
+            expect(ctx.closePath).toHaveBeenCalledTimes(1)
+        })
+
+        it('traces a cross as two open strokes', () => {
+            const ctx = mockCanvasContext()
+
+            traceScatterMarker(ctx, 'cross', 10, 20, 6)
+
+            expect(ctx.moveTo.mock.calls).toEqual([
+                [4, 14],
+                [16, 14],
+            ])
+            expect(ctx.lineTo.mock.calls).toEqual([
+                [16, 26],
+                [4, 26],
+            ])
+            // Closing the path would break ScatterChart's "a cross is strokes only" fill skip.
+            expect(ctx.closePath).not.toHaveBeenCalled()
+        })
     })
 })
 

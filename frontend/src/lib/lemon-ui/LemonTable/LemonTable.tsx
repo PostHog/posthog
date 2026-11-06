@@ -1,26 +1,36 @@
 import './LemonTable.scss'
 
+import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox } from '@posthog/lemon-ui'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 
 import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
 import { BulkSelectionBar } from './BulkSelectionBar'
-import { determineColumnKey, getStickyColumnInfo } from './columnLayoutUtils'
+import { BulkSelectionCheckbox } from './BulkSelectionCheckbox'
+import { bulkSelectionContext } from './bulkSelectionContext'
+import {
+    determineColumnKey,
+    getColumnWidthCap,
+    getStickyColumnInfo,
+    virtualColumnIndex,
+    windowHeaderRow,
+} from './columnLayoutUtils'
 import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
+import { TableColumnResizeHandle } from './TableColumnResizeHandle'
 import { TableRow } from './TableRow'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBulkSelection'
@@ -28,6 +38,22 @@ import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBu
 /** Sentinel passed to `useBulkSelection` when `bulkSelection` is undefined — the hook still runs
  *  unconditionally so hook order is stable, but its result is never read. */
 const UNUSED_ROW_KEY = (): string | number => 0
+const DEFAULT_NOUNS: [string, string] = ['entry', 'entries']
+
+/** Text extracted from a cell for "Copy cell contents". Joins the cell's direct child nodes with a
+ *  space — using `textContent` on the whole cell would both smush visually-separated children
+ *  (e.g. a label plus a tag) together and lose nothing to `text-overflow` clipping, since
+ *  `textContent` always reflects the full DOM value regardless of CSS. Exported for testing. */
+export function extractCellText(cell: HTMLElement): string {
+    const parts: string[] = []
+    cell.childNodes.forEach((node) => {
+        const text = node.textContent?.trim()
+        if (text) {
+            parts.push(text)
+        }
+    })
+    return parts.join(' ').replace(/\s+/g, ' ').trim()
+}
 
 export interface LemonTableProps<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
@@ -67,6 +93,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
+    /** Extra grouped header levels above the column titles, for hierarchical tables. */
+    headerRows?: { title: React.ReactNode; colSpan: number }[][]
     /** Whether header titles should be uppercased. The default value is `true`. */
     uppercaseHeader?: boolean
     /**
@@ -84,6 +112,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
+    /** Called with every row in display order, on mount and whenever those rows change. */
+    onSortedRowsChange?: (rows: T[]) => void
     /** Defaults to true. Used if you don't want to use the URL to store sort order **/
     useURLForSorting?: boolean
     /** How many skeleton rows should be used for the empty loading state. The default value is 1. */
@@ -94,6 +124,7 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     nouns?: [string, string]
     className?: string
     style?: React.CSSProperties
+    tableStyle?: React.CSSProperties
     'data-attr'?: string
     /** Footer to be shown below the table. */
     footer?: React.ReactNode
@@ -109,6 +140,21 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
      * Whether the table content is allowed to scroll inside its container.
      */
     allowContentScroll?: boolean
+    /** Requires a bounded scroll container. Expandable rows use the normal rendering path. */
+    virtualized?: boolean
+    /** Default column width in pixels for horizontal virtualization. Supports headerRows and a sticky first column.
+     * Columns with a numeric `width` keep that width instead.
+     * Column groups, expandable rows, pinned columns, selection, and resizing use the normal rendering path. */
+    virtualizedColumnWidth?: number
+    /**
+     * Whether the header row stays visible while the page scrolls. The header pins to the scene's scroll
+     * container from the `@2xl/main-content` breakpoint up, the same as `SceneStickyBar`. Set the
+     * `--lemon-table-sticky-header-top` CSS variable on an ancestor to pin it below other sticky content.
+     * The header only pins while the table fits its container: a table that must scroll horizontally
+     * keeps its scroll container, which stops the header from pinning to the page.
+     * Has no effect together with `allowContentScroll`.
+     */
+    stickyHeader?: boolean
     /** Row actions to display at the end of each row. Return null to hide actions for specific rows. */
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
     /** Whether to hide the sorting indicator when no sort is active. Defaults to false. */
@@ -116,6 +162,11 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     /** Enable bulk-selection — adds a leading checkbox column and renders the consumer-provided
      *  action bar above the table whenever any rows are selected. */
     bulkSelection?: BulkSelectionConfig<T, K>
+    /** Enable a right-click "Copy cell contents" affordance on each data cell. Off by default —
+     *  only opt in on data-result tables (query/insight/SQL result tables) where cells are scalar
+     *  values. Not for entity-list tables, where composed cells (dates, tags, avatars) would copy
+     *  a misleading rendered string. */
+    enableCellCopy?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey>({
@@ -137,18 +188,21 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     scrollToTopOnPageChange = true,
     expandable,
     showHeader = true,
+    headerRows,
     uppercaseHeader = true,
     tableLayout = 'auto',
     noSortingCancellation: disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
     onSort,
+    onSortedRowsChange,
     useURLForSorting = true,
     loadingSkeletonRows = 1,
     emptyState,
-    nouns = ['entry', 'entries'],
+    nouns = DEFAULT_NOUNS,
     className,
     style,
+    tableStyle,
     'data-attr': dataAttr,
     footer,
     firstColumnSticky,
@@ -156,9 +210,13 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     maxHeaderWidth,
     hideScrollbar,
     allowContentScroll = false,
+    virtualized = false,
+    virtualizedColumnWidth,
+    stickyHeader = false,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
     bulkSelection,
+    enableCellCopy = false,
 }: LemonTableProps<T, K>): JSX.Element {
     if (bulkSelection && !bulkSelection.getKey && rowKey === undefined) {
         throw new Error(
@@ -210,6 +268,23 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
 
     const scrollRef = useRef<HTMLDivElement>(null)
 
+    const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
+
+    // A single stable handler shared by every data cell keeps the per-cell cost to just a prop
+    // reference (no extra components or DOM), so this stays cheap even on very large tables.
+    const handleCellContextMenu = useCallback(
+        (event: React.MouseEvent<HTMLTableCellElement>) => {
+            const text = extractCellText(event.currentTarget)
+            if (!text) {
+                closeCopyMenu() // Nothing to copy — close any open menu and fall back to the native one
+                return
+            }
+            event.preventDefault()
+            openCopyMenu(event.currentTarget, text)
+        },
+        [closeCopyMenu, openCopyMenu]
+    )
+
     // Width calculation for pinned columns
     const { columnWidths: pinnedColumnWidths, tableRef } = useColumnWidths({
         columnKeys: pinnedColumns,
@@ -246,7 +321,60 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         return dataSource
     }, [dataSource, currentSorting, baseColumns])
 
+    // Inline columns give sortedDataSource a new identity on each render, so compare the rows themselves. Otherwise a
+    // parent that stores them would render again and report again without end.
+    const reportedRowsRef = useRef<T[] | null>(null)
+    useEffect(() => {
+        const reported = reportedRowsRef.current
+        const isUnchanged =
+            reported?.length === sortedDataSource.length &&
+            sortedDataSource.every((row, index) => row === reported[index])
+        if (onSortedRowsChange && !isUnchanged) {
+            reportedRowsRef.current = sortedDataSource
+            onSortedRowsChange(sortedDataSource)
+        }
+    }, [sortedDataSource, onSortedRowsChange])
+
     const paginationState = usePagination(sortedDataSource, pagination, id)
+    const virtualizeRows = virtualized && allowContentScroll && !expandable
+    const scrollMargin = tableRef.current?.tHead?.offsetHeight ?? 0
+    const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
+        count: paginationState.dataSourcePage.length,
+        getScrollElement: () => scrollRef.current,
+        estimateSize: () => 36,
+        overscan: 5,
+        enabled: virtualizeRows,
+        scrollMargin,
+    })
+    const onVirtualizedRow = useCallback(
+        (record: T, index: number): HTMLProps<HTMLTableRowElement> & { 'data-index': number } => ({
+            ...onRow?.(record, index),
+            ref: rowVirtualizer.measureElement,
+            'data-index': index - paginationState.currentStartIndex,
+        }),
+        [onRow, rowVirtualizer.measureElement, paginationState.currentStartIndex]
+    )
+    const virtualRows = rowVirtualizer.getVirtualItems()
+    const rowIndexes = virtualizeRows
+        ? virtualRows.map((row) => row.index)
+        : paginationState.dataSourcePage.map((_, index) => index)
+    const paddingTop = virtualRows.length ? Math.max(0, virtualRows[0].start - scrollMargin) : 0
+    const paddingBottom = virtualRows.length
+        ? Math.max(0, rowVirtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1].end - scrollMargin))
+        : 0
+
+    useEffect(() => {
+        if (virtualizeRows) {
+            rowVirtualizer.scrollToOffset(0)
+        }
+    }, [
+        virtualizeRows,
+        rowVirtualizer,
+        dataSource,
+        paginationState.currentPage,
+        currentSorting?.columnKey,
+        currentSorting?.order,
+    ])
 
     const resolveRowKey = useMemo<(record: T) => K>(() => {
         if (bulkSelection?.getKey) {
@@ -270,8 +398,10 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         getKey: resolveRowKey,
         isRowSelectable: bulkSelection?.isRowSelectable,
         initialSelectedKeys: bulkSelection?.initialSelectedKeys,
+        clearSelectionKey: bulkSelection?.clearSelectionKey,
     })
 
+    const { toggleRow, toggleAllOnPage, pageHasSelectableRows } = bulk
     const effectiveNoun = bulkSelection?.noun ?? nouns
     const selectionColumn = useMemo<LemonTableColumn<T, undefined> | null>(() => {
         if (!bulkSelection) {
@@ -281,12 +411,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
             key: '__bulk-selection__',
             width: 32,
             title: (
-                <LemonCheckbox
-                    checked={bulk.isSomeOnPageSelected ? 'indeterminate' : bulk.isAllOnPageSelected}
-                    onChange={bulk.toggleAllOnPage}
+                <BulkSelectionCheckbox
+                    onChange={toggleAllOnPage}
                     aria-label={bulkSelection.headerAriaLabel ?? `Select all ${effectiveNoun[1]} on this page`}
                     disabledReason={
-                        !bulk.pageHasSelectableRows ? `No ${effectiveNoun[1]} on this page can be selected` : null
+                        !pageHasSelectableRows ? `No ${effectiveNoun[1]} on this page can be selected` : null
                     }
                 />
             ),
@@ -301,10 +430,10 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                           ? gate.disabledReason
                           : null
                 return (
-                    <LemonCheckbox
-                        checked={bulk.selectedKeysSet.has(key)}
+                    <BulkSelectionCheckbox
+                        selectionKey={key}
                         onChange={(_value, event) =>
-                            bulk.toggleRow(key, pageIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
+                            toggleRow(key, pageIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
                         }
                         disabledReason={disabledReason}
                         aria-label={bulkSelection.rowAriaLabel?.(record)}
@@ -312,7 +441,15 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                 )
             },
         }
-    }, [bulkSelection, bulk, resolveRowKey, paginationState.currentStartIndex, effectiveNoun])
+    }, [
+        bulkSelection,
+        toggleRow,
+        toggleAllOnPage,
+        pageHasSelectableRows,
+        resolveRowKey,
+        paginationState.currentStartIndex,
+        effectiveNoun,
+    ])
 
     const columnGroups = useMemo<LemonTableColumnGroup<T>[]>(() => {
         if (!selectionColumn) {
@@ -329,6 +466,85 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     }, [baseColumnGroups, selectionColumn])
 
     const columns = useMemo(() => columnGroups.flatMap((group) => group.children), [columnGroups])
+    const visibleColumns = useMemo(() => columns.filter((column) => !column.isHidden), [columns])
+    const virtualizeColumns =
+        !!virtualizedColumnWidth &&
+        virtualizedColumnWidth > 0 &&
+        columnGroups.length === 1 &&
+        !columnGroups[0].title &&
+        !expandable &&
+        !pinnedColumns?.length &&
+        !bulkSelection &&
+        !rowActions &&
+        !columns.some((column) => column.resizable)
+    const getVirtualizedColumnWidth = (column: LemonTableColumn<T, keyof T | undefined> | undefined): number =>
+        typeof column?.width === 'number' ? column.width : (virtualizedColumnWidth ?? 192)
+    const columnVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableCellElement>({
+        count: visibleColumns.length,
+        getScrollElement: () => scrollRef.current,
+        estimateSize: (index) => getVirtualizedColumnWidth(visibleColumns[index]),
+        horizontal: true,
+        overscan: 3,
+        enabled: virtualizeColumns,
+    })
+    // The virtualizer caches estimated sizes, so measure again when the column widths change
+    const virtualizedColumnWidthsKey = virtualizeColumns
+        ? visibleColumns.map((column) => getVirtualizedColumnWidth(column)).join(',')
+        : ''
+    useEffect(() => {
+        if (virtualizedColumnWidthsKey) {
+            columnVirtualizer.measure()
+        }
+    }, [virtualizedColumnWidthsKey, columnVirtualizer])
+    const virtualColumns = columnVirtualizer.getVirtualItems()
+    const firstColumnIndex = Math.max(Number(!!firstColumnSticky), virtualColumns[0]?.index ?? 0)
+    const lastColumnIndex = virtualColumns.at(-1)?.index ?? -1
+    const columnsStart = virtualColumns[0]?.start ?? 0
+    const columnsEnd = virtualColumns.at(-1)?.end ?? 0
+    const columnsTotalSize = columnVirtualizer.getTotalSize()
+    const stickyColumnWidth = firstColumnSticky ? getVirtualizedColumnWidth(visibleColumns[0]) : 0
+    const columnWindow = useMemo(
+        () =>
+            virtualizeColumns
+                ? {
+                      startIndex: firstColumnIndex,
+                      endIndex: lastColumnIndex + 1,
+                      stickyFirstColumn: !!firstColumnSticky,
+                      paddingLeft: Math.max(0, columnsStart - stickyColumnWidth),
+                      paddingRight: Math.max(0, columnsTotalSize - columnsEnd),
+                  }
+                : undefined,
+        [
+            virtualizeColumns,
+            firstColumnIndex,
+            lastColumnIndex,
+            firstColumnSticky,
+            columnsStart,
+            columnsEnd,
+            columnsTotalSize,
+            stickyColumnWidth,
+        ]
+    )
+    const renderedColumnGroups = useMemo(
+        () =>
+            virtualizeColumns
+                ? [
+                      {
+                          children: [
+                              ...(firstColumnSticky ? visibleColumns.slice(0, 1) : []),
+                              ...visibleColumns.slice(firstColumnIndex, lastColumnIndex + 1),
+                          ],
+                      },
+                  ]
+                : columnGroups,
+        [virtualizeColumns, visibleColumns, firstColumnIndex, lastColumnIndex, columnGroups, firstColumnSticky]
+    )
+    const renderedColumns = useMemo(
+        () => renderedColumnGroups.flatMap((group) => group.children),
+        [renderedColumnGroups]
+    )
+    const canStickHeader = stickyHeader && !allowContentScroll
+    const tableFitsContainer = useTableFitsContainer(canStickHeader, scrollRef, tableRef)
     const previousPageRef = useRef<number | null>(null)
 
     useEffect(() => {
@@ -367,8 +583,26 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     }
 
     const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
+    const preserveResizableColumnWidths = (header: HTMLTableCellElement): void => {
+        const headerOffset = Number(isRowExpansionToggleShown)
+        const headerCells = header.parentElement?.children
+        if (!headerCells) {
+            return
+        }
+        columns
+            .filter((column) => !column.isHidden)
+            .forEach((column, index) => {
+                const width = headerCells[index + headerOffset]?.getBoundingClientRect().width
+                if (column.resizable && column.onResize && width) {
+                    column.onResize(width)
+                }
+            })
+    }
 
-    const visibleDataColumnCount = useMemo(() => columns.filter((column) => !column.isHidden).length, [columns])
+    const visibleDataColumnCount =
+        (virtualizeColumns ? renderedColumns.length : visibleColumns.length) +
+        Number(!!columnWindow?.paddingLeft) +
+        Number(!!columnWindow?.paddingRight)
     // Matches the main header row cell count so the loader row does not add an extra table column (which shifts headers while loading)
     const headerLoaderColSpan = Math.max(
         1,
@@ -376,7 +610,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     )
 
     return (
-        <>
+        <bulkSelectionContext.Provider value={bulk}>
             {bulkSelection && <BulkSelectionBar context={bulk.context} config={bulkSelection} noun={effectiveNoun} />}
             <div
                 id={id}
@@ -390,6 +624,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     stealth && 'LemonTable--stealth',
                     !uppercaseHeader && 'LemonTable--lowercase-header',
                     allowContentScroll && 'h-full min-h-0 overflow-hidden',
+                    canStickHeader && tableFitsContainer && 'LemonTable--sticky-header',
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -402,27 +637,87 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     scrollRef={scrollRef}
                 >
                     <div className="LemonTable__content">
-                        <table ref={tableRef} className={tableLayout === 'fixed' ? 'table-fixed' : undefined}>
+                        <table
+                            ref={tableRef}
+                            className={tableLayout === 'fixed' || virtualizeColumns ? 'table-fixed' : undefined}
+                            aria-colcount={virtualizeColumns ? visibleColumns.length : undefined}
+                            style={
+                                virtualizeColumns
+                                    ? {
+                                          ...tableStyle,
+                                          width: columnsTotalSize,
+                                          minWidth: columnsTotalSize,
+                                      }
+                                    : tableStyle
+                            }
+                        >
                             <colgroup>
                                 {
                                     isRowExpansionToggleShown && (
-                                        <col style={{ width: '1%' }} />
+                                        <col style={{ width: tableLayout === 'fixed' ? '3rem' : '1%' }} />
                                     ) /* Expand/collapse column */
                                 }
-                                {columns
+                                {!!columnWindow?.paddingLeft && !firstColumnSticky && (
+                                    <col style={{ width: columnWindow.paddingLeft }} />
+                                )}
+                                {renderedColumns
                                     .filter((column) => !column.isHidden)
                                     .map((column, index) => (
                                         // eslint-disable-next-line react/forbid-dom-props
-                                        <col
-                                            key={`LemonTable-col-${index}`}
-                                            // width:0 has no effect in auto-layout tables (ignored by Safari).
-                                            // width:1% is a standard workaround to shrink a column to its content.
-                                            style={{ width: column.width === 0 ? '1%' : column.width }}
-                                        />
+                                        <React.Fragment key={`LemonTable-col-${index}`}>
+                                            <col
+                                                // width:0 has no effect in auto-layout tables (ignored by Safari).
+                                                // width:1% is a standard workaround to shrink a column to its content.
+                                                style={{
+                                                    width: virtualizeColumns
+                                                        ? getVirtualizedColumnWidth(column)
+                                                        : column.width === 0
+                                                          ? '1%'
+                                                          : column.width,
+                                                }}
+                                            />
+                                            {index === 0 && firstColumnSticky && !!columnWindow?.paddingLeft && (
+                                                <col style={{ width: columnWindow.paddingLeft }} />
+                                            )}
+                                        </React.Fragment>
                                     ))}
+                                {!!columnWindow?.paddingRight && <col style={{ width: columnWindow.paddingRight }} />}
                             </colgroup>
                             {showHeader && (
                                 <thead>
+                                    {headerRows?.map((row, rowIndex) => (
+                                        <tr key={rowIndex} className="LemonTable__row--grouping">
+                                            {isRowExpansionToggleShown && <th className="LemonTable__toggle" />}
+                                            {!!columnWindow?.paddingLeft && !firstColumnSticky && (
+                                                <th aria-hidden style={{ padding: 0, border: 0 }} />
+                                            )}
+                                            {windowHeaderRow(row, columnWindow).map((cell, cellIndex) => (
+                                                <React.Fragment key={cell.columnIndex}>
+                                                    <th
+                                                        aria-colindex={cell.columnIndex + 1}
+                                                        colSpan={cell.colSpan}
+                                                        scope="colgroup"
+                                                        className={clsx(
+                                                            'LemonTable__boundary',
+                                                            firstColumnSticky &&
+                                                                cellIndex === 0 &&
+                                                                'LemonTable__header--sticky'
+                                                        )}
+                                                    >
+                                                        {cell.title}
+                                                    </th>
+                                                    {cellIndex === 0 &&
+                                                        firstColumnSticky &&
+                                                        !!columnWindow?.paddingLeft && (
+                                                            <th aria-hidden style={{ padding: 0, border: 0 }} />
+                                                        )}
+                                                </React.Fragment>
+                                            ))}
+                                            {!!columnWindow?.paddingRight && (
+                                                <th aria-hidden style={{ padding: 0, border: 0 }} />
+                                            )}
+                                        </tr>
+                                    ))}
                                     {columnGroups.some((group) => group.title) && (
                                         <tr className="LemonTable__row--grouping">
                                             {
@@ -460,8 +755,15 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         </tr>
                                     )}
                                     <tr>
-                                        {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
-                                        {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
+                                        {
+                                            isRowExpansionToggleShown && (
+                                                <th className="LemonTable__toggle" />
+                                            ) /* Expand/collapse */
+                                        }
+                                        {!!columnWindow?.paddingLeft && !firstColumnSticky && (
+                                            <th aria-hidden style={{ padding: 0, border: 0 }} />
+                                        )}
+                                        {renderedColumnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                             columnGroup.children
                                                 .filter((column) => !column.isHidden)
                                                 .map((column, columnIndex) => {
@@ -477,14 +779,22 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                     // Truncate only when a max width is set and the column isn't sized by its author.
                                                     const truncateHeader =
                                                         !!maxHeaderWidth && !column.width && !column.fullWidth
+                                                    const widthCap = getColumnWidthCap(column)
+                                                    const clipTitle = truncateHeader || !!widthCap
 
-                                                    return (
+                                                    return [
                                                         <th
                                                             key={`LemonTable-th-${columnGroupIndex}-${columnKey}`}
+                                                            aria-colindex={
+                                                                columnWindow
+                                                                    ? virtualColumnIndex(columnIndex, columnWindow) + 1
+                                                                    : undefined
+                                                            }
                                                             className={clsx(
                                                                 'LemonTable__header',
                                                                 column.sorter && 'LemonTable__header--actionable',
                                                                 columnIndex === 0 && 'LemonTable__boundary',
+                                                                column.resizable && 'relative',
                                                                 firstColumnSticky &&
                                                                     columnGroupIndex === 0 &&
                                                                     columnIndex === 0 &&
@@ -495,6 +805,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                             /* eslint-disable-next-line react/forbid-dom-props */
                                                             style={{
                                                                 textAlign: column.align,
+                                                                ...(widthCap ? { maxWidth: widthCap } : {}),
                                                                 ...(isPinned ? { left: `${leftPosition}px` } : {}),
                                                             }}
                                                         >
@@ -548,7 +859,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                         'flex items-center',
                                                                         // Clip at maxWidth: sticky headers keep `overflow: visible` on the th, so
                                                                         // without this an over-wide title spills across the neighbouring headers
-                                                                        truncateHeader && 'overflow-hidden',
+                                                                        clipTitle && 'min-w-0 overflow-hidden',
                                                                         column?.fullWidth && 'w-full',
                                                                         column.sorter && 'cursor-pointer'
                                                                     )}
@@ -566,7 +877,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                 <IconInfo className="ml-1 text-base" />
                                                                             </div>
                                                                         </Tooltip>
-                                                                    ) : truncateHeader &&
+                                                                    ) : clipTitle &&
                                                                       typeof column.title === 'string' ? (
                                                                         <div
                                                                             className="min-w-0 truncate"
@@ -657,9 +968,28 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                         />
                                                                     ))}
                                                             </div>
-                                                        </th>
-                                                    )
+                                                            {column.resizable && column.onResize ? (
+                                                                <TableColumnResizeHandle
+                                                                    onResize={column.onResize}
+                                                                    onResizeStart={preserveResizableColumnWidths}
+                                                                    onResizeEnd={column.onResizeEnd}
+                                                                />
+                                                            ) : null}
+                                                        </th>,
+                                                        columnIndex === 0 &&
+                                                        firstColumnSticky &&
+                                                        !!columnWindow?.paddingLeft ? (
+                                                            <th
+                                                                key="virtual-padding-left"
+                                                                aria-hidden
+                                                                style={{ padding: 0, border: 0 }}
+                                                            />
+                                                        ) : null,
+                                                    ]
                                                 })
+                                        )}
+                                        {!!columnWindow?.paddingRight && (
+                                            <th aria-hidden style={{ padding: 0, border: 0 }} />
                                         )}
                                         {rowActions && <th className="w-0" />}
                                     </tr>
@@ -671,8 +1001,17 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                 </thead>
                             )}
                             <tbody>
+                                {virtualizeRows && paddingTop > 0 && (
+                                    <tr aria-hidden style={{ border: 0 }}>
+                                        <td
+                                            colSpan={headerLoaderColSpan}
+                                            style={{ height: paddingTop, padding: 0, border: 0 }}
+                                        />
+                                    </tr>
+                                )}
                                 {paginationState.dataSourcePage.length ? (
-                                    paginationState.dataSourcePage.map((record, rowIndex) => {
+                                    rowIndexes.map((rowIndex) => {
+                                        const record = paginationState.dataSourcePage[rowIndex]
                                         const rowKeyDetermined = rowKey
                                             ? typeof rowKey === 'function'
                                                 ? rowKey(record, rowIndex)
@@ -698,8 +1037,9 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 rowClassNameDetermined={rowClassNameDetermined}
                                                 rowRibbonColorDetermined={rowRibbonColorDetermined}
                                                 rowStatusDetermined={rowStatusDetermined}
-                                                columnGroups={columnGroups}
-                                                onRow={onRow}
+                                                columnGroups={renderedColumnGroups}
+                                                columnWindow={columnWindow}
+                                                onRow={virtualizeRows ? onVirtualizedRow : onRow}
                                                 expandable={expandable}
                                                 rowCount={paginationState.dataSourcePage.length}
                                                 firstColumnSticky={firstColumnSticky}
@@ -707,6 +1047,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 pinnedColumnWidths={pinnedColumnWidths}
                                                 columns={columns}
                                                 rowActions={rowActions}
+                                                onCellContextMenu={enableCellCopy ? handleCellContextMenu : undefined}
                                             />
                                         )
                                     })
@@ -715,30 +1056,50 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         .fill(null)
                                         .map((_, rowIndex) => (
                                             <tr key={`LemonTable-tr-${rowIndex} ph-no-capture`}>
-                                                {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
+                                                {!!columnWindow?.paddingLeft && !firstColumnSticky && (
+                                                    <td aria-hidden style={{ padding: 0, border: 0 }} />
+                                                )}
+                                                {renderedColumnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                                     columnGroup.children.map((column, columnIndex) => (
-                                                        <td
+                                                        <React.Fragment
                                                             key={`LemonTable-td-${columnGroupIndex}-${columnIndex}`}
-                                                            className={clsx(
-                                                                columnIndex === columnGroup.children.length - 1 &&
-                                                                    'LemonTable__boundary',
-                                                                firstColumnSticky &&
-                                                                    columnIndex === 0 &&
-                                                                    'LemonTable__cell--sticky',
-                                                                column.className
-                                                            )}
                                                         >
-                                                            <LemonSkeleton />
-                                                        </td>
+                                                            <td
+                                                                className={clsx(
+                                                                    columnIndex === columnGroup.children.length - 1 &&
+                                                                        'LemonTable__boundary',
+                                                                    firstColumnSticky &&
+                                                                        columnIndex === 0 &&
+                                                                        'LemonTable__cell--sticky',
+                                                                    column.className
+                                                                )}
+                                                            >
+                                                                <LemonSkeleton />
+                                                            </td>
+                                                            {columnIndex === 0 &&
+                                                                firstColumnSticky &&
+                                                                !!columnWindow?.paddingLeft && (
+                                                                    <td aria-hidden style={{ padding: 0, border: 0 }} />
+                                                                )}
+                                                        </React.Fragment>
                                                     ))
+                                                )}
+                                                {!!columnWindow?.paddingRight && (
+                                                    <td aria-hidden style={{ padding: 0, border: 0 }} />
                                                 )}
                                             </tr>
                                         ))
                                 ) : (
                                     <tr className="LemonTable__empty-state">
-                                        <td colSpan={columns.length + Number(!!expandable)}>
-                                            {emptyState || `No ${nouns[1]}`}
-                                        </td>
+                                        <td colSpan={headerLoaderColSpan}>{emptyState || `No ${nouns[1]}`}</td>
+                                    </tr>
+                                )}
+                                {virtualizeRows && paddingBottom > 0 && (
+                                    <tr aria-hidden style={{ border: 0 }}>
+                                        <td
+                                            colSpan={headerLoaderColSpan}
+                                            style={{ height: paddingBottom, padding: 0, border: 0 }}
+                                        />
                                     </tr>
                                 )}
                             </tbody>
@@ -750,6 +1111,38 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     </div>
                 </ScrollableShadows>
             </div>
-        </>
+            {enableCellCopy && copyMenu}
+        </bulkSelectionContext.Provider>
     )
+}
+
+/**
+ * Whether the table is no wider than its scroll viewport, so the viewport can stop scrolling horizontally.
+ * Only measures when `enabled` is true.
+ */
+function useTableFitsContainer(
+    enabled: boolean,
+    viewportRef: React.RefObject<HTMLDivElement>,
+    tableRef: React.RefObject<HTMLTableElement>
+): boolean {
+    const [fits, setFits] = useState(false)
+
+    useEffect(() => {
+        const viewport = viewportRef.current
+        const table = tableRef.current
+        if (!enabled || !viewport || !table || typeof ResizeObserver === 'undefined') {
+            setFits(false)
+            return
+        }
+        // Compare the table's own width with the viewport. This stays correct while the viewport clips
+        // instead of scrolls, so the result cannot flap between the two modes.
+        const update = (): void => setFits(table.offsetWidth <= viewport.clientWidth)
+        const observer = new ResizeObserver(update)
+        observer.observe(viewport)
+        observer.observe(table)
+        update()
+        return () => observer.disconnect()
+    }, [enabled, viewportRef, tableRef])
+
+    return fits
 }

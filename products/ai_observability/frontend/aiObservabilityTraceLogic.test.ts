@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -65,6 +66,20 @@ describe('aiObservabilityTraceLogic', () => {
         )
     })
 
+    it('keeps object-valued search params intact when the view mode changes', async () => {
+        const traceId = 'trace-with-filters'
+        const filters = [{ key: '$ai_model', value: 'gpt-4', operator: 'exact', type: 'event' }]
+        const traceUrl = combineUrl(urls.aiObservabilityTrace(traceId), { filters, tab: 'conversation' })
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setViewMode(TraceViewMode.Raw)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams.filters).toEqual(filters)
+    })
+
     it('handles trace ID with event and timestamp parameters', async () => {
         const traceIdWithColon = 'session-summary:group:16-16:81008d53ff0a708b:da6c0390-409f-485c-aab3-5e910bcf8b33'
         const eventId = 'event123'
@@ -93,6 +108,30 @@ describe('aiObservabilityTraceLogic', () => {
         })
     })
 
+    it.each([
+        [
+            'restores a `+` offset that the URL decoded to a space',
+            { timestamp: '2026-10-12T10:20:30.310693 00:00' },
+            '2026-10-12T10:20:30.310693+00:00',
+        ],
+        [
+            'keeps a valid timestamp that ends in a space-separated time',
+            { timestamp: '2026-10-12 10:20' },
+            '2026-10-12 10:20',
+        ],
+        ['ignores a timestamp that is not a date', { timestamp: 'not-a-date' }, null],
+        ['ignores an exception_ts that is not a date', { exception_ts: 'not-a-date' }, null],
+    ])('%s', async (_, params, expectedDateFrom) => {
+        const traceUrl = combineUrl(urls.aiObservabilityTrace('broken-date-trace', params))
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toMatchValues({
+            traceId: 'broken-date-trace',
+            dateRange: { dateFrom: expectedDateFrom, dateTo: null },
+        })
+        expect(() => logic.values.query).not.toThrow()
+    })
+
     it('preserves timestamp when both timestamp and tab parameters are present', async () => {
         const traceId = 'test-trace-id'
         const timestamp = '2024-01-15T12:00:00Z'
@@ -104,6 +143,48 @@ describe('aiObservabilityTraceLogic', () => {
             dateRange: { dateFrom: timestamp, dateTo: null },
             viewMode: 'conversation',
         })
+    })
+
+    const firstTraceTimestamp = '2024-01-15T12:00:00Z'
+
+    it.each([
+        ['clears the previous window when a different trace opens without a timestamp', 'other-trace-id', null],
+        ['keeps the window when the same trace reopens without a timestamp', 'test-trace-id', firstTraceTimestamp],
+    ])('%s', async (_, nextTraceId, expectedDateFrom) => {
+        router.actions.push(
+            addProjectIdIfMissing(
+                combineUrl(urls.aiObservabilityTrace('test-trace-id', { timestamp: firstTraceTimestamp })).url,
+                MOCK_TEAM_ID
+            )
+        )
+        await expectLogic(logic).toMatchValues({ dateRange: { dateFrom: firstTraceTimestamp, dateTo: null } })
+
+        router.actions.push(
+            addProjectIdIfMissing(
+                combineUrl(urls.aiObservabilityTrace(nextTraceId, { tab: 'evals' })).url,
+                MOCK_TEAM_ID
+            )
+        )
+        await expectLogic(logic).toMatchValues({
+            traceId: nextTraceId,
+            dateRange: { dateFrom: expectedDateFrom, dateTo: null },
+        })
+    })
+
+    it('records one trace view intent per trace, not per URL change within it', async () => {
+        const intents = jest.spyOn(api.productIntents, 'update').mockReturnValue(new Promise(() => {}))
+        const open = (traceId: string, params: Record<string, string> = {}): void => {
+            router.actions.push(addProjectIdIfMissing(urls.aiObservabilityTrace(traceId, params), MOCK_TEAM_ID))
+        }
+
+        open('trace-1')
+        open('trace-1', { event: 'step-1', search: 'invoice' })
+        open('trace-1', { event: 'step-2', search: 'invoice' })
+        open('trace-2')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(intents).toHaveBeenCalledTimes(2)
+        intents.mockRestore()
     })
 
     it('does not write the search query back to the URL when it originates from the URL', async () => {

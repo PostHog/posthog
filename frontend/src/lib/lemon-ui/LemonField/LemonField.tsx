@@ -6,8 +6,6 @@ import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { cn } from 'lib/utils/css-classes'
 
-import { AvailableFeature } from '~/types'
-
 export type LemonPureFieldProps = {
     /** The label name to be displayed */
     label?: React.ReactNode
@@ -31,8 +29,6 @@ export type LemonPureFieldProps = {
     htmlFor?: string
     /** The class name override for the label */
     labelClassName?: string
-    /** Shows "locked" icon next to the label, opens payment on click */
-    premiumFeature?: AvailableFeature
 }
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
@@ -57,7 +53,6 @@ const LemonPureField = ({
     onClick,
     renderError,
     labelClassName,
-    premiumFeature,
 }: LemonPureFieldProps): JSX.Element => {
     return (
         <div
@@ -79,7 +74,6 @@ const LemonPureField = ({
                         'cursor-pointer': !!onClick,
                     })}
                     htmlFor={htmlFor}
-                    premiumFeature={premiumFeature}
                 >
                     {label}
                 </LemonLabel>
@@ -103,7 +97,6 @@ export const LemonField = ({
     info,
     renderError,
     labelClassName,
-    premiumFeature,
     htmlFor,
     ...keaFieldProps
 }: LemonFieldProps): JSX.Element => {
@@ -126,7 +119,6 @@ export const LemonField = ({
                 info={info}
                 renderError={renderError}
                 labelClassName={labelClassName}
-                premiumFeature={premiumFeature}
                 htmlFor={inputId}
             >
                 {renderedKids as React.ReactNode}

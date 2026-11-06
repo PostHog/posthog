@@ -19,7 +19,8 @@ message Person {
   // Epoch milliseconds (matching created_at); the writer decodes it as such.
   optional int64 last_seen_at = 11;
   // True on a death document: the changelog record the leader produces when
-  // a lifecycle saga destroys the person (version = sealed_version + 1).
+  // a lifecycle saga destroys the person, at sealed_version + 1 or at the
+  // saga's tombstone version when that is higher.
   // Consumers treat the person as gone; the writer projects it as the
   // Postgres tombstone. proto3 default (false) keeps old records live.
   bool is_deleted = 12;
@@ -29,6 +30,7 @@ message Person {
 message DistinctIdWithVersion {
   string distinct_id = 1;
   optional int64 version = 2;
+  optional int64 id = 3;  // Row ID, usable as a pagination cursor.
 }
 
 // PersonWithDistinctIds pairs a lookup distinct_id with its resolved person
@@ -116,10 +118,12 @@ message GetDistinctIdsForPersonRequest {
   int64 person_id = 2;
   ReadOptions read_options = 3;
   optional int64 limit = 4;  // Max distinct IDs returned. 0 or absent = no limit.
+  optional int64 cursor_id = 5;  // Keyset cursor: return rows with id > cursor_id.
 }
 
 message GetDistinctIdsForPersonResponse {
   repeated DistinctIdWithVersion distinct_ids = 1;
+  optional int64 next_cursor_id = 2;  // Absent when no more pages.
 }
 
 message GetDistinctIdsForPersonsRequest {
@@ -170,6 +174,10 @@ message UpdatePersonPropertiesRequest {
   // flooring bounds record volume at one per person-hour regardless of
   // the caller's precision.
   optional int64 last_seen_at = 8;
+  // The event kind warrants a write regardless of which properties changed.
+  // Computed by the caller from the event alone; when false, filtered-only
+  // changes answer updated=false and write nothing.
+  bool force_update = 9;
 }
 
 message UpdatePersonPropertiesResponse {
@@ -179,17 +187,102 @@ message UpdatePersonPropertiesResponse {
   bool updated = 2;
 }
 
-// DeletePersonsRequest deletes persons from Postgres by UUID.
-// Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
-// posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.
+message RaisePersonVersionRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  int64 min_version = 3;
+}
+
+message RaisePersonVersionResponse {
+  optional Person person = 1;
+  // Whether this call wrote a document.
+  bool raised = 2;
+}
+
+// How DeletePersons removes the rows.
+enum DeletePersonsMode {
+  // Same as TOMBSTONE.
+  DELETE_PERSONS_MODE_UNSPECIFIED = 0;
+  // Rejected with INVALID_ARGUMENT, because a hard delete leaves the live ClickHouse rows above a
+  // re-created person's version 0. A deleted team's persons go through DeletePersonsBatchForTeam.
+  DELETE_PERSONS_MODE_HARD = 1;
+  // Keep the rows as tombstones and report the versions written. The caller
+  // owns the prerequisite: ingestion must revive tombstones for the team.
+  DELETE_PERSONS_MODE_TOMBSTONE = 2;
+}
+
+// DeletePersonsRequest deletes persons from Postgres by UUID, together with
+// their posthog_persondistinctid, posthog_cohortpeople and
+// posthog_featureflaghashkeyoverride rows (nothing cascades them).
 message DeletePersonsRequest {
   int64 team_id = 1;
   // Person UUIDs to delete. Max 1000 per request.
   repeated string person_uuids = 2;
+  DeletePersonsMode mode = 3;
+}
+
+message TombstonedDistinctId {
+  string distinct_id = 1;
+  int64 version = 2;
+}
+
+message TombstonedPerson {
+  string person_uuid = 1;
+  int64 version = 2;
+  repeated TombstonedDistinctId distinct_ids = 3;
 }
 
 message DeletePersonsResponse {
   int64 deleted_count = 1;
+  // True when the rows were tombstoned rather than removed, which is every successful call.
+  bool tombstoned = 2;
+  // One entry per requested person that is tombstoned after the call, with the
+  // versions its rows hold, so the caller can publish its ClickHouse tombstones
+  // at exactly those versions. Persons tombstoned before the call are included
+  // too, so a retry after a lost response gets the same versions again;
+  // deleted_count counts only the rows this call tombstoned.
+  repeated TombstonedPerson tombstones = 3;
+}
+
+message GetPersonTombstonesRequest {
+  int64 team_id = 1;
+  repeated string person_uuids = 2;
+}
+
+message GetPersonTombstonesResponse {
+  repeated TombstonedPerson tombstones = 1;
+}
+
+message AckedPersonTombstone {
+  string person_uuid = 1;
+  int64 version = 2;
+}
+
+message AckPersonTombstonesRequest {
+  int64 team_id = 1;
+  repeated AckedPersonTombstone tombstones = 2;
+}
+
+message AckPersonTombstonesResponse {
+  int64 cleared_count = 1;
+}
+
+message ListPersonTombstoneQueueRequest {
+  int64 after_team_id = 1;
+  string after_person_uuid = 2;
+  int64 limit = 3;
+  optional int64 team_id = 4;
+}
+
+message PersonTombstoneQueueEntry {
+  int64 team_id = 1;
+  string person_uuid = 2;
+  int64 person_version = 3;
+  int64 tombstoned_at = 4;
+}
+
+message ListPersonTombstoneQueueResponse {
+  repeated PersonTombstoneQueueEntry entries = 1;
 }
 
 // DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.
@@ -207,18 +300,53 @@ message DeletePersonsBatchForTeamResponse {
   int64 deleted_count = 1;
 }
 
-// DeletePersonlessDistinctIdsBatchForTeamRequest deletes up to batch_size
-// posthog_personlessdistinctid rows for a team. These rows have no person FK, so
-// they aren't covered by person deletion. Callers should loop until deleted_count is 0.
-message DeletePersonlessDistinctIdsBatchForTeamRequest {
+// DeleteTombstonedPersonsRequest deletes persons only while they are still
+// tombstoned, checking under the same row locks as the delete, so a racing
+// revival is either skipped or lands afterwards on a fresh row. One call does a
+// bounded amount of work: persons whose dependent rows (distinct ids, hash key
+// overrides, cohort memberships) fit the row budget are deleted whole; the first
+// person that does not fit gives up as many rows as the leftover allows and is
+// returned as pending, as is everything after the budget. Send pending uuids again
+// until none come back. Idempotent.
+message DeleteTombstonedPersonsRequest {
   int64 team_id = 1;
-  // Max rows to delete per call. Must be > 0 and <= 50000.
-  int64 batch_size = 2;
+  // Person UUIDs to delete. Max 1000 per request. Leave empty when bounded_persons is set.
+  repeated string person_uuids = 2;
+  // Dependent rows this call may delete. 0 means the server default; the server
+  // clamps the value to its own maximum (replica setting TOMBSTONED_DELETE_MAX_ROWS).
+  int64 max_rows = 3;
+  // Persons to delete, each with a version bound, in place of person_uuids. Max 1000 per request.
+  // A server that predates this field reads an empty person_uuids and deletes nothing, so the
+  // caller must check version_guard_applied on the response.
+  repeated VersionBoundedPerson bounded_persons = 4;
 }
 
-message DeletePersonlessDistinctIdsBatchForTeamResponse {
-  // Number of rows deleted. 0 means no more rows to delete.
+message VersionBoundedPerson {
+  string person_uuid = 1;
+  // The person is deleted only while its version is at or below this value. A person with a
+  // higher version was tombstoned again after the caller took the bound.
+  int64 max_version = 2;
+}
+
+message DeleteTombstonedPersonsResponse {
+  // Persons hard-deleted together with their dependent rows.
   int64 deleted_count = 1;
+  // Persons found with is_deleted = false: revived after the caller queued them.
+  // Nothing was deleted for them.
+  int64 skipped_live_count = 2;
+  // Persons still tombstoned but referenced by a live distinct id. Nothing was
+  // deleted for them; the caller must not treat them as cleaned.
+  repeated string blocked_person_uuids = 3;
+  // Persons not finished within max_rows: still tombstoned, some rows possibly
+  // gone. Send them again.
+  repeated string pending_person_uuids = 4;
+  // Dependent rows deleted by this call.
+  int64 rows_deleted = 5;
+  // True when the request carried bounded_persons and the server checked every bound. Always
+  // false from a server that predates bounded_persons.
+  bool version_guard_applied = 6;
+  // Persons still tombstoned but at a version above their bound. Nothing was deleted for them.
+  int64 skipped_version_count = 7;
 }
 
 // SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
@@ -287,6 +415,46 @@ message SetPersonVersionFloorResponse {
   bool updated = 1;
 }
 
+// What EnsurePersonVersionFloors found and did for one person.
+enum VersionFloorOutcome {
+  VERSION_FLOOR_OUTCOME_UNSPECIFIED = 0;
+  // No row existed. The call inserted a tombstone at min_version.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED = 1;
+  // A tombstone below min_version. The call raised it to min_version.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED = 2;
+  // A tombstone at or above min_version. Nothing changed.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR = 3;
+  // A live row. Nothing changed: the call never raises a live row.
+  VERSION_FLOOR_OUTCOME_LIVE = 4;
+}
+
+message PersonVersionFloor {
+  string person_uuid = 1;
+  int64 min_version = 2;
+}
+
+// EnsurePersonVersionFloorsRequest raises each person tombstone to at least min_version in one transaction,
+// inserting a tombstone for a missing person and leaving a live person unchanged. Publish a ClickHouse tombstone
+// at the returned version for every non-LIVE result, because the Postgres cleanup drain removes only tombstones
+// the ClickHouse deletion sweep finds.
+message EnsurePersonVersionFloorsRequest {
+  int64 team_id = 1;
+  // Max 250 per request. Duplicate person_uuids are rejected.
+  repeated PersonVersionFloor floors = 2;
+}
+
+message PersonVersionFloorResult {
+  string person_uuid = 1;
+  VersionFloorOutcome outcome = 2;
+  // The stored version after the call.
+  int64 version = 3;
+}
+
+message EnsurePersonVersionFloorsResponse {
+  // Same order as the request.
+  repeated PersonVersionFloorResult results = 1;
+}
+
 // FencePersonRequest freezes a person for a lifecycle operation (see
 // PersonHogLeader.FencePerson). op_id is the saga's caller-supplied UUID;
 // op_type selects the rejection surfaced to writers while the fence holds.
@@ -320,6 +488,38 @@ message FencePersonResponse {
   Person sealed = 1;
 }
 
+// FencePersonsRequest freezes many persons of one op in one call (see
+// PersonHogLeader.FencePersons). The saga sends one call per partition
+// of the op, routed by one of the persons like a single fence.
+message FencePersonsRequest {
+  int64 team_id = 1;
+  string op_id = 2;
+  LifecycleOpType op_type = 3;
+  repeated int64 person_ids = 4;
+}
+
+// Every requested person id lands in exactly one of the two lists; a
+// failure any single FencePerson reports through its status, other than
+// NOT_FOUND, fails the whole call the same way.
+message FencePersonsResponse {
+  // The sealed scalars of every person fenced: what the delete saga reads
+  // from a seal. Full documents would not fit a batch, and the merge saga,
+  // which folds the document, fences one person at a time.
+  repeated FencedPersonSeal sealed = 1;
+  // The persons a single FencePerson answers NOT_FOUND for: destroyed, so
+  // no fence was installed.
+  repeated int64 not_found = 2;
+}
+
+message FencedPersonSeal {
+  int64 person_id = 1;
+  // See FencePersonResponse.sealed: the version the fence made final.
+  int64 version = 2;
+  // The person's creation time in epoch milliseconds, as the death
+  // document carries it (see ReleaseFenceRequest.created_at).
+  int64 created_at = 3;
+}
+
 // ReleaseFenceRequest closes a fence (see PersonHogLeader.ReleaseFence).
 // person_uuid, sealed_version, and created_at travel in the request so a
 // leader with no cache entry — after a restart — re-derives the death
@@ -332,18 +532,30 @@ message ReleaseFenceRequest {
   string op_id = 4;
   ReleaseOutcome outcome = 5;
   // The version sealed at fence time. The death document is produced at
-  // sealed_version + 1. Required when outcome = COMMITTED. Explicitly
+  // sealed_version + 1, raised to tombstone_version when that is higher.
+  // Required when outcome = COMMITTED. Explicitly
   // optional because 0 is a legitimate sealed version — a fresh person
   // stub is created at version 0 — so absence must stay distinguishable
   // from it.
   optional int64 sealed_version = 6;
   // The person's creation time as sealed at fence time, in epoch
-  // seconds — the unit Person.created_at carries end to end (the leader
-  // loads `timestamp()`, the writer binds via `epoch_secs_to_datetime`).
-  // The death document carries it verbatim — a cold leader has nothing
-  // to re-derive it from, and the writer projects it onto the tombstone
-  // row. Required when outcome = COMMITTED.
+  // milliseconds — the unit Person.created_at carries end to end (the
+  // leader loads `timestamp_millis()`, the writer binds via
+  // `epoch_ms_to_datetime`). The death document carries it verbatim — a
+  // cold leader has nothing to re-derive it from, and the writer
+  // projects it onto the tombstone row. Required when outcome =
+  // COMMITTED.
   int64 created_at = 7;
+  // The version the saga's Postgres tombstone committed at: at least
+  // sealed_version + 1, higher when a direct Postgres writer bumped the
+  // row between the fence and the tombstone. The death document is
+  // produced at or above it, so the changelog never carries a live
+  // version below the tombstone. A value at or below sealed_version is
+  // refused INVALID_ARGUMENT with the fence kept: the saga never
+  // tombstones below sealed + 1, so such a value is a caller bug.
+  // Optional for ops unmapped before this field existed; absent means
+  // sealed_version + 1.
+  optional int64 tombstone_version = 8;
 }
 
 enum ReleaseOutcome {
@@ -355,6 +567,29 @@ enum ReleaseOutcome {
 }
 
 message ReleaseFenceResponse {}
+
+// ReleaseFencesRequest closes many fences of one op in one call (see
+// PersonHogLeader.ReleaseFences), one call per partition of the op.
+// Per-person fields carry what ReleaseFenceRequest carries.
+message ReleaseFencesRequest {
+  int64 team_id = 1;
+  string op_id = 2;
+  ReleaseOutcome outcome = 3;
+  repeated ReleaseFenceItem persons = 4;
+}
+
+message ReleaseFenceItem {
+  int64 person_id = 1;
+  string person_uuid = 2;
+  // See ReleaseFenceRequest.sealed_version.
+  optional int64 sealed_version = 3;
+  // See ReleaseFenceRequest.created_at.
+  int64 created_at = 4;
+  // See ReleaseFenceRequest.tombstone_version.
+  optional int64 tombstone_version = 5;
+}
+
+message ReleaseFencesResponse {}
 
 // A sealed source snapshot paired with its precedence ordinal — the
 // pair order the saga recorded in lifecycle_op_person. The fold sorts
@@ -413,4 +648,183 @@ message FoldPersonDocumentResponse {
   // and returns the person unchanged, skipping its property and scalar
   // effects for this person.
   Person person = 1;
+}
+
+// A persons-database mapping row, live or tombstoned, with the state of the person it points at.
+message DistinctIdRow {
+  string distinct_id = 1;
+  int64 person_id = 2;
+  // Absent for an orphan row whose person no longer exists.
+  optional string person_uuid = 3;
+  int64 version = 4;
+  bool is_deleted = 5;
+  // Absent for an orphan row whose person no longer exists.
+  optional bool person_is_deleted = 6;
+}
+
+message GetDistinctIdRowsRequest {
+  int64 team_id = 1;
+  // At most 1000. Distinct ids with no row are left out of the response.
+  repeated string distinct_ids = 2;
+  ReadOptions read_options = 3;
+}
+
+message GetDistinctIdRowsResponse {
+  repeated DistinctIdRow rows = 1;
+}
+
+// One persons-database person row, live or tombstoned, without properties.
+message PersonListEntry {
+  int64 id = 1;
+  string uuid = 2;
+  int64 version = 3;
+  bool is_deleted = 4;
+  // Whether any live mapping row points at this person.
+  bool has_live_distinct_ids = 5;
+  int64 created_at_ms = 6;
+}
+
+message ListPersonsForTeamRequest {
+  int64 team_id = 1;
+  // Keyset cursor: return persons with id > after_person_id, in id order.
+  int64 after_person_id = 2;
+  // Persons per page. 0 means 1000; at most 10000.
+  int64 limit = 3;
+  ReadOptions read_options = 4;
+  // When set, return only persons with id < before_person_id, so a caller can scan id ranges in parallel.
+  optional int64 before_person_id = 5;
+}
+
+message ListPersonsForTeamResponse {
+  repeated PersonListEntry persons = 1;
+  // Absent when this page is the last one.
+  optional int64 next_after_person_id = 2;
+}
+
+// Raise live persons' versions for the person consistency repair. Tombstoned and
+// missing persons are left unchanged; EnsurePersonVersionFloors handles tombstones.
+message RaisePersonVersionFloorsRequest {
+  int64 team_id = 1;
+  // At most 250, no repeated uuid.
+  repeated PersonVersionFloor floors = 2;
+}
+
+enum RaiseOutcome {
+  RAISE_OUTCOME_UNSPECIFIED = 0;
+  RAISE_OUTCOME_RAISED = 1;
+  RAISE_OUTCOME_AT_OR_ABOVE = 2;
+  RAISE_OUTCOME_NOT_LIVE = 3;
+  RAISE_OUTCOME_MISSING = 4;
+}
+
+message RaisePersonVersionFloorResult {
+  string person_uuid = 1;
+  RaiseOutcome outcome = 2;
+  // The version the row holds after the call; 0 when missing.
+  int64 version = 3;
+}
+
+message RaisePersonVersionFloorsResponse {
+  repeated RaisePersonVersionFloorResult results = 1;
+}
+
+// A person to insert from its ClickHouse copy.
+message RestoredPerson {
+  string person_uuid = 1;
+  // JSON object.
+  bytes properties = 2;
+  int64 created_at_ms = 3;
+  bool is_identified = 4;
+  int64 version = 5;
+  // Distinct ids to insert on the person in the same transaction, where no row exists for them.
+  // When the person is inserted but none of these can be, the person is not inserted either
+  // (RESTORE_OUTCOME_NO_DISTINCT_ID), so a restore never leaves a person nothing points to.
+  repeated RestoredDistinctId distinct_ids = 6;
+}
+
+message RestoredDistinctId {
+  string distinct_id = 1;
+  int64 version = 2;
+}
+
+message RestorePersonsRequest {
+  int64 team_id = 1;
+  // At most 250, no repeated uuid.
+  repeated RestoredPerson persons = 2;
+}
+
+enum RestoreOutcome {
+  RESTORE_OUTCOME_UNSPECIFIED = 0;
+  RESTORE_OUTCOME_INSERTED = 1;
+  // A row with the uuid exists, live or tombstoned; it is left unchanged.
+  RESTORE_OUTCOME_EXISTS_LIVE = 2;
+  RESTORE_OUTCOME_EXISTS_TOMBSTONED = 3;
+  // The request listed distinct ids, and every one of them already had a row; nothing was inserted.
+  RESTORE_OUTCOME_NO_DISTINCT_ID = 4;
+}
+
+message RestorePersonResult {
+  string person_uuid = 1;
+  RestoreOutcome outcome = 2;
+  int64 person_id = 3;
+  int64 version = 4;
+  // For INSERTED: the requested distinct ids inserted on the person, at their requested versions.
+  repeated string restored_distinct_ids = 5;
+}
+
+message RestorePersonsResponse {
+  repeated RestorePersonResult results = 1;
+}
+
+enum DistinctIdWriteAction {
+  DISTINCT_ID_WRITE_ACTION_UNSPECIFIED = 0;
+  // Insert a live row on the person when no row exists for the distinct id.
+  DISTINCT_ID_WRITE_ACTION_INSERT = 1;
+  // Raise a live row on the person to at least min_version.
+  DISTINCT_ID_WRITE_ACTION_RAISE = 2;
+  // Tombstone a live row whose person is tombstoned (a stray), at version max(row + 1, min_version).
+  // A live person's row is refused: moving a distinct id off a live person is a split.
+  // Retry with the same min_version: a row this call already tombstoned then reports unchanged.
+  // Postgres only: do not publish the returned row to ClickHouse. A ClickHouse tombstone written while the
+  // deletion sweep runs survives that sweep, and once the cleanup drain hard-deletes the Postgres row it
+  // hides a later re-use of the distinct id.
+  DISTINCT_ID_WRITE_ACTION_TOMBSTONE = 3;
+}
+
+message DistinctIdWrite {
+  string distinct_id = 1;
+  DistinctIdWriteAction action = 2;
+  // The person the row must point at: the insert target, or the current owner for raise and tombstone.
+  string person_uuid = 3;
+  int64 min_version = 4;
+  // When set, raise and tombstone apply only while the row holds exactly this version.
+  optional int64 expected_version = 5;
+}
+
+message WriteDistinctIdsRequest {
+  int64 team_id = 1;
+  // At most 250, no repeated distinct id.
+  repeated DistinctIdWrite writes = 2;
+}
+
+enum DistinctIdWriteOutcome {
+  DISTINCT_ID_WRITE_OUTCOME_UNSPECIFIED = 0;
+  DISTINCT_ID_WRITE_OUTCOME_APPLIED = 1;
+  // The row already satisfies the write (raise at or above min_version, or a tombstone already at or above it).
+  DISTINCT_ID_WRITE_OUTCOME_UNCHANGED = 2;
+  // The row is not in the state the write expects; it is left unchanged and reported.
+  DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED = 3;
+  // The person does not exist, or is tombstoned for an insert or raise.
+  DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE = 4;
+}
+
+message DistinctIdWriteResult {
+  string distinct_id = 1;
+  DistinctIdWriteOutcome outcome = 2;
+  // The row after the call, when one exists.
+  optional DistinctIdRow row = 3;
+}
+
+message WriteDistinctIdsResponse {
+  repeated DistinctIdWriteResult results = 1;
 }

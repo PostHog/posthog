@@ -28,23 +28,25 @@ class CanonicalEndpoint(TypedDict, total=False):
 CanonicalDescriptions = dict[str, CanonicalEndpoint]
 
 
-def get_canonical_descriptions_for_source(source_type: "ExternalDataSourceType | str") -> CanonicalDescriptions:
+def get_canonical_descriptions_for_source(
+    source_type: "ExternalDataSourceType | str", table_prefix: str = ""
+) -> CanonicalDescriptions:
     """Resolve a source's curated descriptions via the registry. ``{}`` when the source ships none.
 
     Accepts the raw `ExternalDataSource.source_type` string (or the enum) and normalizes it; an
-    unknown value resolves to ``{}``.
+    unknown value resolves to ``{}``. ``table_prefix`` is the connected source's
+    `ExternalDataSource.prefix`, so descriptions that name a physical table name the right one.
     """
     # Imported lazily: the registry pulls in every source's (often heavy) dependencies on first use.
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
         SourceRegistry,  # noqa: PLC0415
     )
-    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
 
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception:
         return {}
     try:
-        return source.get_canonical_descriptions()
+        return source.get_canonical_descriptions_for_table_prefix(table_prefix)
     except Exception:
         return {}

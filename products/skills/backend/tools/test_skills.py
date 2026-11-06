@@ -1,20 +1,26 @@
 from posthog.test.base import BaseTest
+from unittest import TestCase
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.models import Team
 
+from products.skills.backend.api.skill_serializers import SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.skills.backend.tools.skills import (
     ArchiveLLMSkillTool,
     CreateLLMSkillTool,
+    CreateSkillArgs,
     GetLLMSkillFileTool,
     GetLLMSkillTool,
     ListLLMSkillsTool,
     UpdateLLMSkillTool,
+    UpdateSkillArgs,
 )
 
-from ee.hogai.tool_errors import MaxToolFatalError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 
 
 def _run(tool, **kwargs):
@@ -194,6 +200,22 @@ class TestCreateLLMSkillTool(BaseTest):
         assert first_file is not None
         assert first_file.path == "scripts/mandelbrot.py"
 
+    @parameterized.expand(
+        [
+            ("route_name", "community", "reserved name"),
+            # A name PostHog bundles: the tool writes through create_skill, which runs no name
+            # validation of its own, so the check has to sit on the tool.
+            ("bundled_skill_name", "signals-scout-logs", "already ships a skill"),
+        ]
+    )
+    def test_unusable_name_raises_fatal(self, _label, name, expected_error):
+        tool = CreateLLMSkillTool(team=self.team, user=self.user)
+
+        with self.assertRaisesRegex(MaxToolFatalError, expected_error):
+            _run(tool, name=name, description="d", body="b")
+
+        assert not LLMSkill.objects.filter(team=self.team, name=name).exists()
+
     def test_duplicate_name_raises_fatal(self):
         LLMSkill.objects.create(team=self.team, name="dup", description="d", body="b")
 
@@ -245,16 +267,22 @@ class TestUpdateLLMSkillTool(BaseTest):
         assert "Do the better thing." in latest.body
         assert "Do a thing." not in latest.body
 
-    def test_version_conflict_raises(self):
+    @parameterized.expand(
+        [
+            ("version_conflict", 5, {"body": "new body"}, "modified"),
+            ("edit_not_found", 0, {"edits": [{"old": "Missing text.", "new": "x"}]}, "not found"),
+        ]
+    )
+    def test_input_errors_are_retryable(self, _name, version_offset, update_kwargs, expected_error):
         existing = self._create_skill()
         tool = UpdateLLMSkillTool(team=self.team, user=self.user)
 
-        with self.assertRaisesRegex(MaxToolFatalError, "modified"):
+        with self.assertRaisesRegex(MaxToolRetryableError, expected_error):
             _run(
                 tool,
                 skill_name="make-fractals",
-                base_version=existing.version + 5,
-                body="new body",
+                base_version=existing.version + version_offset,
+                **update_kwargs,
             )
 
     def test_body_and_edits_are_mutually_exclusive(self):
@@ -292,3 +320,20 @@ class TestArchiveLLMSkillTool(BaseTest):
 
         with self.assertRaisesRegex(MaxToolFatalError, "missing"):
             _run(tool, skill_name="missing")
+
+
+class TestSkillToolDescriptionCap(TestCase):
+    def _create(self, description: str) -> CreateSkillArgs:
+        return CreateSkillArgs(name="my-skill", description=description, body="# Body")
+
+    def _update(self, description: str) -> UpdateSkillArgs:
+        return UpdateSkillArgs(skill_name="my-skill", base_version=1, description=description)
+
+    @parameterized.expand(["_create", "_update"])
+    def test_description_capped_at_spec_limit(self, builder_name: str) -> None:
+        # These tools call create_skill / publish_skill_version directly, so the args schema is the only
+        # guard against persisting a description that export and community publish later reject.
+        build = getattr(self, builder_name)
+        with self.assertRaises(ValidationError):
+            build("x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1))
+        build("x" * SPEC_DESCRIPTION_MAX_LENGTH)

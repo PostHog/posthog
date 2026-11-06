@@ -2,17 +2,39 @@ use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagPropertyGroup,
-    HypercacheFlagsWrapper,
+    EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList, FeatureFlagRow, FlagFilters,
+    FlagPropertyGroup, HypercacheFlagsWrapper,
 };
-use crate::metrics::consts::TOMBSTONE_COUNTER;
+use crate::metrics::consts::{
+    FLAG_MALFORMED_FILTER_COUNTER, FLAG_MALFORMED_FILTER_READ_COUNTER, TOMBSTONE_COUNTER,
+};
 use common_database::PostgresReader;
 use common_types::TeamId;
 use metrics::counter;
+use serde::de::Deserializer;
+use serde::Deserialize;
+use serde_json::value::RawValue;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
 type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndecodableDocument {
+    NotAnObject,
+    /// A v1 object whose `groups`, or a group's `properties`, is neither falsy nor a list of
+    /// objects.
+    /// Python's builder cannot read it either.
+    MalformedV1Groups,
+    /// A v1 object that Python's builder reads but the typed decoder rejects, such as one
+    /// with a property filter that has no `type` key.
+    UnreadableV1Object,
+}
+
+/// Rows `from_pg_keeping_undecodable` kept with blank filters, and why.
+pub type UndecodableFlags = HashMap<FeatureFlagId, UndecodableDocument>;
 
 /// `Arc<[FeatureFlag]>` with regexes pre-compiled. Every constructor routes
 /// through [`PreparedFlags::seal`] (or `from_arc` for already-sealed input),
@@ -57,6 +79,98 @@ impl From<Vec<FeatureFlag>> for PreparedFlags {
     }
 }
 
+fn record_dropped_flags(dropped: u64) {
+    counter!(FLAG_MALFORMED_FILTER_COUNTER).increment(dropped);
+    counter!(FLAG_MALFORMED_FILTER_READ_COUNTER).increment(1);
+}
+
+/// A flags array that skips an element it cannot deserialize, instead of
+/// failing the whole array. Keeps the key and parse error of each skipped flag,
+/// because the caller knows the team id and the deserializer does not.
+#[derive(Debug)]
+pub struct LenientFlags {
+    flags: Vec<FeatureFlag>,
+    skipped: Vec<(String, serde_json::Error)>,
+}
+
+impl<'de> Deserialize<'de> for LenientFlags {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // This first splits the array into one borrowed JSON slice per flag, because
+        // serde cannot resume a sequence after one element fails. A borrowed RawValue
+        // fails unless the deserializer reads a string or byte slice, as the
+        // hypercache reader's `serde_json::from_str` does.
+        let raw_flags: Vec<&'de RawValue> = Vec::deserialize(deserializer)?;
+
+        let mut flags = Vec::with_capacity(raw_flags.len());
+        let mut skipped = Vec::new();
+        for raw in &raw_flags {
+            match serde_json::from_str::<FeatureFlag>(raw.get()) {
+                Ok(flag) => flags.push(flag),
+                Err(e) => {
+                    let flag_key = serde_json::from_str::<serde_json::Value>(raw.get())
+                        .ok()
+                        .and_then(|v| v["key"].as_str().map(str::to_owned))
+                        .unwrap_or_else(|| "<unknown>".to_owned());
+                    skipped.push((flag_key, e));
+                }
+            }
+        }
+        Ok(LenientFlags { flags, skipped })
+    }
+}
+
+/// The hypercache payload as the serving read parses it. The contract test
+/// parses its fixture with this type and with the strict default, so a flag
+/// shape that Rust cannot read fails that test instead of being skipped silently.
+pub type LenientHypercacheFlagsWrapper = HypercacheFlagsWrapper<LenientFlags>;
+
+impl LenientHypercacheFlagsWrapper {
+    /// Drops the flags that failed to parse, and every metadata reference to them.
+    pub fn into_wrapper(self, team_id: TeamId) -> HypercacheFlagsWrapper {
+        let HypercacheFlagsWrapper {
+            flags,
+            mut evaluation_metadata,
+            cohorts,
+        } = self;
+
+        if !flags.skipped.is_empty() {
+            for (flag_key, e) in &flags.skipped {
+                tracing::warn!(
+                    "Failed to deserialize cached flag {} in team {}: {}",
+                    flag_key,
+                    team_id,
+                    e
+                );
+            }
+            let dropped = flags.skipped.len() as u64;
+            record_dropped_flags(dropped);
+            // Details (team_id, flag_key) are logged above to avoid high-cardinality labels
+            counter!(
+                TOMBSTONE_COUNTER,
+                "namespace" => "feature_flags",
+                "operation" => "hypercache_flag_deserialization_error",
+                "component" => "feature_flag_list",
+            )
+            .increment(dropped);
+
+            evaluation_metadata.has_unparseable_flags = true;
+            // Django computes the metadata over every flag, so it still points at
+            // the flags we just skipped.
+            let kept_flag_ids: HashSet<i32> = flags.flags.iter().map(|f| f.id).collect();
+            evaluation_metadata.retain_flags(&kept_flag_ids);
+        }
+
+        HypercacheFlagsWrapper {
+            flags: flags.flags,
+            evaluation_metadata,
+            cohorts,
+        }
+    }
+}
+
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
         Self {
@@ -66,8 +180,9 @@ impl FeatureFlagList {
     }
 
     /// Pre-compiles all regex patterns in property filters across a flag slice.
+    /// The v2 parser compiles its own predicates.
     pub fn prepare_regexes_in_place(flags: &mut [FeatureFlag]) {
-        for flag in flags.iter_mut() {
+        for flag in flags.iter_mut().filter(|flag| flag.filters.is_v1()) {
             Self::prepare_group_regexes(&mut flag.filters.groups);
         }
     }
@@ -104,16 +219,24 @@ impl FeatureFlagList {
         );
 
         let evaluation_metadata = wrapper.evaluation_metadata;
-        if evaluation_metadata.dependency_stages.is_empty() && !wrapper.flags.is_empty() {
-            tracing::error!(
-                "evaluation_metadata.dependency_stages is empty but {} flags present for team {}",
-                wrapper.flags.len(),
-                team_id
+        // A team whose every flag is in or depends on a dependency cycle has no stage. Its
+        // metadata lists every flag in `flags_with_missing_deps`.
+        let flag_without_stage = if evaluation_metadata.dependency_stages.is_empty() {
+            wrapper.flags.iter().find(|flag| {
+                !evaluation_metadata
+                    .flags_with_missing_deps
+                    .contains(&flag.id)
+            })
+        } else {
+            None
+        };
+        if let Some(flag) = flag_without_stage {
+            let message = format!(
+                "evaluation_metadata.dependency_stages is empty but flag {} for team {team_id} is not in flags_with_missing_deps",
+                flag.id
             );
-            return Err(FlagError::DataParsingErrorWithContext(format!(
-                "evaluation_metadata.dependency_stages is empty but {} flags present for team {team_id}",
-                wrapper.flags.len()
-            )));
+            tracing::error!("{message}");
+            return Err(FlagError::flag_data_parsing(message));
         }
 
         Ok((wrapper.flags, evaluation_metadata, wrapper.cohorts))
@@ -124,6 +247,18 @@ impl FeatureFlagList {
         client: PostgresReader,
         team_id: TeamId,
     ) -> Result<Vec<FeatureFlag>, FlagError> {
+        let (mut flags, undecodable) = Self::from_pg_keeping_undecodable(client, team_id).await?;
+        flags.retain(|flag| !undecodable.contains_key(&flag.id));
+        Ok(flags)
+    }
+
+    /// Like `from_pg`, but a row whose `filters` document could not be decoded stays in
+    /// the list with blank filters and is reported in `UndecodableFlags`, so the cache
+    /// builder can classify it and its dependents.
+    pub async fn from_pg_keeping_undecodable(
+        client: PostgresReader,
+        team_id: TeamId,
+    ) -> Result<(Vec<FeatureFlag>, UndecodableFlags), FlagError> {
         let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_flags")
             .await
             .map_err(|e| {
@@ -146,8 +281,15 @@ impl FeatureFlagList {
                   f.ensure_experience_continuity,
                   f.version,
                   f.evaluation_runtime,
+                  -- DISTINCT makes Postgres sort the names before it aggregates them, which
+                  -- matches ArrayAgg(..., distinct=True) on the two Python paths that write
+                  -- this cache entry: products/feature_flags/backend/flags_cache.py (batch) and
+                  -- products/feature_flags/backend/models/feature_flag.py (single team, which is
+                  -- also what the cache verifier compares against). Without DISTINCT the array
+                  -- order follows the join, so the sides disagree for a flag with two or more
+                  -- contexts. Keep all three in lockstep.
                   COALESCE(
-                      ARRAY_AGG(ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
+                      ARRAY_AGG(DISTINCT ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
                       '{}'::text[]
                   ) AS evaluation_tags,
                   bucketing_identifier,
@@ -171,47 +313,43 @@ impl FeatureFlagList {
             GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active,
                      f.ensure_experience_continuity, f.version, f.evaluation_runtime
         "#;
-        let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
-            .bind(team_id)
-            .fetch_all(&mut *conn)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to fetch feature flags from database for team {}: {}",
-                    team_id,
-                    e
-                );
-                FlagError::Internal(format!("Database query error: {e}"))
-            })?;
+        let flags_row = sqlx::query_as::<
+            _,
+            FeatureFlagRow<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        >(query)
+        .bind(team_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                "Failed to fetch feature flags from database for team {}: {}",
+                team_id,
+                e
+            );
+            let message = format!("Database query error: {e}");
+            FlagError::internal(anyhow::Error::new(e).context(message))
+        })?;
 
+        let mut undecodable = UndecodableFlags::default();
         let flags: Vec<FeatureFlag> = flags_row
             .into_iter()
-            .filter_map(|row| {
-                match serde_json::from_value(row.filters) {
-                    Ok(filters) => Some(FeatureFlag {
-                        id: row.id,
-                        team_id: row.team_id,
-                        name: row.name,
-                        key: row.key,
-                        filters,
-                        deleted: row.deleted,
-                        active: row.active,
-                        ensure_experience_continuity: row.ensure_experience_continuity,
-                        version: row.version,
-                        evaluation_runtime: row.evaluation_runtime,
-                        evaluation_tags: row.evaluation_tags,
-                        bucketing_identifier: row.bucketing_identifier,
-                        has_experiment: row.has_experiment,
-                    }),
-                    Err(e) => {
-                        // This is highly unlikely to happen, but if it does, we skip the flag.
+            .map(|row| {
+                let filters = crate::flags::config_format::decode_raw_filters(row.filters.0)
+                    .unwrap_or_else(|e| {
+                        // Serde fails the whole `filters` struct when a required field is
+                        // absent, so one bad property filter costs the entire flag. A property
+                        // filter with no `"type"` key does that, because
+                        // PropertyFilter::prop_type has no default. Python reads only the cohort
+                        // and flag references. It reads a property's `type` with `.get`, so it
+                        // keeps such a flag when the flag is active. Those drops are real
+                        // builder divergences, which `UnreadableV1Object` marks. Either way the
+                        // team keeps the rest of its flags, rather than failing the read.
                         tracing::warn!(
                             "Failed to deserialize filters for flag {} in team {}: {}",
                             row.key,
                             row.team_id,
                             e
                         );
-                        // Also track as a tombstone - invalid data in postgres should never happen
                         // Details (team_id, flag_key) are logged above to avoid high-cardinality labels
                         counter!(
                             TOMBSTONE_COUNTER,
@@ -220,20 +358,38 @@ impl FeatureFlagList {
                             "component" => "feature_flag_list",
                         )
                         .increment(1);
-
-                        None // Skip this flag, continue with others
-                    }
+                        undecodable.insert(row.id, e.document);
+                        FlagFilters::default()
+                    });
+                FeatureFlag {
+                    id: row.id,
+                    team_id: row.team_id,
+                    name: row.name,
+                    key: row.key,
+                    filters,
+                    deleted: row.deleted,
+                    active: row.active,
+                    ensure_experience_continuity: row.ensure_experience_continuity,
+                    version: row.version,
+                    evaluation_runtime: row.evaluation_runtime,
+                    evaluation_tags: row.evaluation_tags,
+                    bucketing_identifier: row.bucketing_identifier,
+                    has_experiment: row.has_experiment,
                 }
             })
             .collect();
 
+        if !undecodable.is_empty() {
+            record_dropped_flags(undecodable.len() as u64);
+        }
+
         tracing::debug!(
             "Successfully fetched {} flags from database for team {}",
-            flags.len(),
+            flags.len() - undecodable.len(),
             team_id
         );
 
-        Ok(flags)
+        Ok((flags, undecodable))
     }
 }
 
@@ -472,6 +628,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_flag_with_malformed_filters_is_dropped_and_counted() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        // `set_default_local_recorder` returns a thread-local guard; safe across
+        // `.await` because `#[tokio::test]` defaults to a current-thread runtime.
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let good_flag = FeatureFlagRow {
+            id: 0,
+            team_id: team.id,
+            name: Some("Good flag".to_string()),
+            key: "good_flag".to_string(),
+            filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: None,
+            has_experiment: false,
+        };
+
+        // `groups` holds a string where FlagFilters wants a list, so this blob stays
+        // unparseable whatever PropertyFilter later does with a missing `"type"`.
+        let malformed_flag = FeatureFlagRow {
+            id: 0,
+            team_id: team.id,
+            name: Some("Malformed flag".to_string()),
+            key: "malformed_flag".to_string(),
+            filters: serde_json::json!({"groups": "not-a-list"}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: None,
+            has_experiment: false,
+        };
+
+        context
+            .insert_flag(team.id, Some(good_flag))
+            .await
+            .expect("Failed to insert good flag");
+        context
+            .insert_flag(team.id, Some(malformed_flag))
+            .await
+            .expect("Failed to insert malformed flag");
+
+        let flags = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("A malformed flag must not fail the whole read");
+
+        let keys: Vec<&str> = flags.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, vec!["good_flag"]);
+
+        let counter_value = |name: &str| {
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .find(|(ckey, _, _, _)| ckey.key().name() == name)
+                .map(|(_, _, _, value)| value)
+        };
+
+        assert_eq!(
+            counter_value(FLAG_MALFORMED_FILTER_COUNTER),
+            Some(DebugValue::Counter(1))
+        );
+        assert_eq!(
+            counter_value(FLAG_MALFORMED_FILTER_READ_COUNTER),
+            Some(DebugValue::Counter(1))
+        );
+    }
+
+    #[tokio::test]
     async fn test_fetch_flags_with_evaluation_tags_from_pg() {
         let context = TestContext::new(None).await;
         let team = context
@@ -503,15 +744,13 @@ mod tests {
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
 
-        // Check that evaluation tags were properly fetched
+        // ARRAY_AGG(DISTINCT ...) sorts, so this is not the insertion order.
         let tags = flag
             .evaluation_tags
             .as_ref()
             .expect("Should have evaluation tags");
-        assert_eq!(tags.len(), 3);
-        assert!(tags.contains(&"docs-page".to_string()));
-        assert!(tags.contains(&"marketing-site".to_string()));
-        assert!(tags.contains(&"app".to_string()));
+        let tag_names: Vec<&str> = tags.iter().map(String::as_str).collect();
+        assert_eq!(tag_names, ["app", "docs-page", "marketing-site"]);
     }
 
     #[tokio::test]
@@ -744,6 +983,40 @@ mod tests {
     // =========================================================================
 
     use serde_json::json;
+
+    #[test]
+    fn test_lenient_wrapper_skips_unparseable_flag_and_keeps_the_rest() {
+        use crate::flags::test_helpers::payload_with_unparseable_flag;
+        use crate::utils::test_utils::counter_total;
+        use metrics_util::debugging::DebuggingRecorder;
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let wrapper: LenientHypercacheFlagsWrapper =
+            serde_json::from_str(&payload_with_unparseable_flag(123).to_string()).unwrap();
+
+        let wrapper = wrapper.into_wrapper(123);
+        let metadata = &wrapper.evaluation_metadata;
+
+        let keys: Vec<&str> = wrapper.flags.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, vec!["healthy_flag", "dependent_flag"]);
+        assert_eq!(metadata.dependency_stages, vec![vec![1], vec![3]]);
+        assert_eq!(metadata.flags_with_missing_deps, vec![1, 3]);
+        assert!(metadata.has_unparseable_flags);
+        assert!(!metadata.transitive_deps.contains_key(&2));
+        assert!(metadata.transitive_deps[&3].is_empty());
+
+        assert_eq!(
+            counter_total(&snapshotter, FLAG_MALFORMED_FILTER_COUNTER, &[]),
+            1
+        );
+        assert_eq!(
+            counter_total(&snapshotter, FLAG_MALFORMED_FILTER_READ_COUNTER, &[]),
+            1
+        );
+    }
 
     #[test]
     fn test_from_wrapper_valid_flags() {
@@ -1095,25 +1368,48 @@ mod tests {
         assert!(cohorts.is_none());
     }
 
-    #[test]
-    fn test_from_wrapper_empty_stages_with_flags_is_error() {
-        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(json!({
+    fn wrapper_with_empty_stages(
+        flags_with_missing_deps: serde_json::Value,
+    ) -> HypercacheFlagsWrapper {
+        serde_json::from_value(json!({
             "flags": [
                 {"id": 10, "key": "a", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}},
                 {"id": 20, "key": "b", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}}
             ],
             "evaluation_metadata": {
                 "dependency_stages": [],
-                "flags_with_missing_deps": [],
+                "flags_with_missing_deps": flags_with_missing_deps,
                 "transitive_deps": {}
             }
         }))
-        .unwrap();
-        let result = FeatureFlagList::from_wrapper(Some(wrapper), 1);
+        .unwrap()
+    }
+
+    #[rstest::rstest]
+    #[case::no_flag_has_missing_deps(json!([]))]
+    #[case::one_flag_unaccounted(json!([10]))]
+    fn test_from_wrapper_empty_stages_with_unaccounted_flags_is_error(
+        #[case] flags_with_missing_deps: serde_json::Value,
+    ) {
+        let result = FeatureFlagList::from_wrapper(
+            Some(wrapper_with_empty_stages(flags_with_missing_deps)),
+            1,
+        );
         assert!(matches!(
             result,
-            Err(FlagError::DataParsingErrorWithContext(_))
+            Err(FlagError::InternalError {
+                code: "flag_data_parsing_error",
+                ..
+            })
         ));
+    }
+
+    #[test]
+    fn test_from_wrapper_accepts_empty_stages_when_every_flag_has_missing_deps() {
+        let (flags, _, _) =
+            FeatureFlagList::from_wrapper(Some(wrapper_with_empty_stages(json!([10, 20]))), 1)
+                .expect("metadata listing every flag as missing a dependency should parse");
+        assert_eq!(flags.len(), 2);
     }
 
     #[test]
@@ -1146,7 +1442,7 @@ mod tests {
     /// in a way that breaks deserialization.
     ///
     /// See the expand-and-contract process in the HYPERCACHE CONTRACT comments at:
-    ///   - posthog/api/feature_flag.py (MinimalFeatureFlagSerializer)
+    ///   - products/feature_flags/backend/api/feature_flag.py (MinimalFeatureFlagSerializer)
     ///   - rust/feature-flags/src/flags/flag_models.rs (FeatureFlag struct)
     #[test]
     fn test_hypercache_contract() {
@@ -1181,7 +1477,15 @@ mod tests {
         );
 
         // Verify flags parsed correctly
-        assert_eq!(flags.len(), 5, "Expected 5 flags in contract fixture");
+        assert_eq!(flags.len(), 7, "Expected 7 flags in contract fixture");
+
+        let served: LenientHypercacheFlagsWrapper = serde_json::from_str(fixture)
+            .expect("The serving read failed to deserialize hypercache_contract.json");
+        assert_eq!(
+            served.into_wrapper(99).flags.len(),
+            7,
+            "The serving read skipped a flag that the contract fixture holds"
+        );
 
         // Full flag with all optional fields
         let full_flag = &flags[0];
@@ -1237,14 +1541,27 @@ mod tests {
         assert_eq!(missing_dep_flag.key, "missing-dep-flag");
         assert_eq!(missing_dep_flag.filters.groups.len(), 1);
 
+        // Referenced disabled flag: both writers keep it for the dependency below,
+        // with filters blanked to the empty shape.
+        let referenced_disabled = &flags[5];
+        assert_eq!(referenced_disabled.key, "referenced-disabled-flag");
+        assert!(!referenced_disabled.active);
+        assert!(referenced_disabled.filters.groups.is_empty());
+
+        // Its dependent: an active flag whose condition points at the disabled flag.
+        let disabled_dependent = &flags[6];
+        assert_eq!(disabled_dependent.key, "disabled-dependent-flag");
+        assert_eq!(disabled_dependent.filters.groups.len(), 1);
+
         // Verify evaluation_metadata parsed correctly
         let meta = metadata;
         assert_eq!(meta.dependency_stages.len(), 2);
-        assert_eq!(meta.dependency_stages[0], vec![1, 2, 3, 5]);
-        assert_eq!(meta.dependency_stages[1], vec![4]);
+        assert_eq!(meta.dependency_stages[0], vec![1, 2, 3, 5, 6]);
+        assert_eq!(meta.dependency_stages[1], vec![4, 7]);
         assert_eq!(meta.flags_with_missing_deps, vec![5]);
-        assert_eq!(meta.transitive_deps.len(), 5);
+        assert_eq!(meta.transitive_deps.len(), 7);
         assert!(meta.transitive_deps[&4].contains(&2));
+        assert!(meta.transitive_deps[&7].contains(&6));
 
         // Verify cohorts parsed correctly
         let cohorts = cohorts.expect("cohorts should be present in contract fixture");
@@ -1282,6 +1599,7 @@ mod tests {
             key: "test_flag".to_string(),
             has_experiment: false,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![
                         PropertyFilter {

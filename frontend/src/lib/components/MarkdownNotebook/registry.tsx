@@ -17,6 +17,7 @@ import {
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from './freshlyInserted'
+import { sanitizeNotebookLinkHref } from './markdown'
 import {
     NotebookComponentDefinition,
     NotebookComponentBlockNode,
@@ -168,6 +169,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             category: 'PostHog',
             icon: <IconFlag />,
             defaultProps: { id: '' },
+            editableTitle: false,
             ViewComponent: SummaryView,
         }),
         makeDefinition({
@@ -340,11 +342,11 @@ function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Ele
 }
 
 function EmbedView({ node }: NotebookComponentRenderProps): JSX.Element {
-    const src = typeof node.props.src === 'string' ? node.props.src : ''
+    const src = typeof node.props.src === 'string' ? sanitizeNotebookLinkHref(node.props.src) : null
     const title = typeof node.props.title === 'string' ? node.props.title : 'Embedded content'
 
     return src ? (
-        <iframe className="MarkdownNotebook__embed" src={src} title={title} sandbox="allow-scripts allow-same-origin" />
+        <iframe className="MarkdownNotebook__embed" src={src} title={title} sandbox="allow-scripts" />
     ) : (
         <SummaryView node={node} mode="view" updateProps={() => {}} deleteNode={() => {}} />
     )

@@ -1,5 +1,9 @@
+import re
+
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramFloat
+
+from posthog.temporal.data_modeling.activities.utils import is_externally_aborted
 
 # custom latency histogram buckets,
 # since we lose some important granularity with default max at 60s
@@ -27,15 +31,41 @@ DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS = [
     3_600_000.0,  # 1h (run_dag_activity start_to_close_timeout)
 ]
 
+# The SDK defaults (50s to 10,000s) leave both fast ClickHouse nodes and long Trino runs unreadable.
+DATA_MODELING_DURATION_HISTOGRAM_METRICS = (
+    "data_modeling_node_duration_seconds",
+    "data_modeling_dag_duration_seconds",
+)
+DATA_MODELING_DURATION_HISTOGRAM_BUCKETS = [
+    5.0,
+    15.0,
+    30.0,
+    60.0,
+    120.0,
+    300.0,
+    600.0,
+    1_200.0,
+    1_800.0,
+    3_600.0,
+    7_200.0,
+    14_400.0,
+    21_600.0,
+    43_200.0,
+    82_800.0,  # TRINO_SHADOW_RUN_TIMEOUT
+]
 
-def get_data_modeling_finished_metric(status: str) -> MetricCounter:
-    return (
-        workflow.metric_meter()
-        .with_additional_attributes({"status": status})
-        .create_counter(
-            "data_modeling_finished", "Number of data modeling runs finished, for any reason (including failure)."
-        )
-    )
+AD_HOC_TIER = "ad_hoc"
+UNKNOWN_RUN_MODE = "unknown"
+
+# Tier schedule runs are `execute-dag-{dag_id}:{seconds}[:{anchor}]-{timestamp}`, and their Trino
+# shadows are `execute-dag-trino-{dag_id}:{seconds}[:{anchor}]`.
+_TIER_WORKFLOW_ID = re.compile(r"^execute-dag-(?:trino-)?[0-9a-f-]{36}:(\d+)")
+
+
+def tier_label(dag_workflow_id: str | None) -> str:
+    """The cadence tier in seconds of the DAG run with this workflow id, or `ad_hoc` for any other run."""
+    match = _TIER_WORKFLOW_ID.match(dag_workflow_id or "")
+    return match.group(1) if match else AD_HOC_TIER
 
 
 def get_node_suspended_metric(engine: str) -> MetricCounter:
@@ -49,74 +79,35 @@ def get_node_suspended_metric(engine: str) -> MetricCounter:
     )
 
 
-def get_duckgres_shadow_finished_metric(status: str) -> MetricCounter:
+def get_managed_warehouse_trino_compile_failure_metric(error_code: str) -> MetricCounter:
     return (
-        workflow.metric_meter()
-        .with_additional_attributes({"status": status})
+        activity.metric_meter()
+        .with_additional_attributes({"error_code": error_code})
         .create_counter(
-            "duckgres_shadow_materialization_finished",
-            "Number of duckgres shadow materialization activities finished, by status.",
+            "managed_warehouse_shadow_trino_compile_failure",
+            "Number of managed warehouse shadow views that Trino compilation rejected, by error code.",
         )
     )
 
 
-def get_duckgres_shadow_row_count_match_metric(matched: bool) -> MetricCounter:
+def get_managed_warehouse_trino_missing_object_metric(error_name: str) -> MetricCounter:
     return (
-        workflow.metric_meter()
-        .with_additional_attributes({"matched": str(matched).lower()})
+        activity.metric_meter()
+        .with_additional_attributes({"error_name": error_name})
         .create_counter(
-            "duckgres_shadow_row_count_comparison",
-            "Row count comparison between ClickHouse and duckgres shadow materializations.",
+            "managed_warehouse_shadow_trino_missing_object",
+            "Number of managed warehouse shadow builds that failed because Trino could not resolve a catalog, schema, table or column, by error name.",
         )
-    )
-
-
-def get_duckgres_shadow_duration_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "duckgres_shadow_materialization_duration_seconds",
-        "Duration of duckgres shadow materialization in seconds.",
-        "s",
-    )
-
-
-def get_duckgres_shadow_rows_materialized_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "duckgres_shadow_rows_materialized",
-        "Number of rows materialized per duckgres shadow materialization.",
-    )
-
-
-def get_duckgres_shadow_storage_mib_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "duckgres_shadow_storage_mib",
-        "Total DuckLake storage size (MiB) of the materialized table after a duckgres shadow materialization.",
-        "MiB",
-    )
-
-
-def get_duckgres_shadow_storage_delta_mib_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "duckgres_shadow_storage_delta_mib",
-        "Change in DuckLake storage size (MiB) after a duckgres shadow materialization.",
-        "MiB",
-    )
-
-
-def get_clickhouse_materialization_duration_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "clickhouse_materialization_duration_seconds",
-        "Duration of ClickHouse materialization in seconds.",
-        "s",
     )
 
 
 # DAG-level metrics (v2 ExecuteDAGWorkflow)
 
 
-def get_dag_finished_metric(status: str) -> MetricCounter:
+def get_dag_finished_metric(status: str, engine: str, *, tier: str) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes({"status": status})
+        .with_additional_attributes({"status": status, "engine": engine, "tier_seconds": tier})
         .create_counter(
             "data_modeling_dag_finished",
             "Number of DAG executions finished. Status is completed, partial_failure, skipped, or failed.",
@@ -124,18 +115,22 @@ def get_dag_finished_metric(status: str) -> MetricCounter:
     )
 
 
-def get_dag_duration_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_dag_duration_seconds",
-        "Total wall-clock duration of a DAG execution.",
-        "s",
+def get_dag_duration_metric(engine: str, *, tier: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine, "tier_seconds": tier})
+        .create_histogram_float(
+            "data_modeling_dag_duration_seconds",
+            "Total wall-clock duration of a DAG execution.",
+            "s",
+        )
     )
 
 
-def get_dag_node_count_metric(outcome: str) -> MetricHistogramFloat:
+def get_dag_node_count_metric(outcome: str, engine: str) -> MetricHistogramFloat:
     return (
         workflow.metric_meter()
-        .with_additional_attributes({"outcome": outcome})
+        .with_additional_attributes({"outcome": outcome, "engine": engine})
         .create_histogram_float(
             "data_modeling_dag_node_count",
             "Number of nodes per outcome (successful, failed, skipped) in a DAG execution.",
@@ -146,43 +141,79 @@ def get_dag_node_count_metric(outcome: str) -> MetricHistogramFloat:
 # Node-level metrics (v2 MaterializeViewWorkflow)
 
 
-def get_node_finished_metric(status: str) -> MetricCounter:
+def get_trino_shadow_start_metric(outcome: str) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes({"status": status})
+        .with_additional_attributes({"outcome": outcome})
         .create_counter(
-            "data_modeling_node_finished",
-            "Number of node materializations finished. Status is completed, failed, or cancelled.",
+            "data_modeling_trino_shadow_start",
+            "Trino shadow run start attempts. Outcome is started, skipped_still_running, or error.",
         )
     )
 
 
-def get_node_duration_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_node_duration_seconds",
-        "Wall-clock duration of a single node materialization.",
-        "s",
+def get_node_finished_metric(
+    status: str, engine: str, *, tier: str, run_mode: str, error_class: str = "none"
+) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes(
+            {"status": status, "engine": engine, "tier_seconds": tier, "run_mode": run_mode, "error_class": error_class}
+        )
+        .create_counter(
+            "data_modeling_node_finished",
+            "Number of node materializations finished. Status is completed, failed, cancelled, or quality_blocked. "
+            "A failure's error_class is infra when it does not count toward suspension, otherwise other.",
+        )
     )
 
 
-def get_node_rows_materialized_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_node_rows_materialized",
-        "Number of rows materialized per node.",
+def error_class(error: str) -> str:
+    return "infra" if is_externally_aborted(error) else "other"
+
+
+def get_node_duration_metric(engine: str, *, run_mode: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine, "run_mode": run_mode})
+        .create_histogram_float(
+            "data_modeling_node_duration_seconds",
+            "Wall-clock duration of a single node materialization.",
+            "s",
+        )
     )
 
 
-def get_node_storage_delta_mib_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_node_storage_delta_mib",
-        "Change in S3 storage size (MiB) after a node materialization.",
-        "MiB",
+def get_node_rows_materialized_metric(engine: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_histogram_float(
+            "data_modeling_node_rows_materialized",
+            "Number of rows materialized per node.",
+        )
     )
 
 
-def get_node_total_storage_mib_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "data_modeling_node_total_storage_mib",
-        "Total S3 storage size (MiB) of the materialized table after a node materialization.",
-        "MiB",
+def get_node_storage_delta_mib_metric(engine: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_histogram_float(
+            "data_modeling_node_storage_delta_mib",
+            "Change in storage size (MiB) after a node materialization.",
+            "MiB",
+        )
+    )
+
+
+def get_node_total_storage_mib_metric(engine: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_histogram_float(
+            "data_modeling_node_total_storage_mib",
+            "Total storage size (MiB) of the materialized table after a node materialization.",
+            "MiB",
+        )
     )

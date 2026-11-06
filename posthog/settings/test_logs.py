@@ -1,11 +1,13 @@
 import logging
 import logging.config
 
+import structlog
 from opentelemetry import (
     context as otel_context,
     trace,
 )
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+from structlog.testing import capture_logs
 
 from posthog.settings import logs
 
@@ -43,10 +45,20 @@ def test_add_otel_trace_context_is_noop_without_active_span() -> None:
     assert "span_id" not in event_dict
 
 
+def test_bound_context_stays_off_other_loggers_on_the_same_thread() -> None:
+    structlog.get_logger("test.binder").bind(bound_by_binder="value")
+
+    with capture_logs() as captured:
+        structlog.get_logger("test.other").info("unrelated event")
+
+    assert captured == [{"event": "unrelated event", "log_level": "info"}]
+
+
 def test_logging_config_can_be_applied() -> None:
     config = dict(logs.LOGGING)
     config["disable_existing_loggers"] = False
     logging.config.dictConfig(config)
+    assert logging.getLogger("posthog.github_diagnostics").isEnabledFor(logging.INFO)
 
 
 def test_default_console_logging_handler_keeps_default_stream() -> None:

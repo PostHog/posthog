@@ -28,7 +28,12 @@ import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomizat
 import { SurveyTranslationFields } from 'scenes/surveys/SurveyTranslationFields'
 import { SurveyTranslations } from 'scenes/surveys/SurveyTranslations'
 import { getSurveyWithTranslatedContent } from 'scenes/surveys/surveyTranslationUtils'
-import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
+import {
+    getFirstPreviewPageIndex,
+    sanitizeSurveyAppearance,
+    validateSurveyAppearance,
+    withIntroScreenEnabled,
+} from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -36,9 +41,10 @@ import { Survey, SurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
-import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
+import { defaultSurveyFieldValues, INTRO_SCREEN_PAGE_INDEX, NewSurvey, SurveyQuestionLabel } from './constants'
 import { CopySurveyLink } from './CopySurveyLink'
 import { HostedSurveyCanvas } from './hosted-canvas/HostedSurveyCanvas'
+import { getHostedSurveyPageKind } from './hosted-canvas/hostedSurveyPageKind'
 import { HostedSurveySettingsPanel } from './hosted-canvas/HostedSurveySettingsPanel'
 import { surveyLogic } from './surveyLogic'
 import { SurveyResponsesCollection } from './SurveyResponsesCollection'
@@ -50,13 +56,6 @@ function getHostedSurveyUrl(surveyId: string): string {
     return url.toString()
 }
 
-function moveQuestion(questions: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
-    const nextQuestions = [...questions]
-    const [question] = nextQuestions.splice(from, 1)
-    nextQuestions.splice(to, 0, question)
-    return nextQuestions.map((q) => ({ ...q }))
-}
-
 function HostedSurveyQuestionRail({
     id,
     survey,
@@ -64,6 +63,7 @@ function HostedSurveyQuestionRail({
     selectedPageIndex,
     onSelectPage,
     onAddQuestion,
+    onAddIntro,
     onAddConfirmation,
     onMoveQuestion,
     onDeleteQuestion,
@@ -75,6 +75,7 @@ function HostedSurveyQuestionRail({
     selectedPageIndex: number
     onSelectPage: (pageIndex: number) => void
     onAddQuestion: (type: SurveyQuestionType) => void
+    onAddIntro: () => void
     onAddConfirmation: () => void
     onMoveQuestion: (from: number, to: number) => void
     onDeleteQuestion: (index: number) => void
@@ -105,6 +106,18 @@ function HostedSurveyQuestionRail({
                 </div>
             </div>
             <div className="flex flex-col gap-2">
+                {survey.appearance?.displayIntroScreen ? (
+                    <HostedSurveyRailScreen
+                        title="Intro"
+                        subtitle="Start screen"
+                        isSelected={selectedPageIndex === INTRO_SCREEN_PAGE_INDEX}
+                        onSelect={() => onSelectPage(INTRO_SCREEN_PAGE_INDEX)}
+                    />
+                ) : (
+                    <LemonButton type="secondary" size="small" onClick={onAddIntro} className="mb-1" fullWidth>
+                        Add intro screen
+                    </LemonButton>
+                )}
                 <DndContext onDragEnd={handleDragEnd}>
                     <SortableContext
                         disabled={survey.questions.length <= 1}
@@ -129,18 +142,12 @@ function HostedSurveyQuestionRail({
                     </SortableContext>
                 </DndContext>
                 {survey.appearance?.displayThankYouMessage ? (
-                    <button
-                        type="button"
-                        className={`min-h-11 rounded border px-3 py-2 text-left text-sm transition-colors ${
-                            selectedPageIndex === survey.questions.length
-                                ? 'border-primary bg-primary-highlight text-primary'
-                                : 'bg-bg-light hover:bg-fill-highlight-50'
-                        }`}
-                        onClick={() => onSelectPage(survey.questions.length)}
-                    >
-                        <span className="block font-medium">Confirmation</span>
-                        <span className="block text-xs text-secondary">End screen</span>
-                    </button>
+                    <HostedSurveyRailScreen
+                        title="Confirmation"
+                        subtitle="End screen"
+                        isSelected={selectedPageIndex === survey.questions.length}
+                        onSelect={() => onSelectPage(survey.questions.length)}
+                    />
                 ) : (
                     <LemonButton type="secondary" size="small" onClick={onAddConfirmation} className="mt-1" fullWidth>
                         Add confirmation
@@ -155,6 +162,33 @@ function HostedSurveyQuestionRail({
                 onIframeEmbeddingChange={onIframeEmbeddingChange}
             />
         </nav>
+    )
+}
+
+function HostedSurveyRailScreen({
+    title,
+    subtitle,
+    isSelected,
+    onSelect,
+}: {
+    title: string
+    subtitle: string
+    isSelected: boolean
+    onSelect: () => void
+}): JSX.Element {
+    return (
+        <button
+            type="button"
+            className={`min-h-11 rounded border px-3 py-2 text-left text-sm transition-colors ${
+                isSelected
+                    ? 'border-primary bg-primary-highlight text-primary'
+                    : 'bg-bg-light hover:bg-fill-highlight-50'
+            }`}
+            onClick={onSelect}
+        >
+            <span className="block font-medium">{title}</span>
+            <span className="block text-xs text-secondary">{subtitle}</span>
+        </button>
     )
 }
 
@@ -407,6 +441,8 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
         deleteBranchingLogic,
         editingSurvey,
         loadSurvey,
+        moveQuestion,
+        removeQuestion,
         setSelectedPageIndex,
         setSurveyManualErrors,
         setSurveyValue,
@@ -427,10 +463,17 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
         [survey, activeLanguage]
     )
     const maxPageIndex = Math.max(survey.questions.length + (survey.appearance?.displayThankYouMessage ? 1 : 0) - 1, 0)
-    const activePageIndex = Math.min(selectedPageIndex ?? 0, maxPageIndex)
-    const isConfirmationSelected =
-        !!survey.appearance?.displayThankYouMessage && activePageIndex === survey.questions.length
+    const activePageIndex = Math.min(Math.max(selectedPageIndex ?? 0, getFirstPreviewPageIndex(survey)), maxPageIndex)
+    const pageKind = getHostedSurveyPageKind(survey, activePageIndex)
     const hostedSurveyUrl = id === 'new' ? null : getHostedSurveyUrl(id)
+
+    const removeIntroScreen = (): void => {
+        setSurveyValue('appearance', {
+            ...survey.appearance,
+            displayIntroScreen: false,
+        })
+        setSelectedPageIndex(0)
+    }
 
     const removeConfirmationScreen = (): void => {
         setSurveyValue('appearance', {
@@ -438,29 +481,6 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
             displayThankYouMessage: false,
         })
         setSelectedPageIndex(Math.max(survey.questions.length - 1, 0))
-    }
-
-    const runAfterBranchingConfirmation = (action: () => void, description: JSX.Element): void => {
-        if (!hasBranchingLogic) {
-            action()
-            return
-        }
-
-        LemonDialog.open({
-            title: 'Your survey has active branching logic',
-            description,
-            primaryButton: {
-                children: 'Continue',
-                status: 'danger',
-                onClick: () => {
-                    deleteBranchingLogic()
-                    action()
-                },
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
     }
 
     const addQuestion = (type: SurveyQuestionType): void => {
@@ -486,26 +506,17 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
     }
 
     const moveSurveyQuestion = (from: number, to: number): void => {
-        runAfterBranchingConfirmation(
-            () => {
-                setSurveyValue('questions', moveQuestion(survey.questions, from, to))
-                setSelectedPageIndex(to)
-            },
-            <p className="py-2">Rearranging questions will remove your branching logic. Continue?</p>
-        )
+        // Reorder through surveyLogic's moveQuestion so branching targets are remapped
+        // to the new question indices instead of being wiped, matching the standard editor.
+        moveQuestion(from, to)
+        setSelectedPageIndex(to)
     }
 
     const deleteSurveyQuestion = (index: number): void => {
-        runAfterBranchingConfirmation(
-            () => {
-                setSurveyValue(
-                    'questions',
-                    survey.questions.filter((_, questionIndex) => questionIndex !== index)
-                )
-                setSelectedPageIndex(Math.max(index - 1, 0))
-            },
-            <p className="py-2">Deleting this question will remove your branching logic. Continue?</p>
-        )
+        // Delete through surveyLogic's removeQuestion so branching targets are remapped
+        // instead of being wiped, matching the standard editor.
+        setSelectedPageIndex(Math.max(index - 1, 0))
+        removeQuestion(index)
     }
 
     const handleCancelClick = (): void => {
@@ -562,6 +573,10 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                         selectedPageIndex={activePageIndex}
                         onSelectPage={setSelectedPageIndex}
                         onAddQuestion={addQuestion}
+                        onAddIntro={() => {
+                            setSurveyValue('appearance', withIntroScreenEnabled(survey.appearance))
+                            setSelectedPageIndex(INTRO_SCREEN_PAGE_INDEX)
+                        }}
                         onAddConfirmation={() => {
                             setSurveyValue('appearance', {
                                 ...survey.appearance,
@@ -577,14 +592,15 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                         <HostedSurveyCanvas
                             survey={previewSurvey}
                             activePageIndex={activePageIndex}
-                            isConfirmation={isConfirmationSelected}
+                            pageKind={pageKind}
                             viewport={viewport}
                         />
                         <HostedSurveySettingsPanel
                             activePageIndex={activePageIndex}
-                            isConfirmation={isConfirmationSelected}
+                            pageKind={pageKind}
                             viewport={viewport}
                             onViewportChange={setViewport}
+                            onRemoveIntro={removeIntroScreen}
                             onRemoveConfirmation={removeConfirmationScreen}
                         />
                     </div>
@@ -627,9 +643,6 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                                             survey={survey}
                                             hasBranchingLogic={hasBranchingLogic}
                                             deleteBranchingLogic={deleteBranchingLogic}
-                                            onTranslationsChange={(translations) =>
-                                                setSurveyValue('translations', translations)
-                                            }
                                             hasRatingButtons={survey.questions.some(
                                                 (question) => question.type === SurveyQuestionType.Rating
                                             )}

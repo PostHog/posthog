@@ -17,6 +17,8 @@ rules:
       owners: conversations
     - match: '/messaging.py'
       owners: team-workflows
+    - match: '/oauth.py'
+      owners: team-growth
     - match: '/person/'
       owners: team-ingestion
     - match: '/proxy_record.py'
@@ -28,4 +30,21 @@ rules:
     - match: '/sessions/'
       owners: team-analytics-platform
     - match: '/web_preaggregated/'
+      owners: team-web-analytics
+    - match:
+          - '/file_system/test/test_*.py'
+      owners: platform-ux
+    - match:
+          - '/usage_report_events_preagg/test/test_*.py'
+      owners: team-billing
+    - match:
+          - '/scoping/test_*.py'
+      owners: team-devex
+    - match:
+          - '/distinct_id_usage/test/test_*.py'
+          - '/tophog/test/test_*.py'
+      owners: team-ingestion
+    - match:
+          - '/exchange_rate/test/test_*.py'
+          - '/person_group_membership/test/test_*.py'
       owners: team-web-analytics

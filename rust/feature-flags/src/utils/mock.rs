@@ -324,6 +324,7 @@ mod tests {
             deleted: false,
             team_id: 99,
             filters: FlagFilters {
+                non_v1: None,
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![crate::properties::property_models::PropertyFilter {
                         key: "country".to_string(),

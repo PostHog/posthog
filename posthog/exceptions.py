@@ -1,16 +1,24 @@
-from typing import Any, Optional, TypedDict
+import random
+from collections.abc import Sequence
+from typing import Any, Optional, Protocol, TypedDict
 
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
+from posthog.scopes import (
+    INTERNAL_API_SCOPE_OBJECTS,
+    scopes_covered_by_legacy_fallback,
+    scopes_not_covered,
+    scopes_within_ceiling,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +35,19 @@ class QuotaLimitExceeded(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "quota_limit_exceeded"
     default_detail = "Your organization reached its billing limit for this resource. Increase the limits in Billing settings, or ask an org admin to do so."
+
+
+class APIQueriesBudgetExceeded(Throttled):
+    # DRF sets this in Throttled.__init__ and its handler turns it into Retry-After; the stubs omit it.
+    wait: Optional[float]
+
+    default_code = "api_queries_budget_exceeded"
+    # DRF appends "Expected available in N seconds." to this, so the wait is not repeated here.
+    default_detail = (
+        "This project used its hourly budget of data read by API queries. "
+        "To stay under it, read less data per query or run queries less often. "
+        "See https://posthog.com/docs/sql/optimizing-queries for ways to read less."
+    )
 
 
 class EnterpriseFeatureException(APIException):
@@ -55,6 +76,25 @@ class PaidFeatureException(APIException):
         super().__init__(detail=f"{feature_name} requires a paid PostHog plan. Please upgrade to access this feature.")
 
 
+class InsufficientScope(PermissionDenied):
+    """A 403 for a token that lacks a scope the request needs.
+
+    Raise it wherever code finds a missing scope. The exception handler decides if the response
+    carries an RFC 6750 section 3.1 `insufficient_scope` challenge, so callers never check the token type.
+    `required_scopes` are the scopes the request requires. The MCP step-up flow has the client union
+    them with the scopes it holds, so a check that guards one extra scope can name only that scope.
+    """
+
+    def __init__(
+        self, required_scopes: Sequence[str], detail: str | None = None, extra: dict[str, Any] | None = None
+    ) -> None:
+        super().__init__(detail=detail or f"API key missing required scope '{required_scopes[0]}'")
+        self.required_scopes = list(required_scopes)
+        # drf-exceptions-hog adds `extra` to the error body, for example the scopes a workload token misses.
+        if extra:
+            self.extra = extra
+
+
 class Conflict(APIException):
     status_code = status.HTTP_409_CONFLICT
     default_code = "conflict"
@@ -70,10 +110,30 @@ class DatabaseSchemaUnavailable(APIException):
 
 
 class ClickHouseAtCapacity(APIException):
+    wait: int
     status_code = 503
+    default_code = "clickhouse_at_capacity"
     default_detail = (
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
+
+    def __init__(self, detail: Optional[str] = None, code: Optional[str] = None) -> None:
+        super().__init__(detail=detail, code=code)
+        # Spread retries across requests while keeping a minimum recovery window.
+        self.wait = random.randint(5, 20)
+
+
+class QueryRanConcurrently(APIException):
+    """Raised by a query single flight follower whose leader left nothing to serve or rebuild: the
+    leader failed in a way that cannot be shared, died, or held its lock past the limit."""
+
+    status_code = 503
+    default_code = "query_ran_concurrently"
+    default_detail = "This query was already running and its result couldn't be reused. Try again in a moment."
+
+
+# Failures that clear on their own. A caller that reads one of these codes should wait and run the same query again.
+TRANSIENT_QUERY_ERROR_CODES = frozenset({ClickHouseAtCapacity.default_code, QueryRanConcurrently.default_code})
 
 
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
@@ -85,12 +145,20 @@ class ClickHouseQuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
 
 
+class ClickHouseBytesLimitExceeded(ValidationError):
+    # A fresh TOO_MANY_BYTES surfaces as ValidationError(str(error), "too_many_bytes") in the
+    # query API, so the breaker's replay must produce the same status and machine code.
+    default_code = "too_many_bytes"
+
+
 class ClickHouseQueryTimeOut(APIException):
+    user_safe = True
     status_code = 504
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
+    user_safe = True
     # Custom code in the actionable-validation family (400/512/513) the frontend routes to the
     # "problem with this query" panel. Distinct from 512 (query-too-slow) so an out-of-memory
     # failure is never mistaken for a timeout on either the client or in status-based alerting.
@@ -100,9 +168,41 @@ class ClickHouseQueryMemoryLimitExceeded(APIException):
     # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
     default_code = "clickhouse_memory_limit_exceeded"
     default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
-    # True only when ClickHouse hit this query's own memory ceiling, meaning a retry will fail
-    # the same way. Server-wide and per-user limits are transient cluster pressure.
     is_per_query_limit = False
+
+
+class ClickHouseClusterMemoryLimitExceeded(ClickHouseQueryMemoryLimitExceeded):
+    """ClickHouse refused the query because the server-wide or per-user memory ceiling was full.
+
+    The query itself can be sized fine, so this belongs to `CH_TRANSIENT_ERRORS` and every retry
+    mechanism that references that tuple can get past it. Subclassing keeps the 513 status and the
+    machine-readable code, but the detail tells the user to wait rather than shrink a fine query.
+    """
+
+    default_detail = (
+        "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
+    )
+
+
+class FieldedValidationError(Protocol):
+    """A framework-free validation error, as a product's internals raise it."""
+
+    message: str
+    field: str | None
+
+
+def as_drf_validation_error(error: FieldedValidationError) -> ValidationError:
+    """The DRF equivalent of a framework-free validation error, keyed by field when it names one."""
+    if error.field:
+        return ValidationError({error.field: [error.message]})
+    return ValidationError(error.message)
+
+
+def first_error_message(detail: Any) -> str:
+    """The first message in a DRF error detail, which nests messages in dicts and lists."""
+    while isinstance(detail, (dict, list)) and detail:
+        detail = next(iter(detail.values())) if isinstance(detail, dict) else detail[0]
+    return str(detail)
 
 
 class ExceptionContext(TypedDict):
@@ -173,4 +273,36 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
             # attacker-controlled origin.
             metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
             response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
+    elif response is not None and isinstance(exc, InsufficientScope):
+        if challenge := _insufficient_scope_challenge(context.get("request"), exc.required_scopes):
+            response["WWW-Authenticate"] = challenge
     return response
+
+
+def _insufficient_scope_challenge(request: object, required_scopes: Sequence[str]) -> str | None:
+    """Only tokens from step-up apps get the challenge. Every other caller gets the same 403 without it."""
+    from posthog.auth import (  # noqa: PLC0415 - posthog.auth needs the app registry
+        OAuthAccessTokenAuthentication,
+        WorkloadAccessTokenAuthentication,
+    )
+
+    authenticator = getattr(request, "successful_authenticator", None)
+    # hog reads the scopes from a workload token's challenge to tell the user what to add to the trust policy.
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication) or not authenticator.access_token.supports_step_up:
+        return None
+    # Internal scopes cannot be granted at consent, so a challenge naming one could never succeed.
+    if any(scope.split(":", 1)[0] in INTERNAL_API_SCOPE_OBJECTS for scope in required_scopes):
+        return None
+    # Consent drops a scope outside the app's ceiling, so the client would re-consent and still lack it.
+    # Only the scopes the token lacks matter: a held or legacy-covered scope needs no new grant.
+    held = str(authenticator.access_token.scope or "").split()
+    lacking = scopes_not_covered(held, required_scopes)
+    lacking = [scope for scope in lacking if scope not in scopes_covered_by_legacy_fallback(held, lacking)]
+    application = authenticator.access_token.application
+    if application is None or not scopes_within_ceiling(
+        lacking, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+    ):
+        return None
+    return f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'

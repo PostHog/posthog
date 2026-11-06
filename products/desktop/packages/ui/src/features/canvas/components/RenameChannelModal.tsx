@@ -115,7 +115,12 @@ export function RenameChannelModal({
             }}
           >
             <TextField.Slot>
-              {channelGlyph(channel.name, { size: 16, space: spacesLayout })}
+              {channelGlyph(channel.name, {
+                personal: channel.channelType === "personal",
+                private: channel.channelType === "private",
+                size: 16,
+                space: spacesLayout,
+              })}
             </TextField.Slot>
             <TextField.Slot side="right">
               <Text className="text-gray-9 text-sm tabular-nums">

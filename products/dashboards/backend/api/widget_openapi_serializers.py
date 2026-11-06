@@ -7,11 +7,16 @@ package.
 """
 
 from products.dashboards.backend.widget_specs.openapi import (
+    DASHBOARD_TILE_GROUP_DEFAULTS,
+    GROUP_TITLES_HELP_TEXT,
+    GROUPS_HELP_TEXT,
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     WIDGET_CONFIG_SERIALIZERS,
     AddDashboardWidgetRequestOpenApi,
+    BreakdownColorConfigSerializer,
     DashboardPatchTileOpenApiSerializer,
     DashboardPatchWidgetOpenApiSerializer,
+    DashboardTileGroupSerializer,
     DashboardWidgetConfigField,
     DashboardWidgetConfigOpenApi,
     PatchedDashboardOpenApiSerializer,
@@ -22,6 +27,7 @@ from products.dashboards.backend.widget_specs.openapi import (
 
 __all__ = [
     "AddDashboardWidgetRequestOpenApi",
+    "BreakdownColorConfigSerializer",
     "DashboardPatchTileOpenApiSerializer",
     "DashboardPatchWidgetOpenApiSerializer",
     "DashboardWidgetConfigField",
@@ -30,6 +36,10 @@ __all__ = [
     "UpdateDashboardWidgetRequestOpenApi",
     "WidgetCatalogEntryOpenApi",
     "WidgetCatalogResponseSerializer",
+    "DashboardTileGroupSerializer",
+    "DASHBOARD_TILE_GROUP_DEFAULTS",
+    "GROUPS_HELP_TEXT",
+    "GROUP_TITLES_HELP_TEXT",
     "WIDGET_BATCH_ADD_OPENAPI_HELP",
     "WIDGET_CONFIG_SERIALIZERS",
     *[serializer.__name__ for serializer in WIDGET_CONFIG_SERIALIZERS.values()],

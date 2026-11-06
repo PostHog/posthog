@@ -35,13 +35,14 @@ from django.apps import apps
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
-from posthog.models.event.sql import INSERT_EVENT_SQL
-from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, INSERT_EVENT_SQL
+from posthog.models.event.util import _json_dumps_for_clickhouse
 from posthog.models.person.sql import INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_SQL
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import INSERT_SINGLE_SESSION_REPLAY
 
-from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
+from products.error_tracking.backend.facade.testing import sync_issue_to_clickhouse
 
 if TYPE_CHECKING:
     from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
@@ -223,12 +224,13 @@ def _insert_exception_event(
     properties: dict[str, Any],
 ) -> None:
     timestamp_utc = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
+    native_schema = use_new_events_schema(team.pk)
     sync_execute(
-        INSERT_EVENT_SQL(),
+        INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE if native_schema else None),
         {
             "uuid": str(uuid.uuid4()),
             "event": "$exception",
-            "properties": json.dumps(properties),
+            "properties": _json_dumps_for_clickhouse(properties) if native_schema else json.dumps(properties),
             "timestamp": timestamp_utc,
             "team_id": team.id,
             "distinct_id": distinct_id,
@@ -248,30 +250,6 @@ def _insert_exception_event(
             "group3_created_at": _ZERO_CLICKHOUSE_TIMESTAMP,
             "group4_created_at": _ZERO_CLICKHOUSE_TIMESTAMP,
             "person_mode": "full",
-        },
-    )
-
-
-def _insert_fingerprint_issue_state(
-    *,
-    issue: ErrorTrackingIssue,
-    fingerprint: ErrorTrackingIssueFingerprintV2,
-) -> None:
-    first_seen = fingerprint.first_seen or issue.created_at
-    sync_execute(
-        INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
-        {
-            "fingerprint": fingerprint.fingerprint,
-            "issue_id": str(issue.id),
-            "team_id": issue.team_id,
-            "issue_name": issue.name,
-            "issue_description": issue.description,
-            "issue_status": issue.status,
-            "assigned_user_id": None,
-            "assigned_role_id": None,
-            "first_seen": format_clickhouse_timestamp(first_seen) if first_seen else None,
-            "is_deleted": 0,
-            "version": int(fingerprint.created_at.timestamp() * 1000),
         },
     )
 
@@ -312,6 +290,7 @@ def _insert_session_replay_summary(
             "block_last_timestamps": [last_timestamp],
             "retention_period_days": 30,
             "is_deleted": 0,
+            "surfacing_score": None,
             "_timestamp": first_timestamp.timestamp(),
         },
     )
@@ -345,12 +324,12 @@ def seed_error_tracking_issues(context: _ErrorTrackingSeedContext) -> dict[str, 
             name=spec["name"],
             status=spec.get("status", ErrorTrackingIssue.Status.ACTIVE),
         )
-        fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(
+        ErrorTrackingIssueFingerprintV2.objects.create(
             team=team,
             issue_id=issue_id,
             fingerprint=spec["fingerprint"],
         )
-        _insert_fingerprint_issue_state(issue=issue, fingerprint=fingerprint)
+        sync_issue_to_clickhouse(team_id=team.id, issue_id=issue.id)
 
         for index, days_ago in enumerate(spec["days_ago"]):
             distinct_id = _EVAL_DISTINCT_IDS[index % len(_EVAL_DISTINCT_IDS)]

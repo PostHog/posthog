@@ -1,12 +1,7 @@
-import logging
-
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamConversationsSlackConfig(models.Model):
@@ -28,6 +23,3 @@ class TeamConversationsSlackConfig(models.Model):
                 name="unique_slack_team_id",
             ),
         ]
-
-
-register_team_extension_signal(TeamConversationsSlackConfig, logger=logger)

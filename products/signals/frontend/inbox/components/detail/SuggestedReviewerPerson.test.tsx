@@ -1,0 +1,151 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
+import { initKeaTests } from '~/test/init'
+
+import { EnrichedReviewer } from '../../types'
+import { ReviewerClaim, reviewerClaimRemoveDisabledReason } from './SuggestedReviewerClaimControls'
+import { SuggestedReviewerPerson } from './SuggestedReviewerPerson'
+import { SuggestedReviewersSectionMockup } from './SuggestedReviewersSectionMockup'
+
+describe('Suggested reviewer presentation', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    test.each([
+        ['a hover', async (tag: HTMLElement) => await userEvent.hover(tag)],
+        [
+            'keyboard focus',
+            async (tag: HTMLElement) => {
+                // The reviewer's name is the first tab stop because it opens the row menu.
+                await userEvent.tab()
+                await userEvent.tab()
+                expect(tag).toHaveFocus()
+            },
+        ],
+    ])('reveals a scout name in the source tooltip on %s', async (_case, reveal) => {
+        const scoutName = 'Infrastructure reliability and request processing ownership scout'
+        const reviewer: EnrichedReviewer = {
+            github_login: 'solo',
+            user_uuid: 'solo',
+            github_name: 'Solo Scout',
+            relevant_commits: [],
+            user: {
+                id: 1,
+                uuid: 'solo',
+                first_name: 'Solo',
+                last_name: 'Scout',
+                email: 'solo@example.com',
+            },
+            source_skill: 'signals-scout-infrastructure-reliability',
+            source_label: scoutName,
+            explanation: 'Maintains the request path.',
+        }
+
+        render(<SuggestedReviewerPerson reviewer={reviewer} disabled={false} onRemove={() => undefined} />)
+
+        const tag = screen.getByText('Added by scout')
+        expect(tag).toBeInTheDocument()
+        expect(screen.queryByText(scoutName)).not.toBeInTheDocument()
+
+        await reveal(tag)
+
+        expect(await screen.findByText(scoutName)).toBeInTheDocument()
+    })
+    it('shows each reason before its indented reviewer and keeps actions visible', async () => {
+        const maya: EnrichedReviewer = {
+            github_login: 'maya',
+            github_name: 'Maya Rivera',
+            relevant_commits: [],
+            user: { id: 1, uuid: 'maya', first_name: 'Maya', last_name: 'Rivera', email: 'maya@example.com' },
+            source_label: 'Code history',
+            explanation: 'Recently changed the affected transport.',
+        }
+        const quinn: EnrichedReviewer = {
+            ...maya,
+            github_login: 'quinn',
+            github_name: 'Quinn Foster',
+            user: { id: 2, uuid: 'quinn', first_name: 'Quinn', last_name: 'Foster', email: 'quinn@example.com' },
+            source_skill: null,
+            source_label: 'Added by teammate',
+            reason: 'Added as a reviewer by Avery Chen on Jan 1, 2026',
+            explanation: null,
+        }
+        const onRemove = jest.fn()
+
+        render(
+            <SuggestedReviewersSectionMockup suggestions={[maya, quinn]} onAdd={() => undefined} onRemove={onRemove} />
+        )
+
+        const reason = screen.getByText('Recently changed the affected transport.')
+        const reviewer = screen.getByText('Maya Rivera')
+        expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(reviewer.closest('.pl-3')).toBeInTheDocument()
+        expect(screen.getByText('Quinn Foster').closest('.pl-3')).not.toBeInTheDocument()
+        const addButton = screen.getByText('Add Reviewer')
+        expect(addButton).toBeVisible()
+        expect(
+            screen.getByText('Quinn Foster').compareDocumentPosition(addButton) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+
+        // The row shows no buttons. The name opens the reviewer's menu, and the picked reason travels with the removal.
+        const row = screen.getByLabelText('Actions for Maya Rivera')
+        expect(row).toBeVisible()
+        await userEvent.click(row)
+        await userEvent.click(await screen.findByText('Not their area'))
+        expect(onRemove).toHaveBeenLastCalledWith([maya], { reason: 'wrong_area' })
+        await userEvent.click(row)
+        await userEvent.click(await screen.findByText('Without a reason'))
+        expect(onRemove).toHaveBeenLastCalledWith([maya], undefined)
+    })
+    test.each([
+        ['your own row while your claim is saving', 'me', true, 'Updating…'],
+        ['your own row when no claim is saving', 'me', false, undefined],
+        ["a teammate's row while your claim is saving", 'teammate', true, undefined],
+    ])('removal of %s', (_case, uuid, saving, expected) => {
+        const reviewer: EnrichedReviewer = {
+            github_login: uuid,
+            github_name: null,
+            relevant_commits: [],
+            user: { id: 1, uuid, first_name: 'Sam', last_name: 'Lee', email: 'sam@example.com' },
+        }
+        const claim: ReviewerClaim = {
+            claimantUuid: null,
+            currentUserUuid: 'me',
+            claimable: true,
+            saving,
+            onSetClaimed: () => undefined,
+        }
+
+        expect(reviewerClaimRemoveDisabledReason(reviewer, claim, 'Sam Lee')).toEqual(expected)
+    })
+    it('shows a manual addition as a reason without a source badge', () => {
+        const quinn: EnrichedReviewer = {
+            github_login: 'quinn',
+            github_name: 'Quinn Foster',
+            relevant_commits: [],
+            user: { id: 2, uuid: 'quinn', first_name: 'Quinn', last_name: 'Foster', email: 'quinn@example.com' },
+            source_skill: null,
+            source_label: 'Added by teammate',
+            reason: 'Added as a reviewer by Avery Chen on Jan 1, 2026',
+            explanation: 'Added by Avery Chen',
+        }
+
+        render(
+            <SuggestedReviewersSectionMockup suggestions={[quinn]} onAdd={() => undefined} onRemove={() => undefined} />
+        )
+
+        const reason = screen.getByText('Added by Avery Chen')
+        const reviewer = screen.getByText('Quinn Foster')
+        expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(reviewer.closest('.pl-3')).toBeInTheDocument()
+        expect(screen.queryByText('Added by teammate')).not.toBeInTheDocument()
+    })
+})

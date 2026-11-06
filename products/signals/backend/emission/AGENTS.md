@@ -20,8 +20,25 @@ The core signal pipeline (`products/signals/backend/emission/pipeline.py`) is so
 1. **Record fetcher** — each source defines a `record_fetcher` callable on its config
 2. **Emitter** — transforms each record dict into a `SignalEmitterOutput` (or `None` to skip)
 3. **Summarization** — optionally summarizes long descriptions via LLM
-4. **Actionability filter** — optionally filters non-actionable records via LLM
+4. **Actionability filter** — optionally filters non-actionable records via LLM.
+   Teams can steer this gate per source via two keys on `SignalSourceConfig.config`: `steering` (plain-language rules injected into the canonical prompt) and `default_not_actionable` (flips the "when in doubt" posture from keep to filter).
+   See `steering.py` — the injection escapes braces and caps length so team text can never break the prompt's one-word output contract, and every canonical actionability prompt must keep the `When in doubt, classify as ACTIONABLE` posture line the injection anchors on.
+   The gate runs before a signal exists, so it sees only the description unless the record carries the verdict elsewhere.
+   A source whose verdict depends on metadata the description doesn't carry declares those `extra` keys in `actionability_context_fields`, and they arrive in a `<record_metadata>` block inside the description (see `github_issues.py`, which declares the issue author).
+   A steered gate gets all of `extra` in that block instead; a source declaring nothing keeps a byte-identical prompt.
 5. **Emission** — emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
+
+### Direct sources
+
+Error tracking and health checks never enter the shared pipeline: they build a description themselves and call `emit_signal` directly.
+They still honor steering, through the gate in `direct_gate.py` that `emit_signal` applies to the `(source_product, source_type)` pairs in `contracts.DIRECT_STEERABLE_SOURCES`.
+Two rules keep that gate predictable.
+A team that wrote no steering gets no LLM call and no change in behavior.
+A team that wrote steering is filtered by that text alone, because the prompt there carries no actionability criteria of its own, unlike the record-shaped prompts in `_prompts.py`.
+The gate fails open, and reports a dropped signal as `signal_data_source_filtered` with `steering_applied`, the same stage event the pipeline fires.
+
+A pair listed in `DIRECT_STEERABLE_SOURCES` that the registry also serves would have every record judged twice, so the two sets must stay disjoint (`tests/test_direct_gate.py` holds that).
+The roster's `steerable` flags in `products/signals/frontend/inbox/components/config/agentRosterMeta.ts` mirror the same set: a source that offers the steering form without a gate behind it stores text nothing reads.
 
 ### Registry
 
@@ -34,7 +51,22 @@ The registry key is a plain string pair — external sources use `ExternalDataSo
 Each source defines how to fetch records via its `record_fetcher` on the config:
 
 - **Data warehouse fetcher** (`fetchers/data_warehouse.py`) — queries HogQL on warehouse tables.
-  Receives `table_name` and `last_synced_at` via the runtime context dict.
+  Receives `table_name`, `last_synced_at` and the team's `source_config` blob via the runtime context dict.
+  A source that declares `scope_field` (a HogQL expression yielding a record's scope id) and `scope_config_key` (a list of allowed ids on `SignalSourceConfig.config`) gets an `IN` clause added to its query, so a team narrows a workspace-wide warehouse sync without changing what the warehouse imports.
+  An absent, empty, or malformed list means no narrowing.
+  Declare the key per source in `contracts.SCOPE_CONFIG_KEYS` and read it from there, as `linear_issues.py` does for Linear team ids: the table stays out of `emission/` so the API serializer validates the same key without importing the emitters.
+- **Grouped warehouse fetcher** (`fetchers/grouped_warehouse.py`) — for high-volume tables that store one row per occurrence (Datadog error spans and logs).
+  The generic fetcher has no `GROUP BY`, so it would emit one signal per row.
+  The grouped fetcher reads a fixed trailing window of event time (`GROUPED_WINDOW_DAYS`) and ignores `last_synced_at`.
+  That value is the start time of the previous sync job, so a cursor on it would skip rows that a page-capped sync left for the next sync and rows the source indexed late.
+  The window makes re-reading safe because the ledger and the weekly fingerprint deduplicate groups.
+  The grouped fetcher does not read `first_sync_lookback_days`, so leave it at the model default of 7.
+  It aggregates the window once, reads up to `GROUP_SCAN_LIMIT` groups from the noisiest down, drops the groups already in `SignalEmissionRecord`, and keeps the first `max_records` new groups, so set `record_processed_outputs=True` on the config.
+  Its query runs as the signals ClickHouse user on the offline workload, like the generic fetcher.
+  Hash the group key into `source_id` and keep the weight below 1.0, so one group cannot open a report on its own.
+  Add `week_period(last_seen)` to the hashed key so a group that stays noisy, or returns after a fix, can emit at most once per ISO week, and again across a week boundary.
+  The fetcher rejects `scope_field`, because a group has no single scope value.
+  The generic fetcher takes an optional `order_by` on the config, so the `max_records` limit keeps the most important records.
 - **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
   Records emission in `SignalEmissionRecord` optimistically at fetch time.
 
@@ -65,6 +97,10 @@ Users enable sources via the Inbox Sources modal.
    write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient), define a `record_fetcher` (use `data_warehouse_record_fetcher` for warehouse sources, or write a new fetcher for other sources), optionally define an LLM actionability prompt and/or a summarization prompt with threshold, and export the final config as a module-level constant.
    **Avoid querying PII fields** (user IDs, email addresses, names, organization IDs, etc.) unless they are strictly required to locate the entity in the source system later.
    Prefer opaque record IDs and URLs over fields that identify people or organizations.
+   The deliberate exception is the author of a record: `github_issues.py` carries `author_login` and `author_association`, because who filed a report is what separates a maintainer's bug report from a drive-by one on a public repo, and triage can't weigh the two without it.
+   Reach for the same pair on other issue-tracker sources, and keep it to the handle and the relationship — not emails, real names, or the rest of the nested user object.
+   A source that SELECTs a column carrying more identity than it keeps declares that column in `unloggable_fields`, which strips it from the record this pipeline logs when an emitter raises.
+   Identity keys are also excluded from lifecycle telemetry by `_TELEMETRY_EXCLUDED_EXTRA_KEYS` in `facade/api.py`, which otherwise copies every top-level scalar on `extra` into the emission events.
 2. **Register in `registry.py`** — import the config and add it inside `_register_all_emitters()`.
    For external sources, use the `ExternalDataSourceType` value as the source type.
    For internal sources, use a descriptive string identifier.
@@ -92,6 +128,9 @@ DEBUG=1 ./manage.py emit_signals_from_fixture --type zendesk --team-id 1 --fixtu
 `--type` accepts `zendesk`, `github`, `linear`, or `conversations`
 and maps to the matching auto-registered config in `registry.py`.
 The command requires `DEBUG=True` and is intended for local iteration only.
+
+Fixture runs (and `emit_signals_from_llm`) read the team's `SignalSourceConfig.config` steering keys exactly like production, so a team with `steering` or `default_not_actionable` set can filter records a plain run would keep.
+For an unsteered baseline, clear those keys on the source's config row first.
 
 ## Maintaining this file
 

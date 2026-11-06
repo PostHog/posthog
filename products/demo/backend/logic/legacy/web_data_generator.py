@@ -1,6 +1,7 @@
 import json
 import random
 from datetime import timedelta
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -8,15 +9,16 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Person, PropertyDefinition
-from posthog.models.filters.mixins.utils import cached_property
+from posthog.schema import ActionsNode, FunnelsQuery, InsightVizNode
+
+from posthog.models import Person
 from posthog.models.utils import UUIDT
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.event_definitions.backend.models import PropertyDefinition
+from products.product_analytics.backend.facade.models import Insight
 
 from .data_generator import DataGenerator
 
@@ -35,7 +37,7 @@ class WebDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="$browser")
 
     def create_actions_dashboards(self):
-        homepage = Action.objects.create(
+        homepage = create_action(
             team=self.team,
             name="Hogflix homepage view",
             steps_json=[
@@ -47,7 +49,7 @@ class WebDataGenerator(DataGenerator):
             ],
         )
 
-        user_signed_up = Action.objects.create(
+        user_signed_up = create_action(
             team=self.team,
             name="Hogflix signed up",
             steps_json=[
@@ -60,7 +62,7 @@ class WebDataGenerator(DataGenerator):
             ],
         )
 
-        user_paid = Action.objects.create(
+        user_paid = create_action(
             team=self.team,
             name="Hogflix paid",
             steps_json=[
@@ -78,29 +80,15 @@ class WebDataGenerator(DataGenerator):
             team=self.team,
             name="Hogflix signup -> watching movie",
             description="Shows a conversion funnel from sign up to watching a movie.",
-            filters={
-                "actions": [
-                    {
-                        "id": homepage.id,
-                        "name": "Hogflix homepage view",
-                        "order": 0,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                    {
-                        "id": user_signed_up.id,
-                        "name": "Hogflix signed up",
-                        "order": 1,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                    {
-                        "id": user_paid.id,
-                        "name": "Hogflix paid",
-                        "order": 2,
-                        "type": TREND_FILTER_TYPE_ACTIONS,
-                    },
-                ],
-                "insight": "FUNNELS",
-            },
+            query=InsightVizNode(
+                source=FunnelsQuery(
+                    series=[
+                        ActionsNode(id=homepage.id, name="Hogflix homepage view"),
+                        ActionsNode(id=user_signed_up.id, name="Hogflix signed up"),
+                        ActionsNode(id=user_paid.id, name="Hogflix paid"),
+                    ],
+                )
+            ).model_dump(),
         )
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         dashboard.save()  # to update the insight's filter hash

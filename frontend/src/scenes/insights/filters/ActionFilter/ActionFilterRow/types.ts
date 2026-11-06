@@ -7,16 +7,10 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import {
-    ActionFilter as ActionFilterType,
-    ChartDisplayCategory,
-    FunnelExclusionLegacy,
-    InsightType,
-    PropertyOperator,
-} from '~/types'
+import { ChartDisplayCategory, InsightType, PropertyOperator } from '~/types'
 
-import { LocalFilter } from '../entityFilterLogic'
 import type { entityFilterLogicType } from '../entityFilterLogic'
+import { SeriesNode, WarehouseSeriesNodeKind } from '../seriesNode'
 
 export enum MathAvailability {
     All,
@@ -29,7 +23,9 @@ export enum MathAvailability {
 
 export interface ActionFilterRowProps {
     logic: BuiltLogic<entityFilterLogicType>
-    filter: LocalFilter
+    node: SeriesNode
+    /** Sidecar row identity, for the drag key. Nodes stay schema-pure so they carry none. */
+    uuid: string
     index: number
     typeKey: string
     mathAvailability: MathAvailability
@@ -40,6 +36,9 @@ export interface ActionFilterRowProps {
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     showCombine?: boolean // Show the combine inline events option
     insightType?: InsightType // The type of insight (trends, funnels, etc.)
+    // Opt in the flag-gated "Performed event" behavioral filter. Off by default because behavioral
+    // filters compile to a person_id subquery, which realtime contexts (CDP, workflows) reject.
+    allowBehavioralPropertyFilter?: boolean
     propertyFiltersPopover?: boolean
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
@@ -49,11 +48,7 @@ export interface ActionFilterRowProps {
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((props: {
-              filter: ActionFilterType | FunnelExclusionLegacy
-              index: number
-              onClose: () => void
-          }) => JSX.Element) // Custom suffix element to show in each row
+        | ((props: { node: SeriesNode; index: number; onClose: () => void }) => JSX.Element) // Custom suffix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
@@ -75,6 +70,8 @@ export interface ActionFilterRowProps {
     allowedMathTypes?: readonly string[]
     /** Fields to display in the data warehouse filter popover */
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    /** Node kind to create when a data warehouse table is picked */
+    dataWarehouseNodeKind?: WarehouseSeriesNodeKind
     /** Whether to add left padding to the filters div to align with suffix content */
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */
@@ -83,6 +80,7 @@ export interface ActionFilterRowProps {
     inlineEventsDocLink?: string
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
+    flagCallsFromFlagEvaluations?: boolean
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
@@ -101,6 +99,7 @@ export interface MathSelectorProps {
     size?: LemonButtonProps['size']
     /** Only allow these math types in the selector */
     allowedMathTypes?: readonly string[]
+    excludedMathTypes?: ReadonlySet<string>
     query?: Record<string, any>
     fullWidth?: boolean
     truncateText?: { maxWidthClass: string }

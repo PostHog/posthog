@@ -1,7 +1,33 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Groups',
+    activityDescribers: {
+        [ActivityScope.GROUP]: () =>
+            import('./frontend/activityDescriptions').then((module) => module.groupActivityDescriber),
+    },
+    scenes: {
+        Group: {
+            name: 'People & groups',
+            import: () => import('./frontend/pages/Group'),
+            projectBased: true,
+        },
+        Groups: {
+            name: 'Groups',
+            import: () => import('./frontend/pages/Groups'),
+            projectBased: true,
+        },
+        GroupsNew: {
+            import: () => import('./frontend/pages/GroupsNew'),
+            projectBased: true,
+        },
+    },
+    routes: {
+        '/groups/:groupTypeIndex': ['Groups', 'groups'],
+        '/groups/:groupTypeIndex/new': ['GroupsNew', 'groupsNew'],
+        '/groups/:groupTypeIndex/:groupKey': ['Group', 'group'],
+        '/groups/:groupTypeIndex/:groupKey/:groupTab': ['Group', 'groupWithTab'],
+    },
     urls: {
         groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
         groupsNew: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}/new`,

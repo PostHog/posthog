@@ -54,8 +54,13 @@ describe('useChartMargins', () => {
         expect(render({ xAxisLabel: '   ' }).bottom).toBe(DEFAULT_MARGINS.bottom)
     })
 
-    it('collapses left margin when hideYAxis is true', () => {
-        expect(render({ hideYAxis: true }).left).toBe(8)
+    it('collapses the left margin when hideYAxis is true, floored on the first x label half-width', () => {
+        // Widest label "Mon" measures 30px mocked → half 15 + 4 edge padding = 19.
+        expect(render({ hideYAxis: true }).left).toBe(19)
+    })
+
+    it('fully collapses the left margin when both axes are hidden', () => {
+        expect(render({ hideYAxis: true, hideXAxis: true }).left).toBe(8)
     })
 
     it('left margin is at least 20 when y-axis is shown', () => {
@@ -127,6 +132,13 @@ describe('useChartMargins', () => {
         const big: Series[] = [{ key: 'a', label: 'A', data: [1_000_000_000, 2_000_000_000] }]
         const small: Series[] = [{ key: 'a', label: 'A', data: [1, 2] }]
         expect(render({ series: big }).left).toBeGreaterThan(render({ series: small }).left)
+    })
+
+    it('sizes percent-layout y-ticks from the [0, 1] domain, not the raw values', () => {
+        const big: Series[] = [{ key: 'a', label: 'A', data: [50_000, 80_000] }]
+        const percentFormatter = (v: number): string => `${Math.round(v * 100)}%`
+        const percent = render({ series: big, yTickFormatter: percentFormatter, isPercent: true })
+        expect(percent.left).toBe(render({ series: [], yTickFormatter: percentFormatter }).left)
     })
 
     it('moves rotated category-label space from the horizontal margins to the bottom margin', () => {

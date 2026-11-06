@@ -8,6 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type } from '~/types'
 
@@ -20,8 +21,6 @@ const FILL_CLASS: Record<InboxUsageStatus, string> = {
     warning: 'bg-warning',
     limit: 'bg-danger',
 }
-
-const CARD_CLASS = 'flex flex-col gap-2 rounded border border-primary bg-surface-primary px-2.5 py-2'
 
 /** A single status-coloured fill over a neutral track. Width is runtime-derived, hence inline. */
 function UsageBar({ percentage, status }: { percentage: number; status: InboxUsageStatus }): JSX.Element {
@@ -38,7 +37,7 @@ function UsageBar({ percentage, status }: { percentage: number; status: InboxUsa
 
 function UsageCardSkeleton(): JSX.Element {
     return (
-        <div className={CARD_CLASS}>
+        <div className="flex flex-col gap-2">
             <LemonSkeleton className="h-3 w-24" />
             <LemonSkeleton className="h-2 w-full" />
             <div className="flex items-center justify-between">
@@ -132,18 +131,25 @@ function EditLimitModal(): JSX.Element {
 
 /**
  * Compact PR-usage meter for the inbox agents rail: a status-coloured usage bar with USD spent so far
- * alongside it, then `X / Y PRs created` on the left and `Resets <date>` on the right. On a paid plan
- * the limit is editable (and the edit affordance escalates to "Increase limit" at the cap); on the
+ * alongside it, then `X / Y PRs used across your organization` on the left and `Resets <date>` on
+ * the right. That count is org-wide, uncapped, and net of refunds, on the same basis as the quota
+ * check. When refunds exist, a line under it names the gross count the billing page shows. On a paid
+ * plan the limit is editable (and the edit affordance escalates to "Increase limit" at the cap); on the
  * free plan it shows an in-place upgrade instead. Renders nothing until billing has loaded and the
- * inbox product is present.
+ * inbox product is present. Deliberately billing-only: the team's daily report cap lives with the
+ * autonomy throttles in SelfDrivingSection, so a self-imposed cap never reads as a plan limit.
  */
 export function InboxUsageWidget(): JSX.Element | null {
     const {
         product,
+        spendProduct,
+        spendAmountUsd,
         isLoading,
         isSubscribed,
         canAccessBilling,
-        usedPrsDisplay,
+        createdPrs,
+        usedPrs,
+        refundedPrs,
         limitPrs,
         freePrs,
         status,
@@ -161,6 +167,30 @@ export function InboxUsageWidget(): JSX.Element | null {
     if (isLoading) {
         return <UsageCardSkeleton />
     }
+    if (spendProduct) {
+        return (
+            <div className="flex flex-col gap-2">
+                <span className="text-[13px] font-semibold">Inbox spend</span>
+                {spendAmountUsd != null && (
+                    <span className="text-xs tabular-nums">{currencyFormatter(spendAmountUsd)}</span>
+                )}
+                {quotaLimited && (
+                    <>
+                        <LemonTag type="warning">Spending limit reached</LemonTag>
+                        <span className="text-xs text-secondary">
+                            New work is paused. Work already underway will finish.
+                            {!canAccessBilling && ' Ask an organization admin to change the limit.'}
+                        </span>
+                    </>
+                )}
+                {canAccessBilling && (
+                    <LemonButton size="small" type="secondary" to={urls.organizationBilling()}>
+                        View usage and limits
+                    </LemonButton>
+                )}
+            </div>
+        )
+    }
     if (!product) {
         return null
     }
@@ -168,7 +198,7 @@ export function InboxUsageWidget(): JSX.Element | null {
     // Only org admins/owners can change billing (canAccessBilling) — others get a read-only view with a hint.
     return (
         <>
-            <div className={CARD_CLASS}>
+            <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-1.5">
                     <span className="text-[13px] font-semibold text-default">Pull requests</span>
                     {!isSubscribed ? (
@@ -197,21 +227,28 @@ export function InboxUsageWidget(): JSX.Element | null {
                         </span>
                     )}
                 </div>
-                <div className="flex items-center justify-between gap-2 text-xs">
-                    <Tooltip title="PRs opened by agents across your whole organization this billing period">
-                        {/* tabIndex so keyboard users can focus the count and get the org-wide scope */}
+                {/* Wraps rather than clips: the scope wording makes this row too wide for a narrow rail. */}
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs">
+                    <Tooltip title="PRs agents opened across your organization this billing period, minus refunded PRs. This is the count that goes toward your limit. It can run past the limit before agents pause.">
+                        {/* tabIndex so keyboard users can reach the tooltip */}
                         <span className="text-secondary tabular-nums" tabIndex={0}>
-                            <span className="font-medium text-default">{usedPrsDisplay}</span>
-                            {limitPrs != null ? ` / ${limitPrs}` : ''} PRs created
+                            <span className="font-medium text-default">{usedPrs}</span>
+                            {limitPrs != null ? ` / ${limitPrs}` : ''} PRs used across your organization
                         </span>
                     </Tooltip>
                     {resetDate && (
                         <span className="text-tertiary tabular-nums">Resets {resetDate.format('MMM D')}</span>
                     )}
                 </div>
+                {/* Your billing page counts every created PR, so this line explains why it shows more. */}
+                {refundedPrs > 0 && (
+                    <span className="text-xs text-tertiary tabular-nums">
+                        {createdPrs} created, {refundedPrs} refunded. Refunded PRs don't count toward your limit.
+                    </span>
+                )}
                 {quotaLimited && (
                     <span className="text-xs font-medium text-danger">
-                        Agents are paused and won't open new pull requests until the limit is raised or usage resets.
+                        New work is paused until the limit is raised or usage resets. Work already underway will finish.
                     </span>
                 )}
                 {canAccessBilling ? (

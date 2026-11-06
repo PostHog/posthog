@@ -1,16 +1,16 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import { Link } from 'lib/lemon-ui/Link'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { EntityFilter } from '~/types'
 
 const nameOrId = (name?: string | null, id?: string | null): string => {
     if (name) {
@@ -25,13 +25,13 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
     }
 
     const objectType = context.related_object_type
-    const objectTypeDisplayName = objectType.replace(/_/g, ' ')
+    const objectTypeDisplayName = objectType === 'hog_flow' ? 'workflow' : objectType.replace(/_/g, ' ')
     const objectId = context.related_object_id
     let objectName = context.related_object_name || `${objectType} ${objectId}`
 
     const getDisplayName = (): string => {
         if (objectType === 'event_definition') {
-            return getDisplayNameFromEntityFilter({ name: objectName } as EntityFilter, false) || objectName
+            return getDisplayNameFromEntityFilter({ name: objectName }, false) || objectName
         }
         if (objectType === 'property_definition') {
             return getFilterLabel(objectName, TaxonomicFilterGroupType.EventProperties)
@@ -85,6 +85,12 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
                         <strong>{displayName}</strong>
                     </Link>
                 )
+            case 'hog_flow':
+                return (
+                    <Link to={urls.workflow(objectId, 'workflow')}>
+                        <strong>{displayName}</strong>
+                    </Link>
+                )
             default:
                 return <strong>{displayName}</strong>
         }
@@ -105,9 +111,10 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the tag', nameOrId(logItem?.detail?.name, logItem?.item_id)),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the tag{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -116,9 +123,10 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the tag', nameOrId(logItem?.detail?.name, logItem?.item_id)),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the tag{' '}
+                    <ActivityLogUserName logItem={logItem} /> deleted the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -127,9 +135,10 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'updated') {
         return {
+            summary: activityLogSummary(logItem, 'Updated the tag', nameOrId(logItem?.detail?.name, logItem?.item_id)),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the tag{' '}
+                    <ActivityLogUserName logItem={logItem} /> updated the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -147,10 +156,17 @@ function taggedItemActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Added tag <strong>{tagName}</strong>
+                </>,
+                relatedObjectDesc
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> tagged {relatedObjectDesc}{' '}
-                    with tag <strong>{tagName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> tagged {relatedObjectDesc} with tag{' '}
+                    <strong>{tagName}</strong>
                 </>
             ),
         }
@@ -158,10 +174,17 @@ function taggedItemActivityDescriber(logItem: ActivityLogItem, asNotification?: 
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Removed tag <strong>{tagName}</strong>
+                </>,
+                relatedObjectDesc
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> removed tag{' '}
-                    <strong>{tagName}</strong> {relatedObjectDescFrom}
+                    <ActivityLogUserName logItem={logItem} /> removed tag <strong>{tagName}</strong>{' '}
+                    {relatedObjectDescFrom}
                 </>
             ),
         }

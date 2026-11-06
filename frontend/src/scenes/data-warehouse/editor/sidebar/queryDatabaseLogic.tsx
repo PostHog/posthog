@@ -4,30 +4,39 @@ import { subscriptions } from 'kea-subscriptions'
 
 import {
     IconBolt,
+    IconBrackets,
     IconDatabase,
     IconDocument,
     IconEndpoints,
-    IconFolder,
+    IconGraph,
     IconPlug,
     IconPlus,
     IconRefresh,
     IconWarning,
 } from '@posthog/icons'
-import { LemonMenuItem } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonMenuItem, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError, isAccessDeniedError, readableErrorMessage } from 'lib/api-error'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
+import { escapeDottedHogQLIdentifier, escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    TableFieldsStatus,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { propertyDefinitionsList } from '~/generated/core/api'
+import type { EnterprisePropertyDefinitionApi } from '~/generated/core/api.schemas'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
@@ -36,25 +45,84 @@ import {
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
 import {
-    DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
     DataWarehouseViewLink,
     QueryTabState,
 } from '~/types'
 
+import { HOGQL_METRIC_DEFINITION_KIND } from 'products/data_catalog/frontend/common'
+import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
-import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
-import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import {
+    TABLE_CATEGORY_LIMIT,
+    groupDirectConnectionTableNodesBySchema,
+    limitTableTreeCategories,
+} from 'products/data_warehouse/frontend/shared/connectionTableTree'
+import {
+    createVirtualTableField,
+    resolveFieldTraverserTarget,
+} from 'products/data_warehouse/frontend/shared/fieldTraversal'
+import {
+    clearMaterializationStatusSearchTokens,
+    databaseSearchNeedsFieldHydration,
+    filterMaterializedViewsByStatus,
+    MaterializationStatusFilter,
+    parseDatabaseSearch,
+    toggleMaterializationStatusSearchToken,
+} from 'products/data_warehouse/frontend/shared/filterMaterializedViewsByStatus'
+import {
+    connectionSelectorLogic,
+    POSTHOG_WAREHOUSE,
+} from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
+import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
+import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
+import {
+    getSidebarPropertyDefinitionTarget,
+    SidebarPropertyDefinitionTarget,
+} from 'products/data_warehouse/frontend/shared/propertyDefinitionTarget'
+import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import type { PaginatedResponse } from '../../../../lib/api'
 import type { DatabaseSchemaViewTable } from '../../../../queries/schema/schema-general'
-import type { ExternalDataSource, UserType } from '../../../../types'
-import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
-import { viewLinkLogic } from '../../viewLinkLogic'
+import type { UserType } from '../../../../types'
+import {
+    DataWarehouseSavedQueryDownstreamReferenceState,
+    DataWarehouseSavedQuerySummary,
+    dataWarehouseViewsLogic,
+    renameDataWarehouseSavedQuery,
+} from '../../saved_queries/dataWarehouseViewsLogic'
+import { validateSavedQueryName } from '../../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from '../draftsLogic'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
+
+export interface RenameViewState {
+    id: string
+    originalName: string
+    name: string
+    nameError?: string
+    submitError?: string
+    isSaving: boolean
+}
+
+function getRenameViewNameError(error: unknown): string | undefined {
+    if (!(error instanceof ApiError)) {
+        return undefined
+    }
+
+    const fieldErrors: unknown[] = Array.isArray(error.data?.errors) ? error.data.errors : []
+    const nameError = fieldErrors.find(
+        (fieldError): fieldError is { attr: string; detail: string } =>
+            typeof fieldError === 'object' &&
+            fieldError !== null &&
+            'attr' in fieldError &&
+            fieldError.attr === 'name' &&
+            'detail' in fieldError &&
+            typeof fieldError.detail === 'string'
+    )
+    return nameError?.detail ?? (error.attr === 'name' && error.detail ? error.detail : undefined)
+}
 
 export interface FuseSearchMatch {
     // kea-typegen has a problem importing Fuse itself, so we have to duplicate this type
@@ -67,32 +135,32 @@ const isLazyNodeId = (id: string): boolean => {
 }
 
 const isDataWarehouseTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
+    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary
 ): table is DatabaseSchemaDataWarehouseTable => {
     return 'type' in table && table.type === 'data_warehouse'
 }
 
 const isPostHogTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
+    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary
 ): table is DatabaseSchemaTable => {
     return 'type' in table && table.type === 'posthog'
 }
 
 const isSystemTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
+    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary
 ): table is DatabaseSchemaTable => {
     return 'type' in table && table.type === 'system'
 }
 
 const isViewTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
-): table is DataWarehouseSavedQuery => {
-    // Use status as it's unique to DataWarehouseSavedQuery and always included in API responses
+    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary
+): table is DataWarehouseSavedQuerySummary => {
+    // Use status as it's unique to DataWarehouseSavedQuerySummary and always included in API responses
     return 'status' in table
 }
 
 const isManagedViewTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
+    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary
 ): table is DatabaseSchemaManagedViewTable => {
     return 'type' in table && table.type === 'managed_view'
 }
@@ -102,7 +170,7 @@ export const isJoined = (field: DatabaseSchemaField): boolean => {
 }
 
 const getSavedQuerySchemaTable = (
-    view: DataWarehouseSavedQuery,
+    view: DataWarehouseSavedQuerySummary,
     allTablesMap: Record<string, DatabaseSchemaTable>
 ): DatabaseSchemaTable | undefined => {
     const lookupKey = normalizeTableLookupKey(view.name)
@@ -128,7 +196,7 @@ const FUSE_OPTIONS: IFuseOptions<any> = {
 const posthogTablesFuse = createFuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const systemTablesFuse = createFuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const dataWarehouseTablesFuse = createFuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
-const savedQueriesFuse = createFuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
+const savedQueriesFuse = createFuse<DataWarehouseSavedQuerySummary>([], FUSE_OPTIONS)
 const savedQueryFoldersFuse = createFuse<DataWarehouseSavedQueryFolder>([], FUSE_OPTIONS)
 const managedViewsFuse = createFuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
 const draftsFuse = createFuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
@@ -145,15 +213,65 @@ const MAX_FIELD_TRAVERSAL_DEPTH = 10
 
 type FieldTraversalOptions = {
     expandedLazyNodeIds?: Set<string>
+    propertyDefinitionLists?: Record<string, SidebarPropertyDefinitionList>
+    loadPropertyDefinitions?: (
+        propertyFieldKey: string,
+        target: SidebarPropertyDefinitionTarget,
+        offset: number
+    ) => void
+    allowPropertyDefinitionExpansion?: boolean
     visitedColumnPaths?: Set<string>
     depth?: number
+    hydration?: TableFieldsHydration
 }
+
+// With a shallow (lazy) schema load, tables arrive without fields; this tracks which tables'
+// fields the store actually holds so the tree can show spinners and request the missing ones.
+type TableFieldsHydration = {
+    databaseFieldsComplete: boolean
+    tableFieldsStatus: TableFieldsStatus
+}
+
+type TableFieldsState = 'ready' | 'pending' | 'error'
+
+const getTableFieldsState = (
+    tableName: string,
+    fields: Record<string, DatabaseSchemaField> | undefined,
+    hydration?: TableFieldsHydration
+): TableFieldsState => {
+    const status = hydration?.tableFieldsStatus[tableName]
+    if (status === 'error') {
+        return 'error'
+    }
+    if (!hydration || hydration.databaseFieldsComplete) {
+        return 'ready'
+    }
+    if (fields && Object.keys(fields).length > 0) {
+        return 'ready'
+    }
+    if (status === 'loaded') {
+        // Hydrated and the table genuinely has no fields.
+        return 'ready'
+    }
+    return 'pending'
+}
+
+export type SidebarPropertyDefinitionList = {
+    activeRequestId: string | null
+    count: number
+    definitions: EnterprisePropertyDefinitionApi[]
+    error: boolean
+    loading: boolean
+    search: string
+}
+
+const PROPERTY_DEFINITIONS_PAGE_SIZE = 25
 
 export type SearchTreeSourceContext = {
     allPosthogTables: DatabaseSchemaTable[]
     systemTables: DatabaseSchemaTable[]
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
-    dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+    dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
     managedViews: DatabaseSchemaManagedViewTable[]
     allTablesMap: Record<string, DatabaseSchemaTable>
@@ -163,11 +281,12 @@ export type SearchTreeMatches = {
     relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
     relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
     relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]
-    relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][]
+    relevantSavedQueries: [DataWarehouseSavedQuerySummary, FuseSearchMatch[] | null][]
     relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][]
     relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][]
     relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][]
     relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+    relevantMetrics: [DataCatalogMetricApi, FuseSearchMatch[] | null][]
 }
 
 export type TreeDataContext = {
@@ -175,10 +294,11 @@ export type TreeDataContext = {
     posthogTables: DatabaseSchemaTable[]
     systemTables: DatabaseSchemaTable[]
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
-    dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+    dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
     managedViews: DatabaseSchemaManagedViewTable[]
     latestEndpointTables: DatabaseSchemaEndpointTable[]
+    hogqlMetrics: DataCatalogMetricApi[]
     allTablesMap: Record<string, DatabaseSchemaTable>
 }
 
@@ -191,6 +311,44 @@ const normalizeTableLookupKey = (tableName?: string | null): string | null => {
     }
 
     return tableName.replaceAll('`', '')
+}
+
+const findTreeItemById = (nodes: TreeDataItem[], id: string): TreeDataItem | null => {
+    for (const node of nodes) {
+        if (node.id === id) {
+            return node
+        }
+        if (node.children) {
+            const found = findTreeItemById(node.children, id)
+            if (found) {
+                return found
+            }
+        }
+    }
+    return null
+}
+
+// Which table's fields a tree node needs once expanded: the table itself, or for join/traverser
+// nodes the joined table on the other side.
+const getHydrationTableNamesForNode = (node: TreeDataItem): string[] => {
+    const record = node.record as Record<string, any> | undefined
+    if (!record) {
+        return []
+    }
+    if ((record.type === 'table' || record.type === 'endpoint') && record.table?.name) {
+        return [record.table.type === 'posthog' ? record.table.id : record.table.name]
+    }
+    if (
+        (record.type === 'lazy-table' || record.type === 'view-table' || record.type === 'field-traverser') &&
+        record.referencedTable
+    ) {
+        const name = normalizeTableLookupKey(record.referencedTable)
+        return name ? [name] : []
+    }
+    if ((record.type === 'view' || record.type === 'managed-view') && record.view?.name) {
+        return [record.view.name]
+    }
+    return []
 }
 
 const getPrimaryKeyName = (tableName: string, fields: DatabaseSchemaField[]): string | null => {
@@ -242,7 +400,8 @@ const createColumnNode = (
     tableName: string,
     field: DatabaseSchemaField,
     columnPath: string,
-    isSearch = false
+    isSearch = false,
+    hogqlExpression?: string
 ): TreeDataItem => ({
     id: `${isSearch ? 'search-' : ''}col-${tableName}-${columnPath}`,
     name: field.name,
@@ -251,111 +410,164 @@ const createColumnNode = (
         type: 'column',
         columnName: columnPath,
         field,
+        hogqlExpression,
         table: tableName,
     },
 })
 
-const createVirtualTableField = (
-    fieldName: string,
-    parentField: DatabaseSchemaField,
-    tableLookup?: TableLookup
-): DatabaseSchemaField => {
-    const referencedTable = parentField.table ? tableLookup?.[parentField.table] : undefined
-    const referencedField = referencedTable?.fields?.[fieldName]
-
-    if (referencedField) {
-        return referencedField
-    }
-
-    return {
-        name: fieldName,
-        hogql_value: fieldName,
-        type: 'unknown',
-        schema_valid: true,
+const getPropertyDefinitionFieldType = (
+    propertyDefinition: EnterprisePropertyDefinitionApi
+): DatabaseSchemaField['type'] => {
+    switch (propertyDefinition.property_type) {
+        case 'Boolean':
+            return 'boolean'
+        case 'DateTime':
+            return 'datetime'
+        case 'Duration':
+        case 'Numeric':
+            return 'float'
+        default:
+            return 'string'
     }
 }
 
-const formatTraversalChain = (chain?: (string | number)[]): string | null => {
-    if (!chain || chain.length === 0) {
-        return null
+const createPropertyDefinitionChildren = (
+    tableName: string,
+    columnPath: string,
+    isSearch: boolean,
+    propertyFieldKey: string,
+    target: SidebarPropertyDefinitionTarget,
+    propertyDefinitionList: SidebarPropertyDefinitionList | undefined,
+    loadPropertyDefinitions: FieldTraversalOptions['loadPropertyDefinitions']
+): TreeDataItem[] => {
+    if (!propertyDefinitionList) {
+        return [
+            {
+                id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-placeholder/`,
+                name: 'Loading...',
+                displayName: <>Loading...</>,
+                icon: <Spinner />,
+                disableSelect: true,
+                type: 'loading-indicator',
+            },
+        ]
     }
 
-    return chain.map((segment) => String(segment)).join('.')
+    const propertyNodes: TreeDataItem[] = propertyDefinitionList.definitions.map((propertyDefinition) => {
+        const propertyPath = `${columnPath}.${propertyDefinition.name}`
+        const hogqlExpression = `${escapeDottedHogQLIdentifier(columnPath)}.${escapeRawPropertyAsHogQLIdentifier(
+            propertyDefinition.name
+        )}`
+
+        const propertyNode = createColumnNode(
+            tableName,
+            {
+                id: propertyDefinition.id,
+                name: propertyDefinition.name,
+                hogql_value: propertyDefinition.name,
+                type: getPropertyDefinitionFieldType(propertyDefinition),
+                schema_valid: true,
+            },
+            propertyPath,
+            isSearch,
+            hogqlExpression
+        )
+
+        return {
+            ...propertyNode,
+            record: {
+                ...propertyNode.record,
+                propertyDefinition,
+            },
+        }
+    })
+
+    if (propertyDefinitionList.loading) {
+        propertyNodes.push({
+            id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-loading/`,
+            name: 'Loading...',
+            displayName: <>Loading...</>,
+            icon: <Spinner />,
+            disableSelect: true,
+            type: 'loading-indicator',
+        })
+    } else if (propertyDefinitionList.error) {
+        propertyNodes.push(
+            {
+                id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-error/`,
+                name: "Couldn't load properties",
+                displayName: <span className="text-danger">Couldn't load properties</span>,
+                icon: <IconWarning className="text-danger" />,
+                disableSelect: true,
+                type: 'node',
+                record: { type: 'property-definitions-error' },
+            },
+            {
+                id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-retry/`,
+                name: 'Try again',
+                displayName: <>Try again</>,
+                icon: <IconRefresh />,
+                onClick: () => loadPropertyDefinitions?.(propertyFieldKey, target, 0),
+                record: { type: 'property-definitions-retry' },
+            }
+        )
+    } else if (propertyDefinitionList.definitions.length < propertyDefinitionList.count) {
+        propertyNodes.push({
+            id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-load-more/`,
+            name: 'Load more',
+            displayName: <>Load more</>,
+            icon: <IconPlus />,
+            onClick: () =>
+                loadPropertyDefinitions?.(propertyFieldKey, target, propertyDefinitionList.definitions.length),
+            record: { type: 'property-definitions-load-more' },
+        })
+    } else if (propertyNodes.length === 0) {
+        propertyNodes.push({
+            id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-empty/`,
+            name: propertyDefinitionList.search ? 'No matching properties' : 'No properties found',
+            type: 'empty-folder',
+            record: { type: 'empty-folder' },
+        })
+    }
+
+    return propertyNodes
 }
 
-const resolveFieldTraverserTarget = (
+const createPropertyDefinitionFieldNode = (
     tableName: string,
     field: DatabaseSchemaField,
-    tableLookup?: TableLookup,
-    visitedChains: Set<string> = new Set()
-): DatabaseSchemaField | null => {
-    if (!field.chain || !tableLookup) {
-        return null
+    isSearch: boolean,
+    columnPath: string,
+    target: SidebarPropertyDefinitionTarget,
+    options: FieldTraversalOptions
+): TreeDataItem => {
+    const propertyFieldKey = `${tableName}:${columnPath}`
+    const propertyDefinitionList = options.propertyDefinitionLists?.[propertyFieldKey]
+
+    return {
+        id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}`,
+        name: field.name,
+        type: 'node',
+        icon: <IconBrackets />,
+        record: {
+            type: 'property-field',
+            columnName: columnPath,
+            field,
+            propertyDefinitionKey: propertyFieldKey,
+            propertyDefinitionSearch: propertyDefinitionList?.search ?? '',
+            propertyDefinitionTarget: target,
+            table: tableName,
+        },
+        children: createPropertyDefinitionChildren(
+            tableName,
+            columnPath,
+            isSearch,
+            propertyFieldKey,
+            target,
+            propertyDefinitionList,
+            options.loadPropertyDefinitions
+        ),
     }
-
-    const baseTable = tableLookup[tableName]
-    if (!baseTable) {
-        return null
-    }
-
-    let currentTable: TableLookupEntry | null = baseTable
-    let currentField: DatabaseSchemaField | null = null
-    let index = 0
-
-    while (index < field.chain.length) {
-        const segment: string | number = field.chain[index]
-        const segmentKey = String(segment)
-
-        if (segmentKey === '..') {
-            return null
-        }
-
-        if (!currentField) {
-            const nextField: DatabaseSchemaField | undefined = currentTable?.fields?.[segmentKey]
-            if (!nextField) {
-                return null
-            }
-            currentField = nextField
-            index += 1
-            continue
-        }
-
-        if (currentField.type === 'lazy_table') {
-            currentTable = currentField.table ? (tableLookup[currentField.table] ?? null) : null
-            currentField = null
-            continue
-        }
-
-        if (currentField.type === 'virtual_table') {
-            if (!currentField.fields?.includes(segmentKey)) {
-                return null
-            }
-            currentField = createVirtualTableField(segmentKey, currentField, tableLookup)
-            index += 1
-            continue
-        }
-
-        if (currentField.type === 'field_traverser' && currentField.chain) {
-            const chainKey = formatTraversalChain(currentField.chain)
-            if (!chainKey || visitedChains.has(chainKey)) {
-                return null
-            }
-            visitedChains.add(chainKey)
-            currentField = resolveFieldTraverserTarget(tableName, currentField, tableLookup, visitedChains)
-            if (!currentField) {
-                return null
-            }
-            continue
-        }
-
-        return null
-    }
-
-    if (currentField?.type === 'field_traverser') {
-        return resolveFieldTraverserTarget(tableName, currentField, tableLookup, visitedChains) ?? currentField
-    }
-
-    return currentField
 }
 
 const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
@@ -369,12 +581,43 @@ const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
     }
 }
 
+// Placeholder shown while a table's fields are being lazy loaded. `pendingTableName` marks the
+// table to hydrate; the tree subscription collects these for every visible placeholder.
+const createPendingFieldsNode = (nodeId: string, pendingTableName: string): TreeDataItem => {
+    return {
+        id: `${nodeId}-fields-pending/`,
+        name: 'Loading...',
+        displayName: <>Loading...</>,
+        icon: <Spinner />,
+        disableSelect: true,
+        type: 'loading-indicator',
+        record: {
+            type: 'pending-fields',
+            pendingTableName,
+        },
+    }
+}
+
+const createFieldsErrorNode = (nodeId: string): TreeDataItem => {
+    return {
+        id: `${nodeId}-fields-error/`,
+        name: "Couldn't load columns",
+        displayName: <span className="text-danger">Couldn't load columns</span>,
+        icon: <IconWarning className="text-danger" />,
+        disableSelect: true,
+        type: 'node',
+        record: {
+            type: 'fields-load-error',
+        },
+    }
+}
+
 // A failed schema load must not look like an empty project: say it failed and offer the retry.
-const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataItem[] => [
+const createLoadErrorNodes = (prefix: string, message: string, onRetry: () => void): TreeDataItem[] => [
     {
         id: `${prefix}-error/`,
-        name: "Couldn't load your schema",
-        displayName: <span className="text-danger">Couldn't load your schema</span>,
+        name: message,
+        displayName: <span className="text-danger">{message}</span>,
         icon: <IconWarning className="text-danger" />,
         disableSelect: true,
         type: 'node',
@@ -393,6 +636,9 @@ const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataIt
         },
     },
 ]
+
+const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataItem[] =>
+    createLoadErrorNodes(prefix, "Couldn't load your schema", onRetry)
 
 const createDirectConnectionEmptyNodes = (connectionId: string): TreeDataItem[] => [
     {
@@ -502,7 +748,41 @@ const createLazyTableChildren = (
         )
 }
 
+// Children of an expanded lazy-join node. When the joined table exists but its fields haven't been
+// lazy loaded yet, show a hydration placeholder instead of a false "Empty folder".
+const createExpandedLazyTableChildren = (
+    lazyNodeId: string,
+    tableName: string,
+    field: DatabaseSchemaField,
+    isSearch: boolean,
+    columnPath: string,
+    tableLookup: TableLookup | undefined,
+    options: FieldTraversalOptions | undefined
+): TreeDataItem[] => {
+    const normalizedTableName = normalizeTableLookupKey(field.table)
+    const referencedTable = field.table
+        ? (tableLookup?.[field.table] ?? (normalizedTableName ? tableLookup?.[normalizedTableName] : undefined))
+        : undefined
+
+    if (referencedTable) {
+        const state = getTableFieldsState(referencedTable.name, referencedTable.fields, options?.hydration)
+        if (state === 'pending') {
+            return [createPendingFieldsNode(lazyNodeId, referencedTable.name)]
+        }
+        if (state === 'error') {
+            return [createFieldsErrorNode(lazyNodeId)]
+        }
+    }
+
+    const lazyChildren = createLazyTableChildren(tableName, field, isSearch, columnPath, tableLookup, {
+        ...options,
+        expandedLazyNodeIds: options?.expandedLazyNodeIds ?? new Set<string>(),
+    })
+    return lazyChildren.length > 0 ? lazyChildren : [createLazyTableEmptyNode(lazyNodeId)]
+}
+
 const createViewTableChildren = (
+    nodeId: string,
     tableName: string,
     field: DatabaseSchemaField,
     isSearch: boolean,
@@ -514,6 +794,16 @@ const createViewTableChildren = (
     const referencedTable = field.table
         ? (tableLookup?.[field.table] ?? (normalizedTableName ? tableLookup?.[normalizedTableName] : undefined))
         : undefined
+
+    if (referencedTable) {
+        const state = getTableFieldsState(referencedTable.name, referencedTable.fields, options?.hydration)
+        if (state === 'pending') {
+            return [createPendingFieldsNode(nodeId, referencedTable.name)]
+        }
+        if (state === 'error') {
+            return [createFieldsErrorNode(nodeId)]
+        }
+    }
 
     if (!referencedTable) {
         if (!field.fields) {
@@ -587,13 +877,16 @@ const createTraversedLazyTableNode = (
 ): TreeDataItem => {
     const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-traverser-${tableName}-${columnPath}`
     const isExpanded = options?.expandedLazyNodeIds?.has(lazyNodeId)
-    const lazyChildren = isExpanded
-        ? createLazyTableChildren(tableName, traversedField, isSearch, columnPath, tableLookup, options)
-        : []
     const children = isExpanded
-        ? lazyChildren.length > 0
-            ? lazyChildren
-            : [createLazyTableEmptyNode(lazyNodeId)]
+        ? createExpandedLazyTableChildren(
+              lazyNodeId,
+              tableName,
+              traversedField,
+              isSearch,
+              columnPath,
+              tableLookup,
+              options
+          )
         : [createLazyTablePlaceholderNode(lazyNodeId)]
 
     return {
@@ -676,9 +969,27 @@ const createFieldNode = (
     nextVisitedColumnPaths.add(columnKey)
     const nextOptions: FieldTraversalOptions = {
         expandedLazyNodeIds,
+        propertyDefinitionLists: options?.propertyDefinitionLists,
+        loadPropertyDefinitions: options?.loadPropertyDefinitions,
+        allowPropertyDefinitionExpansion: options?.allowPropertyDefinitionExpansion,
         visitedColumnPaths: nextVisitedColumnPaths,
         depth: depth + 1,
+        hydration: options?.hydration,
     }
+    const propertyDefinitionTarget = options?.allowPropertyDefinitionExpansion
+        ? getSidebarPropertyDefinitionTarget(tableName, columnPath, field)
+        : null
+    if (propertyDefinitionTarget) {
+        return createPropertyDefinitionFieldNode(
+            tableName,
+            field,
+            isSearch,
+            columnPath,
+            propertyDefinitionTarget,
+            nextOptions
+        )
+    }
+
     if (field.type === 'virtual_table') {
         const children =
             field.fields
@@ -742,10 +1053,19 @@ const createFieldNode = (
     }
 
     if (field.type === 'view' || field.type === 'materialized_view') {
-        const children = createViewTableChildren(tableName, field, isSearch, columnPath, tableLookup, nextOptions)
+        const nodeId = `${isSearch ? 'search-' : ''}view-table-${tableName}-${columnPath}`
+        const children = createViewTableChildren(
+            nodeId,
+            tableName,
+            field,
+            isSearch,
+            columnPath,
+            tableLookup,
+            nextOptions
+        )
 
         return {
-            id: `${isSearch ? 'search-' : ''}view-table-${tableName}-${columnPath}`,
+            id: nodeId,
             name: field.name,
             type: 'node',
             record: {
@@ -762,18 +1082,16 @@ const createFieldNode = (
     if (field.type === 'lazy_table') {
         const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-${tableName}-${columnPath}`
         const isExpanded = expandedLazyNodeIds ? expandedLazyNodeIds.has(lazyNodeId) : false
-        const lazyExpandedIds = expandedLazyNodeIds ?? new Set<string>()
-        const lazyChildren = isExpanded
-            ? createLazyTableChildren(tableName, field, isSearch, columnPath, tableLookup, {
-                  ...nextOptions,
-                  expandedLazyNodeIds: lazyExpandedIds,
-              })
-            : []
-
         const children = isExpanded
-            ? lazyChildren.length > 0
-                ? lazyChildren
-                : [createLazyTableEmptyNode(lazyNodeId)]
+            ? createExpandedLazyTableChildren(
+                  lazyNodeId,
+                  tableName,
+                  field,
+                  isSearch,
+                  columnPath,
+                  tableLookup,
+                  nextOptions
+              )
             : [createLazyTablePlaceholderNode(lazyNodeId)]
 
         return {
@@ -793,10 +1111,10 @@ const createFieldNode = (
     return createColumnNode(tableName, field, columnPath, isSearch)
 }
 
-const createSavedQueryLookupEntry = (view: DataWarehouseSavedQuery): TableLookupEntry => {
+const createSavedQueryLookupEntry = (view: DataWarehouseSavedQuerySummary): TableLookupEntry => {
     return {
         name: view.name,
-        fields: Object.fromEntries(view.columns.map((column) => [column.name, column])),
+        fields: {},
     }
 }
 
@@ -811,13 +1129,19 @@ const createTableLookup = ({
     posthogTables: DatabaseSchemaTable[]
     systemTables: DatabaseSchemaTable[]
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
-    dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+    dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
     managedViews: DatabaseSchemaManagedViewTable[]
     savedQuerySchemaTables?: Record<string, DatabaseSchemaTable>
 }): TableLookup => {
     return Object.fromEntries(
         [
-            ...posthogTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
+            ...posthogTables.flatMap((table) => {
+                const entry = { name: table.name, fields: table.fields }
+                return [
+                    [table.name, entry],
+                    [table.name.startsWith('posthog.') ? table.name : `posthog.${table.name}`, entry],
+                ]
+            }),
             ...systemTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
             ...dataWarehouseTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
             ...dataWarehouseSavedQueries.map((view) => {
@@ -839,25 +1163,35 @@ const createTableNode = (
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
     tableLookup?: TableLookup,
-    options?: {
-        expandedLazyNodeIds?: Set<string>
-    }
+    options?: FieldTraversalOptions
 ): TreeDataItem => {
+    const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
     const tableChildren: TreeDataItem[] = []
+    const schemaTableName = table.type === 'posthog' ? table.id : table.name
 
     if ('fields' in table) {
-        sortFieldsWithPrimary(table.name, Object.values(table.fields))
-            .filter((field) => !shouldHideField(field))
-            .forEach((field: DatabaseSchemaField) => {
-                tableChildren.push(
-                    createFieldNode(table.name, field, isSearch, field.name, tableLookup, {
-                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                    })
-                )
-            })
+        const fieldsState = getTableFieldsState(schemaTableName, table.fields, options?.hydration)
+        if (fieldsState === 'pending') {
+            tableChildren.push(createPendingFieldsNode(tableId, schemaTableName))
+        } else if (fieldsState === 'error') {
+            tableChildren.push(createFieldsErrorNode(tableId))
+        } else {
+            sortFieldsWithPrimary(table.name, Object.values(table.fields))
+                .filter((field) => !shouldHideField(field))
+                .forEach((field: DatabaseSchemaField) => {
+                    tableChildren.push(
+                        createFieldNode(table.name, field, isSearch, field.name, tableLookup, {
+                            expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                            propertyDefinitionLists: options?.propertyDefinitionLists,
+                            loadPropertyDefinitions: options?.loadPropertyDefinitions,
+                            allowPropertyDefinitionExpansion: table.type === 'posthog',
+                            hydration: options?.hydration,
+                        })
+                    )
+                })
+        }
     }
 
-    const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
     return {
         id: tableId,
         name: table.name,
@@ -887,6 +1221,24 @@ const createDraftNode = (
             id: draft.id,
             type: 'draft',
             draft: draft,
+            ...(matches && { searchMatches: matches }),
+        },
+    }
+}
+
+const createMetricNode = (
+    metric: DataCatalogMetricApi,
+    matches: FuseSearchMatch[] | null = null,
+    isSearch = false
+): TreeDataItem => {
+    return {
+        id: `${isSearch ? 'search-' : ''}metric-${metric.id}`,
+        name: metric.name,
+        type: 'node',
+        icon: <IconGraph />,
+        record: {
+            type: 'metric',
+            metric,
             ...(matches && { searchMatches: matches }),
         },
     }
@@ -925,12 +1277,13 @@ const createViewFolderNode = (
 }
 
 const createViewNode = (
-    view: DataWarehouseSavedQuery,
+    view: DataWarehouseSavedQuerySummary,
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
     tableLookup?: TableLookup,
     options?: {
         expandedLazyNodeIds?: Set<string>
+        hydration?: TableFieldsHydration
     },
     schemaTable?: DatabaseSchemaTable,
     isMaterializing = false
@@ -939,20 +1292,26 @@ const createViewNode = (
     const isMaterializedView = view.is_materialized === true
     const isManagedViewsetView = view.managed_viewset_kind !== null
     const isManagedView = 'type' in view && view.type === 'managed_view'
-    const viewFields =
-        schemaTable && Object.keys(schemaTable.fields).length > 0 ? Object.values(schemaTable.fields) : view.columns
-
-    sortFieldsWithPrimary(view.name, viewFields)
-        .filter((column) => !shouldHideField(column))
-        .forEach((column: DatabaseSchemaField) => {
-            viewChildren.push(
-                createFieldNode(view.name, column, isSearch, column.name, tableLookup, {
-                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                })
-            )
-        })
-
     const viewId = `${isSearch ? 'search-' : ''}view-${view.id}`
+    const fields = schemaTable?.fields ?? createSavedQueryLookupEntry(view).fields
+    const fieldsState = getTableFieldsState(view.name, fields, options?.hydration)
+
+    if (fieldsState === 'pending') {
+        viewChildren.push(createPendingFieldsNode(viewId, view.name))
+    } else if (fieldsState === 'error') {
+        viewChildren.push(createFieldsErrorNode(viewId))
+    } else {
+        sortFieldsWithPrimary(view.name, Object.values(fields))
+            .filter((column) => !shouldHideField(column))
+            .forEach((column: DatabaseSchemaField) => {
+                viewChildren.push(
+                    createFieldNode(view.name, column, isSearch, column.name, tableLookup, {
+                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                        hydration: options?.hydration,
+                    })
+                )
+            })
+    }
 
     return {
         id: viewId,
@@ -985,21 +1344,29 @@ const createManagedViewNode = (
     tableLookup?: TableLookup,
     options?: {
         expandedLazyNodeIds?: Set<string>
+        hydration?: TableFieldsHydration
     }
 ): TreeDataItem => {
+    const managedViewId = `${isSearch ? 'search-' : ''}managed-view-${managedView.id}`
     const viewChildren: TreeDataItem[] = []
 
-    sortFieldsWithPrimary(managedView.name, Object.values(managedView.fields))
-        .filter((field) => !shouldHideField(field))
-        .forEach((field: DatabaseSchemaField) => {
-            viewChildren.push(
-                createFieldNode(managedView.name, field, isSearch, field.name, tableLookup, {
-                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                })
-            )
-        })
-
-    const managedViewId = `${isSearch ? 'search-' : ''}managed-view-${managedView.id}`
+    const fieldsState = getTableFieldsState(managedView.name, managedView.fields, options?.hydration)
+    if (fieldsState === 'pending') {
+        viewChildren.push(createPendingFieldsNode(managedViewId, managedView.name))
+    } else if (fieldsState === 'error') {
+        viewChildren.push(createFieldsErrorNode(managedViewId))
+    } else {
+        sortFieldsWithPrimary(managedView.name, Object.values(managedView.fields))
+            .filter((field) => !shouldHideField(field))
+            .forEach((field: DatabaseSchemaField) => {
+                viewChildren.push(
+                    createFieldNode(managedView.name, field, isSearch, field.name, tableLookup, {
+                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                        hydration: options?.hydration,
+                    })
+                )
+            })
+    }
 
     return {
         id: managedViewId,
@@ -1020,23 +1387,32 @@ const createEndpointNode = (
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
     tableLookup?: TableLookup,
-    options?: { expandedLazyNodeIds?: Set<string> }
+    options?: { expandedLazyNodeIds?: Set<string>; hydration?: TableFieldsHydration }
 ): TreeDataItem => {
+    const endpointNodeId = `${isSearch ? 'search-' : ''}endpoint-${endpointTable.id}`
     const children: TreeDataItem[] = []
-    sortFieldsWithPrimary(endpointTable.name, Object.values(endpointTable.fields))
-        .filter((column) => !shouldHideField(column))
-        .forEach((column) => {
-            children.push(
-                createFieldNode(endpointTable.name, column, isSearch, column.name, tableLookup, {
-                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                })
-            )
-        })
+    const fieldsState = getTableFieldsState(endpointTable.name, endpointTable.fields, options?.hydration)
+    if (fieldsState === 'pending') {
+        children.push(createPendingFieldsNode(endpointNodeId, endpointTable.name))
+    } else if (fieldsState === 'error') {
+        children.push(createFieldsErrorNode(endpointNodeId))
+    } else {
+        sortFieldsWithPrimary(endpointTable.name, Object.values(endpointTable.fields))
+            .filter((column) => !shouldHideField(column))
+            .forEach((column) => {
+                children.push(
+                    createFieldNode(endpointTable.name, column, isSearch, column.name, tableLookup, {
+                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                        hydration: options?.hydration,
+                    })
+                )
+            })
+    }
 
     const displayName = endpointTable.name.replace(/_v\d+$/, '')
 
     return {
-        id: `${isSearch ? 'search-' : ''}endpoint-${endpointTable.id}`,
+        id: endpointNodeId,
         name: displayName,
         type: 'node',
         icon: <IconEndpoints />,
@@ -1056,9 +1432,7 @@ const createSourceFolderNode = (
     matches: [any, FuseSearchMatch[] | null][] = [],
     isSearch = false,
     tableLookup?: TableLookup,
-    options?: {
-        expandedLazyNodeIds?: Set<string>
-    }
+    options?: FieldTraversalOptions
 ): TreeDataItem => {
     const sourceChildren: TreeDataItem[] = []
 
@@ -1104,7 +1478,9 @@ const createSourceFolderNode = (
                                   ? (tables[0] as DatabaseSchemaDataWarehouseTable).url_pattern
                                   : (matches[0][0] as DatabaseSchemaDataWarehouseTable).url_pattern) ?? ''
                           )
-                        : sourceType
+                        : sourceType === 'Popular'
+                          ? 'PostHog'
+                          : sourceType
                 }
                 size="xsmall"
                 disableTooltip
@@ -1120,7 +1496,7 @@ const createSourceFolderNode = (
 }
 
 const createTopLevelFolderNode = (
-    type: 'sources' | 'views' | 'managed-views' | 'drafts',
+    type: 'sources' | 'views' | 'managed-views' | 'drafts' | 'metrics',
     children: TreeDataItem[],
     isSearch = false,
     icon?: JSX.Element
@@ -1176,7 +1552,9 @@ const createTopLevelFolderNode = (
                   ? 'Views'
                   : type === 'drafts'
                     ? 'Drafts'
-                    : 'Managed Views',
+                    : type === 'metrics'
+                      ? 'Metrics'
+                      : 'Managed Views',
         type: 'node',
         icon: icon,
         record: {
@@ -1186,98 +1564,57 @@ const createTopLevelFolderNode = (
     }
 }
 
-const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[]): void => {
+const isRawTrinoViewNode = (node: TreeDataItem): boolean =>
+    node.record?.type === 'view' && !!node.record?.view?.is_raw_managed_trino
+
+// HogQL cannot reference a raw Trino view, so the ClickHouse tree must not offer one.
+const withoutRawTrinoViews = (nodes: TreeDataItem[]): TreeDataItem[] =>
+    nodes.flatMap((node): TreeDataItem[] => {
+        if (isRawTrinoViewNode(node)) {
+            return []
+        }
+        if (!node.children?.length) {
+            return [node]
+        }
+        const children = withoutRawTrinoViews(node.children)
+        if (children.length > 0) {
+            return [{ ...node, children }]
+        }
+        // A folder or search section that held only raw Trino views goes away.
+        // The browsing Views section stays, with the same placeholder an empty section gets.
+        if (node.record?.type === 'views' && !node.id.startsWith('search-')) {
+            return [
+                {
+                    ...node,
+                    children: [
+                        {
+                            id: 'views-folder-empty/',
+                            name: 'Empty folder',
+                            type: 'empty-folder',
+                            record: { type: 'empty-folder' },
+                        },
+                    ],
+                },
+            ]
+        }
+        return []
+    })
+
+const flattenViewNodes = (
+    nodes: TreeDataItem[],
+    flattenedViews: TreeDataItem[],
+    includeRawTrinoViews: boolean
+): void => {
     nodes.forEach((node) => {
-        if (node.record?.type === 'view-table') {
+        if (node.record?.type === 'view-table' || (includeRawTrinoViews && isRawTrinoViewNode(node))) {
             flattenedViews.push(node)
             return
         }
 
         if (node.record?.type === 'folder' && node.record?.folderType === 'view-folder') {
-            flattenViewNodes(node.children ?? [], flattenedViews)
+            flattenViewNodes(node.children ?? [], flattenedViews, includeRawTrinoViews)
         }
     })
-}
-
-const getDirectConnectionSchemaName = (tableNode: TreeDataItem, defaultSchemaName?: string | null): string | null => {
-    const tableName =
-        tableNode.record?.type === 'table' ? (tableNode.record.table?.name ?? tableNode.name) : tableNode.name
-    const dotIndex = tableName.indexOf('.')
-
-    if (dotIndex > 0) {
-        return tableName.slice(0, dotIndex)
-    }
-
-    if (defaultSchemaName && defaultSchemaName.trim()) {
-        return defaultSchemaName.trim()
-    }
-
-    return null
-}
-
-const getDirectConnectionDisplayTableName = (tableNode: TreeDataItem): string => {
-    const tableName =
-        tableNode.record?.type === 'table' ? (tableNode.record.table?.name ?? tableNode.name) : tableNode.name
-    const dotIndex = tableName.indexOf('.')
-
-    return dotIndex > 0 ? tableName.slice(dotIndex + 1) : tableName
-}
-
-export const groupDirectConnectionTableNodesBySchema = (
-    tableNodes: TreeDataItem[],
-    isSearch: boolean,
-    defaultSchemaName?: string | null
-): TreeDataItem[] => {
-    const tablesBySchema = new Map<string, TreeDataItem[]>()
-    const ungroupedTables: TreeDataItem[] = []
-
-    tableNodes.forEach((tableNode) => {
-        const schemaName = getDirectConnectionSchemaName(tableNode, defaultSchemaName)
-
-        if (!schemaName) {
-            ungroupedTables.push(tableNode)
-            return
-        }
-
-        const currentNodes = tablesBySchema.get(schemaName) ?? []
-        currentNodes.push({
-            ...tableNode,
-            displayName: getDirectConnectionDisplayTableName(tableNode),
-        })
-        tablesBySchema.set(schemaName, currentNodes)
-    })
-
-    const schemaFolders = Array.from(tablesBySchema.entries())
-        .sort(([leftSchema], [rightSchema]) => leftSchema.localeCompare(rightSchema))
-        .map(([schemaName, schemaTables]) => ({
-            id: `${isSearch ? 'search-' : ''}schema-${schemaName}`,
-            name: schemaName,
-            type: 'node' as const,
-            icon: <IconFolder />,
-            record: {
-                type: 'source-folder',
-                sourceType: schemaName,
-            },
-            children: [...schemaTables].sort((leftTable, rightTable) => leftTable.name.localeCompare(rightTable.name)),
-        }))
-
-    if (ungroupedTables.length > 0) {
-        schemaFolders.push({
-            id: `${isSearch ? 'search-' : ''}schema-ungrouped`,
-            name: defaultSchemaName?.trim() || 'Tables',
-            type: 'node',
-            icon: <IconFolder />,
-            record: {
-                type: 'source-folder',
-                sourceType: defaultSchemaName?.trim() || 'Tables',
-            },
-            children: [...ungroupedTables].sort((leftTable, rightTable) =>
-                leftTable.name.localeCompare(rightTable.name)
-            ),
-        })
-    }
-
-    return schemaFolders
 }
 
 export const getDefaultExpandedRootIds = (connectionId: string | null, displayedTreeData: TreeDataItem[]): string[] => {
@@ -1364,6 +1701,27 @@ const findTreeItem = (items: TreeDataItem[], targetId: string): TreeDataItem | n
     return path ? path[path.length - 1] : null
 }
 
+const getUnloadedPropertyDefinitionRequest = (
+    items: TreeDataItem[],
+    targetId: string,
+    propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
+): { propertyFieldKey: string; target: SidebarPropertyDefinitionTarget } | null => {
+    const propertyField = findTreeItem(items, targetId)
+    const propertyFieldKey = propertyField?.record?.propertyDefinitionKey
+    const target = propertyField?.record?.propertyDefinitionTarget as SidebarPropertyDefinitionTarget | undefined
+
+    if (
+        propertyField?.record?.type !== 'property-field' ||
+        typeof propertyFieldKey !== 'string' ||
+        !target ||
+        propertyDefinitionLists[propertyFieldKey]
+    ) {
+        return null
+    }
+
+    return { propertyFieldKey, target }
+}
+
 const getTreeItemDataSourceName = (item: TreeDataItem): string | null => {
     switch (item.record?.type) {
         case 'table':
@@ -1426,39 +1784,44 @@ const getFolderIdFromDropTarget = (items: TreeDataItem[], dropTargetId: string |
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface queryDatabaseLogicValues {
-    dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
+    connectionOptions: ExternalDataSourceConnectionOptionApi[] | null // connectionSelectorLogic
+    dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
+    dataWarehouseSavedQueryDownstreamReferences: Record<string, DataWarehouseSavedQueryDownstreamReferenceState> // dataWarehouseViewsLogic
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[] // dataWarehouseViewsLogic
-    dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
+    dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuerySummary> // dataWarehouseViewsLogic
     materializingViewIds: string[] // dataWarehouseViewsLogic
     allPosthogTables: DatabaseSchemaTable[] // databaseTableListLogic
     allTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
     connectionId: string | null // databaseTableListLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable> // databaseTableListLogic
+    databaseFieldsComplete: boolean // databaseTableListLogic
     databaseLoadError: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     latestEndpointTables: DatabaseSchemaEndpointTable[] // databaseTableListLogic
     managedViews: DatabaseSchemaManagedViewTable[] // databaseTableListLogic
     posthogTables: DatabaseSchemaTable[] // databaseTableListLogic
-    posthogTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
     systemTables: DatabaseSchemaTable[] // databaseTableListLogic
     systemTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
+    tableFieldsStatus: TableFieldsStatus // databaseTableListLogic
     viewsMapById: Record<string, DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable> // databaseTableListLogic
     drafts: DataWarehouseSavedQueryDraft[] // draftsLogic
     draftsResponseLoading: boolean // draftsLogic
     hasMoreDrafts: boolean // draftsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    joins: DataWarehouseViewLink[] // joinsLogic
-    joinsLoading: boolean // joinsLogic
-    dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
+    joins: DataWarehouseViewLink[] // joinsDataLogic
+    joinsLoading: boolean // joinsDataLogic
+    allMetrics: DataCatalogMetricApi[] // metricsLogic
+    currentProjectId: number | string // teamLogic
     user: UserType | null // userLogic
     activeDraggedViewId: string | null
     activeExpandedFolderIds: string[]
     defaultExpandedRootIds: string[]
     displayedTreeData: TreeDataItem[]
     editingDraftId: string | null
-    effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+    editingPropertyDefinition: EnterprisePropertyDefinitionApi | null
+    effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
     expandedFolders: string[]
     expandedFoldersByConnection: Record<string, string[]>
     expandedItemIds: string[]
@@ -1466,76 +1829,68 @@ export interface queryDatabaseLogicValues {
     hasNonPosthogSources: boolean
     highlightViewsSectionDrop: boolean
     highlightedDropFolderId: string | null
+    hogqlMetrics: DataCatalogMetricApi[]
     joinsByFieldName: Record<string, DataWarehouseViewLink>
+    materializationStatusFilters: MaterializationStatusFilter[]
+    metricsLoadFailed: boolean
     pendingViewFolderOverrides: Record<string, string | null>
+    propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
     queryTabState: QueryTabState | null
     queryTabStateLoading: boolean
     relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]
     relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][]
     relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
     relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][]
+    relevantMetrics: [DataCatalogMetricApi, FuseSearchMatch[] | null][]
     relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
-    relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][]
+    relevantSavedQueries: [DataWarehouseSavedQuerySummary, FuseSearchMatch[] | null][]
     relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][]
     relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
+    renameView: RenameViewState | null
     searchTerm: string
+    searchText: string
     searchTreeData: TreeDataItem[]
     searchTreeMatches: SearchTreeMatches
     searchTreeSourceContext: SearchTreeSourceContext
-    selectedDirectSource:
-        | {
-              job_inputs?: Record<string, any>
-          }
-        | undefined
-    selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null
+    selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
+    selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary | null
+    shownTableFoldersByConnection: Record<string, string[]>
     sidebarOverlayTreeItems: TreeItem[]
+    sidebarPosthogTables: DatabaseSchemaTable[]
     syncMoreNoticeDismissed: boolean
     tableToLocate: string | null
     treeData: TreeDataItem[]
     treeDataContext: TreeDataContext
     treeRef: EditorSidebarTreeRef
+    visibleTreeData: TreeDataItem[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface queryDatabaseLogicActions {
     createDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  dag_id?: string
+            | (Partial<import('~/types').DataWarehouseSavedQuery> & {
+                  deferCreatedToast?: boolean
                   folder_id?: string | null
                   types: string[][]
               })
             | undefined
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: Partial<DataWarehouseSavedQuery> & {
-            dag_id?: string
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
+        payload?: Partial<import('~/types').DataWarehouseSavedQuery> & {
+            deferCreatedToast?: boolean
             folder_id?: string | null
             types: string[][]
         }
     } // dataWarehouseViewsLogic
-    updateDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
-    ) => Partial<DataWarehouseSavedQuery> & {
-        edited_history_id?: string
-        folder_id?: string | null
-        id: string
-        lifecycle?: string
-        shouldRematerialize?: boolean
-        soft_update?: boolean
-        sync_frequency?: string
-        types?: string[][]
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueryDownstreamReferences: (viewId: string) => {
+        viewId: string
     } // dataWarehouseViewsLogic
+    updateDataWarehouseSavedQuery: (
+        view: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -1544,32 +1899,18 @@ export interface queryDatabaseLogicActions {
         errorObject?: any
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  edited_history_id?: string
-                  folder_id?: string | null
-                  id: string
-                  lifecycle?: string
-                  shouldRematerialize?: boolean
-                  soft_update?: boolean
-                  sync_frequency?: string
-                  types?: string[][]
-              })
-            | undefined
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
+        payload?: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
+        payload?: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
+    ensureAllTableFields: () => {
+        value: true
+    } // databaseTableListLogic
+    hydrateTableFields: (tableNames: string[]) => {
+        tableNames: string[]
+    } // databaseTableListLogic
     refreshDatabaseSchema: () => {
         value: true
     } // databaseTableListLogic
@@ -1584,7 +1925,22 @@ export interface queryDatabaseLogicActions {
     } // draftsLogic
     deleteJoin: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
-    } // sourceManagementLogic
+    } // joinsDataLogic
+    loadMetrics: () => any // metricsLogic
+    loadMetricsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // metricsLogic
+    loadMetricsSuccess: (
+        allMetrics: DataCatalogMetricApi[],
+        payload?: any
+    ) => {
+        allMetrics: DataCatalogMetricApi[]
+        payload?: any
+    } // metricsLogic
     toggleEditJoinModal: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // viewLinkLogic
@@ -1592,6 +1948,9 @@ export interface queryDatabaseLogicActions {
         value: true
     } // viewLinkLogic
     clearDraggedViewState: () => {
+        value: true
+    }
+    clearMaterializationStatusFilters: () => {
         value: true
     }
     clearPendingViewFolderOverride: (viewId: string) => {
@@ -1604,6 +1963,12 @@ export interface queryDatabaseLogicActions {
         value: true
     }
     clearTableToLocate: () => {
+        value: true
+    }
+    closePropertyDefinitionEditor: () => {
+        value: true
+    }
+    closeRenameView: () => {
         value: true
     }
     deleteUnsavedQuery: (record: Record<string, any>) => {
@@ -1643,6 +2008,44 @@ export interface queryDatabaseLogicActions {
             record: Record<string, any>
         }
     }
+    loadPropertyDefinitions: (
+        propertyFieldKey: string,
+        target: SidebarPropertyDefinitionTarget,
+        offset: number
+    ) => {
+        offset: number
+        propertyFieldKey: string
+        requestId: string
+        target: SidebarPropertyDefinitionTarget
+    }
+    loadPropertyDefinitionsFailure: (
+        propertyFieldKey: string,
+        search: string,
+        requestId: string
+    ) => {
+        propertyFieldKey: string
+        requestId: string
+        search: string
+    }
+    loadPropertyDefinitionsSuccess: (
+        propertyFieldKey: string,
+        search: string,
+        offset: number,
+        requestId: string,
+        response: {
+            count: number
+            results: EnterprisePropertyDefinitionApi[]
+        }
+    ) => {
+        offset: number
+        propertyFieldKey: string
+        requestId: string
+        response: {
+            count: number
+            results: EnterprisePropertyDefinitionApi[]
+        }
+        search: string
+    }
     loadQueryTabState: () => any
     loadQueryTabStateFailure: (
         error: string,
@@ -1668,11 +2071,20 @@ export interface queryDatabaseLogicActions {
         dropTargetId: string | null
         viewId: string
     }
+    openPropertyDefinitionEditor: (propertyDefinition: EnterprisePropertyDefinitionApi) => {
+        propertyDefinition: EnterprisePropertyDefinitionApi
+    }
+    openRenameView: (view: { id: string; name: string }) => {
+        view: {
+            id: string
+            name: string
+        }
+    }
     openUnsavedQuery: (record: Record<string, any>) => {
         record: Record<string, any>
     }
-    selectSchema: (schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery) => {
-        schema: DatabaseSchemaTable | DataWarehouseSavedQuery
+    selectSchema: (schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary) => {
+        schema: DatabaseSchemaTable | DataWarehouseSavedQuerySummary
     }
     selectSourceTable: (tableName: string) => {
         tableName: string
@@ -1704,6 +2116,27 @@ export interface queryDatabaseLogicActions {
         folderId: string | null
         viewId: string
     }
+    setPropertyDefinitionSearch: (
+        propertyFieldKey: string,
+        target: SidebarPropertyDefinitionTarget,
+        search: string
+    ) => {
+        propertyFieldKey: string
+        search: string
+        target: SidebarPropertyDefinitionTarget
+    }
+    setRenameViewName: (name: string) => {
+        name: string
+    }
+    setRenameViewNameError: (error: string | undefined) => {
+        error: string | undefined
+    }
+    setRenameViewSaving: (isSaving: boolean) => {
+        isSaving: boolean
+    }
+    setRenameViewSubmitError: (error: string | undefined) => {
+        error: string | undefined
+    }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
@@ -1713,8 +2146,18 @@ export interface queryDatabaseLogicActions {
     setTreeRef: (ref: EditorSidebarTreeRef | null) => {
         ref: EditorSidebarTreeRef
     }
+    showAllTables: (
+        folderId: string,
+        connectionId: string | null
+    ) => {
+        connectionId: string | null
+        folderId: string
+    }
     startDraggingView: (viewId: string) => {
         viewId: string
+    }
+    submitRenameView: () => {
+        value: true
     }
     toggleFolderOpen: (
         folderId: string,
@@ -1723,64 +2166,77 @@ export interface queryDatabaseLogicActions {
         folderId: string
         isExpanded: boolean
     }
+    toggleMaterializationStatusFilter: (status: MaterializationStatusFilter) => {
+        status: 'Completed' | 'Failed' | 'Running'
+    }
     updateDraggedViewDropTarget: (dropTargetId: string | null) => {
         dropTargetId: string | null
+    }
+    updatePropertyDefinition: (propertyDefinition: EnterprisePropertyDefinitionApi) => {
+        propertyDefinition: EnterprisePropertyDefinitionApi
     }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface queryDatabaseLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        searchText: (searchTerm: string, connectionId: string | null) => string
+        materializationStatusFilters: (searchTerm: string, connectionId: string | null) => MaterializationStatusFilter[]
         hasNonPosthogSources: (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]) => boolean
-        relevantPosthogTables: (
+        sidebarPosthogTables: (
             posthogTables: DatabaseSchemaTable[],
-            searchTerm: string
+            allPosthogTables: DatabaseSchemaTable[]
+        ) => DatabaseSchemaTable[]
+        relevantPosthogTables: (
+            sidebarPosthogTables: DatabaseSchemaTable[],
+            searchText: string
         ) => [DatabaseSchemaTable, FuseSearchMatch[] | null][]
         relevantSystemTables: (
             systemTables: DatabaseSchemaTable[],
-            searchTerm: string
+            searchText: string
         ) => [DatabaseSchemaTable, FuseSearchMatch[] | null][]
         relevantDataWarehouseTables: (
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-            searchTerm: string
+            searchText: string
         ) => [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]
         relevantSavedQueries: (
-            effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-            searchTerm: string
-        ) => [DataWarehouseSavedQuery, FuseSearchMatch[] | null][]
+            effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
+            searchText: string
+        ) => [DataWarehouseSavedQuerySummary, FuseSearchMatch[] | null][]
         relevantSavedQueryFolders: (
             dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
-            searchTerm: string
+            searchText: string
         ) => [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][]
         effectiveDataWarehouseSavedQueries: (
-            dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+            dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
             pendingViewFolderOverrides: Record<string, string | null>
-        ) => DataWarehouseSavedQuery[]
+        ) => DataWarehouseSavedQuerySummary[]
         relevantManagedViews: (
             managedViews: DatabaseSchemaManagedViewTable[],
-            searchTerm: string
+            searchText: string
         ) => [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][]
         relevantDrafts: (
             drafts: DataWarehouseSavedQueryDraft[],
-            searchTerm: string
+            searchText: string
         ) => [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][]
         relevantEndpointTables: (
             latestEndpointTables: DatabaseSchemaEndpointTable[],
-            searchTerm: string
+            searchText: string
         ) => [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+        hogqlMetrics: (allMetrics: DataCatalogMetricApi[]) => DataCatalogMetricApi[]
+        relevantMetrics: (
+            hogqlMetrics: DataCatalogMetricApi[],
+            searchText: string
+        ) => [DataCatalogMetricApi, FuseSearchMatch[] | null][]
         selectedDirectSource: (
-            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
             connectionId: string | null
-        ) =>
-            | {
-                  job_inputs?: Record<string, any>
-              }
-            | undefined
+        ) => ExternalDataSourceConnectionOptionApi | undefined
         searchTreeSourceContext: (
             allPosthogTables: DatabaseSchemaTable[],
             systemTables: DatabaseSchemaTable[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-            effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+            effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
             dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
             managedViews: DatabaseSchemaManagedViewTable[],
             allTablesMap: Record<string, DatabaseSchemaTable>
@@ -1789,29 +2245,32 @@ export interface queryDatabaseLogicMeta {
             relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
             relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
             relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
-            relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
+            relevantSavedQueries: [DataWarehouseSavedQuerySummary, FuseSearchMatch[] | null][],
             relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][],
             relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
             relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
-            relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+            relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][],
+            relevantMetrics: [DataCatalogMetricApi, FuseSearchMatch[] | null][]
         ) => SearchTreeMatches
         searchTreeData: (
             searchTreeSourceContext: SearchTreeSourceContext,
             searchTreeMatches: SearchTreeMatches,
-            searchTerm: string,
+            searchText: string,
             featureFlags: FeatureFlagsSet,
             expandedSearchFolders: string[],
-            materializingViewIds: string[]
+            materializingViewIds: string[],
+            propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
         ) => TreeDataItem[]
         treeDataContext: (
             allPosthogTables: DatabaseSchemaTable[],
-            posthogTables: DatabaseSchemaTable[],
+            sidebarPosthogTables: DatabaseSchemaTable[],
             systemTables: DatabaseSchemaTable[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-            effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+            effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
             dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
             managedViews: DatabaseSchemaManagedViewTable[],
             latestEndpointTables: DatabaseSchemaEndpointTable[],
+            hogqlMetrics: DataCatalogMetricApi[],
             allTablesMap: Record<string, DatabaseSchemaTable>
         ) => TreeDataContext
         treeData: (
@@ -1825,24 +2284,31 @@ export interface queryDatabaseLogicMeta {
             featureFlags: FeatureFlagsSet,
             queryTabState: QueryTabState | null,
             expandedFolders: string[],
-            materializingViewIds: string[]
+            materializingViewIds: string[],
+            propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
+            databaseFieldsComplete: boolean,
+            tableFieldsStatus: TableFieldsStatus,
+            metricsLoadFailed: boolean
         ) => TreeDataItem[]
         displayedTreeData: (
-            searchTerm: string,
+            searchText: string,
             searchTreeData: TreeDataItem[],
             treeData: TreeDataItem[],
             connectionId: string | null,
-            selectedDirectSource:
-                | {
-                      job_inputs?: Record<string, any>
-                  }
-                | undefined,
+            selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined,
             databaseLoading: boolean,
             databaseLoadError: string | null,
-            allTablesMap: Record<string, DatabaseSchemaTable>
+            allTablesMap: Record<string, DatabaseSchemaTable>,
+            materializationStatusFilters: ('Completed' | 'Failed' | 'Running')[]
+        ) => TreeDataItem[]
+        visibleTreeData: (
+            displayedTreeData: TreeDataItem[],
+            searchText: string,
+            shownTableFoldersByConnection: Record<string, string[]>,
+            connectionId: string | null
         ) => TreeDataItem[]
         activeExpandedFolderIds: (
-            searchTerm: string,
+            searchText: string,
             expandedSearchFolders: string[],
             expandedFolders: string[]
         ) => string[]
@@ -1854,16 +2320,16 @@ export interface queryDatabaseLogicMeta {
         expandedItemIds: (activeExpandedFolderIds: string[], defaultExpandedRootIds: string[]) => string[]
         joinsByFieldName: (joins: DataWarehouseViewLink[]) => Record<string, DataWarehouseViewLink>
         sidebarOverlayTreeItems: (
-            selectedSchema: DatabaseSchemaTable | DataWarehouseSavedQuery | null,
-            posthogTablesMap: Record<string, DatabaseSchemaTable>,
+            selectedSchema: DatabaseSchemaTable | DataWarehouseSavedQuerySummary | null,
             systemTablesMap: Record<string, DatabaseSchemaTable>,
             dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>,
-            dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>,
+            dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuerySummary>,
             viewsMapById: Record<
                 string,
                 DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable
             >,
-            joinsByFieldName: Record<string, DataWarehouseViewLink>
+            joinsByFieldName: Record<string, DataWarehouseViewLink>,
+            allTablesMap: Record<string, DatabaseSchemaTable>
         ) => TreeItem[]
     }
 }
@@ -1878,14 +2344,46 @@ export type queryDatabaseLogicType = MakeLogicType<
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),
     actions({
-        selectSchema: (schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery) => ({
+        selectSchema: (
+            schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary
+        ) => ({
             schema,
         }),
         setExpandedFolders: (folderIds: string[], connectionId?: string | null) => ({ folderIds, connectionId }),
         setExpandedSearchFolders: (folderIds: string[]) => ({ folderIds }),
+        showAllTables: (folderId: string, connectionId: string | null) => ({ folderId, connectionId }),
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         setTreeRef: (ref: EditorSidebarTreeRef | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        toggleMaterializationStatusFilter: (status: MaterializationStatusFilter) => ({ status }),
+        clearMaterializationStatusFilters: true,
+        setPropertyDefinitionSearch: (
+            propertyFieldKey: string,
+            target: SidebarPropertyDefinitionTarget,
+            search: string
+        ) => ({ propertyFieldKey, target, search }),
+        loadPropertyDefinitions: (
+            propertyFieldKey: string,
+            target: SidebarPropertyDefinitionTarget,
+            offset: number
+        ) => ({ propertyFieldKey, target, offset, requestId: uuid() }),
+        loadPropertyDefinitionsSuccess: (
+            propertyFieldKey: string,
+            search: string,
+            offset: number,
+            requestId: string,
+            response: { count: number; results: EnterprisePropertyDefinitionApi[] }
+        ) => ({ propertyFieldKey, search, offset, requestId, response }),
+        loadPropertyDefinitionsFailure: (propertyFieldKey: string, search: string, requestId: string) => ({
+            propertyFieldKey,
+            search,
+            requestId,
+        }),
+        openPropertyDefinitionEditor: (propertyDefinition: EnterprisePropertyDefinitionApi) => ({
+            propertyDefinition,
+        }),
+        closePropertyDefinitionEditor: true,
+        updatePropertyDefinition: (propertyDefinition: EnterprisePropertyDefinitionApi) => ({ propertyDefinition }),
         clearSearch: true,
         clearTableToLocate: true,
         locateTable: (tableName: string) => ({ tableName }),
@@ -1905,17 +2403,23 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         moveDraggedViewToDropTarget: (viewId: string, dropTargetId: string | null) => ({ viewId, dropTargetId }),
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
+        openRenameView: (view: { id: string; name: string }) => ({ view }),
+        closeRenameView: true,
+        setRenameViewName: (name: string) => ({ name }),
+        setRenameViewNameError: (error: string | undefined) => ({ error }),
+        setRenameViewSubmitError: (error: string | undefined) => ({ error }),
+        setRenameViewSaving: (isSaving: boolean) => ({ isSaving }),
+        submitRenameView: true,
     }),
     connect(() => ({
         values: [
-            joinsLogic,
+            joinsDataLogic,
             ['joins', 'joinsLoading'],
             databaseTableListLogic,
             [
                 'allPosthogTables',
                 'posthogTables',
                 'dataWarehouseTables',
-                'posthogTablesMap',
                 'dataWarehouseTablesMap',
                 'viewsMapById',
                 'managedViews',
@@ -1926,28 +2430,35 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'allTablesMap',
                 'latestEndpointTables',
                 'connectionId',
+                'databaseFieldsComplete',
+                'tableFieldsStatus',
             ],
+            metricsLogic,
+            ['allMetrics'],
             dataWarehouseViewsLogic,
             [
                 'dataWarehouseSavedQueries',
                 'dataWarehouseSavedQueryFolders',
                 'dataWarehouseSavedQueryMapById',
+                'dataWarehouseSavedQueryDownstreamReferences',
                 'dataWarehouseSavedQueriesLoading',
                 'materializingViewIds',
             ],
             draftsLogic,
             ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
-            sourceManagementLogic,
-            ['dataWarehouseSources'],
+            connectionSelectorLogic,
+            ['connectionOptions'],
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentProjectId'],
             userLogic,
             ['user'],
         ],
         actions: [
             viewLinkLogic,
             ['toggleEditJoinModal', 'toggleJoinTableModal'],
-            sourceManagementLogic,
+            joinsDataLogic,
             ['deleteJoin'],
             dataWarehouseViewsLogic,
             [
@@ -1955,22 +2466,67 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'updateDataWarehouseSavedQuerySuccess',
                 'updateDataWarehouseSavedQueryFailure',
                 'updateDataWarehouseSavedQuery',
+                'loadDataWarehouseSavedQueryDownstreamReferences',
+                'loadDataWarehouseSavedQueries',
             ],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
             databaseTableListLogic,
-            ['refreshDatabaseSchema'],
+            ['refreshDatabaseSchema', 'hydrateTableFields', 'ensureAllTableFields'],
+            metricsLogic,
+            ['loadMetrics', 'loadMetricsSuccess', 'loadMetricsFailure'],
         ],
     })),
     reducers({
+        shownTableFoldersByConnection: [
+            {} as Record<string, string[]>,
+            {
+                showAllTables: (state, { folderId, connectionId }) => {
+                    const key = getExpandedFoldersConnectionKey(connectionId)
+                    return { ...state, [key]: Array.from(new Set([...(state[key] ?? []), folderId])) }
+                },
+            },
+        ],
+        metricsLoadFailed: [
+            false,
+            {
+                loadMetrics: () => false,
+                loadMetricsSuccess: () => false,
+                loadMetricsFailure: (_, { errorObject }) => !isAccessDeniedError(errorObject ?? {}),
+            },
+        ],
         editingDraftId: [
             null as string | null,
             {
                 setEditingDraft: (_, { draftId }) => draftId,
             },
         ],
+        editingPropertyDefinition: [
+            null as EnterprisePropertyDefinitionApi | null,
+            {
+                openPropertyDefinitionEditor: (_, { propertyDefinition }) => propertyDefinition,
+                closePropertyDefinitionEditor: () => null,
+                updatePropertyDefinition: () => null,
+            },
+        ],
+        renameView: [
+            null as RenameViewState | null,
+            {
+                openRenameView: (_, { view }) => ({
+                    id: view.id,
+                    originalName: view.name,
+                    name: view.name,
+                    isSaving: false,
+                }),
+                closeRenameView: () => null,
+                setRenameViewName: (state, { name }) => (state ? { ...state, name, nameError: undefined } : state),
+                setRenameViewNameError: (state, { error }) => (state ? { ...state, nameError: error } : state),
+                setRenameViewSubmitError: (state, { error }) => (state ? { ...state, submitError: error } : state),
+                setRenameViewSaving: (state, { isSaving }) => (state ? { ...state, isSaving } : state),
+            },
+        ],
         selectedSchema: [
-            null as DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
+            null as DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary | null,
             {
                 selectSchema: (_, { schema }) => schema,
             },
@@ -1990,6 +2546,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'sources',
                 'views',
                 'managed-views',
+                'search-Popular',
                 'search-posthog',
                 'search-system',
                 'search-datawarehouse',
@@ -2019,6 +2576,111 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
                 clearSearch: () => '',
+                toggleMaterializationStatusFilter: (searchTerm, { status }) =>
+                    toggleMaterializationStatusSearchToken(searchTerm, status),
+                clearMaterializationStatusFilters: (searchTerm) => clearMaterializationStatusSearchTokens(searchTerm),
+                locateTable: (searchTerm) => clearMaterializationStatusSearchTokens(searchTerm),
+            },
+        ],
+        propertyDefinitionLists: [
+            {} as Record<string, SidebarPropertyDefinitionList>,
+            {
+                setPropertyDefinitionSearch: (state, { propertyFieldKey, search }) => ({
+                    ...state,
+                    [propertyFieldKey]: {
+                        activeRequestId: null,
+                        count: 0,
+                        definitions: [],
+                        error: false,
+                        loading: true,
+                        search,
+                    },
+                }),
+                loadPropertyDefinitions: (state, { propertyFieldKey, offset, requestId }) => {
+                    const current = state[propertyFieldKey] ?? {
+                        activeRequestId: null,
+                        count: 0,
+                        definitions: [],
+                        error: false,
+                        loading: false,
+                        search: '',
+                    }
+
+                    return {
+                        ...state,
+                        [propertyFieldKey]: {
+                            ...current,
+                            activeRequestId: requestId,
+                            definitions: offset === 0 ? [] : current.definitions,
+                            error: false,
+                            loading: true,
+                        },
+                    }
+                },
+                loadPropertyDefinitionsSuccess: (state, { propertyFieldKey, search, offset, requestId, response }) => {
+                    const current = state[propertyFieldKey]
+                    if (!current || current.search !== search || current.activeRequestId !== requestId) {
+                        return state
+                    }
+
+                    const definitions = offset === 0 ? response.results : [...current.definitions, ...response.results]
+                    return {
+                        ...state,
+                        [propertyFieldKey]: {
+                            ...current,
+                            activeRequestId: null,
+                            count: response.count,
+                            definitions: Array.from(
+                                new Map(definitions.map((definition) => [definition.id, definition])).values()
+                            ),
+                            error: false,
+                            loading: false,
+                        },
+                    }
+                },
+                loadPropertyDefinitionsFailure: (state, { propertyFieldKey, search, requestId }) => {
+                    const current = state[propertyFieldKey]
+                    if (!current || current.search !== search || current.activeRequestId !== requestId) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        [propertyFieldKey]: {
+                            ...current,
+                            activeRequestId: null,
+                            error: true,
+                            loading: false,
+                        },
+                    }
+                },
+                updatePropertyDefinition: (state, { propertyDefinition }) =>
+                    Object.fromEntries(
+                        Object.entries(state).map(([propertyFieldKey, propertyDefinitionList]) => {
+                            const includesPropertyDefinition = propertyDefinitionList.definitions.some(
+                                (definition) => definition.id === propertyDefinition.id
+                            )
+                            const definitions = propertyDefinition.hidden
+                                ? propertyDefinitionList.definitions.filter(
+                                      (definition) => definition.id !== propertyDefinition.id
+                                  )
+                                : propertyDefinitionList.definitions.map((definition) =>
+                                      definition.id === propertyDefinition.id ? propertyDefinition : definition
+                                  )
+
+                            return [
+                                propertyFieldKey,
+                                {
+                                    ...propertyDefinitionList,
+                                    count:
+                                        propertyDefinition.hidden && includesPropertyDefinition
+                                            ? Math.max(0, propertyDefinitionList.count - 1)
+                                            : propertyDefinitionList.count,
+                                    definitions,
+                                },
+                            ]
+                        })
+                    ),
             },
         ],
         syncMoreNoticeDismissed: [
@@ -2063,6 +2725,62 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        openRenameView: ({ view }) => {
+            actions.loadDataWarehouseSavedQueryDownstreamReferences(view.id)
+        },
+        submitRenameView: async () => {
+            const view = values.renameView
+            if (
+                !view ||
+                view.isSaving ||
+                (values.dataWarehouseSavedQueryDownstreamReferences[view.id]?.loading ?? true)
+            ) {
+                return
+            }
+
+            const name = view.name.trim()
+            const validationError = validateSavedQueryName(name)
+            if (validationError) {
+                actions.setRenameViewNameError(validationError)
+                return
+            }
+            if (
+                name !== view.originalName &&
+                (values.dataWarehouseSavedQueries.some((savedView) => savedView.name === name) ||
+                    values.dataWarehouseTables.some((table) => table.name === name))
+            ) {
+                actions.setRenameViewNameError(
+                    'A table or view with this name already exists. Choose a different name.'
+                )
+                return
+            }
+            if (name === view.originalName) {
+                actions.closeRenameView()
+                return
+            }
+
+            actions.setRenameViewNameError(undefined)
+            actions.setRenameViewSubmitError(undefined)
+            actions.setRenameViewSaving(true)
+            try {
+                await renameDataWarehouseSavedQuery(view.id, name)
+                actions.loadDataWarehouseSavedQueries()
+                actions.refreshDatabaseSchema()
+                lemonToast.success('View renamed')
+                actions.closeRenameView()
+            } catch (error) {
+                const nameError = getRenameViewNameError(error)
+                if (nameError) {
+                    actions.setRenameViewNameError(nameError)
+                } else {
+                    actions.setRenameViewSubmitError(
+                        readableErrorMessage(error) ?? 'Could not rename the view. Try again.'
+                    )
+                }
+            } finally {
+                actions.setRenameViewSaving(false)
+            }
+        },
         createDataWarehouseSavedQuerySuccess: ({ payload }) => {
             if (payload?.folder_id) {
                 const folderNodeId = `view-folder-${payload.folder_id}`
@@ -2106,6 +2824,28 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         updateDataWarehouseSavedQueryFailure: () => {
             actions.clearPendingViewFolderOverrides()
         },
+        setPropertyDefinitionSearch: async ({ propertyFieldKey, target }, breakpoint) => {
+            await breakpoint(250)
+            actions.loadPropertyDefinitions(propertyFieldKey, target, 0)
+        },
+        loadPropertyDefinitions: async ({ propertyFieldKey, target, offset, requestId }) => {
+            const search = values.propertyDefinitionLists[propertyFieldKey]?.search ?? ''
+
+            try {
+                const response = await propertyDefinitionsList(String(values.currentProjectId), {
+                    exclude_hidden: true,
+                    exclude_restricted: true,
+                    group_type_index: target.groupTypeIndex,
+                    limit: PROPERTY_DEFINITIONS_PAGE_SIZE,
+                    offset,
+                    search: search.trim() || undefined,
+                    type: target.type,
+                })
+                actions.loadPropertyDefinitionsSuccess(propertyFieldKey, search, offset, requestId, response)
+            } catch {
+                actions.loadPropertyDefinitionsFailure(propertyFieldKey, search, requestId)
+            }
+        },
     })),
     listeners(({ actions, values }) => {
         const revealLocatedTable = (tableName: string): void => {
@@ -2116,6 +2856,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             }
 
             const tableId = path[path.length - 1].id
+            if (!findTreeItemById(values.visibleTreeData, tableId)) {
+                path.forEach((item) => {
+                    if (item.record?.type === 'source-folder') {
+                        actions.showAllTables(item.id, values.connectionId)
+                    }
+                })
+            }
             actions.setExpandedFolders(
                 Array.from(new Set([...values.expandedFolders, ...path.map((item) => item.id)])),
                 values.connectionId
@@ -2131,6 +2878,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         }
 
         return {
+            showAllTables: ({ folderId }) => {
+                const firstRevealedTable = findTreeItemById(values.displayedTreeData, folderId)?.children?.[
+                    TABLE_CATEGORY_LIMIT
+                ]
+                if (firstRevealedTable) {
+                    values.treeRef?.current?.focusItem(firstRevealedTable.id)
+                }
+            },
             locateTable: ({ tableName }) => {
                 revealLocatedTable(tableName)
             },
@@ -2186,77 +2941,101 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
     })),
     selectors(({ actions, cache }) => ({
+        searchText: [
+            (s) => [s.searchTerm, s.connectionId],
+            (searchTerm: string, connectionId: string | null): string =>
+                shouldUseDirectConnectionTree(connectionId) ? searchTerm : parseDatabaseSearch(searchTerm).searchText,
+        ],
+        materializationStatusFilters: [
+            (s) => [s.searchTerm, s.connectionId],
+            (searchTerm: string, connectionId: string | null): MaterializationStatusFilter[] =>
+                shouldUseDirectConnectionTree(connectionId)
+                    ? []
+                    : parseDatabaseSearch(searchTerm).materializationStatusFilters,
+        ],
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {
                 return dataWarehouseTables.length > 0
             },
         ],
+        sidebarPosthogTables: [
+            (s) => [s.posthogTables, s.allPosthogTables],
+            (popularTables: DatabaseSchemaTable[], allPosthogTables: DatabaseSchemaTable[]): DatabaseSchemaTable[] => [
+                ...[...popularTables].sort((a, b) => a.name.localeCompare(b.name)),
+                ...allPosthogTables
+                    .map((table) => ({
+                        ...table,
+                        name: table.name.startsWith('posthog.') ? table.name : `posthog.${table.name}`,
+                    }))
+                    .sort((a, b) => a.name.localeCompare(b.name)),
+            ],
+        ],
         relevantPosthogTables: [
-            (s) => [s.posthogTables, s.searchTerm],
+            (s) => [s.sidebarPosthogTables, s.searchText],
             (
                 posthogTables: DatabaseSchemaTable[],
-                searchTerm: string
+                searchText: string
             ): [DatabaseSchemaTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
+                if (searchText) {
                     return posthogTablesFuse
-                        .search(searchTerm)
+                        .search(searchText)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return posthogTables.map((table) => [table, null])
             },
         ],
         relevantSystemTables: [
-            (s) => [s.systemTables, s.searchTerm],
+            (s) => [s.systemTables, s.searchText],
             (
                 systemTables: DatabaseSchemaTable[],
-                searchTerm: string
+                searchText: string
             ): [DatabaseSchemaTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
+                if (searchText) {
                     return systemTablesFuse
-                        .search(searchTerm)
+                        .search(searchText)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return systemTables.map((table) => [table, null])
             },
         ],
         relevantDataWarehouseTables: [
-            (s) => [s.dataWarehouseTables, s.searchTerm],
+            (s) => [s.dataWarehouseTables, s.searchText],
             (
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-                searchTerm: string
+                searchText: string
             ): [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
+                if (searchText) {
                     return dataWarehouseTablesFuse
-                        .search(searchTerm)
+                        .search(searchText)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return dataWarehouseTables.map((table) => [table, null])
             },
         ],
         relevantSavedQueries: [
-            (s) => [s.effectiveDataWarehouseSavedQueries, s.searchTerm],
+            (s) => [s.effectiveDataWarehouseSavedQueries, s.searchText],
             (
-                dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-                searchTerm: string
-            ): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
+                dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
+                searchText: string
+            ): [DataWarehouseSavedQuerySummary, FuseSearchMatch[] | null][] => {
+                if (searchText) {
                     return savedQueriesFuse
-                        .search(searchTerm)
+                        .search(searchText)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return (dataWarehouseSavedQueries ?? []).map((query) => [query, null])
             },
         ],
         relevantSavedQueryFolders: [
-            (s) => [s.dataWarehouseSavedQueryFolders, s.searchTerm],
+            (s) => [s.dataWarehouseSavedQueryFolders, s.searchText],
             (
                 dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
-                searchTerm: string
+                searchText: string
             ): [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
+                if (searchText) {
                     return savedQueryFoldersFuse
-                        .search(searchTerm)
+                        .search(searchText)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return (dataWarehouseSavedQueryFolders ?? []).map((folder) => [folder, null])
@@ -2265,9 +3044,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         effectiveDataWarehouseSavedQueries: [
             (s) => [s.dataWarehouseSavedQueries, s.pendingViewFolderOverrides],
             (
-                dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+                dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
                 pendingViewFolderOverrides: Record<string, string | null>
-            ): DataWarehouseSavedQuery[] =>
+            ): DataWarehouseSavedQuerySummary[] =>
                 (dataWarehouseSavedQueries ?? []).map((savedQuery) =>
                     Object.prototype.hasOwnProperty.call(pendingViewFolderOverrides, savedQuery.id)
                         ? {
@@ -2278,54 +3057,75 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 ),
         ],
         relevantManagedViews: [
-            (s) => [s.managedViews, s.searchTerm],
+            (s) => [s.managedViews, s.searchText],
             (
                 managedViews: DatabaseSchemaManagedViewTable[],
-                searchTerm: string
+                searchText: string
             ): [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
+                if (searchText) {
                     return managedViewsFuse
-                        .search(searchTerm)
+                        .search(searchText)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return managedViews.map((view) => [view, null])
             },
         ],
         relevantDrafts: [
-            (s) => [s.drafts, s.searchTerm],
+            (s) => [s.drafts, s.searchText],
             (
                 drafts: DataWarehouseSavedQueryDraft[],
-                searchTerm: string
+                searchText: string
             ): [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
+                if (searchText) {
                     return draftsFuse
-                        .search(searchTerm)
+                        .search(searchText)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return drafts.map((draft) => [draft, null])
             },
         ],
         relevantEndpointTables: [
-            (s) => [s.latestEndpointTables, s.searchTerm],
+            (s) => [s.latestEndpointTables, s.searchText],
             (
                 latestEndpointTables: DatabaseSchemaEndpointTable[],
-                searchTerm: string
+                searchText: string
             ): [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
+                if (searchText) {
                     return endpointsFuse
-                        .search(searchTerm)
+                        .search(searchText)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return latestEndpointTables.map((table) => [table, null])
             },
         ],
-        selectedDirectSource: [
-            (s) => [s.dataWarehouseSources, s.connectionId],
+        hogqlMetrics: [
+            (s) => [s.allMetrics],
+            (allMetrics: DataCatalogMetricApi[]): DataCatalogMetricApi[] =>
+                allMetrics
+                    .filter((metric) => metric.definition_kind === HOGQL_METRIC_DEFINITION_KIND)
+                    .sort((a, b) => a.name.localeCompare(b.name)),
+        ],
+        relevantMetrics: [
+            (s) => [s.hogqlMetrics, s.searchText],
             (
-                dataWarehouseSources: null | import('lib/api').PaginatedResponse<import('~/types').ExternalDataSource>,
+                hogqlMetrics: DataCatalogMetricApi[],
+                searchText: string
+            ): [DataCatalogMetricApi, FuseSearchMatch[] | null][] => {
+                if (searchText) {
+                    return createFuse<DataCatalogMetricApi>(hogqlMetrics, FUSE_OPTIONS)
+                        .search(searchText)
+                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                }
+                return hogqlMetrics.map((metric) => [metric, null])
+            },
+        ],
+        selectedDirectSource: [
+            (s) => [s.connectionOptions, s.connectionId],
+            (
+                connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
                 connectionId: string | null
-            ): { job_inputs?: Record<string, any> } | undefined => {
-                return dataWarehouseSources?.results.find((source) => source.id === connectionId)
+            ): ExternalDataSourceConnectionOptionApi | undefined => {
+                return connectionOptions?.find((source) => source.id === connectionId)
             },
         ],
         searchTreeSourceContext: [
@@ -2342,7 +3142,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 allPosthogTables: DatabaseSchemaTable[],
                 systemTables: DatabaseSchemaTable[],
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-                dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+                dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
                 dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
                 managedViews: DatabaseSchemaManagedViewTable[],
                 allTablesMap: Record<string, DatabaseSchemaTable>
@@ -2366,16 +3166,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.relevantManagedViews,
                 s.relevantDrafts,
                 s.relevantEndpointTables,
+                s.relevantMetrics,
             ],
             (
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
-                relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
+                relevantSavedQueries: [DataWarehouseSavedQuerySummary, FuseSearchMatch[] | null][],
                 relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
                 relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
-                relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+                relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][],
+                relevantMetrics: [DataCatalogMetricApi, FuseSearchMatch[] | null][]
             ): SearchTreeMatches => ({
                 relevantPosthogTables,
                 relevantSystemTables,
@@ -2385,26 +3187,29 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 relevantManagedViews,
                 relevantDrafts,
                 relevantEndpointTables,
+                relevantMetrics,
             }),
         ],
         searchTreeData: [
             (s) => [
                 s.searchTreeSourceContext,
                 s.searchTreeMatches,
-                s.searchTerm,
+                s.searchText,
                 s.featureFlags,
                 s.expandedSearchFolders,
                 s.materializingViewIds,
+                s.propertyDefinitionLists,
             ],
             (
                 searchTreeSourceContext: SearchTreeSourceContext,
                 searchTreeMatches: SearchTreeMatches,
-                searchTerm: string,
+                searchText: string,
                 featureFlags: FeatureFlagsSet,
                 expandedSearchFolders: string[],
-                materializingViewIds: string[]
+                materializingViewIds: string[],
+                propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
             ): TreeDataItem[] => {
-                if (!searchTerm) {
+                if (!searchText) {
                     return []
                 }
 
@@ -2426,6 +3231,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     relevantManagedViews,
                     relevantDrafts,
                     relevantEndpointTables,
+                    relevantMetrics,
                 } = searchTreeMatches
 
                 const tableLookup = createTableLookup({
@@ -2439,21 +3245,28 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const expandedLazyNodeIds = new Set(expandedSearchFolders.filter(isLazyNodeId))
                 const sourcesChildren: TreeDataItem[] = []
                 const expandedIds: string[] = []
-                const tableNodeOptions = { expandedLazyNodeIds }
+                const tableNodeOptions: FieldTraversalOptions = {
+                    expandedLazyNodeIds,
+                    propertyDefinitionLists,
+                    loadPropertyDefinitions: actions.loadPropertyDefinitions,
+                }
 
-                // Add PostHog tables
-                if (relevantPosthogTables.length > 0) {
-                    expandedIds.push('search-posthog')
-                    sourcesChildren.push(
-                        createSourceFolderNode(
-                            'PostHog',
+                for (const category of ['Popular', 'PostHog']) {
+                    const matches = relevantPosthogTables.filter(([table]) =>
+                        category === 'PostHog' ? table.name.startsWith('posthog.') : !table.name.startsWith('posthog.')
+                    )
+                    if (matches.length > 0) {
+                        const folder = createSourceFolderNode(
+                            category,
                             [],
-                            relevantPosthogTables,
+                            matches,
                             true,
                             tableLookup,
                             tableNodeOptions
                         )
-                    )
+                        expandedIds.push(folder.id)
+                        sourcesChildren.push(folder)
+                    }
                 }
 
                 // Add System tables
@@ -2561,6 +3374,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('views', viewsChildren, true))
                 }
 
+                const metricsChildren = relevantMetrics.map(([metric, matches]) =>
+                    createMetricNode(metric, matches, true)
+                )
+                if (metricsChildren.length > 0) {
+                    expandedIds.push('search-metrics')
+                    searchResults.push(createTopLevelFolderNode('metrics', metricsChildren, true))
+                }
+
                 if (managedViewsChildren.length > 0 && !featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]) {
                     expandedIds.push('search-managed-views')
                     searchResults.push(createTopLevelFolderNode('managed-views', managedViewsChildren, true))
@@ -2577,8 +3398,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const expandedIdSet = new Set(expandedSearchFolders)
                 const missingRequiredExpansion = expandedIds.some((id) => !expandedIdSet.has(id))
 
-                if (missingRequiredExpansion && cache.lastAutoExpandedSearchTerm !== searchTerm) {
-                    cache.lastAutoExpandedSearchTerm = searchTerm
+                if (missingRequiredExpansion && cache.lastAutoExpandedSearchTerm !== searchText) {
+                    cache.lastAutoExpandedSearchTerm = searchText
                     // Auto-expand only parent folders, not the matching nodes themselves.
                     setTimeout(() => {
                         actions.setExpandedSearchFolders(
@@ -2593,13 +3414,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         treeDataContext: [
             (s) => [
                 s.allPosthogTables,
-                s.posthogTables,
+                s.sidebarPosthogTables,
                 s.systemTables,
                 s.dataWarehouseTables,
                 s.effectiveDataWarehouseSavedQueries,
                 s.dataWarehouseSavedQueryFolders,
                 s.managedViews,
                 s.latestEndpointTables,
+                s.hogqlMetrics,
                 s.allTablesMap,
             ],
             (
@@ -2607,10 +3429,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 posthogTables: DatabaseSchemaTable[],
                 systemTables: DatabaseSchemaTable[],
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
-                dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+                dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
                 dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
                 managedViews: DatabaseSchemaManagedViewTable[],
                 latestEndpointTables: DatabaseSchemaEndpointTable[],
+                hogqlMetrics: DataCatalogMetricApi[],
                 allTablesMap: Record<string, DatabaseSchemaTable>
             ): TreeDataContext => ({
                 allPosthogTables,
@@ -2621,6 +3444,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseSavedQueryFolders,
                 managedViews,
                 latestEndpointTables,
+                hogqlMetrics,
                 allTablesMap,
             }),
         ],
@@ -2637,6 +3461,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.queryTabState,
                 s.expandedFolders,
                 s.materializingViewIds,
+                s.propertyDefinitionLists,
+                s.databaseFieldsComplete,
+                s.tableFieldsStatus,
+                s.metricsLoadFailed,
             ],
             (
                 treeDataContext: TreeDataContext,
@@ -2649,7 +3477,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 featureFlags: FeatureFlagsSet,
                 queryTabState: QueryTabState | null,
                 expandedFolders: string[],
-                materializingViewIds: string[]
+                materializingViewIds: string[],
+                propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
+                databaseFieldsComplete: boolean,
+                tableFieldsStatus: TableFieldsStatus,
+                metricsLoadFailed: boolean
             ): TreeDataItem[] => {
                 const {
                     allPosthogTables,
@@ -2660,6 +3492,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     dataWarehouseSavedQueryFolders,
                     managedViews,
                     latestEndpointTables,
+                    hogqlMetrics,
                     allTablesMap,
                 } = treeDataContext
                 const sourcesChildren: TreeDataItem[] = []
@@ -2672,7 +3505,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     savedQuerySchemaTables: allTablesMap,
                 })
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
-                const tableNodeOptions = { expandedLazyNodeIds }
+                const hydration: TableFieldsHydration = { databaseFieldsComplete, tableFieldsStatus }
+                const tableNodeOptions: FieldTraversalOptions = {
+                    expandedLazyNodeIds,
+                    propertyDefinitionLists,
+                    loadPropertyDefinitions: actions.loadPropertyDefinitions,
+                    hydration,
+                }
                 const schemaFailedWithNoTables =
                     !!databaseLoadError && !databaseLoading && Object.keys(allTablesMap).length === 0
 
@@ -2688,11 +3527,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         type: 'loading-indicator',
                     })
                 } else {
-                    // Add PostHog tables
-                    if (posthogTables.length > 0) {
-                        sourcesChildren.push(
-                            createSourceFolderNode('PostHog', posthogTables, [], false, tableLookup, tableNodeOptions)
+                    for (const category of ['Popular', 'PostHog']) {
+                        const tables = posthogTables.filter((table) =>
+                            category === 'PostHog'
+                                ? table.name.startsWith('posthog.')
+                                : !table.name.startsWith('posthog.')
                         )
+                        if (tables.length > 0) {
+                            sourcesChildren.push(
+                                createSourceFolderNode(category, tables, [], false, tableLookup, tableNodeOptions)
+                            )
+                        }
                     }
 
                     // Add System tables
@@ -2828,6 +3673,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     }
                 }
 
+                const metricsChildren = metricsLoadFailed
+                    ? createLoadErrorNodes('metrics', "Couldn't load metrics", () => actions.loadMetrics())
+                    : hogqlMetrics.map((metric) => createMetricNode(metric))
+
                 const draftsChildren: TreeDataItem[] = []
 
                 if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
@@ -2888,6 +3737,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                           ]
                         : []),
                     createTopLevelFolderNode('views', viewsChildren),
+                    ...(metricsChildren.length > 0 ? [createTopLevelFolderNode('metrics', metricsChildren)] : []),
                     ...(featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
                         ? []
                         : [createTopLevelFolderNode('managed-views', managedViewsChildren)]),
@@ -2896,7 +3746,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
         displayedTreeData: [
             (s) => [
-                s.searchTerm,
+                s.searchText,
                 s.searchTreeData,
                 s.treeData,
                 s.connectionId,
@@ -2904,30 +3754,32 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.databaseLoading,
                 s.databaseLoadError,
                 s.allTablesMap,
+                s.materializationStatusFilters,
             ],
             (
-                searchTerm: string,
+                searchText: string,
                 searchTreeData: TreeDataItem[],
                 treeData: TreeDataItem[],
                 connectionId: string | null,
-                selectedDirectSource: { job_inputs?: Record<string, any> } | undefined,
+                selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined,
                 databaseLoading: boolean,
                 databaseLoadError: string | null,
-                allTablesMap: Record<string, DatabaseSchemaTable>
+                allTablesMap: Record<string, DatabaseSchemaTable>,
+                materializationStatusFilters: MaterializationStatusFilter[]
             ): TreeDataItem[] => {
-                const sourceData = searchTerm ? searchTreeData : treeData
+                const sourceData = searchText ? searchTreeData : treeData
 
                 if (!shouldUseDirectConnectionTree(connectionId)) {
-                    return sourceData
+                    return filterMaterializedViewsByStatus(
+                        withoutRawTrinoViews(sourceData),
+                        materializationStatusFilters
+                    )
                 }
 
                 const flattenedTables: TreeDataItem[] = []
                 const flattenedViews: TreeDataItem[] = []
-                const additionalItems: TreeDataItem[] = []
                 const defaultSchemaName =
-                    typeof selectedDirectSource?.job_inputs?.schema === 'string'
-                        ? selectedDirectSource.job_inputs.schema
-                        : null
+                    typeof selectedDirectSource?.schema_name === 'string' ? selectedDirectSource.schema_name : null
 
                 sourceData.forEach((item) => {
                     if (item.record?.type === 'sources') {
@@ -2946,34 +3798,24 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     if (item.record?.type === 'views') {
                         // In direct-connection mode, hide saved-query and managed view sections,
                         // and only keep DB-backed view nodes if they are present in schema.
-                        flattenViewNodes(item.children ?? [], flattenedViews)
+                        flattenViewNodes(
+                            item.children ?? [],
+                            flattenedViews,
+                            connectionId === MANAGED_TRINO_SCHEMA_SCOPE
+                        )
                         return
                     }
 
                     if (item.record?.type === 'managed-views') {
                         return
                     }
-
-                    additionalItems.push(item)
                 })
 
-                const hasLoadedTables = Object.keys(allTablesMap).length > 0
-                if (!databaseLoading && databaseLoadError) {
-                    return [
-                        ...createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema()),
-                        ...additionalItems,
-                    ]
-                }
-                if (!databaseLoading && !hasLoadedTables) {
-                    return [...createDirectConnectionEmptyNodes(connectionId), ...additionalItems]
-                }
-
-                return [
-                    ...groupDirectConnectionTableNodesBySchema(flattenedTables, !!searchTerm, defaultSchemaName),
-                    ...(flattenedViews.length > 0
+                const viewsSection: TreeDataItem[] =
+                    flattenedViews.length > 0
                         ? [
                               {
-                                  id: searchTerm ? 'search-views' : 'views',
+                                  id: searchText ? 'search-views' : 'views',
                                   name: 'Views',
                                   type: 'node' as const,
                                   icon: <IconDatabase />,
@@ -2981,15 +3823,51 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                                   children: flattenedViews,
                               },
                           ]
-                        : []),
-                    ...additionalItems,
+                        : []
+
+                // Saved Trino views come from the saved-query list, so they stay reachable when the schema fails.
+                // Views from the schema itself may be stale after a failed refresh, so they are not shown.
+                const savedTrinoViews = flattenedViews.filter(isRawTrinoViewNode)
+                const hasLoadedTables = Object.keys(allTablesMap).length > 0
+                if (!databaseLoading && databaseLoadError) {
+                    return [
+                        ...createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema()),
+                        ...(savedTrinoViews.length > 0 ? [{ ...viewsSection[0], children: savedTrinoViews }] : []),
+                    ]
+                }
+                if (!databaseLoading && !hasLoadedTables) {
+                    const emptyNodes = createDirectConnectionEmptyNodes(connectionId)
+                    return connectionId === MANAGED_TRINO_SCHEMA_SCOPE
+                        ? [...emptyNodes.slice(0, 1), ...viewsSection]
+                        : emptyNodes
+                }
+
+                return [
+                    ...groupDirectConnectionTableNodesBySchema(flattenedTables, !!searchText, defaultSchemaName),
+                    ...viewsSection,
                 ]
             },
         ],
+        visibleTreeData: [
+            (s) => [s.displayedTreeData, s.searchText, s.shownTableFoldersByConnection, s.connectionId],
+            (
+                displayedTreeData: TreeDataItem[],
+                searchText: string,
+                shownTableFoldersByConnection: Record<string, string[]>,
+                connectionId: string | null
+            ): TreeDataItem[] =>
+                searchText
+                    ? displayedTreeData
+                    : limitTableTreeCategories(
+                          displayedTreeData,
+                          shownTableFoldersByConnection[getExpandedFoldersConnectionKey(connectionId)] ?? [],
+                          (folderId) => actions.showAllTables(folderId, connectionId)
+                      ),
+        ],
         activeExpandedFolderIds: [
-            (s) => [s.searchTerm, s.expandedSearchFolders, s.expandedFolders],
-            (searchTerm: string, expandedSearchFolders: string[], expandedFolders: string[]): string[] => {
-                return searchTerm ? expandedSearchFolders : expandedFolders
+            (s) => [s.searchText, s.expandedSearchFolders, s.expandedFolders],
+            (searchText: string, expandedSearchFolders: string[], expandedFolders: string[]): string[] => {
+                return searchText ? expandedSearchFolders : expandedFolders
             },
         ],
         expandedFolders: [
@@ -3030,37 +3908,44 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         sidebarOverlayTreeItems: [
             (s) => [
                 s.selectedSchema,
-                s.posthogTablesMap,
                 s.systemTablesMap,
                 s.dataWarehouseTablesMap,
                 s.dataWarehouseSavedQueryMapById,
                 s.viewsMapById,
                 s.joinsByFieldName,
+                s.allTablesMap,
             ],
             (
-                selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
-                posthogTablesMap: Record<string, DatabaseSchemaTable>,
+                selectedSchema:
+                    | DatabaseSchemaDataWarehouseTable
+                    | DatabaseSchemaTable
+                    | DataWarehouseSavedQuerySummary
+                    | null,
                 systemTablesMap: Record<string, DatabaseSchemaTable>,
                 dataWarehouseTablesMap: Record<
                     string,
                     DatabaseSchemaDataWarehouseTable | import('~/queries/schema/schema-general').DatabaseSchemaViewTable
                 >,
-                dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>,
+                dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuerySummary>,
                 viewsMapById: Record<
                     string,
                     | DatabaseSchemaEndpointTable
                     | DatabaseSchemaManagedViewTable
                     | import('~/queries/schema/schema-general').DatabaseSchemaViewTable
                 >,
-                joinsByFieldName: Record<string, DataWarehouseViewLink>
+                joinsByFieldName: Record<string, DataWarehouseViewLink>,
+                allTablesMap: Record<string, DatabaseSchemaTable>
             ): TreeItem[] => {
                 if (selectedSchema === null) {
                     return []
                 }
-                let table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null =
-                    null
+                let table:
+                    | DatabaseSchemaDataWarehouseTable
+                    | DatabaseSchemaTable
+                    | DataWarehouseSavedQuerySummary
+                    | null = null
                 if (isPostHogTable(selectedSchema)) {
-                    table = posthogTablesMap[selectedSchema.name]
+                    table = allTablesMap[selectedSchema.id]
                 } else if (isSystemTable(selectedSchema)) {
                     table = systemTablesMap[selectedSchema.name]
                 } else if (isDataWarehouseTable(selectedSchema)) {
@@ -3068,7 +3953,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else if (isManagedViewTable(selectedSchema)) {
                     table = viewsMapById[selectedSchema.id]
                 } else if (isViewTable(selectedSchema)) {
-                    table = dataWarehouseSavedQueryMapById[selectedSchema.id]
+                    table =
+                        getSavedQuerySchemaTable(selectedSchema, allTablesMap) ??
+                        dataWarehouseSavedQueryMapById[selectedSchema.id]
                 }
 
                 if (table == null) {
@@ -3106,25 +3993,27 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         }))
                 }
 
-                if ('columns' in table && table !== null) {
-                    return sortFieldsWithPrimary(table.name, Object.values(table.columns))
-                        .filter((column) => !shouldHideField(column))
-                        .map((column) => ({
-                            name: column.name,
-                            type: column.type,
-                            menuItems: menuItems(column, table?.name ?? ''), // table cant be null, but the typechecker is confused
-                        }))
-                }
                 return []
             },
         ],
     })),
     listeners(({ actions, values }) => ({
         toggleFolderOpen: ({ folderId, isExpanded }) => {
-            const expandedFolders = values.searchTerm ? values.expandedSearchFolders : values.expandedFolders
+            const expandedFolders = values.searchText ? values.expandedSearchFolders : values.expandedFolders
+
+            if (!isExpanded) {
+                const request = getUnloadedPropertyDefinitionRequest(
+                    values.displayedTreeData,
+                    folderId,
+                    values.propertyDefinitionLists
+                )
+                if (request) {
+                    actions.loadPropertyDefinitions(request.propertyFieldKey, request.target, 0)
+                }
+            }
 
             if (isExpanded) {
-                if (values.searchTerm) {
+                if (values.searchText) {
                     actions.setExpandedSearchFolders(expandedFolders.filter((f) => f !== folderId))
                 } else {
                     actions.setExpandedFolders(
@@ -3133,11 +4022,36 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     )
                 }
             } else {
-                if (values.searchTerm) {
+                if (values.searchText) {
                     actions.setExpandedSearchFolders([...expandedFolders, folderId])
                 } else {
                     actions.setExpandedFolders([...expandedFolders, folderId], values.connectionId)
                 }
+                // With a lazy-loaded schema, expanding a node is what triggers fetching its columns.
+                // Going through the tree node (rather than parsing the id) also retries failed loads.
+                const node = findTreeItemById(values.displayedTreeData, folderId)
+                if (node) {
+                    const tableNames = getHydrationTableNamesForNode(node)
+                    if (tableNames.length > 0) {
+                        actions.hydrateTableFields(tableNames)
+                    }
+                }
+            }
+        },
+        selectSchema: ({ schema }) => {
+            // The sidebar overlay lists the selected table's columns, so make sure they're loaded.
+            if (schema && 'name' in schema && schema.name) {
+                actions.hydrateTableFields([isPostHogTable(schema) ? schema.id : schema.name])
+            }
+        },
+        setSearchTerm: ({ searchTerm }) => {
+            // Search matches on column names too, which a lazy-loaded schema doesn't have yet.
+            if (
+                shouldUseDirectConnectionTree(values.connectionId)
+                    ? Boolean(searchTerm.trim())
+                    : databaseSearchNeedsFieldHydration(searchTerm)
+            ) {
+                actions.ensureAllTableFields()
             }
         },
         selectSourceTable: ({ tableName }) => {
@@ -3157,7 +4071,40 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     })),
     subscriptions(({ actions, values }) => ({
         displayedTreeData: (displayedTreeData: TreeDataItem[]) => {
-            if (values.searchTerm || !shouldUseDirectConnectionTree(values.connectionId)) {
+            for (const folderId of values.expandedItemIds) {
+                const request = getUnloadedPropertyDefinitionRequest(
+                    displayedTreeData,
+                    folderId,
+                    values.propertyDefinitionLists
+                )
+                if (request) {
+                    actions.loadPropertyDefinitions(request.propertyFieldKey, request.target, 0)
+                }
+            }
+
+            // Hydrate fields for every visible "Loading..." placeholder. Covers expansion restored from
+            // persisted state and nodes that were expanded before the shallow schema arrived; the
+            // hydrate action itself dedupes tables that are already loading or settled.
+            const expanded = new Set(values.searchText ? values.expandedSearchFolders : values.expandedFolders)
+            const pendingTableNames = new Set<string>()
+            const collect = (nodes: TreeDataItem[]): void => {
+                for (const node of nodes) {
+                    const record = node.record as Record<string, any> | undefined
+                    if (record?.type === 'pending-fields' && record.pendingTableName) {
+                        pendingTableNames.add(record.pendingTableName)
+                        continue
+                    }
+                    if (node.children && expanded.has(node.id)) {
+                        collect(node.children)
+                    }
+                }
+            }
+            collect(displayedTreeData)
+            if (pendingTableNames.size > 0) {
+                actions.hydrateTableFields(Array.from(pendingTableNames))
+            }
+
+            if (values.searchText || !shouldUseDirectConnectionTree(values.connectionId)) {
                 return
             }
 
@@ -3173,7 +4120,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 values.connectionId
             )
         },
-        posthogTables: (posthogTables: DatabaseSchemaTable[]) => {
+        sidebarPosthogTables: (posthogTables: DatabaseSchemaTable[]) => {
             posthogTablesFuse.setCollection(posthogTables)
         },
         systemTables: (systemTables: DatabaseSchemaTable[]) => {
@@ -3182,7 +4129,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         dataWarehouseTables: (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]) => {
             dataWarehouseTablesFuse.setCollection(dataWarehouseTables)
         },
-        dataWarehouseSavedQueries: (dataWarehouseSavedQueries: DataWarehouseSavedQuery[]) => {
+        dataWarehouseSavedQueries: (dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]) => {
             savedQueriesFuse.setCollection(dataWarehouseSavedQueries)
         },
         dataWarehouseSavedQueryFolders: (dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]) => {

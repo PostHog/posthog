@@ -113,7 +113,10 @@ export function PullRequestTable({
                               <Link
                                   to={
                                       combineUrl(
-                                          urls.engineeringAnalyticsAuthor(row.authorHandle),
+                                          urls.engineeringAnalyticsAuthor(
+                                              row.authorHandle,
+                                              `${row.repoOwner}/${row.repoName}`
+                                          ),
                                           sourceId ? { source: sourceId } : {}
                                       ).url
                                   }
@@ -166,7 +169,7 @@ export function PullRequestTable({
             width: 130,
             align: 'right',
             tooltip:
-                'Billable minutes + estimated cost across this PR’s jobs (self-hosted runners) over its full history — not the selected window. Excludes still-running jobs, so it can rise as they settle. "—" when the job-level source isn’t synced.',
+                'Billable minutes + estimated cost across this PR’s jobs (self-hosted runners) over its full history, not the selected window. Excludes still-running jobs, so it can rise as they settle. No figure appears when the job-level source isn’t synced.',
             sorter: (a, b) => (a.estimatedCostUsd ?? -1) - (b.estimatedCostUsd ?? -1),
             render: (_, row) => <BillableBadge minutes={row.billableMinutes} costUsd={row.estimatedCostUsd} />,
         },

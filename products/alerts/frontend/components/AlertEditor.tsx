@@ -74,6 +74,7 @@ export interface AlertEditorActionsProps {
     trailingActions?: ReactNode
     onSubmitAttempted?: () => void
     showNoChangesLabel?: boolean
+    noChangesReason?: string
 }
 
 export function AlertEditorActions({
@@ -85,9 +86,10 @@ export function AlertEditorActions({
     trailingActions,
     onSubmitAttempted,
     showNoChangesLabel = false,
+    noChangesReason = 'No changes to save',
 }: AlertEditorActionsProps): JSX.Element {
     const hasUnsavedChanges = hasChanges || hasPendingChanges
-    const disabledReason = isEditing && !hasUnsavedChanges ? 'No changes to save' : undefined
+    const disabledReason = isEditing && !hasUnsavedChanges ? noChangesReason : undefined
     let buttonLabel = 'Create alert'
     if (isEditing) {
         buttonLabel = showNoChangesLabel && !hasUnsavedChanges ? 'No changes' : 'Save'
@@ -160,7 +162,11 @@ export function AlertEditorFormDetails({
         <div className="space-y-2">
             <div className="flex gap-4 items-center">
                 <LemonField className="flex-auto" name="name">
-                    <LemonInput placeholder="Alert name" data-attr={nameDataAttr} />
+                    <LemonInput
+                        placeholder="Alert name"
+                        data-attr={nameDataAttr}
+                        status={nameError ? 'danger' : undefined}
+                    />
                 </LemonField>
                 {enabled ? (
                     <LemonField name="enabled">

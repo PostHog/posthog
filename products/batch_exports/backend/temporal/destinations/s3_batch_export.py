@@ -3,6 +3,7 @@ import typing
 import asyncio
 import secrets
 import datetime as dt
+import functools
 import contextlib
 import dataclasses
 import collections.abc
@@ -11,6 +12,8 @@ import pyarrow as pa
 import aioboto3
 import botocore.exceptions
 from aiobotocore.config import AioConfig
+from aiobotocore.credentials import AioRefreshableCredentials
+from aiobotocore.session import get_session
 from opentelemetry import trace
 
 if typing.TYPE_CHECKING:
@@ -23,24 +26,29 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
+from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
 from posthog.models.integration import (
-    AwsS3Integration,
-    AwsS3RoleBasedIntegration,
-    Integration,
+    AWSS3Integration,
+    AWSS3RoleBasedIntegration,
+    IntegrationError,
     S3CompatibleIntegration,
-    S3CredentialIntegrationError,
 )
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.service import (
     AWSCredentials,
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
+    BatchExportModelInput,
     S3BatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -49,14 +57,13 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.destinations.constants import (
-    S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
-)
+from products.batch_exports.backend.temporal.destinations.constants import FILE_FORMAT_EXTENSIONS
 from products.batch_exports.backend.temporal.destinations.utils import (
     get_absolute_key_prefix,
     get_manifest_key,
     get_object_key,
 )
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.metrics import Attributes, CumulativeTimer, ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -69,7 +76,9 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = (
+# Errors that any write to S3 can raise, whichever bucket it targets. The file download
+# export shares these, since it runs the same write against a PostHog-owned bucket.
+S3_WRITE_NON_RETRYABLE_ERROR_TYPES = (
     # S3 parameter validation failed.
     "ParamValidationError",
     # This error usually indicates credentials are incorrect or permissions are missing.
@@ -90,29 +99,41 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UnsupportedCompressionError",
     # Invalid S3 credentials
     "InvalidCredentialsError",
+)
+
+# Only a customer's S3 export authenticates through an Integration, so only it can fail this way.
+NON_RETRYABLE_ERROR_TYPES = (
+    *S3_WRITE_NON_RETRYABLE_ERROR_TYPES,
+    # The export has no linked Integration to authenticate with
+    "MissingIntegrationError",
     # The linked Integration was deleted or doesn't belong to the team
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
-    "S3CredentialIntegrationError",
+    "IntegrationError",
+    # This environment has no external role configured to assume a customer's role with
+    "ExternalRoleArnNotConfiguredError",
 )
-
-FILE_FORMAT_EXTENSIONS = {
-    "Parquet": "parquet",
-    "JSONLines": "jsonl",
-}
-
-COMPRESSION_EXTENSIONS = {
-    "gzip": "gz",
-    "snappy": "sz",
-    "brotli": "br",
-    "zstd": "zst",
-    "lz4": "lz4",
-}
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 TRACER = trace.get_tracer(__name__)
 SESSION = aioboto3.Session()
+
+RefreshCoroutine = typing.Callable[[], typing.Awaitable[AWSCredentials]]
+
+
+@frozen
+class ResolvedS3Credentials:
+    """Everything a write needs to reach and authenticate against its target S3 endpoint.
+
+    Resolved before the write starts, as each caller obtains credentials differently. Only an
+    S3-compatible provider needs an `endpoint_url`; AWS and PostHog's own bucket use the default.
+    `refresh_using` mints new credentials when temporary ones expire during a long upload.
+    """
+
+    credentials: AWSCredentials
+    endpoint_url: str | None = None
+    refresh_using: RefreshCoroutine | None = None
 
 
 class UnsupportedFileFormatError(Exception):
@@ -136,72 +157,84 @@ class S3IntegrationNotFoundError(Exception):
         super().__init__(f"S3 integration with ID '{integration_id}' not found for team '{team_id}'")
 
 
+class MissingIntegrationError(Exception):
+    """Raised when an S3-family export has no Integration to authenticate with."""
+
+    def __init__(self, batch_export_id: str | None):
+        super().__init__(
+            f"S3 batch export '{batch_export_id}' has no integration. "
+            "Link an AWS S3 or S3-compatible integration to it to resume exporting."
+        )
+
+
 async def _get_s3_integration(
     integration_id: int, team_id: int
-) -> AwsS3RoleBasedIntegration | AwsS3Integration | S3CompatibleIntegration:
+) -> AWSS3RoleBasedIntegration | AWSS3Integration | S3CompatibleIntegration:
     """Fetch an S3-family integration from the database.
 
     The kind is validated on create by the batch export serializer, so the wrong-kind branch is
     purely defensive against an integration whose kind was changed out from under the export.
-    `AwsS3Integration`/`S3CompatibleIntegration` themselves raise `S3CredentialIntegrationError` if
+    `AWSS3Integration`/`S3CompatibleIntegration` themselves raise `IntegrationError` if
     the credentials are malformed.
     """
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.any.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise S3IntegrationNotFoundError(integration_id, team_id)
 
-    if integration.kind == Integration.IntegrationKind.AWS_S3:
+    if integration.kind == IntegrationKind.AWS_S3:
         if "aws_role_arn" in integration.config:
-            return AwsS3RoleBasedIntegration(integration)
-        return AwsS3Integration(integration)
+            return AWSS3RoleBasedIntegration(integration)
+        return AWSS3Integration(integration)
 
-    if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
+    if integration.kind == IntegrationKind.S3_COMPATIBLE:
         return S3CompatibleIntegration(integration)
 
-    raise S3CredentialIntegrationError(
+    raise IntegrationError(
         f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
         f"(kind='{integration.kind}')"
     )
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
-    """Inputs for S3 exports."""
+    """Inputs for S3 exports.
 
-    # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
-    # to keep track of where credentials are being stored and increases the
-    # attach surface for credential leaks.
+    No credentials are carried here. An export resolves them from the Integration named by
+    `integration_id`.
+    """
 
     bucket_name: str
     region: str
     prefix: str
-    # When set, credentials (and endpoint_url for S3-compatible) are resolved from this Integration
-    # at run time; otherwise the inline credentials below are used (legacy path).
+    # Optional only so payloads written before it still deserialize. The activity fails without
+    # retrying when it has no integration to authenticate with.
+    # TODO: maybe we can make this required in future?
     integration_id: int | None = None
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-    aws_session_token: str | None = None
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    endpoint_url: str | None = None
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     use_virtual_style_addressing: bool = False
+    # Defaults to the legacy naming: an activity input recorded before this field existed has no
+    # value for it, so the missing field uses this default and the export keeps its existing names.
+    legacy_parquet_extension: bool = True
 
 
-def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
+def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0, file_name_prefix: str | None = None) -> str:
     return get_object_key(
         prefix=inputs.prefix,
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         batch_export_model=inputs.batch_export_model,
-        file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
-        compression_extension=COMPRESSION_EXTENSIONS[inputs.compression] if inputs.compression is not None else None,
+        file_format=inputs.file_format,
+        compression=inputs.compression,
+        legacy_parquet_extension=inputs.legacy_parquet_extension,
         file_number=file_number,
         include_file_number=bool(inputs.max_file_size_mb),
+        file_name_prefix=file_name_prefix,
     )
 
 
@@ -252,13 +285,25 @@ class InvalidCredentialsError(Exception):
         super().__init__(message)
 
 
+class ExternalRoleArnNotConfiguredError(Exception):
+    """Raised when this environment has no role of ours to assume a customer's role with.
+
+    Role-based AWS access always goes through our own external role first. Without it every
+    attempt fails identically, regardless of how the customer's own role ARN is set up, so
+    retrying never helps.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Role-based AWS access is not available: BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set.")
+
+
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
     Starting from the common default fields, we add and tweak some fields for
     backwards compatibility.
     """
-    batch_export_fields = default_fields()
+    batch_export_fields = [field for field in default_fields() if field["alias"] != "person_id"]
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
     batch_export_fields.append({"expression": "person_id", "alias": "person_id"})
 
@@ -272,11 +317,11 @@ def s3_default_fields() -> list[BatchExportField]:
 class S3BatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into S3 or any S3-compatible bucket.
 
-    This Workflow is shared across every S3-family destination — `AwsS3`, `S3Compatible`,
-    and the legacy `S3` alias. The API surface validates per-destination input dataclasses
-    (`AwsS3BatchExportInputs`, `S3CompatibleBatchExportInputs`); Temporal's data converter
-    serializes them to JSON, and on deserialization fields not present on the narrower
-    input class fall through to their `S3BatchExportInputs` defaults.
+    This Workflow is shared by the `AwsS3` and `S3Compatible` destinations. The API surface
+    validates per-destination input dataclasses (`AwsS3BatchExportInputs`,
+    `S3CompatibleBatchExportInputs`); Temporal's data converter serializes them to JSON, and on
+    deserialization fields not present on the narrower input class fall through to their
+    `S3BatchExportInputs` defaults.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.
     When ran by a schedule, `data_interval_end` should be set to `None` so that we will fetch the
@@ -329,9 +374,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             prefix=inputs.prefix,
             team_id=inputs.team_id,
             integration_id=inputs.integration_id,
-            aws_access_key_id=inputs.aws_access_key_id,
-            aws_secret_access_key=inputs.aws_secret_access_key,
-            endpoint_url=inputs.endpoint_url or None,
             data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval.end.isoformat(),
             compression=inputs.compression,
@@ -346,8 +388,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
-            # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
+            legacy_parquet_extension=inputs.legacy_parquet_extension,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=s3_default_fields(),
         )
@@ -368,7 +409,7 @@ class S3BatchExportResult(BatchExportResult):
 class PolicyStatement(typing.TypedDict):
     Effect: typing.Literal["Allow", "Deny"]
     Action: list[str]
-    Resource: str
+    Resource: list[str] | str
 
 
 async def get_credentials_using_user_aws_role(
@@ -402,11 +443,17 @@ async def get_credentials_using_user_aws_role(
             roles and/or policies may not be immediately available.
         delay: Initial delay in between connection attempts.
     """
+    external_role_arn = await asyncio.to_thread(
+        get_or_settings, "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.BATCH_EXPORTS
+    )
+    if not external_role_arn:
+        raise ExternalRoleArnNotConfiguredError()
+
     for attempt in range(1, max_attempts + 1):
         try:
             async with SESSION.client("sts") as sts:
                 first_response = await sts.assume_role(
-                    RoleArn=settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN,
+                    RoleArn=external_role_arn,
                     RoleSessionName=session_name,
                     # Hard limit of 1h imposed by AWS
                     # TODO: Support refreshable credentials so we can support batch
@@ -488,23 +535,66 @@ async def get_credentials_using_user_aws_role(
         aws_access_key_id=second_response["Credentials"]["AccessKeyId"],
         aws_secret_access_key=second_response["Credentials"]["SecretAccessKey"],
         aws_session_token=second_response["Credentials"]["SessionToken"],
+        expiration=second_response["Credentials"]["Expiration"],
     )
+
+
+def make_refresh_credentials_as_metadata(
+    refresh_using: RefreshCoroutine,
+) -> typing.Callable[[], typing.Awaitable[dict[str, str]]]:
+    async def _refresh():
+        creds = await refresh_using()
+
+        assert creds.aws_session_token
+        assert creds.expiry_time
+
+        return {
+            "access_key": creds.aws_access_key_id,
+            "secret_key": creds.aws_secret_access_key,
+            "token": creds.aws_session_token,
+            "expiry_time": creds.expiry_time,
+        }
+
+    return _refresh
+
+
+def get_refreshable_session(credentials: AWSCredentials, refresh_using: RefreshCoroutine) -> aioboto3.Session:
+    wrapped = make_refresh_credentials_as_metadata(refresh_using)
+
+    assert credentials.aws_session_token
+    assert credentials.expiration
+
+    refreshable_credentials = AioRefreshableCredentials(
+        access_key=credentials.aws_access_key_id,
+        secret_key=credentials.aws_secret_access_key,
+        token=credentials.aws_session_token,
+        expiry_time=credentials.expiration,
+        refresh_using=wrapped,
+        method="sts-assume-role",
+    )
+
+    botocore_session = get_session()
+    botocore_session._credentials = refreshable_credentials  # type: ignore[attr-defined]
+
+    return aioboto3.Session(botocore_session=botocore_session)
 
 
 @contextlib.asynccontextmanager
 async def s3_client(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: str | None,
+    aws_credentials: AWSCredentials,
     region: str,
     use_virtual_style_addressing: bool = False,
     endpoint_url: str | None = None,
+    refresh_using: RefreshCoroutine | None = None,
 ) -> collections.abc.AsyncIterator["S3Client"]:
-    session = aioboto3.Session(
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
-        aws_session_token=aws_session_token,
-    )
+    if refresh_using is not None:
+        session = get_refreshable_session(aws_credentials, refresh_using)
+    else:
+        session = aioboto3.Session(
+            aws_access_key_id=aws_credentials.aws_access_key_id,
+            aws_secret_access_key=aws_credentials.aws_secret_access_key,
+            aws_session_token=aws_credentials.aws_session_token,
+        )
 
     config: dict[str, typing.Any] = {
         # Increase connection pool, so to ensure we're not limited by this
@@ -529,6 +619,88 @@ async def s3_client(
         raise
 
 
+async def _resolve_credentials_from_integration(inputs: S3InsertInputs) -> ResolvedS3Credentials:
+    """Resolve an export's S3 credentials from the Integration it links to."""
+    if inputs.data_interval_end is None:
+        raise MissingRequiredInputsError("Scheduled S3 exports require a data_interval_end")
+    if inputs.integration_id is None:
+        raise MissingIntegrationError(inputs.batch_export_id)
+
+    integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
+
+    if isinstance(integration, AWSS3Integration):
+        return ResolvedS3Credentials(
+            credentials=AWSCredentials(
+                aws_access_key_id=integration.aws_access_key_id,
+                aws_secret_access_key=integration.aws_secret_access_key,
+            )
+        )
+
+    if isinstance(integration, S3CompatibleIntegration):
+        return ResolvedS3Credentials(
+            credentials=AWSCredentials(
+                aws_access_key_id=integration.aws_access_key_id,
+                aws_secret_access_key=integration.aws_secret_access_key,
+            ),
+            endpoint_url=integration.endpoint_url,
+        )
+
+    team = await Team.objects.aget(id=inputs.team_id)
+    external_id = f"posthog-{team.organization_id}"
+
+    bucket_name = inputs.bucket_name
+    key_prefix = get_absolute_key_prefix(
+        inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
+    )
+
+    policy_statements = [
+        PolicyStatement(
+            Effect="Allow",
+            Action=["s3:PutObject", "s3:AbortMultipartUpload"],
+            Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
+        )
+    ]
+
+    # TODO: We should be more explicit about this parameter being
+    # an ARN or an ID
+    if inputs.kms_key_id is not None:
+        # KMS key could be in a different acount, in which case
+        # a customer would have provided the full ARN here.
+        if inputs.kms_key_id.startswith("arn:"):
+            resource = inputs.kms_key_id
+
+        else:
+            # If not, assume that the KMS key is in the same account as the role
+            # we are assuming. This is the same assumption S3 makes when passing
+            # just a key ID.
+            parts = integration.aws_role_arn.split(":")
+            if len(parts) < 6 or not parts[4]:
+                raise ValueError(f"Malformed role ARN: {integration.aws_role_arn!r}")
+            account_id = parts[4]
+
+            # I am aware KMS key aliases are a thing, but we explicitly ask for
+            # KMS key "ID". It's a user error if they pass an alias (and we can)
+            # just tell them to use the full ARN then.
+            resource = f"arn:aws:kms:{inputs.region}:{account_id}:key/{inputs.kms_key_id}"
+
+        policy_statements.append(
+            PolicyStatement(
+                Effect="Allow",
+                Action=["kms:GenerateDataKey", "kms:Decrypt"],
+                Resource=resource,
+            )
+        )
+
+    refresh_using = functools.partial(
+        get_credentials_using_user_aws_role,
+        integration.aws_role_arn,
+        external_id,
+        session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
+        policy_statements=policy_statements,
+    )
+    return ResolvedS3Credentials(credentials=await refresh_using(), refresh_using=refresh_using)
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchExportResult:
@@ -545,6 +717,22 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
     Our S3 batch exports also support customising the max S3 file size, different file formats,
     compression, etc, which ClickHouse's S3 functions may not support.
     """
+    # Resolving credentials reads the database, and assuming a role calls AWS STS. Both run
+    # under the heartbeater, so a slow one cannot exhaust the activity's heartbeat timeout.
+    async with Heartbeater():
+        resolved_credentials = await _resolve_credentials_from_integration(inputs)
+        return await insert_into_s3_from_stage(inputs, resolved_credentials)
+
+
+async def insert_into_s3_from_stage(
+    inputs: S3InsertInputs, resolved_credentials: ResolvedS3Credentials, file_name_prefix: str | None = None
+) -> S3BatchExportResult:
+    """Write data staged in our internal S3 stage to a target S3 bucket.
+
+    The caller resolves credentials first, because an export takes them from its Integration
+    while the file download export mints temporary ones for a PostHog-owned bucket. The caller
+    is an activity, so it owns the heartbeater this runs under.
+    """
     bind_contextvars(
         team_id=inputs.team_id,
         destination="S3",
@@ -557,98 +745,19 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
     if inputs.compression is not None and inputs.compression not in SUPPORTED_COMPRESSIONS[inputs.file_format]:
         raise UnsupportedCompressionError(inputs.compression)
 
-    async with Heartbeater():
-        # Integration-backed exports resolve credentials at run time; legacy exports carry them inline.
-        # TODO: require integration
-        aws_access_key_id = inputs.aws_access_key_id
-        aws_secret_access_key = inputs.aws_secret_access_key
-        aws_session_token = inputs.aws_session_token
-        endpoint_url = inputs.endpoint_url
+    credentials = resolved_credentials.credentials
+    endpoint_url = resolved_credentials.endpoint_url
+    refresh_credentials = resolved_credentials.refresh_using
 
-        if inputs.integration_id is not None:
-            integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
+    external_logger = EXTERNAL_LOGGER.bind()
+    external_logger.info(
+        "Batch exporting range %s - %s to S3: %s",
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
+        get_s3_key_from_inputs(inputs, file_name_prefix=file_name_prefix),
+    )
 
-            if isinstance(integration, AwsS3Integration):
-                aws_access_key_id = integration.aws_access_key_id
-                aws_secret_access_key = integration.aws_secret_access_key
-
-            if isinstance(integration, AwsS3RoleBasedIntegration):
-                team = await Team.objects.aget(id=inputs.team_id)
-                external_id = f"posthog-{team.organization_id}"
-
-                bucket_name = inputs.bucket_name
-                key_prefix = get_absolute_key_prefix(
-                    inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
-                )
-
-                policy_statements = [
-                    PolicyStatement(
-                        Effect="Allow",
-                        Action=["s3:PutObject", "s3:AbortMultipartUpload"],
-                        Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
-                    )
-                ]
-
-                # TODO: We should be more explicit about this parameter being
-                # an ARN or an ID
-                if inputs.kms_key_id is not None:
-                    # KMS key could be in a different acount, in which case
-                    # a customer would have provided the full ARN here.
-                    if inputs.kms_key_id.startswith("arn:"):
-                        resource = inputs.kms_key_id
-
-                    else:
-                        # If not, assume that the KMS key is in the same account as the role
-                        # we are assuming. This is the same assumption S3 makes when passing
-                        # just a key ID.
-                        parts = integration.aws_role_arn.split(":")
-                        if len(parts) < 6 or not parts[4]:
-                            raise ValueError(f"Malformed role ARN: {integration.aws_role_arn!r}")
-                        account_id = parts[4]
-
-                        # I am aware KMS key aliases are a thing, but we explicitly ask for
-                        # KMS key "ID". It's a user error if they pass an alias (and we can)
-                        # just tell them to use the full ARN then.
-                        resource = f"arn:aws:kms:{inputs.region}:{account_id}:key/{inputs.kms_key_id}"
-
-                    policy_statements.append(
-                        PolicyStatement(
-                            Effect="Allow",
-                            Action=["kms:GenerateDataKey", "kms:Decrypt"],
-                            Resource=resource,
-                        )
-                    )
-
-                credentials = await get_credentials_using_user_aws_role(
-                    integration.aws_role_arn,
-                    external_id,
-                    session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
-                    policy_statements=policy_statements,
-                )
-                aws_access_key_id, aws_secret_access_key, aws_session_token = (
-                    credentials.aws_access_key_id,
-                    credentials.aws_secret_access_key,
-                    credentials.aws_session_token,
-                )
-
-            if isinstance(integration, S3CompatibleIntegration):
-                aws_access_key_id = integration.aws_access_key_id
-                aws_secret_access_key = integration.aws_secret_access_key
-                endpoint_url = integration.endpoint_url
-
-        if not aws_access_key_id or not aws_secret_access_key:
-            # At these point these need to be defined: either by us assuming a new
-            # role, by an integration, or by the inputs.
-            raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
-
-        external_logger = EXTERNAL_LOGGER.bind()
-        external_logger.info(
-            "Batch exporting range %s - %s to S3: %s",
-            inputs.data_interval_start or "START",
-            inputs.data_interval_end or "END",
-            get_s3_key_from_inputs(inputs),
-        )
-
+    async with contextlib.AsyncExitStack() as cleanup:
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
         assert inputs.batch_export_id is not None
@@ -660,6 +769,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
@@ -695,12 +805,11 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
             )
 
         async with s3_client(
-            aws_access_key_id,
-            aws_secret_access_key,
-            aws_session_token,
+            credentials,
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
             region=inputs.region,
             endpoint_url=endpoint_url,
+            refresh_using=refresh_credentials,
         ) as client:
             consumer = ConcurrentS3Consumer.from_inputs(
                 s3_client=client,
@@ -708,6 +817,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
                 checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
+                file_name_prefix=file_name_prefix,
             )
 
             result = await run_consumer_from_stage(
@@ -735,7 +845,7 @@ class ConcurrentS3Consumer(Consumer):
     concurrent uploads and the memory buffer.
     """
 
-    UPLOAD_PART_MAX_ATTEMPTS: int = 5
+    UPLOAD_PART_MAX_ATTEMPTS: int = 10
     MAX_RETRY_DELAY: float = 32.0
     INITIAL_RETRY_DELAY: float = 1.0
     EXPONENTIAL_BACKOFF_COEFFICIENT: float = 2.0
@@ -747,8 +857,8 @@ class ConcurrentS3Consumer(Consumer):
         region_name: str,
         prefix: str,
         data_interval_start: str | None,
-        data_interval_end: str,
-        batch_export_model: BatchExportModel | None,
+        data_interval_end: str | None,
+        batch_export_model: BatchExportModelInput | None,
         file_format: str,
         checksum_algorithm: str | None = None,
         kms_key_id: str | None = None,
@@ -756,10 +866,13 @@ class ConcurrentS3Consumer(Consumer):
         compression: str | None = None,
         encryption: str | None = None,
         use_virtual_style_addressing: bool = False,
+        legacy_parquet_extension: bool = True,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
+        file_name_prefix: str | None = None,
     ):
-        super().__init__(model=batch_export_model.name if batch_export_model else "events")
+        model = migrate_batch_export_model(batch_export_model)
+        super().__init__(model=model.name)
 
         self.bucket = bucket
         self.region_name = region_name
@@ -767,13 +880,15 @@ class ConcurrentS3Consumer(Consumer):
 
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
-        self.batch_export_model = batch_export_model
+        self.file_name_prefix = file_name_prefix
+        self.batch_export_model = model
 
         self.checksum_algorithm = checksum_algorithm
 
         self.file_format = file_format
         self.compression = compression
         self.encryption = encryption
+        self.legacy_parquet_extension = legacy_parquet_extension
         # This is only needed to obtain a file key. It's very easy to confuse it with
         # the transformer's `max_file_size_bytes` which actually does the file splitting.
         # TODO: Remove this from here, figure out a different way to obtain an S3 key.
@@ -812,6 +927,7 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
         checksum_algorithm: str | None = None,
+        file_name_prefix: str | None = None,
     ):
         return cls(
             s3_client=s3_client,
@@ -828,8 +944,10 @@ class ConcurrentS3Consumer(Consumer):
             max_file_size_mb=s3_inputs.max_file_size_mb,
             kms_key_id=s3_inputs.kms_key_id,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
+            legacy_parquet_extension=s3_inputs.legacy_parquet_extension,
             part_size=part_size,
             max_concurrent_uploads=max_concurrent_uploads,
+            file_name_prefix=file_name_prefix,
         )
 
     async def finalize_file(self):
@@ -1030,10 +1148,12 @@ class ConcurrentS3Consumer(Consumer):
             data_interval_start=self.data_interval_start,
             data_interval_end=self.data_interval_end,
             batch_export_model=self.batch_export_model,
-            file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
-            compression_extension=COMPRESSION_EXTENSIONS[self.compression] if self.compression is not None else None,
+            file_format=self.file_format,
+            compression=self.compression,
+            legacy_parquet_extension=self.legacy_parquet_extension,
             file_number=self.current_file_index,
             include_file_number=bool(self.max_file_size_mb),
+            file_name_prefix=self.file_name_prefix,
         )
 
     async def _start_new_file(self):
@@ -1145,7 +1265,11 @@ class ConcurrentS3Consumer(Consumer):
         # containing the list of files.  This is used to check if the export is complete.
         if self.max_file_size_mb:
             manifest_key = get_manifest_key(
-                self.prefix, self.data_interval_start, self.data_interval_end, self.batch_export_model
+                self.prefix,
+                self.data_interval_start,
+                self.data_interval_end,
+                self.batch_export_model,
+                file_name_prefix=self.file_name_prefix,
             )
             self.external_logger.info("Uploading manifest file '%s'", manifest_key)
             await self.upload_manifest_file(

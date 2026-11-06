@@ -2,16 +2,21 @@ import os
 import atexit
 import typing
 import logging
+from collections.abc import Iterator, Sequence
+from urllib.parse import urlsplit, urlunsplit
 
 from django.http import HttpRequest, HttpResponse
 
 import structlog
 from opentelemetry import trace
+from opentelemetry.context import Context
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
+from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor, RequestInfo
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
@@ -19,11 +24,17 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace import Span
+from opentelemetry.semconv.attributes.error_attributes import ERROR_TYPE
+from opentelemetry.trace import Link, Span, SpanKind, StatusCode
+from opentelemetry.util._decorator import _agnosticcontextmanager
 from opentelemetry.util.http import sanitize_method
+from opentelemetry.util.types import Attributes
+from requests import PreparedRequest
 
 # Get a structlog logger for this module's own messages
 logger = structlog.get_logger(__name__)
+
+_OUTBOUND_URL_ATTRIBUTE_KEYS = ("http.url", "url.full")
 
 
 def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
@@ -48,7 +59,149 @@ def _otel_django_response_hook(span: Span, request: HttpRequest, response: HttpR
     span.update_name("HTTP" if http_method == "_OTHER" else f"{http_method} {route}")
 
 
-def initialize_otel():
+def _otel_redis_request_hook(span: Span, instance: object, args: Sequence[object], kwargs: dict[str, object]) -> None:
+    """Tag cluster-client spans with the connection attributes the instrumentor leaves off.
+
+    opentelemetry-instrumentation-redis reads `db.system` and `net.peer.*` off
+    `client.connection_pool.connection_kwargs`, and returns early for any client that has no
+    `connection_pool`. `redis.cluster.RedisCluster` keeps per-node pools under `nodes_manager`
+    instead, so its spans arrive carrying a command name and nothing else, which hides them from
+    every query that selects Redis spans by `db.system` or groups them by host.
+
+    A command's shard is chosen inside `execute_command`, after this hook runs, so `net.peer.name`
+    is a node from the client's own topology: it identifies the cluster, not the hop that served
+    the command. `db.redis.cluster` marks that distinction.
+    """
+    # This runs inside the traced Redis call, and the instrumentor does not guard hook calls, so a
+    # raise here would fail the command itself. An unfamiliar client shape degrades to an untagged
+    # span instead, which is the behavior without this hook.
+    try:
+        if not span or not span.is_recording() or hasattr(instance, "connection_pool"):
+            return
+
+        startup_nodes = getattr(getattr(instance, "nodes_manager", None), "startup_nodes", None)
+        if not startup_nodes:
+            return
+
+        span.set_attribute("db.system", "redis")
+        span.set_attribute("db.redis.cluster", True)
+        span.set_attribute("net.transport", "ip_tcp")
+
+        node = next(iter(startup_nodes.values()), None)
+        host = getattr(node, "host", None)
+        port = getattr(node, "port", None)
+        if host:
+            span.set_attribute("net.peer.name", host)
+        if port:
+            span.set_attribute("net.peer.port", port)
+    except Exception:
+        logger.debug("otel_redis_request_hook_failed", exc_info=True)
+
+
+def _url_origin(url: str) -> str:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return ""
+    return urlunsplit((parts.scheme, parts.netloc.rpartition("@")[2], "", "", ""))
+
+
+def _replace_span_url_with_origin(span: Span, url: str) -> None:
+    if not span.is_recording():
+        return
+    origin = _url_origin(url)
+    for key in _OUTBOUND_URL_ATTRIBUTE_KEYS:
+        span.set_attribute(key, origin)
+
+
+def _otel_requests_request_hook(span: Span, request: PreparedRequest) -> None:
+    _replace_span_url_with_origin(span, request.url or "")
+
+
+def _otel_httpx_request_hook(span: Span, request: RequestInfo) -> None:
+    _replace_span_url_with_origin(span, str(request.url))
+
+
+async def _otel_httpx_async_request_hook(span: Span, request: RequestInfo) -> None:
+    _otel_httpx_request_hook(span, request)
+
+
+class _ExceptionTypeOnlyTracer(trace.Tracer):
+    def __init__(self, tracer: trace.Tracer) -> None:
+        self._tracer = tracer
+
+    def start_span(
+        self,
+        name: str,
+        context: Context | None = None,
+        kind: SpanKind = SpanKind.INTERNAL,
+        attributes: Attributes = None,
+        links: Sequence[Link] | None = None,
+        start_time: int | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
+    ) -> Span:
+        return self._tracer.start_span(
+            name,
+            context,
+            kind,
+            attributes,
+            links,
+            start_time,
+            record_exception=False,
+            set_status_on_exception=False,
+        )
+
+    @_agnosticcontextmanager
+    def start_as_current_span(
+        self,
+        name: str,
+        context: Context | None = None,
+        kind: SpanKind = SpanKind.INTERNAL,
+        attributes: Attributes = None,
+        links: Sequence[Link] | None = None,
+        start_time: int | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
+        end_on_exit: bool = True,
+    ) -> Iterator[Span]:
+        with self._tracer.start_as_current_span(
+            name,
+            context,
+            kind,
+            attributes,
+            links,
+            start_time,
+            record_exception=False,
+            set_status_on_exception=False,
+            end_on_exit=end_on_exit,
+        ) as span:
+            try:
+                yield span
+            except Exception as error:
+                span.set_attribute(ERROR_TYPE, type(error).__name__)
+                span.set_status(StatusCode.ERROR)
+                raise
+
+
+class _ExceptionTypeOnlyTracerProvider(trace.TracerProvider):
+    def __init__(self, provider: trace.TracerProvider) -> None:
+        self._provider = provider
+
+    def get_tracer(
+        self,
+        instrumenting_module_name: str,
+        instrumenting_library_version: str | None = None,
+        schema_url: str | None = None,
+        attributes: Attributes = None,
+    ) -> trace.Tracer:
+        tracer = self._provider.get_tracer(
+            instrumenting_module_name, instrumenting_library_version, schema_url, attributes
+        )
+        return _ExceptionTypeOnlyTracer(tracer)
+
+
+def initialize_otel(*, instrument_outbound_calls: bool = False) -> None:
     # App tracing targets a real OTLP collector (dev/prod). In tests, booting the app
     # (e.g. posthog/test/test_asgi_lifespan.py imports posthog.asgi) would otherwise arm a
     # process-wide span exporter to the SDK default localhost:4317 with no collector there,
@@ -102,15 +255,9 @@ def initialize_otel():
             source_module="otel_instrumentation",
         )
 
-        # shutdown_on_exit=False: the SDK's own atexit hook calls provider.shutdown(),
-        # which joins the BatchSpanProcessor export thread WITHOUT a timeout. If the
-        # OTLP collector is unreachable, that thread sits in the gRPC exporter's
-        # retry/backoff loop (~63s of sleeps per batch, and the exporter's shutdown
-        # flag is only set after the join returns), so every process exit hangs until
-        # SIGKILL — under granian this turns each worker stop into a
-        # "refused to gracefully stop" hard kill. A bounded force_flush gives spans
-        # their best shot at export and then lets the process exit; the export thread
-        # is a daemon, so skipping shutdown() leaks nothing at exit.
+        # The SDK's atexit shutdown joins the exporter thread without a timeout.
+        # A bounded flush keeps an unreachable collector from delaying worker exit.
+        # The exporter thread is a daemon, so it can exit with the process.
         provider = TracerProvider(resource=resource, shutdown_on_exit=False)
         otlp_exporter = OTLPSpanExporter()  # Assumes OTLP endpoint is configured via env vars
         processor = BatchSpanProcessor(otlp_exporter)
@@ -129,6 +276,10 @@ def initialize_otel():
         instrument_psycopg(provider)
         instrument_kafka(provider)
         instrument_aiokafka(provider)
+        if instrument_outbound_calls:
+            instrument_requests_client(provider)
+            instrument_httpx_client(provider)
+            instrument_botocore(provider)
 
         logger.info(
             "otel_manual_init_status_from_instrumentation_module",
@@ -165,7 +316,7 @@ def instrument_celery(provider: trace.TracerProvider):
 
 def instrument_redis(provider: trace.TracerProvider):
     try:
-        RedisInstrumentor().instrument(tracer_provider=provider)
+        RedisInstrumentor().instrument(tracer_provider=provider, request_hook=_otel_redis_request_hook)
         logger.info("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="success")
     except Exception as e:
         logger.exception("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e)
@@ -212,13 +363,40 @@ def instrument_aiohttp_client(provider: trace.TracerProvider):
         )
 
 
-def instrument_requests_client(provider: trace.TracerProvider):
+def instrument_requests_client(provider: trace.TracerProvider) -> None:
     try:
-        RequestsInstrumentor().instrument(tracer_provider=provider)
+        RequestsInstrumentor().instrument(
+            tracer_provider=_ExceptionTypeOnlyTracerProvider(provider),
+            request_hook=_otel_requests_request_hook,
+        )
         logger.info("otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="success")
     except Exception as e:
         logger.exception(
             "otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="error", exc_info=e
+        )
+
+
+def instrument_httpx_client(provider: trace.TracerProvider) -> None:
+    try:
+        HTTPXClientInstrumentor().instrument(
+            tracer_provider=_ExceptionTypeOnlyTracerProvider(provider),
+            request_hook=_otel_httpx_request_hook,
+            async_request_hook=_otel_httpx_async_request_hook,
+        )
+        logger.info("otel_instrumentation_attempt", instrumentor="HTTPXClientInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="HTTPXClientInstrumentor", status="error", exc_info=e
+        )
+
+
+def instrument_botocore(provider: trace.TracerProvider) -> None:
+    try:
+        BotocoreInstrumentor().instrument(tracer_provider=_ExceptionTypeOnlyTracerProvider(provider))
+        logger.info("otel_instrumentation_attempt", instrumentor="BotocoreInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="BotocoreInstrumentor", status="error", exc_info=e
         )
 
 

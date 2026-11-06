@@ -24,16 +24,28 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.sync import database_sync_to_async
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.subscriptions.backend.facade.testing import create_subscription
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
+from ee.hogai.tools.upsert_dashboard.tool import (
+    CreateDashboardToolArgs,
+    DuplicateDashboardToolArgs,
+    UpdateDashboardToolArgs,
+    UpsertDashboardTool,
+)
 from ee.hogai.utils.types import AssistantState
 
 DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
@@ -136,7 +148,7 @@ class TestUpsertDashboardTool(BaseTest):
         result, _ = await tool._arun_impl(action)
 
         dashboard = await Dashboard.objects.aget(name="URL Dashboard")
-        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        expected_url = f"/dashboard/{dashboard.id}"
         self.assertIn(f"Dashboard URL: {expected_url}", result)
         self.assertNotIn("/dashboards/", result)
 
@@ -159,7 +171,7 @@ class TestUpsertDashboardTool(BaseTest):
 
         result, _ = await tool._arun_impl(action)
 
-        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        expected_url = f"/dashboard/{dashboard.id}"
         self.assertIn(f"Dashboard URL: {expected_url}", result)
         self.assertNotIn("/dashboards/", result)
 
@@ -199,6 +211,116 @@ class TestUpsertDashboardTool(BaseTest):
         soft_deleted_tiles = [t for t in all_tiles if t.deleted]
         self.assertEqual(len(soft_deleted_tiles), 2)
 
+    @parameterized.expand([("saved",), ("state",), ("artifact",)])
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_add_insights_preserves_existing_dashboard_tiles(self, source: str, mock_report: MagicMock) -> None:
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        existing_insight = await self._create_insight("Existing insight")
+        layouts = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        existing_tile = await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=existing_insight, layouts=layouts, color="blue"
+        )
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        if source == "saved":
+            new_insight = await self._create_insight("New insight")
+            insight_id = new_insight.short_id
+        elif source == "state":
+            insight_id = str(uuid4())
+            state.messages = [VisualizationMessage(id=insight_id, answer=DEFAULT_TRENDS_QUERY)]
+        else:
+            conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
+            artifact = await AgentArtifact.objects.acreate(
+                team=self.team,
+                conversation=conversation,
+                name="New insight",
+                type=AgentArtifact.Type.VISUALIZATION,
+                data={"query": DEFAULT_TRENDS_QUERY.model_dump(), "name": "New insight"},
+            )
+            insight_id = artifact.short_id
+
+        action = {
+            "action": {"action": "add_insights", "dashboard_id": str(dashboard.id), "insight_ids": [insight_id] * 2}
+        }
+        first_tile_ids = None
+        for _ in range(2):
+            tool = UpsertDashboardTool(team=self.team, user=self.user, state=state)
+            await tool.ainvoke(action)
+            tile_ids = [
+                tile_id
+                async for tile_id in DashboardTile.objects.filter(dashboard=dashboard)
+                .order_by("id")
+                .values_list("id", flat=True)
+            ]
+            self.assertEqual(len(tile_ids), 2)
+            if first_tile_ids is not None:
+                self.assertEqual(tile_ids, first_tile_ids)
+            first_tile_ids = tile_ids
+
+        await existing_tile.arefresh_from_db()
+        self.assertEqual(existing_tile.layouts, layouts)
+        self.assertEqual(existing_tile.color, "blue")
+        self.assertEqual(await Insight.objects.filter(team=self.team).acount(), 2)
+        insight_created_events = [call for call in mock_report.call_args_list if call.args[1] == "insight created"]
+        self.assertEqual(len(insight_created_events), 0 if source == "saved" else 1)
+
+    @parameterized.expand([("saved", True), ("restored", True), ("generated", True), ("saved", False)])
+    @patch("posthog.api.sharing_publish_gate.denied_query_resources", return_value=["restricted_table"])
+    async def test_add_insights_enforces_shared_dashboard_access(
+        self, source: str, shared: bool, _mock_blocked: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        await self.organization.asave()
+        await OrganizationMembership.objects.filter(user=self.user, organization=self.organization).aupdate(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        if shared:
+            await SharingConfiguration.objects.acreate(team=self.team, dashboard=dashboard, enabled=True)
+        existing = await self._create_insight("Existing")
+        existing_tile = await DashboardTile.objects.acreate(dashboard=dashboard, insight=existing)
+        allowed = await self._create_insight("Allowed addition")
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        deleted_tile = None
+        if source == "generated":
+            insight_id = str(uuid4())
+            state.messages = [VisualizationMessage(id=insight_id, answer=DEFAULT_TRENDS_QUERY)]
+        else:
+            restricted = await self._create_insight("Restricted")
+            insight_id = restricted.short_id
+            if source == "restored":
+                deleted_tile = await DashboardTile.objects.acreate(
+                    dashboard=dashboard, insight=restricted, deleted=True
+                )
+        count_before = await Insight.objects.filter(team=self.team).acount()
+        tool = UpsertDashboardTool(team=self.team, user=self.user, state=state)
+        action = {
+            "action": {
+                "action": "add_insights",
+                "dashboard_id": str(dashboard.id),
+                "insight_ids": [allowed.short_id, insight_id],
+            }
+        }
+        _mock_blocked.side_effect = [[], ["restricted_table"]]
+        if shared:
+            with self.assertRaisesRegex(MaxToolRetryableError, "publicly shared"):
+                await tool.ainvoke(action)
+            self.assertEqual(
+                [
+                    tile_id
+                    async for tile_id in DashboardTile.objects.filter(dashboard=dashboard).values_list("id", flat=True)
+                ],
+                [existing_tile.id],
+            )
+            self.assertEqual(await Insight.objects.filter(team=self.team).acount(), count_before)
+            if deleted_tile:
+                await deleted_tile.arefresh_from_db()
+                self.assertTrue(deleted_tile.deleted)
+        else:
+            await tool.ainvoke(action)
+            self.assertEqual(await DashboardTile.objects.filter(dashboard=dashboard).acount(), 3)
+
     @parameterized.expand(
         [
             ("trends", TrendsQuery(series=[EventsNode(name="$pageview")])),
@@ -228,12 +350,40 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(len(tiles), 1)
         self.assertEqual(tiles[0].insight_id, insight.id)
 
+    @parameterized.expand([("new_tile",), ("restored_tile",)])
+    @patch(
+        "posthog.api.sharing_publish_gate.denied_query_resources",
+        return_value=["restricted_table"],
+    )
+    async def test_update_dashboard_enforces_subscribed_dashboard_access(
+        self, source: str, _mock_blocked: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        await self.organization.asave()
+        await OrganizationMembership.objects.filter(user=self.user, organization=self.organization).aupdate(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        await database_sync_to_async(create_subscription)(team_id=self.team.id, dashboard_id=dashboard.id)
+        restricted = await self._create_insight("Restricted")
+        if source == "restored_tile":
+            await DashboardTile.objects.acreate(dashboard=dashboard, insight=restricted, deleted=True)
+        tool = self._create_tool()
+
+        with self.assertRaisesRegex(MaxToolRetryableError, "delivered by a subscription"):
+            await tool._arun_impl(
+                UpdateDashboardToolArgs(dashboard_id=str(dashboard.id), insight_ids=[restricted.short_id])
+            )
+
+        self.assertEqual(await DashboardTile.objects.filter(dashboard=dashboard, deleted=False).acount(), 0)
+
     async def test_update_dashboard_permission_denied_for_restricted_dashboard(self):
         dashboard = await Dashboard.objects.acreate(
             team=self.team,
             name="Restricted Dashboard",
             created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         new_insight = await self._create_insight("New Insight")
@@ -261,7 +411,6 @@ class TestUpsertDashboardTool(BaseTest):
             team=self.team,
             name="Unrestricted Dashboard",
             created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         )
 
         new_insight = await self._create_insight("New Insight")
@@ -1679,6 +1828,162 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(created_props["template_key"], None)
         self.assertEqual(created_props["duplicated"], False)
         self.assertEqual(created_props["duplicated_from_dashboard_id"], None)
+
+    async def _create_variable_dashboard(self) -> tuple[Dashboard, Insight, InsightVariable, InsightVariable]:
+        subscription = await InsightVariable.objects.acreate(
+            team=self.team, name="Subscription", code_name="subscription_id", type=InsightVariable.Type.STRING
+        )
+        rate = await InsightVariable.objects.acreate(
+            team=self.team, name="Rate", code_name="rate", type=InsightVariable.Type.NUMBER
+        )
+        insight = await Insight.objects.acreate(
+            team=self.team,
+            created_by=self.user,
+            name="Spend",
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT sum(amount) * {variables.rate} FROM events WHERE id = {variables.subscription_id}",
+                },
+                "chartSettings": {"yAxis": [{"column": "spend", "settings": {"formatting": {"prefix": "$"}}}]},
+            },
+            saved=True,
+        )
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Subscription usage",
+            description="Usage for one subscription",
+            created_by=self.user,
+            filters={"date_from": "-30d"},
+            variables={
+                str(subscription.id): {
+                    "code_name": "subscription_id",
+                    "variableId": str(subscription.id),
+                    "value": "sub_a",
+                },
+                str(rate.id): {"code_name": "rate", "variableId": str(rate.id), "value": 2},
+            },
+        )
+        layouts = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts=layouts)
+        text = await Text.objects.acreate(team=self.team, body="Notes")
+        await DashboardTile.objects.acreate(dashboard=dashboard, text=text, layouts={})
+        return dashboard, insight, subscription, rate
+
+    @parameterized.expand([False, True])
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    async def test_duplicate_dashboard_keeps_variables_and_chart_settings(
+        self, enforce_2fa: bool, mock_capture: MagicMock
+    ) -> None:
+        self.organization.enforce_2fa = enforce_2fa
+        await self.organization.asave(update_fields=["enforce_2fa"])
+        source, source_insight, subscription, rate = await self._create_variable_dashboard()
+
+        _, artifact = await self._create_tool()._arun_impl(
+            DuplicateDashboardToolArgs(
+                dashboard_id=str(source.id),
+                name="Subscription B usage",
+                variable_values={"subscription_id": "sub_b"},
+            )
+        )
+
+        assert artifact is not None
+        copy = await Dashboard.objects.aget(id=artifact["dashboard_id"])
+        self.assertEqual(copy.description, "Usage for one subscription")
+        self.assertEqual(copy.filters, {"date_from": "-30d"})
+        assert copy.variables is not None
+        self.assertEqual(copy.variables[str(subscription.id)]["value"], "sub_b")
+        self.assertEqual(copy.variables[str(rate.id)]["value"], 2)
+        source_variables = (await Dashboard.objects.aget(id=source.id)).variables
+        assert source_variables is not None
+        self.assertEqual(source_variables[str(subscription.id)]["value"], "sub_a")
+
+        tiles = [t async for t in DashboardTile.objects.filter(dashboard=copy).select_related("insight")]
+        insight_tiles = [t for t in tiles if t.insight is not None]
+        self.assertEqual(len(tiles), 2)
+        self.assertEqual(len(insight_tiles), 1)
+        assert insight_tiles[0].insight is not None
+        self.assertNotEqual(insight_tiles[0].insight.id, source_insight.id)
+        self.assertEqual(insight_tiles[0].insight.query, source_insight.query)
+        self.assertEqual(insight_tiles[0].layouts, {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}})
+
+        copied_insight = insight_tiles[0].insight
+        copied_insight.query = DEFAULT_TRENDS_QUERY.model_dump()
+        await copied_insight.asave(update_fields=["query"])
+        await source_insight.arefresh_from_db()
+        assert source_insight.query is not None
+        self.assertEqual(source_insight.query["kind"], "DataVisualizationNode")
+
+        creation_events = [
+            call for call in mock_capture.call_args_list if call.kwargs.get("event") == "dashboard created"
+        ]
+        self.assertEqual(len(creation_events), 1)
+        created_props = creation_events[0].kwargs["properties"]
+        self.assertEqual(created_props["source"], "posthog_ai")
+        self.assertEqual(created_props["duplicated"], True)
+        self.assertEqual(created_props["duplicated_from_dashboard_id"], source.id)
+
+    async def test_duplicate_dashboard_rejects_unknown_variable(self):
+        source, *_ = await self._create_variable_dashboard()
+
+        with self.assertRaises(MaxToolRetryableError) as error:
+            await self._create_tool()._arun_impl(
+                DuplicateDashboardToolArgs(
+                    dashboard_id=str(source.id), name="Copy", variable_values={"customer_id": "sub_b"}
+                )
+            )
+
+        self.assertIn("customer_id", str(error.exception))
+        self.assertIn("subscription_id", str(error.exception))
+        self.assertEqual(await Dashboard.objects.filter(team=self.team).acount(), 1)
+
+    @parameterized.expand(["validation", "permission"])
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    async def test_duplicate_dashboard_rolls_back_failed_copy(self, failure: str, mock_capture: MagicMock) -> None:
+        source, source_insight, *_ = await self._create_variable_dashboard()
+        expected_error: type[MaxToolRetryableError | MaxToolAccessDeniedError] = MaxToolRetryableError
+        error_message = "copy the insight"
+        if failure == "validation":
+            invalid_insight = await self._create_insight("x" * 400)
+        else:
+            expected_error = MaxToolAccessDeniedError
+            error_message = "viewer access"
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            await self.organization.asave()
+            membership = await OrganizationMembership.objects.aget(user=self.user, organization=self.organization)
+            membership.level = OrganizationMembership.Level.MEMBER
+            await membership.asave()
+            invalid_insight = await self._create_insight("Restricted insight")
+            await Insight.objects.filter(id=invalid_insight.id).aupdate(created_by=None)
+            await AccessControl.objects.acreate(
+                team=self.team,
+                resource="insight",
+                resource_id=str(invalid_insight.id),
+                access_level="none",
+                organization_member=membership,
+            )
+        await DashboardTile.objects.acreate(dashboard=source, insight=invalid_insight)
+        dashboard_count = await Dashboard.objects.filter(team=self.team).acount()
+        insight_count = await Insight.objects.filter(team=self.team).acount()
+        tile_count = await DashboardTile.objects.filter(dashboard__team=self.team).acount()
+        text_count = await Text.objects.filter(team=self.team).acount()
+
+        with self.assertRaisesRegex(expected_error, error_message):
+            await self._create_tool()._arun_impl(
+                DuplicateDashboardToolArgs(dashboard_id=str(source.id), name="Invalid copy")
+            )
+
+        self.assertEqual(await Dashboard.objects.filter(team=self.team).acount(), dashboard_count)
+        self.assertEqual(await Insight.objects.filter(team=self.team).acount(), insight_count)
+        self.assertEqual(await DashboardTile.objects.filter(dashboard__team=self.team).acount(), tile_count)
+        self.assertEqual(await Text.objects.filter(team=self.team).acount(), text_count)
+        await source_insight.arefresh_from_db()
+        assert source_insight.query is not None
+        self.assertEqual(source_insight.query["kind"], "DataVisualizationNode")
+        self.assertFalse(any(call.kwargs.get("event") == "dashboard created" for call in mock_capture.call_args_list))
 
     @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
     async def test_update_dashboard_reports_dashboard_updated(self, mock_report):

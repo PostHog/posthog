@@ -38,6 +38,8 @@ def fetch_usage_signals_from_groups(org_ids: list[str]) -> dict[str, dict]:
     if not org_ids:
         return {}
 
+    # Momentum is null when the previous period had no events. JSONExtractFloat reads that null as 0,
+    # so the momentum columns use a Nullable extract.
     query = """
         SELECT
             group_key as org_id,
@@ -47,8 +49,8 @@ def fetch_usage_signals_from_groups(org_ids: list[str]) -> dict[str, dict]:
             JSONExtractInt(group_properties, 'usage_events_30d') as events_30d,
             JSONExtractFloat(group_properties, 'usage_events_avg_daily_30d') as events_avg_daily_30d,
             JSONExtractString(group_properties, 'usage_products_30d') as products_30d,
-            JSONExtractFloat(group_properties, 'usage_events_7d_momentum') as events_7d_momentum,
-            JSONExtractFloat(group_properties, 'usage_events_30d_momentum') as events_30d_momentum
+            JSONExtract(group_properties, 'usage_events_7d_momentum', 'Nullable(Float64)') as events_7d_momentum,
+            JSONExtract(group_properties, 'usage_events_30d_momentum', 'Nullable(Float64)') as events_30d_momentum
         FROM groups FINAL
         WHERE group_type_index = %(org_group_type_index)s
           AND group_key IN %(org_ids)s

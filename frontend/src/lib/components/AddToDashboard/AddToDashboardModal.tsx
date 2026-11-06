@@ -10,12 +10,14 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardBasicType, InsightLogicProps } from '~/types'
 
 interface DashboardRelationRowProps {
@@ -82,6 +84,7 @@ const DashboardRelationRow = ({
             <LemonButton
                 type="secondary"
                 status={isAlreadyOnDashboard ? 'danger' : 'default'}
+                aria-label={`${isAlreadyOnDashboard ? 'Remove from' : 'Add to'} ${dashboard.name || 'Untitled'} dashboard`}
                 loading={dashboardWithActiveAPICall === dashboard.id}
                 disabledReason={
                     !canEditInsight
@@ -96,7 +99,7 @@ const DashboardRelationRow = ({
                     isAlreadyOnDashboard ? removeFromDashboard(dashboard.id) : addToDashboard(dashboard.id)
                 }}
             >
-                {isAlreadyOnDashboard ? 'Remove from dashboard' : 'Add to dashboard'}
+                {isAlreadyOnDashboard ? 'Remove' : 'Add'}
             </LemonButton>
         </div>
     )
@@ -159,6 +162,8 @@ export function AddToDashboardModal({
 
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex, user } = useValues(logic)
     const { setSearchQuery, addNewDashboard } = useActions(logic)
+    const { dashboardsLoading } = useValues(dashboardsModel)
+    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
     const listRef = useListRef(null)
 
     useEffect(() => {
@@ -166,6 +171,12 @@ export function AddToDashboardModal({
             listRef.current.scrollToRow({ index: scrollIndex, align: 'smart' })
         }
     }, [scrollIndex, listRef.current])
+
+    useEffect(() => {
+        if (isOpen) {
+            loadDashboardsIfNeeded()
+        }
+    }, [isOpen, loadDashboardsIfNeeded])
 
     const rowProps: DashboardRowProps = {
         orderedDashboards,
@@ -221,21 +232,25 @@ export function AddToDashboardModal({
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>
                 <div className="min-h-[420px]">
-                    <AutoSizer
-                        renderProp={({ height, width }) =>
-                            height && width ? (
-                                <List<DashboardRowProps>
-                                    listRef={listRef}
-                                    style={{ width, height }}
-                                    rowCount={orderedDashboards.length}
-                                    overscanCount={100}
-                                    rowHeight={40}
-                                    rowComponent={DashboardRow}
-                                    rowProps={rowProps}
-                                />
-                            ) : null
-                        }
-                    />
+                    {dashboardsLoading ? (
+                        <LemonSkeleton.Row repeat={8} />
+                    ) : (
+                        <AutoSizer
+                            renderProp={({ height, width }) =>
+                                height && width ? (
+                                    <List<DashboardRowProps>
+                                        listRef={listRef}
+                                        style={{ width, height }}
+                                        rowCount={orderedDashboards.length}
+                                        overscanCount={100}
+                                        rowHeight={40}
+                                        rowComponent={DashboardRow}
+                                        rowProps={rowProps}
+                                    />
+                                ) : null
+                            }
+                        />
+                    )}
                 </div>
             </div>
         </LemonModal>

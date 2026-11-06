@@ -1,15 +1,28 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Request body for creating (resolve-or-create) or renaming a public channel.",
     "properties": {
+        "channel_type": {
+            "default": "public",
+            "description": "Use 'public' for access by all project members. Use 'private' for access by channel members only. Defaults to 'public'. This endpoint cannot create personal #me spaces.\n\n* `public` - public\n* `private` - private",
+            "enum": ["public", "private"],
+            "type": "string"
+        },
+        "member_ids": {
+            "description": "User IDs to add to a private channel. The requester is always a member. The endpoint ignores this field for public channels and skips users without project access.",
+            "items": {
+                "type": "number"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
         "name": {
-            "description": "Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
+            "description": "Channel name, shown as #<name>. Uses lowercase letters and hyphens.",
             "maxLength": 128,
             "type": "string"
         },
         "star": {
             "default": true,
-            "description": "Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched.",
+            "description": "Star a new channel for the requester. This field does not change stars on an existing channel.",
             "type": "boolean"
         }
     },

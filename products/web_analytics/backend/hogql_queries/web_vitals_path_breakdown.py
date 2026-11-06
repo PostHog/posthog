@@ -13,9 +13,10 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS
+from posthog.hogql_queries.math_functions import PROPERTY_MATH_FUNCTIONS
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -73,7 +74,9 @@ HAVING value >= 0
 
     def _event_properties(self) -> ast.Expr:
         properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+            p
+            for p in self.query.properties + self._test_account_filters
+            if get_property_type(p) in ["event", "person", "cohort"]
         ]
         return property_to_expr(properties, team=self.team, scope="event")
 
@@ -121,6 +124,7 @@ HAVING value >= 0
             hogql=response.hogql,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
         )
 
     def _get_results_for_band(

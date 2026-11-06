@@ -1,0 +1,68 @@
+{
+    "MA1": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 6,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MA2": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 18,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA3": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 3,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 74,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA6": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MA7": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MA8": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 58,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MA9": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 39,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MA10": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MA11": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 42,
+        "source": "verified-3-skeptics:0/3"
+    }
+}

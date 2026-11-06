@@ -6,12 +6,8 @@ export { createEnrichSurveyPersonPropertiesStep } from './enrich-survey-person-p
 export { createParseHeadersStep } from './parse-headers'
 export { createParseKafkaMessageStep, parseMessageTopHogMetrics } from './parse-kafka-message'
 export { createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
-export {
-    createOnlyCookielessRateLimitToOverflowStep,
-    createRateLimitToOverflowStep,
-    createSkipCookielessRateLimitToOverflowStep,
-} from './rate-limit-to-overflow-step'
-export { createResolveTeamStep } from './resolve-team'
+export { createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
+export { createResolveTeamStep, resolveTeamTopHogMetrics } from './resolve-team'
 export { createValidateEventMetadataStep } from './validate-event-metadata'
 export { createValidateEventPropertiesStep } from './validate-event-properties'
 export { createValidateEventSchemaStep } from './validate-event-schema'

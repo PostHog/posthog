@@ -1,7 +1,8 @@
 from collections.abc import Sequence
 
 import unittest
-from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from langchain_core.messages import AIMessage, AIMessageChunk
 from parameterized import parameterized
@@ -31,7 +32,7 @@ from ee.hogai.utils.helpers import (
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
-class TestAssistantHelpers(BaseTest):
+class TestAssistantHelpers(SimpleTestCase):
     def test_should_output_assistant_message(self):
         """
         Test that the should_output_assistant_message filter works correctly:
@@ -172,7 +173,7 @@ class TestAssistantHelpers(BaseTest):
         self.assertEqual(result, expected_message)
 
 
-class TestNormalizeAIMessage(BaseTest):
+class TestNormalizeAIMessage(SimpleTestCase):
     def test_normalize_ai_message_with_string_content(self):
         """Test normalizing AIMessage with simple string content"""
         message = AIMessage(
@@ -324,7 +325,7 @@ class TestNormalizeAIMessage(BaseTest):
         self.assertEqual(result.meta.thinking[0]["type"], "thinking")
 
 
-class TestExtractThinkingFromAIMessage(BaseTest):
+class TestExtractThinkingFromAIMessage(SimpleTestCase):
     """Test extract_thinking_from_ai_message with various formats."""
 
     def test_extract_thinking_from_anthropic_format(self):
@@ -417,7 +418,7 @@ class TestExtractThinkingFromAIMessage(BaseTest):
         self.assertEqual(thinking[1]["content"], "Thought 2")
 
 
-class TestConvertToolMessagesToDict(BaseTest):
+class TestConvertToolMessagesToDict(SimpleTestCase):
     """Test convert_tool_messages_to_dict function."""
 
     def test_convert_single_tool_message(self):
@@ -479,7 +480,7 @@ class TestConvertToolMessagesToDict(BaseTest):
         self.assertEqual(result["tc1"].ui_payload, {"data": "value"})
 
 
-class TestNormalizeAIMessageWebSearch(BaseTest):
+class TestNormalizeAIMessageWebSearch(SimpleTestCase):
     """Test normalize_ai_message with web search and server tool use blocks."""
 
     def test_normalize_with_server_tool_use(self):
@@ -717,7 +718,7 @@ class TestStripBkDrilldownHandles(unittest.TestCase):
         assert strip_bk_drilldown_handles(text) == expected
 
 
-class TestNormalizeAiMessageStripsHandles(BaseTest):
+class TestNormalizeAiMessageStripsHandles(SimpleTestCase):
     def test_handles_stripped_from_text_content(self) -> None:
         from ee.hogai.utils.helpers import normalize_ai_message
 

@@ -1,13 +1,25 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
+
+from django.db.models.signals import post_save
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.tagged_item import (
+    BULK_UPDATE_TAGS_MAX_IDS,
+    BULK_UPDATE_TAGS_MAX_OPERATIONS,
+    BULK_UPDATE_TAGS_MAX_TAGS,
+    BulkUpdateTagsRequestSerializer,
+    BulkUpdateTagsUUIDRequestSerializer,
+)
 from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestTaggedItemSerializerMixin(APIBaseTest):
@@ -22,15 +34,25 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         self.assertEqual(response.json()["tags"], ["random"])
         self.assertEqual(Tag.objects.all().count(), 1)
 
-    def test_create_with_tags(self):
+    def test_create_with_tags(self) -> None:
+        created_tag_names: list[str] = []
+
+        def record_tag_creation(instance: Tag, created: bool, **kwargs: object) -> None:
+            if created:
+                created_tag_names.append(instance.name)
+
+        post_save.connect(record_tag_creation, sender=Tag)
+        self.addCleanup(post_save.disconnect, record_tag_creation, sender=Tag)
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/",
-            {"name": "Default", "pinned": "true", "tags": ["random", "hello"]},
+            {"name": "Default", "pinned": "true", "tags": [" Random ", "hello", "random"]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
         self.assertEqual(Tag.objects.all().count(), 2)
+        self.assertEqual(created_tag_names, ["hello", "random"])
 
     def test_update_tags(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -96,6 +118,15 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Tags are returned in alphabetical order regardless of insertion order
         assert response.json() == ["apple tag", "zebra tag"]
+
+    def test_can_search_tags_with_pagination(self) -> None:
+        Tag.objects.bulk_create([Tag(name=f"dashboard-{index:03}", team_id=self.team.id) for index in range(3)])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/tags?search=dashboard&limit=2")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == ["dashboard-000", "dashboard-001"]
+        assert response.json()["next"] is not None
 
 
 class TestBulkUpdateTags(APIBaseTest):
@@ -302,7 +333,7 @@ class TestBulkUpdateTags(APIBaseTest):
         assert data["updated"][0]["id"] == dashboard.id
         assert len(data["skipped"]) == 1
         assert data["skipped"][0]["id"] == missing_id
-        assert data["skipped"][0]["reason"] == "Not found"
+        assert data["skipped"][0]["reason"] == "Not found or no edit access"
 
     def test_tags_are_normalized_via_tagify(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="dash")
@@ -340,6 +371,18 @@ class TestBulkUpdateTags(APIBaseTest):
         )
 
         assert not Tag.objects.filter(name="orphan-soon", team_id=self.team.id).exists()
+
+    @parameterized.expand([("unchanged", ["kept"]), ("added", ["kept", "new"])])
+    def test_save_without_removed_tags_leaves_unrelated_orphans(self, _name, tags):
+        dashboard = self._create_dashboard_with_tags("dash", ["kept"])
+        Tag.objects.create(name="unrelated-orphan", team_id=self.team.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": tags}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert Tag.objects.filter(name="unrelated-orphan", team_id=self.team.id).exists()
 
     def test_tag_shared_by_other_objects_is_not_deleted_on_remove(self):
         d1 = self._create_dashboard_with_tags("d1", ["shared-tag"])
@@ -388,7 +431,7 @@ class TestBulkUpdateTags(APIBaseTest):
         data = response.json()
         assert data["updated"] == []
         assert len(data["skipped"]) == 1
-        assert data["skipped"][0]["reason"] == "Not found"
+        assert data["skipped"][0]["reason"] == "Not found or no edit access"
         other_dashboard.refresh_from_db()
         actual_tags = list(other_dashboard.tagged_items.values_list("tag__name", flat=True))
         assert actual_tags == ["other-tag"]
@@ -406,3 +449,43 @@ class TestBulkUpdateTags(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["type"] == "validation_error"
         assert response.json()["attr"] == "ids"
+
+
+SERIALIZER_VARIANTS = [
+    ("int_ids", BulkUpdateTagsRequestSerializer, lambda n: list(range(n))),
+    ("uuid_ids", BulkUpdateTagsUUIDRequestSerializer, lambda n: [str(uuid4()) for _ in range(n)]),
+]
+
+
+class TestBulkUpdateTagsRequestValidation(SimpleTestCase):
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_rejects_too_many_tags(self, _name, serializer_class, make_ids):
+        serializer = serializer_class(
+            data={
+                "ids": make_ids(1),
+                "action": "add",
+                "tags": [f"tag-{i}" for i in range(BULK_UPDATE_TAGS_MAX_TAGS + 1)],
+            }
+        )
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
+
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_rejects_tag_longer_than_tag_name_column(self, _name, serializer_class, make_ids):
+        serializer = serializer_class(data={"ids": make_ids(1), "action": "add", "tags": ["x" * 256]})
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
+
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_rejects_ids_times_distinct_tags_over_cap(self, _name, serializer_class, make_ids):
+        tags = [f"tag-{i}" for i in range(BULK_UPDATE_TAGS_MAX_OPERATIONS // BULK_UPDATE_TAGS_MAX_IDS + 1)]
+        serializer = serializer_class(data={"ids": make_ids(BULK_UPDATE_TAGS_MAX_IDS), "action": "add", "tags": tags})
+        assert not serializer.is_valid()
+        assert "must not exceed" in str(serializer.errors["tags"][0])
+
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_duplicate_tags_count_once_toward_the_cap(self, _name, serializer_class, make_ids):
+        # 100 entries normalizing to 20 distinct tags: 500 ids x 20 tags == the cap, not over it.
+        tags = [f"Tag-{i % 20}" for i in range(BULK_UPDATE_TAGS_MAX_TAGS)]
+        serializer = serializer_class(data={"ids": make_ids(BULK_UPDATE_TAGS_MAX_IDS), "action": "add", "tags": tags})
+        assert serializer.is_valid(), serializer.errors

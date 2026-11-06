@@ -1,73 +1,55 @@
 import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { useRef } from 'react'
 
-import { IconArrowLeft, IconInfo, IconPlay, IconTrends, IconWarning } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonSelect,
-    LemonSkeleton,
-    LemonSwitch,
-    LemonTabs,
-    LemonTag,
-    LemonTextArea,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
-import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
-import { modelPickerLogic } from '../modelPickerLogic'
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
-import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
-import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
-import { EvaluationReportConfig } from './components/EvaluationReportConfig'
+import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
+import { EvaluationFirstResultStatus } from './components/EvaluationFirstResultStatus'
+import { EvaluationLatestReport } from './components/EvaluationLatestReport'
+import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
-import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_PASSED_HOGQL, EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { EvaluationSceneHeader } from './components/EvaluationSceneHeader'
 import {
-    evaluationOffersSessionTarget,
+    formatNumericEvaluationScore,
+    booleanOutputConfigError,
+    numericOutputConfigError,
+    categoricalOutputConfigError,
+} from './constants'
+import { EvaluationConfigurationForm } from './create/EvaluationConfigurationForm'
+import { EvaluationCreatePage } from './create/EvaluationCreatePage'
+import {
+    evaluationSupportsReportHistory,
     evaluationSupportsReports,
-    evaluationSupportsRunSummary,
-    evaluationTypeHasEditableCriteria,
+    evaluationSupportsRunOutcomes,
     evaluationTypeUsesModelConfiguration,
-    isBooleanEvaluationOutput,
 } from './evaluationCapabilities'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import {
-    DEFAULT_SESSION_MAX_AGE_SECONDS,
-    DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
-    DEFAULT_SESSION_WINDOW_SECONDS,
-    DEFAULT_TRACE_MAX_AGE_SECONDS,
-    DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
-    DEFAULT_TRACE_WINDOW_SECONDS,
-    LLMEvaluationLogicProps,
-    llmEvaluationLogic,
-} from './llmEvaluationLogic'
+import { LLMEvaluationLogicProps, hasUnsetConditionRollout, llmEvaluationLogic } from './llmEvaluationLogic'
+import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
-import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
+
+const RUNS_BACKFILL_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        originalEvaluation,
+        isReportableEvaluation,
         evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
@@ -75,31 +57,27 @@ export function AIObservabilityEvaluation(): JSX.Element {
         formValid,
         isNewEvaluation,
         runsSummary,
+        runsBackfillId,
+        runsBackfill,
+        runsDateRange,
         evaluationProviderKeyIssue,
         activeTab,
-        canEnable,
-        canEnableReason,
         modelSelectionRequired,
+        numericBoundsRequired,
+        usesDecisionModel,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
-    const {
-        setEvaluationName,
-        setEvaluationDescription,
-        setEvaluationEnabled,
-        setAllowsNA,
-        saveEvaluation,
-        resetEvaluation,
-        setEvaluationType,
-        setEvaluationTarget,
-        setSettleStrategy,
-        patchTargetConfig,
-        setActiveTab,
-    } = useActions(llmEvaluationLogic)
+    const { isConfigDirty: reportConfigDirty } = useValues(
+        evaluationReportLogic({ evaluationId: isNewEvaluation || !evaluation?.id ? 'new' : evaluation.id })
+    )
+    // The step layout edits reports with the rest of the configuration, so a report-only edit is unsaved too.
+    const unsaved = hasUnsavedChanges || (!isNewEvaluation && reportConfigDirty)
+    const { saveEvaluation, resetEvaluation, setActiveTab, setFormStep } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
-    const triggersRef = useRef<HTMLDivElement>(null)
-    const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), { ...searchParams, tab: 'settings' }).url
+    const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), {
+        ...withoutTraceDrawerParams(searchParams),
+        tab: 'settings',
+    }).url
 
     useAttachedContext(
         evaluation ? [{ type: 'evaluation', key: evaluation.id || 'new', label: evaluation.name ?? undefined }] : null
@@ -112,80 +90,21 @@ export function AIObservabilityEvaluation(): JSX.Element {
     if (!evaluation) {
         return <NotFound object="evaluation" />
     }
+    if (isNewEvaluation) {
+        return (
+            <EvaluationCreatePage
+                templateKey={typeof searchParams.template === 'string' ? searchParams.template : undefined}
+            />
+        )
+    }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id && !usesDecisionModel
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
     const isHog = evaluation.evaluation_type === 'hog'
     const isSentiment = evaluation.evaluation_type === 'sentiment'
-    const isAggregateTarget = evaluation.target === 'trace' || evaluation.target === 'session'
-    const isSessionTarget = evaluation.target === 'session'
-    const offersSessionTarget = evaluationOffersSessionTarget(evaluation, settlingStrategyEnabled)
-    // Read the stored strategy whether or not the flag is on. The flag gates the *picker*, not what
-    // the row contains: an API- or MCP-created session eval is inactivity, and forcing fixed_window
-    // here rendered a "wait 30 minutes" field holding a default the config never had.
-    const effectiveStrategy: EvaluationSettleStrategy =
-        evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
-    const isReportableEvaluation = evaluationSupportsReports(evaluation)
-    const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
-    const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
-    const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
-
-    const trendInsightUrl =
-        supportsRunSummary && !isNewEvaluation && evaluation.id
-            ? urls.insightNew({
-                  query: {
-                      kind: NodeKind.InsightVizNode,
-                      source: {
-                          kind: NodeKind.TrendsQuery,
-                          series: [
-                              {
-                                  kind: NodeKind.EventsNode,
-                                  event: '$ai_evaluation',
-                                  custom_name: `${evaluation.name} — Pass rate`,
-                                  math: HogQLMathType.HogQL,
-                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_PASSED_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
-                                  properties: [
-                                      {
-                                          key: '$ai_evaluation_id',
-                                          value: evaluation.id,
-                                          operator: 'exact',
-                                          type: 'event',
-                                      },
-                                  ],
-                              },
-                              ...(evaluation.output_config.allows_na
-                                  ? [
-                                        {
-                                            kind: NodeKind.EventsNode as const,
-                                            event: '$ai_evaluation',
-                                            custom_name: `${evaluation.name} — N/A rate`,
-                                            math: HogQLMathType.HogQL as const,
-                                            math_hogql: `if(count() > 0, countIf(properties.$ai_evaluation_result IS NULL) / count() * 100, 0)`,
-                                            properties: [
-                                                {
-                                                    key: '$ai_evaluation_id',
-                                                    value: evaluation.id,
-                                                    operator: 'exact' as const,
-                                                    type: 'event' as const,
-                                                },
-                                            ],
-                                        },
-                                    ]
-                                  : []),
-                          ],
-                          trendsFilter: {
-                              display: ChartDisplayType.ActionsLineGraph,
-                          },
-                          dateRange: {
-                              date_from: '-7d',
-                          },
-                          interval: 'day',
-                      },
-                  } as InsightVizNode,
-              })
-            : null
+    const supportsRunOutcomes = evaluationSupportsRunOutcomes(originalEvaluation)
 
     const configValid = isHog
         ? evaluation.evaluation_config.source.trim().length > 0
@@ -195,11 +114,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const hasSelectedJudgeModel = !modelSelectionRequired || Boolean(evaluation.model_configuration?.model.trim())
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
-    const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
+    const percentageUnset = hasUnsetConditionRollout(evaluation.conditions)
     const percentageOutOfRange = evaluation.conditions.some(
         (c) => (c.rollout_percentage ?? 0) > 100 || (c.rollout_percentage ?? 0) < 0
     )
     const hasConditions = evaluation.conditions.length > 0
+    // The save writes the evaluation configuration and then returns to the evaluations list. Runs
+    // edits nothing, and Backfills holds a setup this save does not carry, plus its own Start
+    // button, so leaving the page from either tab only does what the user did not ask for.
+    const showSaveAction = activeTab !== 'runs' && activeTab !== 'backfills'
     const saveButtonDisabledReason = !hasName
         ? 'Add a name for this evaluation'
         : !configValid
@@ -208,13 +131,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
               : 'Add an evaluation prompt before saving'
           : !hasSelectedJudgeModel
             ? 'Select a judge model before saving'
-            : undefined
+            : evaluation.output_type === 'categorical'
+              ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
+              : evaluation.output_type === 'numeric'
+                ? (numericOutputConfigError(evaluation.output_config, numericBoundsRequired) ?? undefined)
+                : (booleanOutputConfigError(evaluation.output_config) ?? undefined)
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
-        requestAnimationFrame(() => {
-            triggersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        })
+        setFormStep('traffic')
     }
 
     const handleSave = (): void => {
@@ -236,8 +161,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
             return
         }
 
-        const reportLogic = evaluationReportLogic({ evaluationId: isNewEvaluation ? 'new' : evaluation.id })
-        if (isReportableEvaluation && reportLogic.isMounted() && reportLogic.values.configError) {
+        const reportLogic = evaluationReportLogic({ evaluationId: evaluation.id })
+        if (evaluationSupportsReports(evaluation) && reportLogic.isMounted() && reportLogic.values.configError) {
             lemonToast.error(reportLogic.values.configError)
             return
         }
@@ -246,98 +171,22 @@ export function AIObservabilityEvaluation(): JSX.Element {
     }
 
     const handleCancel = (): void => {
-        if (hasUnsavedChanges) {
+        if (unsaved) {
             resetEvaluation()
         }
         push(evaluationBackTarget.path)
     }
 
-    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
-        {
-            value: 'hog',
-            label: 'Hog code',
-        },
-    ]
-    const evaluationMethodOptions: { value: EvaluationType; label: string }[] = [
-        {
-            value: 'llm_judge',
-            label: 'LLM as a judge',
-        },
-        ...hogEvaluationMethodOptions,
-        {
-            value: 'sentiment',
-            label: 'Sentiment analysis',
-        },
-    ]
-
     return (
-        <div className="space-y-6">
-            <SceneBreadcrumbBackButton />
-            {/* Header */}
-            <div className="flex justify-between items-start pb-4 border-b">
-                <div className="space-y-2">
-                    <h1 className="text-2xl font-semibold">{isNewEvaluation ? 'New evaluation' : evaluation.name}</h1>
-                    <div className="flex items-center gap-2">
-                        {isNewEvaluation ? (
-                            <LemonTag type="primary">New</LemonTag>
-                        ) : (
-                            <>
-                                {evaluation.status === 'error' ? (
-                                    <LemonTag type="danger" icon={<IconWarning />}>
-                                        Error
-                                    </LemonTag>
-                                ) : (
-                                    <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
-                                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                                    </LemonTag>
-                                )}
-                                {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
-                            </>
-                        )}
-                    </div>
-                </div>
-                <div className="flex gap-2">
-                    {trendInsightUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconTrends />}
-                            to={trendInsightUrl}
-                            targetBlank
-                            data-attr="llma-evaluation-trend-insight"
-                        >
-                            Trend insight
-                        </LemonButton>
-                    ) : null}
-                    {openInPlaygroundUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlay />}
-                            to={openInPlaygroundUrl}
-                            data-attr="llma-playground-open-from-evaluation"
-                        >
-                            Open in Playground
-                        </LemonButton>
-                    ) : null}
-                    <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
-                        {hasUnsavedChanges ? 'Cancel' : 'Back'}
-                    </LemonButton>
-                    {activeTab !== 'runs' && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="primary"
-                                onClick={handleSave}
-                                disabledReason={saveButtonDisabledReason}
-                                loading={evaluationFormSubmitting}
-                            >
-                                {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
-                            </LemonButton>
-                        </AccessControlAction>
-                    )}
-                </div>
-            </div>
+        <div className="@container/evaluation min-w-0 space-y-6 pb-8">
+            <EvaluationSceneHeader
+                playgroundUrl={openInPlaygroundUrl}
+                unsaved={unsaved}
+                showSaveAction={showSaveAction}
+                saveDisabledReason={saveButtonDisabledReason}
+                onSave={handleSave}
+                onCancel={handleCancel}
+            />
 
             {evaluation.status === 'error' && (
                 <LemonBanner type="error">
@@ -379,35 +228,49 @@ export function AIObservabilityEvaluation(): JSX.Element {
                 onChange={(key) => setActiveTab(key)}
                 data-attr="llma-evaluation-tabs"
                 tabs={[
-                    !isNewEvaluation && {
+                    {
                         key: 'runs',
                         label: 'Runs',
                         'data-attr': 'llma-evaluation-runs-tab',
                         content: (
                             <div className="max-w-6xl">
-                                <div className="flex justify-between items-center mb-4">
-                                    <p className="text-muted text-sm m-0">
-                                        History of when this evaluation has been executed.
-                                        {runsSummary && runsSummary.total > EVALUATION_SUMMARY_MAX_RUNS && (
-                                            <> The table below shows the latest {EVALUATION_SUMMARY_MAX_RUNS} runs.</>
+                                <div className="flex flex-wrap gap-4 justify-between items-start mb-4">
+                                    <div className="min-w-0">
+                                        {isReportableEvaluation && (
+                                            <EvaluationReportsCallout
+                                                evaluationId={evaluation.id}
+                                                onReportsClick={() => setActiveTab('reports')}
+                                            />
                                         )}
-                                    </p>
+                                    </div>
                                     {runsSummary && (
                                         <div className="flex flex-col items-end gap-1">
-                                            <div className="flex gap-4 text-sm">
+                                            <div className="flex flex-wrap gap-4 text-sm">
                                                 <div className="text-center">
                                                     <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                     <div className="text-muted">Total runs</div>
                                                 </div>
-                                                {supportsRunSummary && (
+                                                {evaluation.output_type === 'numeric' && (
                                                     <div className="text-center">
-                                                        <div className="font-semibold text-lg text-success">
-                                                            {runsSummary.successRate}%
+                                                        <div className="font-semibold text-lg">
+                                                            {runsSummary.scoreMean == null
+                                                                ? '–'
+                                                                : formatNumericEvaluationScore(runsSummary.scoreMean)}
                                                         </div>
-                                                        <div className="text-muted">Success rate</div>
+                                                        <div className="text-muted">Mean score</div>
                                                     </div>
                                                 )}
-                                                {supportsRunSummary && evaluation.output_config.allows_na && (
+                                                {supportsRunOutcomes && (
+                                                    <div className="text-center">
+                                                        <div className="font-semibold text-lg text-success">
+                                                            {runsSummary.successRate == null
+                                                                ? '–'
+                                                                : `${runsSummary.successRate}%`}
+                                                        </div>
+                                                        <div className="text-muted">Pass rate</div>
+                                                    </div>
+                                                )}
+                                                {supportsRunOutcomes && originalEvaluation?.output_config.allows_na && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg">
                                                             {runsSummary.applicabilityRate}%
@@ -415,395 +278,128 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <div className="text-muted">Applicable</div>
                                                     </div>
                                                 )}
-                                                <div className="text-center">
-                                                    <div className="font-semibold text-lg text-danger">
-                                                        {runsSummary.errors}
-                                                    </div>
-                                                    <div className="text-muted">Errors</div>
-                                                </div>
                                             </div>
-                                            <div className="text-muted text-xs">Across all runs, all time</div>
+                                            <div className="text-muted text-xs">
+                                                {runsBackfillId
+                                                    ? 'From this backfill'
+                                                    : runsDateRange.date_from === 'all'
+                                                      ? 'Across all runs, all time'
+                                                      : 'In the selected date range'}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
+                                {runsBackfillId && (
+                                    <LemonBanner
+                                        type="info"
+                                        className="mb-4"
+                                        action={{
+                                            children: 'Show all runs',
+                                            onClick: () =>
+                                                router.actions.push(
+                                                    router.values.location.pathname,
+                                                    { ...router.values.searchParams, backfill_id: undefined },
+                                                    router.values.hashParams
+                                                ),
+                                        }}
+                                    >
+                                        <span className="font-semibold">Showing runs from one backfill.</span>
+                                        {runsBackfill && (
+                                            <>
+                                                {' '}
+                                                It covered {pluralize(
+                                                    runsBackfill.total_count,
+                                                    runsBackfill.target
+                                                )}{' '}
+                                                between{' '}
+                                                <TZLabel
+                                                    time={runsBackfill.window_start}
+                                                    timestampStyle="absolute"
+                                                    {...RUNS_BACKFILL_TIME_FORMAT}
+                                                />
+                                                {' and '}
+                                                <TZLabel
+                                                    time={runsBackfill.window_end}
+                                                    timestampStyle="absolute"
+                                                    {...RUNS_BACKFILL_TIME_FORMAT}
+                                                />
+                                                .
+                                            </>
+                                        )}
+                                    </LemonBanner>
+                                )}
+                                <EvaluationFirstResultStatus />
+                                {evaluationSupportsReportHistory(originalEvaluation) && (
+                                    <EvaluationLatestReport
+                                        evaluationId={evaluation.id}
+                                        onOpenReports={() => setActiveTab('reports')}
+                                    />
+                                )}
+                                {!runsBackfillId && (
+                                    <div className="mb-4">
+                                        <EvaluationDetailResults evaluationId={evaluation.id} />
+                                    </div>
+                                )}
                                 <EvaluationRunsTable />
                             </div>
                         ),
                     },
-                    !isNewEvaluation &&
-                        isReportableEvaluation && {
-                            key: 'reports',
-                            label: 'Reports',
-                            'data-attr': 'llma-evaluation-reports-tab',
-                            content: (
-                                <EvaluationReportsTab
-                                    evaluationId={evaluation.id}
-                                    onConfigureClick={() => setActiveTab('configuration')}
-                                />
-                            ),
-                        },
+                    evaluationSupportsReportHistory(originalEvaluation) && {
+                        key: 'reports',
+                        label: 'Reports',
+                        'data-attr': 'llma-evaluation-reports-tab',
+                        content: (
+                            <EvaluationReportsTab
+                                evaluationId={evaluation.id}
+                                generationDisabledReason={
+                                    isReportableEvaluation ? undefined : 'Add a passing rule to generate new reports.'
+                                }
+                                userAccessLevel={evaluation.user_access_level ?? undefined}
+                                onConfigureClick={() => setActiveTab('configuration')}
+                            />
+                        ),
+                    },
+                    {
+                        key: 'backfills',
+                        label: 'Backfills',
+                        'data-attr': 'llma-evaluation-backfills-tab',
+                        content: (
+                            <EvaluationBackfillsTab
+                                evaluationId={evaluation.id}
+                                userAccessLevel={evaluation.user_access_level ?? undefined}
+                                onConfigurationClick={() => setActiveTab('configuration')}
+                            />
+                        ),
+                    },
                     {
                         key: 'configuration',
                         label: 'Configuration',
                         'data-attr': 'llma-evaluation-configuration-tab',
                         content: (
-                            <div className="max-w-4xl">
-                                <Form logic={llmEvaluationLogic} formKey="evaluation" className="space-y-6">
-                                    {/* Basic Information */}
-                                    <div className="bg-bg-light border rounded p-6">
-                                        <h3 className="text-lg font-semibold mb-4">Basic information</h3>
-
-                                        <div className="space-y-4">
-                                            <Field name="name" label="Name">
-                                                <LemonInput
-                                                    value={evaluation.name}
-                                                    onChange={setEvaluationName}
-                                                    placeholder="e.g., Helpfulness Check"
-                                                    maxLength={100}
-                                                />
-                                            </Field>
-
-                                            {evaluationMethodOptions.length > 1 && (
-                                                <Field name="evaluation_type" label="Method">
-                                                    <LemonSelect
-                                                        value={evaluation.evaluation_type}
-                                                        onChange={(value) => setEvaluationType(value as EvaluationType)}
-                                                        options={evaluationMethodOptions}
-                                                        fullWidth
-                                                    />
-                                                </Field>
-                                            )}
-                                            <p className="text-muted text-sm -mt-2">
-                                                {isSentiment ? (
-                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls.'
-                                                ) : isHog ? (
-                                                    <>
-                                                        Run deterministic{' '}
-                                                        <Link to="https://posthog.com/docs/hog" target="_blank">
-                                                            Hog code
-                                                        </Link>{' '}
-                                                        against{' '}
-                                                        {isSessionTarget
-                                                            ? 'the whole session'
-                                                            : evaluation.target === 'trace'
-                                                              ? 'the whole trace'
-                                                              : 'each generation'}
-                                                        . No LLM cost.
-                                                    </>
-                                                ) : (
-                                                    `Use an LLM to evaluate ${
-                                                        isSessionTarget
-                                                            ? 'the whole session'
-                                                            : evaluation.target === 'trace'
-                                                              ? 'the whole trace'
-                                                              : 'each generation'
-                                                    } against a natural-language prompt.`
-                                                )}
-                                            </p>
-
-                                            {!isSentiment && (
-                                                <>
-                                                    <Field name="target" label="Evaluate">
-                                                        <LemonSelect<EvaluationTarget>
-                                                            value={evaluation.target ?? 'generation'}
-                                                            onChange={setEvaluationTarget}
-                                                            options={[
-                                                                {
-                                                                    value: 'generation',
-                                                                    label: 'Each generation',
-                                                                },
-                                                                {
-                                                                    value: 'trace',
-                                                                    label: 'Whole trace',
-                                                                },
-                                                                ...(offersSessionTarget
-                                                                    ? [
-                                                                          {
-                                                                              value: 'session' as const,
-                                                                              label: 'Whole session',
-                                                                          },
-                                                                      ]
-                                                                    : []),
-                                                            ]}
-                                                            fullWidth
-                                                        />
-                                                    </Field>
-                                                    <p className="text-muted text-sm -mt-2">
-                                                        {isSessionTarget
-                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
-                                                            : evaluation.target === 'trace'
-                                                              ? 'Runs once per trace on all of its events together, after it settles.'
-                                                              : 'Runs on each matching generation event individually, right after it is ingested.'}
-                                                    </p>
-                                                    {isAggregateTarget && (
-                                                        <>
-                                                            {settlingStrategyEnabled && (
-                                                                <Field name="settle_strategy" label="Evaluate when">
-                                                                    <LemonSelect<EvaluationSettleStrategy>
-                                                                        value={effectiveStrategy}
-                                                                        onChange={setSettleStrategy}
-                                                                        options={[
-                                                                            {
-                                                                                value: 'fixed_window',
-                                                                                label: 'A fixed delay has passed',
-                                                                            },
-                                                                            {
-                                                                                value: 'inactivity',
-                                                                                label: isSessionTarget
-                                                                                    ? 'The session goes quiet'
-                                                                                    : 'The trace goes quiet',
-                                                                            },
-                                                                        ]}
-                                                                        fullWidth
-                                                                    />
-                                                                </Field>
-                                                            )}
-                                                            {effectiveStrategy === 'fixed_window' ? (
-                                                                <Field
-                                                                    name="settle_window"
-                                                                    label="Wait before evaluating"
-                                                                >
-                                                                    <div className="space-y-1">
-                                                                        <DurationPicker
-                                                                            value={
-                                                                                evaluation.target_config
-                                                                                    .window_seconds ??
-                                                                                (isSessionTarget
-                                                                                    ? DEFAULT_SESSION_WINDOW_SECONDS
-                                                                                    : DEFAULT_TRACE_WINDOW_SECONDS)
-                                                                            }
-                                                                            onChange={(value) => {
-                                                                                if (
-                                                                                    evaluation.target_config
-                                                                                        .strategy === 'inactivity'
-                                                                                ) {
-                                                                                    setSettleStrategy('fixed_window')
-                                                                                }
-                                                                                patchTargetConfig({
-                                                                                    window_seconds: value,
-                                                                                })
-                                                                            }}
-                                                                        />
-                                                                        <p className="text-muted text-xs">
-                                                                            {isSessionTarget
-                                                                                ? "How long to wait after the first matching generation before pulling the whole session (10s to 7 days). Captured when the run is scheduled, so changing it won't affect runs already in flight."
-                                                                                : "How long to wait after the first matching generation before pulling the whole trace (10s–2h). Captured when the run is scheduled — changing it won't affect trace runs already in flight."}
-                                                                        </p>
-                                                                    </div>
-                                                                </Field>
-                                                            ) : (
-                                                                <>
-                                                                    <Field
-                                                                        name="settle_quiet_period"
-                                                                        label="Quiet period"
-                                                                    >
-                                                                        <div className="space-y-1">
-                                                                            <DurationPicker
-                                                                                value={
-                                                                                    evaluation.target_config
-                                                                                        .quiet_period_seconds ??
-                                                                                    (isSessionTarget
-                                                                                        ? DEFAULT_SESSION_QUIET_PERIOD_SECONDS
-                                                                                        : DEFAULT_TRACE_QUIET_PERIOD_SECONDS)
-                                                                                }
-                                                                                onChange={(value) =>
-                                                                                    patchTargetConfig({
-                                                                                        quiet_period_seconds: value,
-                                                                                    })
-                                                                                }
-                                                                            />
-                                                                            <p className="text-muted text-xs">
-                                                                                {isSessionTarget
-                                                                                    ? 'Evaluate once the session has had no new activity for this long (10s to 24 hours). Sessions often pause for a while mid-conversation, so a longer quiet period means fewer verdicts on a session that was not finished.'
-                                                                                    : 'Evaluate once the trace has had no new activity for this long (10s–30m).'}
-                                                                            </p>
-                                                                        </div>
-                                                                    </Field>
-                                                                    <Field name="settle_max_age" label="Evaluate by">
-                                                                        <div className="space-y-1">
-                                                                            <DurationPicker
-                                                                                value={
-                                                                                    evaluation.target_config
-                                                                                        .max_age_seconds ??
-                                                                                    (isSessionTarget
-                                                                                        ? DEFAULT_SESSION_MAX_AGE_SECONDS
-                                                                                        : DEFAULT_TRACE_MAX_AGE_SECONDS)
-                                                                                }
-                                                                                onChange={(value) =>
-                                                                                    patchTargetConfig({
-                                                                                        max_age_seconds: value,
-                                                                                    })
-                                                                                }
-                                                                            />
-                                                                            <p className="text-muted text-xs">
-                                                                                {isSessionTarget
-                                                                                    ? 'Always evaluate once the session is this old, even if it is still active (1m to 7 days).'
-                                                                                    : "Always evaluate once the trace is this old, even if it's still active (1m–2h)."}
-                                                                            </p>
-                                                                        </div>
-                                                                    </Field>
-                                                                </>
-                                                            )}
-                                                        </>
-                                                    )}
-                                                </>
-                                            )}
-
-                                            <Field name="description" label="Description (optional)">
-                                                <LemonTextArea
-                                                    value={evaluation.description || ''}
-                                                    onChange={setEvaluationDescription}
-                                                    placeholder="Describe what this evaluation checks for..."
-                                                    rows={2}
-                                                    maxLength={500}
-                                                />
-                                            </Field>
-
-                                            <div className="flex items-center gap-2">
-                                                <Tooltip
-                                                    title={canEnableReason}
-                                                    visible={canEnableReason ? undefined : false}
-                                                >
-                                                    <span>
-                                                        <LemonSwitch
-                                                            checked={evaluation.enabled}
-                                                            onChange={setEvaluationEnabled}
-                                                            label="Enable evaluation"
-                                                            disabled={!canEnable && !evaluation.enabled}
-                                                        />
-                                                    </span>
-                                                </Tooltip>
-                                                <span className="text-muted text-sm">
-                                                    {!canEnable && !evaluation.enabled
-                                                        ? canEnableReason
-                                                        : evaluation.enabled
-                                                          ? 'This evaluation will run automatically based on triggers'
-                                                          : 'This evaluation is paused and will not run'}
-                                                </span>
-                                            </div>
-
-                                            {isBooleanOutput && (
-                                                <Field
-                                                    name="allows_na"
-                                                    label={
-                                                        <div className="flex items-center gap-1">
-                                                            <span>Allow N/A responses</span>
-                                                            <Tooltip
-                                                                title={
-                                                                    isHog
-                                                                        ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
-                                                                        : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the evaluation is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
-                                                                }
-                                                            >
-                                                                <IconInfo className="text-muted text-base" />
-                                                            </Tooltip>
-                                                        </div>
-                                                    }
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <LemonSwitch
-                                                            checked={evaluation.output_config.allows_na ?? false}
-                                                            onChange={setAllowsNA}
-                                                        />
-                                                        <span className="text-muted text-sm">
-                                                            {evaluation.output_config.allows_na
-                                                                ? isHog
-                                                                    ? 'Returning null means "Not Applicable"'
-                                                                    : 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
-                                                                : isHog
-                                                                  ? 'Evaluation must return true or false'
-                                                                  : 'Evaluation returns true or false'}
-                                                        </span>
-                                                    </div>
-                                                </Field>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Prompt / Code Configuration */}
-                                    {hasEditableCriteria && (
-                                        <div className="bg-bg-light border rounded p-6">
-                                            <h3 className="text-lg font-semibold mb-4">
-                                                {isHog ? 'Evaluation code' : 'Evaluation prompt'}
-                                            </h3>
-                                            {isHog ? <EvaluationCodeEditor /> : <EvaluationPromptEditor />}
-                                        </div>
-                                    )}
-
-                                    {/* Judge Model Configuration (LLM judge only) */}
-                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && (
-                                        <EvaluationModelPicker />
-                                    )}
-
-                                    {/* Trigger Configuration */}
-                                    <div ref={triggersRef} className="bg-bg-light border rounded p-6">
-                                        <h3 className="text-lg font-semibold mb-4">Triggers</h3>
-                                        <p className="text-muted text-sm mb-4">
-                                            Configure when this evaluation should run on your LLM generations.
-                                        </p>
-                                        <EvaluationTriggers />
-                                    </div>
-
-                                    {/* Scheduled Reports (inline config for new evaluations) */}
-                                    {isNewEvaluation && isReportableEvaluation && (
-                                        <EvaluationReportConfig evaluationId="new" />
-                                    )}
-                                </Form>
-
-                                {/* Scheduled Reports (for existing evaluations, outside the form) */}
-                                {!isNewEvaluation && isReportableEvaluation && (
-                                    <div className="mt-6">
-                                        <EvaluationReportConfig evaluationId={evaluation.id} />
-                                    </div>
-                                )}
+                            <div className="max-w-4xl mx-auto">
+                                <EvaluationConfigurationForm />
+                                <div className="flex justify-end mt-6">
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Evaluation}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={evaluation.user_access_level ?? undefined}
+                                    >
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={handleSave}
+                                            disabledReason={saveButtonDisabledReason}
+                                            loading={evaluationFormSubmitting}
+                                            data-attr="llma-evaluation-save-bottom"
+                                        >
+                                            Save changes
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                </div>
                             </div>
                         ),
                     },
                 ]}
             />
-        </div>
-    )
-}
-
-function EvaluationModelPicker(): JSX.Element {
-    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
-        useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired } = useValues(llmEvaluationLogic)
-    const { selectModelFromPicker } = useActions(llmEvaluationLogic)
-
-    // Evals always run on the team's own provider key, so only BYOK models are offered.
-    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
-    const groups = providerModelGroups
-    const loading = byokModelsLoading || providerKeysLoading
-
-    const footerLink = getModelPickerFooterLink(hasByokKeys)
-
-    return (
-        <div className="bg-bg-light border rounded p-6">
-            <h3 className="text-lg font-semibold mb-2">Judge model</h3>
-            <p className="text-muted text-sm mb-4">
-                Select which LLM provider and model to use for running this evaluation.
-            </p>
-
-            <div className="space-y-4">
-                <Field name="model" label="Model">
-                    <div>
-                        <ModelPicker
-                            model={selectedModel}
-                            selectedProviderKeyId={selectedPickerProviderKeyId}
-                            onSelect={selectModelFromPicker}
-                            groups={groups}
-                            loading={loading}
-                            footerLink={footerLink}
-                            selectedModelName={selectedModelName}
-                            data-attr="evaluation-model-selector"
-                        />
-                        {modelSelectionRequired && !selectedModel && (
-                            <p className="text-sm text-danger mt-1">Select a judge model.</p>
-                        )}
-                    </div>
-                </Field>
-            </div>
         </div>
     )
 }

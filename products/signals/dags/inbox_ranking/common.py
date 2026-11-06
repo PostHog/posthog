@@ -17,6 +17,9 @@ from botocore.exceptions import ClientError
 
 from posthog import settings
 from posthog.dags.common import JobOwners
+from posthog.storage.object_storage import ObjectStorage
+
+from products.signals.backend.models import SignalActorKind
 
 DATASET_VERSION = "v1"
 
@@ -31,15 +34,49 @@ PARQUET_PART_NAME = "part-00000.parquet"
 # label bound 7-8 hours off the UTC partition boundary. An embedded offset overrides that.
 LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 
+# Dismissal reasons that mean the report itself was wrong (the precision failure the dismiss_wrong
+# head predicts). already_fixed and wontfix_irrelevant are deliberately not here. Shared by the
+# labels SQL (cumulative count) and the head definition.
+WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
+# A report can be resolved without an implemented fix, so these reasons do not label a fix.
+NOT_FIXED_RESOLUTION_REASONS = (
+    "no_action_needed",
+    "analysis_wrong",
+    "wontfix_intentional",
+    "wontfix_irrelevant",
+    "report_unclear",
+    "wrong_assignee",
+    "wrong_repo",
+)
+# A dismissal that says the problem was real and is fixed somewhere.
+FIXED_DISMISSAL_REASONS = ("already_fixed", "fixed_outside_posthog", "pr_merged")
+# A dismissal that says the problem is real but not worth fixing: a relevance failure, not a precision failure.
+LOW_VALUE_DISMISSAL_REASONS = ("wontfix_irrelevant",)
+
+# Artefact actors whose writes count as a person acting on a report. `agent` is an external MCP
+# client that authenticates as a real user, so a person drove it. `task` is a self-driving sandbox
+# (scouts, implementation runs) and `system` is the pipeline: their claims, notes and PRs are
+# internal operational writes, far more frequent than the human ones, and say nothing about intent.
+# A null actor is a legacy or system write, so it is also excluded.
+HUMAN_ACTOR_KINDS = (SignalActorKind.USER, SignalActorKind.AGENT)
+
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
 owner_tags: dict[str, str] = {"owner": JobOwners.TEAM_SELF_DRIVING.value}
+
+# The serving publish runs inside the manifest asset and inside the manual promote job.
+RunContext = dagster.AssetExecutionContext | dagster.OpExecutionContext
 
 
 def is_inbox_ranking_registered() -> bool:
     """EU report rows and embeddings are unreachable from a US dag, and labels from every region
     already land in the US dogfood project, so the whole location registers on US only."""
     return settings.CLOUD_DEPLOYMENT != "EU"
+
+
+def is_inbox_ranking_mirror_registered() -> bool:
+    """EU trains nothing, but it builds its own project vectors from its own report embeddings."""
+    return settings.CLOUD_DEPLOYMENT == "EU"
 
 
 def dataset_unconfigured() -> bool:
@@ -86,7 +123,7 @@ def skip_unconfigured(context: dagster.AssetExecutionContext) -> bool:
 # boto3.client("s3") is left untyped on purpose: mypy and pyright resolve it to different stub
 # packages (mypy_boto3_s3 vs types_boto3_s3), so a concrete S3Client annotation can't satisfy both.
 def s3_client():  # noqa: ANN201
-    # The dedicated bucket is reached via ambient AWS config (the node role on prod). Without it,
+    # The dedicated bucket is reached via ambient AWS config (the `dagster` IRSA role on prod). Without it,
     # every other environment (local dev, self-hosted, CI) uses the deployment's object-storage
     # service, which needs its explicit endpoint and credentials regardless of DEBUG.
     if settings.INBOX_RANKING_DATASET_S3_BUCKET:
@@ -100,10 +137,26 @@ def s3_client():  # noqa: ANN201
     )
 
 
+def serving_mirror_storage() -> ObjectStorage:
+    # The mirror is another deployment's store, so ambient AWS config must grant the write there.
+    return ObjectStorage(boto3.client("s3", region_name=settings.INBOX_RANKING_SERVING_MIRROR_REGION or None))
+
+
 SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
+ROW_COUNT_METADATA_KEY = "row-count"
+# The FEATURE_SCHEMA_VERSION the labels asset wrote an object under. The refresh sensor rewrites a
+# partition whose stamp is missing or older, so a new label column reaches the whole lookback.
+SCHEMA_VERSION_METADATA_KEY = "feature-schema-version"
 
 
-def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date: str | None = None) -> None:
+def write_parquet(
+    client,
+    bucket: str,
+    key: str,
+    table: pa.Table,
+    snapshot_date: str | None = None,
+    schema_version: int | None = None,
+) -> None:
     """Write one Parquet object at a deterministic key.
 
     Spooled to a temp file and uploaded with `upload_fileobj` rather than held as bytes for
@@ -111,7 +164,11 @@ def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date:
     so they grow past both the 5 GB single-request ceiling and what a second in-memory copy of the
     encoded file costs. `upload_fileobj` switches to a multipart upload on its own once the object
     is large enough."""
-    metadata = {SNAPSHOT_DATE_METADATA_KEY: snapshot_date} if snapshot_date else {}
+    metadata = {ROW_COUNT_METADATA_KEY: str(table.num_rows)}
+    if snapshot_date:
+        metadata[SNAPSHOT_DATE_METADATA_KEY] = snapshot_date
+    if schema_version is not None:
+        metadata[SCHEMA_VERSION_METADATA_KEY] = str(schema_version)
     with tempfile.TemporaryFile() as spool:
         pq.write_table(table, spool, compression="zstd")
         spool.seek(0)
@@ -130,9 +187,73 @@ def object_snapshot_date(client, bucket: str, key: str) -> str | None:
     return head.get("Metadata", {}).get(SNAPSHOT_DATE_METADATA_KEY)
 
 
-def read_parquet(client, bucket: str, key: str) -> pa.Table:
+def object_row_count(client, bucket: str, key: str) -> int | None:
+    """The row count stamped on an object at write time, or None when the object is missing (or
+    predates the stamp), so callers treat it as unknown rather than empty."""
+    try:
+        head = client.head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+    stamped = head.get("Metadata", {}).get(ROW_COUNT_METADATA_KEY)
+    return int(stamped) if stamped is not None else None
+
+
+def object_schema_version(client, bucket: str, key: str) -> int | None:
+    """The schema version stamped on an object at write time, or None when the object is missing
+    or predates the stamp."""
+    try:
+        head = client.head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+    stamped = head.get("Metadata", {}).get(SCHEMA_VERSION_METADATA_KEY)
+    return int(stamped) if stamped is not None else None
+
+
+def partition_write_allowed(existing_row_count: int | None, row_count: int) -> bool:
+    """Whether a re-run may overwrite a partition it has already written.
+
+    A backstop, not the primary defense: an incremental partition is rewritten from the union of
+    what it already holds and what the source still returns (`merge_emission_rows`), so a re-run can
+    only ever grow. A smaller count therefore means the union itself is broken, and refusing the
+    write keeps a bug from destroying rows the source can no longer supply. An unknown count (no
+    object, or one written before the stamp) is not a veto."""
+    return existing_row_count is None or row_count >= existing_row_count
+
+
+def merge_emission_rows(existing: pa.Table, fresh: pa.Table, key_columns: tuple[str, ...]) -> pa.Table:
+    """Union an already-written emission partition with a fresh scan, keeping every archived row.
+
+    A re-run cannot simply overwrite: the source drops rows (a ReplacingMergeTree merge, the TTL),
+    so a later scan can be missing an emission this partition already captured, and that emission
+    exists nowhere else. Comparing row counts alone would not catch it either, since a scan can lose
+    one row and gain another and land on the same total. Keeping the existing rows and appending only
+    unseen ones makes a re-run additive, so no re-run can remove archived history.
+
+    Only the key columns are pulled into Python; the wide embedding column stays in Arrow.
+    """
+    seen = set(zip(*(existing.column(name).to_pylist() for name in key_columns), strict=True))
+    fresh_keys = zip(*(fresh.column(name).to_pylist() for name in key_columns), strict=True)
+    mask = pa.array([key not in seen for key in fresh_keys], type=pa.bool_())
+    return pa.concat_tables([existing, fresh.filter(mask)])
+
+
+def read_parquet(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table:
     body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
-    return pq.read_table(pa.BufferReader(body))
+    return pq.read_table(pa.BufferReader(body), columns=columns)
+
+
+def read_parquet_if_exists(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table | None:
+    """The object's rows, or None when it was never written."""
+    try:
+        return read_parquet(client, bucket, key, columns)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
 
 
 def ensure_utc(value: datetime.datetime | None) -> datetime.datetime | None:

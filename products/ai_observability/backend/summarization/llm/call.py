@@ -18,6 +18,8 @@ def summarize(
     mode: SummarizationMode = DEFAULT_MODE,
     model: OpenAIModel | None = None,
     user_id: str | None = None,
+    flex: bool = False,
+    final_attempt: bool = True,
 ) -> SummarizationResponse:
     """
     Generate AI-powered summary from text representation via LLM gateway.
@@ -28,9 +30,13 @@ def summarize(
         mode: Summary detail level
         model: OpenAI model to use (defaults to gpt-4.1-mini)
         user_id: Optional user distinct_id for analytics attribution
+        flex: Request the flex service tier, cheaper but slower (gpt-5 family only)
+        final_attempt: False when the caller retries a failure, so the failure is not captured
 
     Returns:
         Structured summarization response with flow diagram, bullets, and notes
     """
     openai_model = cast(OpenAIModel, model) if model else DEFAULT_MODEL_OPENAI
-    return summarize_with_openai(text_repr, team_id, mode, openai_model, user_id)
+    return summarize_with_openai(
+        text_repr, team_id, mode, openai_model, user_id, flex=flex, final_attempt=final_attempt
+    )

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { TICK_GAP } from '../core/y-axis-gutters'
@@ -50,29 +50,9 @@ function truncateWithTitle(fullText: string, maxCategoryLabelWidth: number): { t
 
 /** Greedily keep entries left→right. Horizontal labels use their measured text boxes; rotated
  *  labels use the minimum perpendicular separation between parallel lines of text. */
-function dropOverlappingLabels<T extends { text: string; x: number }>(
-    candidates: T[],
-    padding: number,
-    tickLabelRotation = 0
-): T[] {
+function dropOverlappingLabels<T extends { text: string; x: number }>(candidates: T[], padding: number): T[] {
     if (candidates.length === 0) {
         return []
-    }
-
-    const rotation = normalizeTickLabelRotation(tickLabelRotation)
-    if (rotation !== 0) {
-        // Perpendicular separation keeps the parallel lines of text from overlapping; `padding`
-        // floors the along-axis spacing so the same caller-provided gap applies as in the flat path.
-        const minimumGap = Math.max(minimumRotatedTickLabelGap(rotation), padding)
-        const visible: T[] = []
-        let lastX = -Infinity
-        for (const candidate of candidates) {
-            if (candidate.x >= lastX + minimumGap) {
-                visible.push(candidate)
-                lastX = candidate.x
-            }
-        }
-        return visible
     }
 
     const ctx = getTextMeasureCtx()
@@ -105,21 +85,27 @@ export function computeVisibleXLabels(
     tickLabelRotation = 0
 ): XLabelCandidate[] {
     const candidates: XLabelCandidate[] = []
+    const rotation = normalizeTickLabelRotation(tickLabelRotation)
+    const minimumGap = rotation === 0 ? 0 : Math.max(minimumRotatedTickLabelGap(rotation), CATEGORY_LABEL_PADDING)
+    let lastX = -Infinity
+
     for (let i = 0; i < labels.length; i++) {
         const x = xScale(labels[i])
         if (x == null) {
             continue
         }
         const fullText = formatter ? formatter(labels[i], i) : labels[i]
-        if (fullText === null) {
+        if (fullText === null || (rotation !== 0 && x < lastX + minimumGap)) {
             continue
         }
-        // The truncated text drives both display and overlap measurement below.
         const { text, title } = truncateWithTitle(fullText, maxCategoryLabelWidth)
         candidates.push({ index: i, text, title, x })
+        if (rotation !== 0) {
+            lastX = x
+        }
     }
 
-    return dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING, tickLabelRotation)
+    return rotation === 0 ? dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING) : candidates
 }
 
 interface ValueTickCandidate {
@@ -313,23 +299,16 @@ export const AxisLabels = React.memo(function AxisLabels({
     maxCategoryLabelWidth = 0,
 }: AxisLabelsProps): React.ReactElement | null {
     const { scales, dimensions, labels, yGutters } = useChartLayout()
-    const yTicks = scales.yTicks()
 
-    const visibleXLabels = useMemo(
-        () =>
-            hideXAxis || orientation === 'horizontal'
-                ? []
-                : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation),
-        [hideXAxis, labels, scales.x, xTickFormatter, xTickLabelRotation, orientation, maxCategoryLabelWidth]
-    )
+    const visibleXLabels =
+        hideXAxis || orientation === 'horizontal'
+            ? []
+            : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation)
 
-    // Mirror the vertical branch's memoization so an unrelated prop change (e.g. axisColor)
-    // doesn't re-run the per-tick `ctx.measureText` measurements in `dropOverlappingLabels`.
-    const visibleValueTicks = useMemo(
-        () =>
-            hideXAxis || orientation !== 'horizontal' ? [] : computeVisibleValueTicks(yTicks, scales.y, yTickFormatter),
-        [hideXAxis, orientation, yTicks, scales.y, yTickFormatter]
-    )
+    const visibleValueTicks =
+        hideXAxis || orientation !== 'horizontal'
+            ? []
+            : computeVisibleValueTicks(scales.yTicks(), scales.y, yTickFormatter)
 
     if (orientation === 'horizontal') {
         // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives

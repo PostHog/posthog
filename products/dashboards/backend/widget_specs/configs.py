@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal, Self
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator, model_validator
 
-from posthog.schema import PropertyOperator
+from posthog.schema import ErrorTrackingOrderBy, PropertyOperator
 
+from products.conversations.backend.models.constants import Channel, Priority, Status
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
     ACTIVITY_EVENTS_MAX_PROPERTY_FILTER_VALUES,
@@ -15,10 +17,15 @@ from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_MAX_PROPERTY_VALUE_LENGTH,
     DEFAULT_WIDGET_LIST_LIMIT,
     LOGS_LIST_DEFAULT_LIMIT,
+    METRICS_TABLE_DEFAULT_LIMIT,
+    METRICS_TABLE_MAX_COLUMNS,
+    METRICS_TABLE_MAX_FILTERS,
+    METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES,
 )
 from products.dashboards.backend.widget_specs.common import (
     ActivityWidgetLimit,
     LogsWidgetLimit,
+    MetricsTableWidgetLimit,
     WidgetDateRange,
     WidgetDateRangeConfigBase,
     WidgetLimit,
@@ -33,6 +40,37 @@ EXPERIMENTS_LIST_WIDGET_TYPE = "experiments_list"
 EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
 SURVEY_RESULTS_WIDGET_TYPE = "survey_results"
 LOGS_LIST_WIDGET_TYPE = "logs_list"
+CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE = "conversations_recent_tickets"
+NOTEBOOK_WIDGET_TYPE = "notebook_widget"
+CANVAS_APP_WIDGET_TYPE = "canvas_app"
+METRICS_TABLE_WIDGET_TYPE = "metrics_table"
+
+
+class CanvasAppWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    canvasId: UUID | None = Field(
+        default=None,
+        description="Canvas to render in the tile. Null until the user picks one in the widget settings.",
+    )
+
+
+class NotebookWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    notebookShortId: str | None = Field(
+        default=None, min_length=1, max_length=128, description="Source notebook short ID."
+    )
+    snapshotId: UUID | None = Field(
+        default=None, description="Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+    )
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> Self:
+        if bool(self.notebookShortId) != bool(self.snapshotId):
+            raise ValueError("Provide both the notebook and its widget snapshot.")
+        return self
+
 
 ActivityEventsPropertyKey = Annotated[
     str,
@@ -46,7 +84,6 @@ ActivityEventsPropertyValues = Annotated[
     Field(max_length=ACTIVITY_EVENTS_MAX_PROPERTY_FILTER_VALUES),
 ]
 
-ErrorTrackingOrderBy = Literal["last_seen", "first_seen", "occurrences", "users", "sessions"]
 ErrorTrackingWidgetStatus = Literal["archived", "active", "resolved", "pending_release", "suppressed", "all"]
 SessionReplayOrderBy = Literal[
     "start_time", "activity_score", "recording_duration", "duration", "click_count", "console_error_count"
@@ -59,6 +96,18 @@ LogsOrderBy = Literal["latest", "earliest"]
 LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
 # How log timestamps render on the tile: in UTC, or in each viewer's local timezone.
 LogsTimezone = Literal["UTC", "local"]
+ConversationsTicketStatus = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": [*Status.values, "all"]}),
+]
+ConversationsTicketPriority = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": list(Priority.values)}),
+]
+ConversationsTicketChannel = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": [*Channel.values, "all"]}),
+]
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -66,6 +115,31 @@ class WidgetAssigneeFilter(BaseModel):
 
     id: str | int
     type: WidgetAssigneeType
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_id(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+
+        assignee_id = value.get("id")
+        assignee_type = value.get("type")
+        if isinstance(assignee_id, bool) or not isinstance(assignee_id, str | int):
+            raise ValueError("Assignee id must be a user ID or role UUID.")
+        if assignee_type == "user":
+            try:
+                int(assignee_id)
+            except ValueError as err:
+                raise ValueError("User assignee id must be an integer.") from err
+        if assignee_type == "role":
+            try:
+                UUID(str(assignee_id))
+            except ValueError as err:
+                raise ValueError("Role assignee id must be a UUID.") from err
+        return value
+
+
+ConversationsAssigneeFilter = Literal["me", "unassigned"] | WidgetAssigneeFilter
 
 
 class ActivityEventsPropertyFilter(BaseModel):
@@ -100,7 +174,7 @@ class ActivityEventsPropertyFilter(BaseModel):
 
 class ErrorTrackingListWidgetConfig(WidgetListConfigBase):
     limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of issues to return.")
-    orderBy: ErrorTrackingOrderBy = Field(default="occurrences", description="Issue ranking column.")
+    orderBy: ErrorTrackingOrderBy = Field(default=ErrorTrackingOrderBy.OCCURRENCES, description="Issue ranking column.")
     orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderBy.")
     status: ErrorTrackingWidgetStatus = Field(default="active", description="Issue status filter.")
     assignee: WidgetAssigneeFilter | None = Field(
@@ -236,3 +310,145 @@ class LogsListWidgetConfig(WidgetDateRangeConfigBase):
         if not isinstance(value, str):
             raise ValueError("savedViewId must be a string.")
         return value
+
+
+class ConversationsRecentTicketsWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of tickets to return.")
+    status: ConversationsTicketStatus = Field(default="all", description="Ticket status filter.")
+    priorities: list[ConversationsTicketPriority] = Field(
+        default_factory=list,
+        description="Only show tickets with these priorities. Empty shows all priorities.",
+    )
+    channel: ConversationsTicketChannel = Field(default="all", description="Ticket channel filter.")
+    assignees: list[ConversationsAssigneeFilter] = Field(
+        default_factory=list,
+        max_length=100,
+        description=(
+            "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' "
+            "means tickets without an assignment. Empty shows all assignees."
+        ),
+    )
+    search: str = Field(
+        default="",
+        max_length=200,
+        description="Search requester name or email, ticket subject, message text, or ticket number.",
+    )
+    savedViewId: str | None = Field(
+        default=None,
+        max_length=12,
+        description=(
+            "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket "
+            "filters; the widget still sorts by most recently updated and applies its limit."
+        ),
+    )
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value not in {*Status.values, "all"}:
+            raise ValueError("Ticket status filter is invalid.")
+        return value
+
+    @field_validator("priorities")
+    @classmethod
+    def validate_priorities(cls, values: list[str]) -> list[str]:
+        invalid_values = set(values).difference(Priority.values)
+        if invalid_values:
+            raise ValueError("Ticket priority filter is invalid.")
+        return values
+
+    @field_validator("channel")
+    @classmethod
+    def validate_channel(cls, value: str) -> str:
+        if value not in {*Channel.values, "all"}:
+            raise ValueError("Ticket channel filter is invalid.")
+        return value
+
+    @field_validator("savedViewId", mode="before")
+    @classmethod
+    def validate_saved_view_id(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise ValueError("savedViewId must be a string.")
+        return value
+
+
+# `rate` and `increase` sum the per-series change of a counter, so a row shows the total for its label value.
+MetricsTableAggregation = Literal["rate", "increase", "sum", "avg", "min", "max", "histogram_quantile"]
+MetricsTableFilterOp = Literal["eq", "neq", "regex", "not_regex"]
+MetricsTableInterval = Literal["minute", "minute_5", "minute_15", "hour", "day"]
+
+
+class MetricsTableFilter(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(
+        min_length=1, max_length=200, description="Label key to filter on, e.g. `http.response.status_code`."
+    )
+    op: MetricsTableFilterOp = Field(default="eq", description="How the label value is compared.")
+    value: str = Field(max_length=400, description="Label value, or a regular expression for `regex` and `not_regex`.")
+
+
+class MetricsTableColumn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=40, description="Column header, e.g. `Requests/s`.")
+    metricName: str = Field(min_length=1, max_length=200, description="Name of the metric this column reads.")
+    aggregation: MetricsTableAggregation = Field(
+        description="How each time bucket of a row is computed. `rate` and `increase` read counters."
+    )
+    quantile: float | None = Field(
+        default=None, gt=0, lt=1, description="Required for `histogram_quantile`, e.g. 0.95 for p95."
+    )
+    filters: list[MetricsTableFilter] = Field(
+        default_factory=list,
+        max_length=METRICS_TABLE_MAX_FILTERS,
+        description="Label filters for this column only, e.g. 5xx status codes for an errors column.",
+    )
+
+    @model_validator(mode="after")
+    def validate_quantile(self) -> Self:
+        if (self.aggregation == "histogram_quantile") != (self.quantile is not None):
+            raise ValueError("Set quantile only, and always, for the histogram_quantile aggregation.")
+        return self
+
+
+class MetricsTableWidgetConfig(WidgetDateRangeConfigBase):
+    groupBy: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="Label that makes one row per value, e.g. `http.route`. Null until the user sets it.",
+    )
+    columns: list[MetricsTableColumn] = Field(
+        default_factory=list,
+        max_length=METRICS_TABLE_MAX_COLUMNS,
+        description="One metric per column. Each row shows the column's average over the date range and a sparkline.",
+    )
+    interval: MetricsTableInterval | None = Field(
+        default=None,
+        description=(
+            "Time between the points of the full charts that open from a row. Null picks one from the date range. "
+            "The table sparklines always use at most 30 points."
+        ),
+    )
+    orderByColumn: int = Field(default=0, ge=0, description="Index of the column that sorts the rows.")
+    orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderByColumn.")
+    limit: MetricsTableWidgetLimit = Field(
+        default=METRICS_TABLE_DEFAULT_LIMIT, description="Maximum number of rows to show."
+    )
+
+    @model_validator(mode="after")
+    def validate_order_by_column(self) -> Self:
+        if self.columns and self.orderByColumn >= len(self.columns):
+            raise ValueError("orderByColumn must point to a column.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_metrics_query_span(self) -> Self:
+        if self.dateRange is not None and self.dateRange.date_from in METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES:
+            raise ValueError("Metrics queries cover at most 30 days. Pick a shorter date range.")
+        return self

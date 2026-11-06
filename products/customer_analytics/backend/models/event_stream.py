@@ -19,7 +19,7 @@ class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
         db_constraint=False,
         related_name="+",
     )
-    created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
 
     enabled = models.BooleanField(default=False)
     event_names = models.JSONField(default=list)
@@ -41,9 +41,9 @@ class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
 class EventStreamMember(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     """An account included in the team's event stream."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     stream = models.ForeignKey(EventStream, on_delete=models.CASCADE, related_name="members")

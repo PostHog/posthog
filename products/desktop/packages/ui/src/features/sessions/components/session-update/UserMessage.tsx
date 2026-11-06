@@ -1,30 +1,19 @@
-import {
-  Check,
-  Copy,
-  FileText,
-  Scroll,
-  SlackLogo,
-} from "@phosphor-icons/react";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
-import { Box, Flex, IconButton } from "@radix-ui/themes";
+import { Check, Copy, SlackLogo } from "@phosphor-icons/react";
+import { Box, IconButton } from "@radix-ui/themes";
 import { motion } from "framer-motion";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tooltip } from "../../../../primitives/Tooltip";
 import { MarkdownRenderer } from "../../../editor/components/MarkdownRenderer";
-import { useFeatureFlag } from "../../../feature-flags/useFeatureFlag";
-import { usePanelLayoutStore } from "../../../panels/panelLayoutStore";
-import type { UserMessageAttachment } from "../../userMessageTypes";
+import {
+  NO_ATTACHMENTS,
+  type UserMessageAttachment,
+} from "../../userMessageTypes";
 import { UserMessageAttachments } from "../UserMessageAttachments";
 import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
-import { extractCanvasInstructions } from "./canvasInstructions";
-import { extractChannelContext } from "./channelContext";
-import { extractCustomInstructions } from "./customInstructions";
-import {
-  hasFileMentions,
-  MentionChip,
-  parseFileMentions,
-} from "./parseFileMentions";
-import { collapsePiSkillInvocation } from "./piSkillInvocation";
+import { InjectedBlockChips } from "./InjectedBlockChips";
+import { hasFileMentions, parseFileMentions } from "./parseFileMentions";
+import { splitUserMessage } from "./userMessageDisplay";
+import { useVisibleInjectedBlocks } from "./useVisibleInjectedBlocks";
 
 interface UserMessageProps {
   content: string;
@@ -57,56 +46,22 @@ export const UserMessage = memo(function UserMessage({
   content,
   timestamp,
   sourceUrl,
-  attachments = [],
+  attachments = NO_ATTACHMENTS,
   animate = true,
   taskId,
   keyboardFocused = false,
 }: UserMessageProps) {
-  // A channel's CONTEXT.md and the canvas generation instructions, if injected
-  // into this prompt, are each collapsed into a clickable tag instead of
-  // rendered inline; the rest of the prompt renders normally. Clicking a tag
-  // opens the snapshot as a split tab. The clickable tag + split tab is a
-  // project-bluebird feature, but we always strip the blocks so the raw
-  // <channel_context>/<canvas_generation_instructions> XML never leaks for
-  // flag-off viewers. The user's saved personalization
-  // (<user_custom_instructions>) is always-on background, not contextual to this
-  // message, so it's stripped without a tag.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
+  const {
+    blocks,
+    displayContent,
+    attachments: visibleAttachments,
+  } = useMemo(
+    () => splitUserMessage(content, attachments),
+    [content, attachments],
   );
-  const channelContext = useMemo(
-    () => extractChannelContext(content),
-    [content],
-  );
-  const afterChannelContext = channelContext
-    ? channelContext.stripped
-    : content;
-  const canvasInstructions = useMemo(
-    () => extractCanvasInstructions(afterChannelContext),
-    [afterChannelContext],
-  );
-  const afterCanvasInstructions = canvasInstructions
-    ? canvasInstructions.stripped
-    : afterChannelContext;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterCanvasInstructions),
-    [afterCanvasInstructions],
-  );
-  const displayContent = collapsePiSkillInvocation(
-    customInstructions ? customInstructions.stripped : afterCanvasInstructions,
-  );
-  const showChannelContextTag = !!channelContext && bluebirdEnabled;
-  const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
-  const openChannelContextInSplit = usePanelLayoutStore(
-    (s) => s.openChannelContextInSplit,
-  );
-  const openCanvasInstructionsInSplit = usePanelLayoutStore(
-    (s) => s.openCanvasInstructionsInSplit,
-  );
+  const visibleBlocks = useVisibleInjectedBlocks(blocks);
 
   const containsFileMentions = hasFileMentions(displayContent);
-  const showAttachmentChips = attachments.length > 0 && !containsFileMentions;
   const [copied, setCopied] = useState(false);
 
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -133,55 +88,21 @@ export const UserMessage = memo(function UserMessage({
         style={{ borderColor: "var(--accent-9)" }}
       >
         <CollapsibleMessageContent contentClassName="font-medium text-[13px] [&_p]:leading-[1.9]">
+          {visibleAttachments.length > 0 && (
+            <div className={displayContent ? "mb-1.5" : ""}>
+              <UserMessageAttachments attachments={visibleAttachments} />
+            </div>
+          )}
           {containsFileMentions ? (
             parseFileMentions(displayContent)
           ) : (
             <MarkdownRenderer content={displayContent} />
           )}
-          {(showChannelContextTag || showCanvasInstructionsTag) && (
-            <Flex
-              wrap="wrap"
-              gap="1"
-              className={displayContent ? "mt-1.5" : ""}
+          {visibleBlocks.length > 0 && (
+            <div
+              className={`flex flex-wrap gap-1 ${displayContent ? "mt-1.5" : ""}`}
             >
-              {showChannelContextTag && channelContext && (
-                <MentionChip
-                  icon={<FileText size={12} />}
-                  label={`${
-                    channelContext.mention.name
-                      ? `#${channelContext.mention.name} `
-                      : ""
-                  }CONTEXT.md`}
-                  onClick={
-                    taskId
-                      ? () =>
-                          openChannelContextInSplit(taskId, {
-                            channelName: channelContext.mention.name,
-                            body: channelContext.mention.body,
-                          })
-                      : undefined
-                  }
-                />
-              )}
-              {showCanvasInstructionsTag && canvasInstructions && (
-                <MentionChip
-                  icon={<Scroll size={12} />}
-                  label="Canvas instructions"
-                  onClick={
-                    taskId
-                      ? () =>
-                          openCanvasInstructionsInSplit(taskId, {
-                            body: canvasInstructions.body,
-                          })
-                      : undefined
-                  }
-                />
-              )}
-            </Flex>
-          )}
-          {showAttachmentChips && (
-            <div className={content.trim() ? "mt-1.5" : ""}>
-              <UserMessageAttachments attachments={attachments} />
+              <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
             </div>
           )}
         </CollapsibleMessageContent>

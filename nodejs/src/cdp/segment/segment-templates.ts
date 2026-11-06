@@ -372,12 +372,16 @@ const SECRET_FIELD_NAMES = [
     'refresh_token',
     'token_type',
     'apikey',
+    'api_key',
+    'apitoken',
     'apisecret',
     'clientsecret',
+    'clevertappasscode',
     'password',
     'secretkey',
     'secret',
     'securitytoken',
+    'server_token',
 ]
 
 const translateInputsSchema = (
@@ -431,22 +435,6 @@ const getIconUrl = (id: string, slug: string | undefined) => {
         id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] + '.png' : `${slug}.com.png`
     }`
 }
-
-// hide all destinations for now
-const APPROVED_DESTINATIONS: string[] = [
-    'segment-actions-mixpanel',
-    'segment-actions-amplitude',
-    'segment-actions-launchdarkly',
-    'segment-actions-canny',
-    'segment-actions-fullstory-cloud',
-    'segment-actions-drip',
-    'segment-actions-pipedrive',
-    'segment-inleads-ai',
-    'segment-actions-koala-cloud',
-    'segment-actions-pushwoosh',
-    'segment-actions-schematic',
-    'segment-actions-usermotion',
-]
 
 const HIDDEN_DESTINATIONS = [
     // duplicate destinations
@@ -515,7 +503,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
             destination,
             template: {
                 free: false,
-                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'alpha',
+                status: 'stable',
                 type: 'destination',
                 id,
                 name,
@@ -560,6 +548,16 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                                 default: preset.partnerAction,
                                 description: 'The partner action to use',
                                 required: true,
+                                secret: false,
+                            },
+                            {
+                                key: 'internal_omit_empty_values',
+                                label: 'Omit empty values',
+                                type: 'boolean',
+                                default: false,
+                                description:
+                                    'Leave out any field that ends up empty (null or an empty string) instead of sending it. Use this when a property is only set on some events and you do not want the destination to overwrite what it already has.',
+                                required: false,
                                 secret: false,
                             },
                         ],

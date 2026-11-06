@@ -1,23 +1,25 @@
 import string
-import logging
 import graphlib  # type: ignore[import,unused-ignore]
 import warnings
 from collections.abc import Callable
 from copy import copy
 from typing import Any, NamedTuple, Optional, cast
 
+import structlog
 from requests import Response
 
 from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth, OAuth2Auth
 from .exceptions import IgnoreResponseException
 from .jsonpath_utils import find_values
 from .paginators import (
+    PARAM_LOCATIONS,
     BasePaginator,
     HeaderLinkPaginator,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
     OffsetPaginator,
     PageNumberPaginator,
+    ParamLocation,
     SinglePagePaginator,
     single_entity_path,
 )
@@ -36,7 +38,7 @@ from .typing import (
 )
 from .utils import exclude_keys
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 PAGINATOR_MAP: dict[PaginatorType, type[BasePaginator] | None] = {
     "json_response": JSONResponsePaginator,
@@ -59,6 +61,7 @@ AUTH_MAP: dict[AuthType, type[AuthConfigBase]] = {
 class IncrementalParam(NamedTuple):
     start: str
     end: Optional[str]
+    location: ParamLocation = "query"
 
 
 class Incremental:
@@ -178,12 +181,18 @@ def setup_incremental_object(
 
     if incremental_config:
         convert = parse_convert_or_deprecated_transform(incremental_config)
-        config = exclude_keys(incremental_config, {"start_param", "end_param", "convert", "transform"})
+        location = incremental_config.get("param_location") or "query"
+        if location not in PARAM_LOCATIONS:
+            raise ValueError(f"Invalid incremental param_location: {location!r}. Use 'query' or 'json'")
+        config = exclude_keys(
+            incremental_config, {"start_param", "end_param", "param_location", "convert", "transform"}
+        )
         return (
             Incremental(**config),
             IncrementalParam(
                 start=incremental_config["start_param"],
                 end=incremental_config.get("end_param"),
+                location=cast(ParamLocation, location),
             ),
             convert,
         )
@@ -282,6 +291,7 @@ def _make_endpoint_resource(resource: str | EndpointResource, default_config: En
 
 def _bind_path_params(resource: EndpointResource) -> None:
     path_params: dict[str, Any] = {}
+    deferred: list[str] = []
     assert isinstance(resource["endpoint"], dict)
     resolve_params = [r.param_name for r in _find_resolved_params(resource["endpoint"])]
     path = resource["endpoint"]["path"]
@@ -307,13 +317,28 @@ def _bind_path_params(resource: EndpointResource) -> None:
                             f"The path {path} defined in resource {resource['name']} tries to bind param {name} with type {param_type}. Paths can only bind 'resource' type params."
                         )
                     path_params[name] = "{" + name + "}"
+                    deferred.append(name)
 
     if len(resolve_params) > 0:
         raise NotImplementedError(
             f"Resource {resource['name']} defines resolve params {resolve_params} that are not bound in path {path}. Resolve query params not supported yet."
         )
 
-    resource["endpoint"]["path"] = path.format(**path_params)
+    if not deferred:
+        resource["endpoint"]["path"] = path.format(**path_params)
+        return
+
+    # The fan-out formats this path a second time to bind the resolve params, so every
+    # other brace must stay escaped through this first pass.
+    markers = {name: f"\x00{name}\x00" for name in deferred}
+    bound = _escape_braces(path.format(**{**path_params, **markers}))
+    for name, marker in markers.items():
+        bound = bound.replace(marker, "{" + name + "}")
+    resource["endpoint"]["path"] = bound
+
+
+def _escape_braces(text: str) -> str:
+    return text.replace("{", "{{").replace("}", "}}")
 
 
 def _setup_single_entity_endpoint(endpoint: Endpoint) -> Endpoint:
@@ -337,39 +362,71 @@ def _find_resolved_params(endpoint_config: Endpoint) -> list[ResolvedParam]:
     ]
 
 
+_UNPARSED = object()
+
+
+def _json_field_value(body: object, path: str) -> object:
+    current = body
+    for key in path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
 def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> Optional[ResponseAction]:
     content = response.text
+    # Parsed at most once per response, and only when an action actually matches on the body.
+    parsed_body: object = _UNPARSED
 
     for action in actions:
-        status_code = action.get("status_code")
-        content_substr = action.get("content")
         if action.get("action") is None:
             continue
 
-        if status_code is not None and content_substr is not None:
-            if response.status_code == status_code and content_substr in content:
-                return action
-        elif status_code is not None:
-            if response.status_code == status_code:
-                return action
-        elif content_substr is not None:
-            if content_substr in content:
-                return action
+        criteria: list[bool] = []
+
+        status_code = action.get("status_code")
+        if status_code is not None:
+            criteria.append(response.status_code == status_code)
+
+        content_substr = action.get("content")
+        if content_substr is not None:
+            criteria.append(content_substr in content)
+
+        json_field = action.get("json_field")
+        if json_field is not None:
+            if parsed_body is _UNPARSED:
+                try:
+                    parsed_body = response.json()
+                except ValueError:
+                    parsed_body = None
+            criteria.append(_json_field_value(parsed_body, json_field) in (action.get("json_values") or []))
+
+        # An action with no criteria at all would otherwise match every response.
+        if criteria and all(criteria):
+            return action
 
     return None
 
 
 def _create_response_actions_hook(
     response_actions: list[ResponseAction],
+    resource_name: str | None = None,
 ) -> Callable[[Response, Any, Any], None]:
     def response_actions_hook(response: Response, *args: Any, **kwargs: Any) -> None:
         matched = _handle_response_actions(response, response_actions)
         action_type = matched.get("action") if matched else None
 
         if action_type == "ignore":
+            # Carries the resource so ignores are countable per schema.
             # Use response.text, not response.json(): an ignored response (e.g. a 404) often has an
             # empty or non-JSON body, and parsing it here would raise before the ignore takes effect.
-            logger.info(f"Ignoring response with code {response.status_code} and content '{response.text[:500]}'.")
+            logger.info(
+                "data_imports.response_action_ignored",
+                resource=resource_name,
+                status_code=response.status_code,
+                content=response.text[:500],
+            )
             raise IgnoreResponseException
 
         # Re-issue the request. This is how a source classifies an HTTP-200 body-level error
@@ -393,9 +450,10 @@ def _create_response_actions_hook(
 
 def create_response_hooks(
     response_actions: Optional[list[ResponseAction]],
+    resource_name: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     if response_actions:
-        return {"response": [_create_response_actions_hook(response_actions)]}
+        return {"response": [_create_response_actions_hook(response_actions, resource_name)]}
     return None
 
 

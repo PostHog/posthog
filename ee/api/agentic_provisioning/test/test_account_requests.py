@@ -6,17 +6,23 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.db import IntegrityError
 from django.http import JsonResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.oauth import OAuthApplication
-from posthog.models.user import User
+from posthog.models.organization import Organization
+from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+from posthog.models.user import OnboardingSkippedReason, User
+from posthog.test.authentication_checks import covers_authentication
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
+from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.serializers import AccountRequestSerializer
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_JWKS_URI, ProvisioningTestBase, provisioning_config
 
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 VALID_CODE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -34,7 +40,7 @@ class TestAccountRequests(ProvisioningTestBase):
         return payload
 
     def _post_account_request(self, payload):
-        return self._post_with_client_secret(ACCOUNT_REQUESTS_URL, payload)
+        return self._post_as_partner(ACCOUNT_REQUESTS_URL, payload)
 
     def test_no_identified_partner_returns_401(self):
         res = self._post_api(ACCOUNT_REQUESTS_URL, self._account_request_payload())
@@ -43,6 +49,7 @@ class TestAccountRequests(ProvisioningTestBase):
         assert data["type"] == "error"
         assert data["error"]["code"] == "unauthorized"
 
+    @covers_authentication(ProvisioningAuthentication)
     def test_new_user_returns_oauth_type_with_code(self):
         res = self._post_account_request(self._account_request_payload())
         assert res.status_code == 200
@@ -53,11 +60,25 @@ class TestAccountRequests(ProvisioningTestBase):
         assert len(data["oauth"]["code"]) > 0
         assert User.objects.filter(email="newuser@example.com").exists()
 
-    def test_new_user_creates_org_and_team(self):
+    def test_new_user_refused_by_an_access_rule_gets_no_account(self):
+        with patch("ee.api.agentic_provisioning.accounts.signup_refused", return_value=True):
+            res = self._post_account_request(self._account_request_payload())
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "access_blocked"
+        assert not User.objects.filter(email="newuser@example.com").exists()
+
+    def test_new_user_creates_org_and_team_attributed_to_partner(self):
         self._post_account_request(self._account_request_payload())
         user = User.objects.get(email="newuser@example.com")
         assert user.organization is not None
         assert user.team is not None
+        assert TeamProvisioningConfig.objects.get(team=user.team).application_id == self.partner.id
+        assert user.onboarding_skipped_reason == OnboardingSkippedReason.PROVISIONED
+        assert user.onboarding_skipped_at is not None
+        assert user.onboarding_skipped_organization_id == user.organization.id
+        assert user.team.completed_snippet_onboarding is True
+        record = OrganizationProvisioning.objects.get(organization=user.organization)
+        assert (record.partner, record.application_id) == ("provisioning_api", self.partner.id)
 
     def test_new_user_starts_unverified(self):
         # Partner-asserted email ownership is not trusted: the user must prove they own
@@ -106,13 +127,27 @@ class TestAccountRequests(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("with_name", {"region": "US", "organization_name": "Acme Corp"}, "Acme Corp"),
-            ("without_name", {"region": "US"}, "Test Provisioning Partner (orgname@example.com)"),
+            ("with_name", "orgname@example.com", {"region": "US", "organization_name": "Acme Corp"}, "Acme Corp"),
+            (
+                "without_name",
+                "orgname@example.com",
+                {"region": "US"},
+                "Test Provisioning Partner (orgname@example.com)",
+            ),
+            ("long_name_is_cut", "orgname@example.com", {"region": "US", "organization_name": "A" * 80}, "A" * 64),
+            (
+                "long_default_name_is_cut",
+                "a.long.mailbox.name.for.this.test@example.com",
+                {"region": "US"},
+                "Test Provisioning Partner (a.long.mailbox.name.for.this.test@exa",
+            ),
         ]
     )
-    def test_new_user_organization_name(self, _name, config, expected_org_name):
-        self._post_account_request(self._account_request_payload(email="orgname@example.com", configuration=config))
-        user = User.objects.get(email="orgname@example.com")
+    def test_new_user_organization_name(
+        self, _name: str, email: str, config: dict[str, str], expected_org_name: str
+    ) -> None:
+        self._post_account_request(self._account_request_payload(email=email, configuration=config))
+        user = User.objects.get(email=email)
         org = user.organization
         assert org is not None
         assert org.name == expected_org_name
@@ -152,12 +187,24 @@ class TestAccountRequests(ProvisioningTestBase):
         # the partner is sent through consent rather than getting a silent code.
         assert res.json()["type"] == "requires_auth"
 
-    @patch("ee.api.agentic_provisioning.accounts.User.objects.bootstrap", side_effect=IntegrityError)
-    def test_integrity_error_without_existing_user_returns_500(self, _mock_bootstrap):
+    @parameterized.expand(
+        [
+            ("in_bootstrap", "ee.api.agentic_provisioning.accounts.User.objects.bootstrap"),
+            (
+                "in_organization_attribution",
+                "ee.api.agentic_provisioning.accounts.OrganizationProvisioning.objects.create",
+            ),
+        ]
+    )
+    def test_integrity_error_without_existing_user_returns_500(self, _name: str, failing_call: str) -> None:
+        organization_count = Organization.objects.count()
         payload = self._account_request_payload(email="ghost@example.com")
-        res = self._post_account_request(payload)
+        with patch(failing_call, side_effect=IntegrityError):
+            res = self._post_account_request(payload)
         assert res.status_code == 500
         assert res.json()["error"]["code"] == "account_creation_failed"
+        assert not User.objects.filter(email="ghost@example.com").exists()
+        assert Organization.objects.count() == organization_count
 
     @patch("ee.api.agentic_provisioning.accounts.capture_provisioning_event")
     def test_new_user_capture_includes_team_id(self, mock_capture_event):
@@ -176,6 +223,37 @@ class TestAccountRequests(ProvisioningTestBase):
         assert kwargs["team_id"] == team.id
         assert kwargs["partner"] == self.partner
 
+    @patch("ee.api.agentic_provisioning.views.account_requests.capture_provisioning_event")
+    def test_account_creation_disabled_refusal_is_attributed_to_partner(self, mock_capture_event):
+        self.partner.update_provisioning(can_create_accounts=False)
+
+        res = self._post_account_request(self._account_request_payload())
+
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "forbidden"
+        assert not User.objects.filter(email="newuser@example.com").exists()
+        refusals = [call for call in mock_capture_event.call_args_list if call.args[:2] == ("account_request", "error")]
+        assert len(refusals) == 1
+        assert refusals[0].kwargs["error_code"] == "account_creation_disabled"
+        assert refusals[0].kwargs["partner"] == self.partner
+
+    @parameterized.expand(
+        [
+            ("block", 403, "suspicious_attempt_blocked", False),
+            ("challenge", 200, None, True),
+        ]
+    )
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test-key")
+    def test_new_user_radar_verdict(self, verdict, expected_status, expected_error_code, gets_account):
+        with patch("posthog.workos_radar.requests.post") as mock_radar:
+            mock_radar.return_value.status_code = 200
+            mock_radar.return_value.json.return_value = {"verdict": verdict}
+            res = self._post_account_request(self._account_request_payload())
+
+        assert res.status_code == expected_status, res.json()
+        assert res.json().get("error", {}).get("code") == expected_error_code
+        assert User.objects.filter(email="newuser@example.com").exists() is gets_account
+
 
 class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
     def setUp(self):
@@ -184,7 +262,8 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
             client_id="pkce-test-partner",
             name="PKCE Test Partner",
             client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
@@ -196,7 +275,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         )
 
     def _post_as_pkce_partner(self, data: dict):
-        return self._post_api(ACCOUNT_REQUESTS_URL, data)
+        return self._post_as_partner(ACCOUNT_REQUESTS_URL, data, partner=self.pkce_partner)
 
     def _account_request_payload(self, **overrides):
         payload = {
@@ -362,3 +441,30 @@ class TestCaptureProvisioningEvent(ProvisioningTestBase):
         else:
             assert "client_name" not in props
             assert "partner_id" not in props
+
+
+class TestAccountRequestEmail(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("uppercase_domain", "Jane@Example.ORG", "Jane@example.org"),
+            ("internationalized_domain_kept", "jane@B\u00fccher.de", "jane@B\u00fccher.de"),
+        ]
+    )
+    def test_email_domain_is_normalized(self, _name, raw, expected):
+        serializer = AccountRequestSerializer(data={"email": raw})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["email"] == expected
+
+    @parameterized.expand(
+        [
+            ("not_an_email", "not-an-email"),
+            ("trailing_dot", "jane@example.org."),
+            ("fullwidth_dot", "jane@example\uff0eorg"),
+            ("ideographic_dot", "jane@example\u3002org"),
+            ("too_long", f"{'j' * 250}@example.org"),
+        ]
+    )
+    def test_invalid_email_is_rejected(self, _name, raw):
+        serializer = AccountRequestSerializer(data={"email": raw})
+        assert not serializer.is_valid()
+        assert "email" in serializer.errors

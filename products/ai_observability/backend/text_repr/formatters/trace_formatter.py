@@ -10,26 +10,153 @@ import json
 import base64
 from typing import Any
 
-from posthog.schema import LLMTrace
+from dateutil.parser import isoparse
+
+from posthog.schema import LLMTrace, LLMTraceEvent
+
+from posthog.dataclasses import frozen
 
 from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
 from .message_formatter import (
+    FormatterLines,
     FormatterOptions,
+    RenderBudgetExceeded,
     add_line_numbers,
     format_input_messages,
     format_output_messages,
     reduce_by_uniform_sampling,
+    sanitize_surrogates,
     truncate_content,
 )
 
+# Annotations the trace view attaches to other nodes rather than rendering as steps of its own.
+FEEDBACK_EVENT_TYPES = frozenset({"$ai_feedback", "$ai_metric"})
 
-def llm_trace_to_formatter_format(llm_trace: LLMTrace) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+
+@frozen(order=True)
+class _TraceEventSortKey:
+    operation_start_ms: float
+    negative_latency_ms: float
+
+
+def _first_set_property(properties: dict[str, Any], *keys: str) -> Any:
+    """First of `keys` that is set, mirroring the `??` chains the trace view resolves IDs with."""
+    for key in keys:
+        value = properties.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _normalize_hierarchy_id(value: Any) -> str | None:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, str | int | float):
+        return str(value)
+    return None
+
+
+def _latency_ms(event: LLMTraceEvent) -> float:
+    try:
+        latency = float(event.properties.get("$ai_latency", 0))
+    except (TypeError, ValueError):
+        return 0.0
+    return latency * 1000 if latency > 0 else 0.0
+
+
+def _operation_start_ms(event: LLMTraceEvent) -> float:
+    """Epoch ms the event's operation began. PostHog AI SDKs capture an event when the operation
+    finishes, so its timestamp is the end; OTel-ingested spans already carry the start."""
+    try:
+        end_ms = isoparse(event.createdAt).timestamp() * 1000
+    except (TypeError, ValueError):
+        return 0.0
+    if event.properties.get("$ai_ingestion_source") == "otel":
+        return end_ms
+    return end_ms - _latency_ms(event)
+
+
+def _to_formatter_event(event: LLMTraceEvent) -> dict[str, Any]:
+    return {
+        "id": event.id,
+        "event": event.event,
+        "properties": event.properties,
+        "timestamp": event.createdAt,
+    }
+
+
+def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
+    """Rebuild the parent/child hierarchy the trace view shows, following `$ai_parent_id` links."""
+    events_by_node_id: dict[str, LLMTraceEvent] = {}
+
+    for event in llm_trace.events:
+        if event.event in FEEDBACK_EVENT_TYPES:
+            continue
+        node_id = _normalize_hierarchy_id(_first_set_property(event.properties, "$ai_generation_id", "$ai_span_id"))
+        if node_id is None:
+            node_id = event.id
+        events_by_node_id[node_id] = event
+
+    child_ids: dict[str, list[str]] = {}
+    for node_id, event in events_by_node_id.items():
+        parent_id = _normalize_hierarchy_id(_first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id"))
+        if parent_id is not None:
+            child_ids.setdefault(parent_id, []).append(node_id)
+
+    def sort_key(node_id: str) -> _TraceEventSortKey:
+        event = events_by_node_id[node_id]
+        # Siblings that began together are ordered longest first, matching the timeline.
+        return _TraceEventSortKey(
+            operation_start_ms=_operation_start_ms(event), negative_latency_ms=-_latency_ms(event)
+        )
+
+    emitted_node_ids: set[str] = set()
+
+    def build(node_id: str, depth: int) -> dict[str, Any] | None:
+        event = events_by_node_id.get(node_id)
+        if event is None or node_id in emitted_node_ids or depth > MAX_TREE_DEPTH:
+            return None
+        emitted_node_ids.add(node_id)
+        children = sorted(child_ids.get(node_id, []), key=sort_key)
+        return {
+            "event": _to_formatter_event(event),
+            "children": [node for node in (build(child_id, depth + 1) for child_id in children) if node is not None],
+        }
+
+    # An event whose parent never made it into the trace still has to be rendered, so it becomes a root.
+    orphan_ids = [
+        node_id
+        for node_id, event in events_by_node_id.items()
+        if (
+            parent_id := _normalize_hierarchy_id(_first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id"))
+        )
+        is not None
+        and parent_id != llm_trace.id
+        and parent_id not in events_by_node_id
+    ]
+    root_ids = sorted([*child_ids.get(llm_trace.id, []), *orphan_ids], key=sort_key)
+    hierarchy = [node for node in (build(root_id, 0) for root_id in root_ids) if node is not None]
+
+    # Start unvisited components at a new root so cycles and depth-limited branches still render once.
+    remaining_root_ids = sorted(
+        (node_id for node_id in events_by_node_id if node_id not in emitted_node_ids), key=sort_key
+    )
+    hierarchy.extend(node for node in (build(root_id, 0) for root_id in remaining_root_ids) if node is not None)
+    return hierarchy
+
+
+def llm_trace_to_formatter_format(
+    llm_trace: LLMTrace, *, nest_children: bool = False
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """
     Convert an LLMTrace object to the format expected by format_trace_text_repr.
 
     Args:
         llm_trace: The LLMTrace object from TraceQueryRunner
+        nest_children: Reconstruct the parent/child hierarchy instead of returning every event as a
+            root. Callers that render a trace for a reader want this; the flat shape is kept as the
+            default so existing prompts and evaluations see the events they saw before.
 
     Returns:
         A tuple of (trace_dict, hierarchy) suitable for format_trace_text_repr
@@ -45,30 +172,28 @@ def llm_trace_to_formatter_format(llm_trace: LLMTrace) -> tuple[dict[str, Any], 
         },
     }
 
-    hierarchy = [
-        {
-            "event": {
-                "id": event.id,
-                "event": event.event,
-                "properties": event.properties,
-                "timestamp": event.createdAt,
-            },
-            "children": [],
-        }
-        for event in llm_trace.events
-    ]
+    if nest_children:
+        return trace_dict, _nest_events(llm_trace)
+
+    hierarchy = [{"event": _to_formatter_event(event), "children": []} for event in llm_trace.events]
 
     return trace_dict, hierarchy
 
 
-def _format_latency(latency: float) -> str:
-    """Format latency to 2 decimal places."""
-    return f"{latency:.2f}s"
+def _format_latency(latency: Any) -> str:
+    """Format latency to 2 decimal places. Coerces string-valued latencies before formatting."""
+    try:
+        return f"{float(latency):.2f}s"
+    except (TypeError, ValueError):
+        return str(latency)
 
 
-def _format_cost(cost: float) -> str:
-    """Format cost in USD."""
-    return f"${cost:.4f}"
+def _format_cost(cost: Any) -> str:
+    """Format cost in USD. Coerces string-valued costs before formatting."""
+    try:
+        return f"${float(cost):.4f}"
+    except (TypeError, ValueError):
+        return str(cost)
 
 
 def _get_event_summary(event: dict[str, Any]) -> str:
@@ -97,12 +222,12 @@ def _get_event_summary(event: dict[str, Any]) -> str:
             parts.append(_format_cost(props["$ai_total_cost_usd"]))
 
         if props.get("$ai_model"):
-            parts.append(props["$ai_model"])
+            parts.append(str(props["$ai_model"]))
 
         if props.get("$ai_is_error") or props.get("$ai_error"):
             parts.append("ERROR")
 
-        summary = span_name
+        summary = str(span_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -117,7 +242,7 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         if props.get("$ai_is_error"):
             parts.append("ERROR")
 
-        summary = span_name
+        summary = str(span_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -133,12 +258,12 @@ def _get_event_summary(event: dict[str, Any]) -> str:
             parts.append(_format_cost(props["$ai_total_cost_usd"]))
 
         if props.get("$ai_model"):
-            parts.append(props["$ai_model"])
+            parts.append(str(props["$ai_model"]))
 
         if props.get("$ai_is_error") or props.get("$ai_error"):
             parts.append("ERROR")
 
-        summary = span_name
+        summary = str(span_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -151,15 +276,24 @@ def _get_event_summary(event: dict[str, Any]) -> str:
 
         parts = []
         if runtime:
-            parts.append(runtime)
+            parts.append(str(runtime))
         if applicable is False or applicable == "false":
             parts.append("N/A")
+        elif props.get("$ai_evaluation_result_type") == "categorical" and isinstance(
+            props.get("$ai_evaluation_categorical_result"), list
+        ):
+            parts.append(str(props["$ai_evaluation_categorical_result"]))
+        elif (
+            props.get("$ai_evaluation_result_type") == "numeric"
+            and props.get("$ai_evaluation_numeric_result") is not None
+        ):
+            parts.append(str(props["$ai_evaluation_numeric_result"]))
         elif result is True or result == "true":
-            parts.append("PASS")
+            parts.append("true")
         elif result is False or result == "false":
-            parts.append("FAIL")
+            parts.append("false")
 
-        summary = eval_name
+        summary = str(eval_name)
         if parts:
             summary += f" ({', '.join(parts)})"
         return summary
@@ -200,6 +334,8 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
 
         lines.append(str(state))
         return lines
+    except RenderBudgetExceeded:
+        raise
     except Exception:
         return ["", f"{label}:", "", str(state)]
 
@@ -301,20 +437,26 @@ def _render_tree(
     prefix: str = "",
     is_last: bool = True,
     depth: int = 0,
+    owners: list[str | None] | None = None,
 ) -> list[str]:
     """Render tree structure with ASCII art.
 
     Creates expandable nodes using:
     - <<<GEN_EXPANDABLE|eventId|displayText|encodedContent>>> for include_markers=True
     - Plain text [+] indicators for include_markers=False
+
+    When `owners` is given, one entry per returned line is appended to it: the id of the event whose node
+    rendered that line, or None for the max depth marker.
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
 
     if depth > MAX_TREE_DEPTH:
         lines.append(f"{prefix}  [... max depth reached]")
+        if owners is not None:
+            owners.append(None)
         return lines
 
-    options = options or {}  # ty: ignore[invalid-assignment]
+    options = options or {}
     include_markers = options.get("include_markers", True)
     collapsed = options.get("collapsed", False)
 
@@ -332,14 +474,29 @@ def _render_tree(
             event, summary, prefix, current_prefix, child_prefix, options, collapsed, include_markers
         )
         lines.extend(node_lines)
+        if owners is not None:
+            owners.extend([event.get("id")] * len(node_lines))
 
         if children:
             child_lines = _render_tree(
-                children, options=options, prefix=prefix + child_prefix, is_last=is_last_node, depth=depth + 1
+                children,
+                options=options,
+                prefix=prefix + child_prefix,
+                is_last=is_last_node,
+                depth=depth + 1,
+                owners=owners,
             )
             lines.extend(child_lines)
 
     return lines
+
+
+@frozen
+class TraceTextRepr:
+    text: str
+    was_sampled: bool
+    # `line_owners[n - 1]` is the id of the event whose node rendered line `n`, or None for a trace-level line.
+    line_owners: tuple[str | None, ...]
 
 
 def format_trace_text_repr(
@@ -365,7 +522,16 @@ def format_trace_text_repr(
     Returns:
         Tuple of (formatted_text, was_sampled) - the text representation and whether uniform sampling was applied
     """
-    lines: list[str] = []
+    rendered = format_trace_text_repr_with_line_owners(trace, hierarchy, options)
+    return rendered.text, rendered.was_sampled
+
+
+def format_trace_text_repr_with_line_owners(
+    trace: dict[str, Any], hierarchy: list[dict[str, Any]], options: FormatterOptions | None = None
+) -> TraceTextRepr:
+    """`format_trace_text_repr`, plus the event that owns each line. With `include_line_numbers`, sampling keeps
+    the original line numbers, so the owners stay valid for a sampled text."""
+    lines = FormatterLines(options)
     props = trace.get("properties", {})
 
     # Trace header - support both camelCase (API) and snake_case (properties)
@@ -386,6 +552,7 @@ def format_trace_text_repr(
         else:
             lines.append(json.dumps(error, indent=2))
 
+    tree_owners: list[str | None] = []
     # Only show trace-level input/output if there are NO events in hierarchy
     # When events exist, the hierarchy tells the full story
     if not hierarchy:
@@ -411,13 +578,20 @@ def format_trace_text_repr(
         lines.append("")
         lines.append("TRACE HIERARCHY:")
         lines.append("")
-        lines.extend(_render_tree(hierarchy, options=options))
+        lines.extend(_render_tree(hierarchy, options=options, owners=tree_owners))
 
+    # The tree renders last, so every entry before it is a trace-level line.
+    trace_level_owners: list[str | None] = [None] * (len(lines) - len(tree_owners))
+    entry_owners = trace_level_owners + tree_owners
+    # An entry can hold several lines, such as an error rendered as indented JSON.
+    line_owners = tuple(owner for entry, owner in zip(lines, entry_owners) for _ in range(entry.count("\n") + 1))
     formatted_text = "\n".join(lines)
 
     # Add line numbers if requested
     if options and options.get("include_line_numbers", False):
         formatted_text = add_line_numbers(formatted_text)
+
+    lines.check_length(len(formatted_text))
 
     # Apply max_length constraint by uniformly sampling lines if needed
     # Defaults to 2M chars to fit within LLM context windows
@@ -426,4 +600,4 @@ def format_trace_text_repr(
     if max_length and len(formatted_text) > max_length:
         formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
-    return formatted_text, was_sampled
+    return TraceTextRepr(text=sanitize_surrogates(formatted_text), was_sampled=was_sampled, line_owners=line_owners)

@@ -6,8 +6,10 @@ and content blocks. Supports multiple provider formats (OpenAI, Anthropic, etc.)
 with truncation and interactive markers for frontend display.
 """
 
+import re
 import json
 import base64
+from collections.abc import Iterable
 from typing import Any, TypedDict
 
 from .constants import (
@@ -30,6 +32,8 @@ from .constants import (
     SAMPLING_REDUCTION_FACTOR,
     SPECIAL_BLOCK_TYPES,
 )
+from .media_blocks import MediaMarker, parse_media_block
+from .otel_parts import MEDIA_PART_KEY, flatten_parts_message
 from .tool_formatter import format_tools
 
 
@@ -37,11 +41,14 @@ class FormatterOptions(TypedDict, total=False):
     """Options for formatting text representations."""
 
     truncated: bool  # Use truncation for long content (default: True)
+    preserve_generation_output: bool  # Keep answers intact while truncating input history for judges
     truncate_buffer: int  # Chars to show at start/end (default: 1000)
     include_markers: bool  # Use interactive markers vs plain text (default: True)
     collapsed: bool  # Show full hierarchy vs summary (default: False)
     include_line_numbers: bool  # Prefix each line with line number (default: False)
     max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
+    max_render_length: int  # Abort oversized renders before sampling or assembling the full transcript
+    media_marker: MediaMarker  # Render media blocks with this instead of dropping them (LLM judges with images)
 
 
 class ToolCall(TypedDict, total=False):
@@ -101,14 +108,16 @@ def reduce_by_uniform_sampling(
     lines = text.split("\n")
     total_lines = len(lines)
 
+    # Sampling drops whole lines, so text that is oversized but has too few lines to sample (one
+    # huge payload on a single line, for example) can only be cut mid-line.
     if total_lines <= preserve_header_lines:
-        return text, False
+        return text[:max_length], True
 
     header_lines = lines[:preserve_header_lines]
     body_lines = lines[preserve_header_lines:]
 
     if not body_lines:
-        return text, False
+        return text[:max_length], True
 
     sample_header_template_size = len(SAMPLED_VIEW_HEADER.format(percent=100, total=total_lines)) + 1
 
@@ -117,13 +126,13 @@ def reduce_by_uniform_sampling(
 
     available_for_body = max_length - header_size
     if available_for_body <= 0:
-        return text, False
+        return text[:max_length], True
 
     avg_line_length = sum(len(line) + 1 for line in body_lines) / len(body_lines)
     target_body_lines = int(available_for_body / avg_line_length)
 
     if target_body_lines >= len(body_lines):
-        return text, False
+        return text[:max_length], True
 
     target_body_lines = max(target_body_lines, 1)
 
@@ -153,6 +162,70 @@ def reduce_by_uniform_sampling(
         result = result[:max_length]
 
     return result, True
+
+
+# UTF-16 surrogate code points. A well-formed pair survives the round trip in
+# `sanitize_surrogates` and becomes the character it encodes; a lone one becomes U+FFFD.
+SURROGATE_REGEX = re.compile("[\ud800-\udfff]")
+
+
+EVENT_TEXT_MAX_CHARS = 150_000
+
+
+def truncate_by_line_sampling(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    # Line-number first so the sampler's "gaps indicate omitted content" header is truthful.
+    sampled, _ = reduce_by_uniform_sampling(add_line_numbers(text), max_length)
+    return sampled
+
+
+def sanitize_surrogates(text: str) -> str:
+    """Make `text` encodable as UTF-8.
+
+    Trace content arrives as it was captured, and the truncation and sampling above cut on
+    character counts, so either source can leave an unpaired surrogate -- half of an emoji -- in
+    the result. UTF-8 cannot represent one, so `str.encode("utf-8")` raises and the whole text
+    representation is lost: the Redis write in the batch summarization path and the request body of
+    the summarization LLM call both fail that way. Repair at the formatter exits, so every consumer
+    of a text representation gets the same encodable string.
+
+    Unlike `safe_clickhouse_string`, this does not escape the surrogate into literal `\\ud83c`
+    text. Escaping is right where the bytes must round-trip, but a text representation is read as
+    prose by a model, so a replacement character is the better loss.
+    """
+    if not SURROGATE_REGEX.search(text):
+        return text
+    return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+
+
+class RenderBudgetExceeded(Exception):
+    """The complete representation cannot fit; the caller must retry with truncation."""
+
+
+class FormatterLines(list[str]):
+    def __init__(self, options: FormatterOptions | None = None) -> None:
+        super().__init__()
+        self._max_length = options.get("max_render_length") if options else None
+        self._length = 0
+
+    def check_length(self, length: int) -> None:
+        if self._max_length is not None and length > self._max_length:
+            raise RenderBudgetExceeded
+
+    def append(self, line: str) -> None:
+        if self._max_length is not None:
+            line = sanitize_surrogates(line)
+            self._length += len(line) + bool(self)
+            self.check_length(self._length)
+        super().append(line)
+
+    def extend(self, lines: Iterable[str]) -> None:
+        if self._max_length is None:
+            super().extend(lines)
+            return
+        for line in lines:
+            self.append(line)
 
 
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:
@@ -218,17 +291,26 @@ def format_single_tool_call(name: str, args: Any) -> str:
     return f"{name}()"
 
 
-def format_tool_calls(tool_calls: list[ToolCall]) -> list[str]:
-    """Format tool calls for display."""
+def format_tool_calls(tool_calls: list[Any]) -> list[str]:
+    """Format tool calls for display.
+
+    Typed as `list[Any]` because recorded tool calls do not always match the `ToolCall` shape;
+    some SDKs write a bare string, which the loop handles rather than crashing on `.get`.
+    """
     lines: list[str] = []
     lines.append(f"Tool calls: {len(tool_calls)}")
 
     for tc in tool_calls:
+        if not isinstance(tc, dict):
+            lines.append(f"  - {tc}")
+            continue
+
         # Handle both OpenAI format (function: {name, arguments})
         # and LangChain format (name, args)
-        if tc.get("function"):
-            name = tc["function"].get("name", "unknown")
-            args = tc["function"].get("arguments", "")
+        function = tc.get("function")
+        if isinstance(function, dict):
+            name = function.get("name", "unknown")
+            args = function.get("arguments", "")
         else:
             name = tc.get("name", "unknown")
             args = tc.get("args", "")
@@ -245,20 +327,26 @@ def extract_tool_calls_from_content(content: Any) -> list[ToolCall]:
 
     tool_calls: list[ToolCall] = []
     for block in content:
-        if isinstance(block, dict):
+        match block:
             # Handle tool-call format: { type: "tool-call", function: {...} }
-            if block.get("type") == "tool-call" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
-            # Handle Anthropic function format: { type: "function", function: {...} }
-            elif block.get("type") == "function" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
+            # and Anthropic function format: { type: "function", function: {...} }
+            case {"type": "tool-call" | "function", "function": dict() as function}:
+                tool_calls.append({"function": function})
 
     return tool_calls
 
 
-def safe_extract_text(content: Any) -> str:
+def _string_type(msg: dict[str, Any]) -> str | None:
+    """The value under `type` when it is a string, else None.
+
+    Customer payloads record any JSON value there, and the membership tests below hash what they
+    are given. An unhashable value such as a dict raises `TypeError` against a frozenset.
+    """
+    msg_type = msg.get("type")
+    return msg_type if isinstance(msg_type, str) else None
+
+
+def safe_extract_text(content: Any, media_marker: MediaMarker | None = None) -> str:
     """
     Safely extract text from various content formats.
     Handles strings, dicts with 'text' key, arrays of content blocks, etc.
@@ -274,7 +362,9 @@ def safe_extract_text(content: Any) -> str:
             if "text" in content:
                 return str(content["text"])
             if "content" in content:
-                return safe_extract_text(content["content"])
+                return safe_extract_text(content["content"], media_marker)
+            if media_marker is not None and (media := parse_media_block(content)) is not None:
+                return media_marker(media)
             # Fallback to JSON representation
             return json.dumps(content)
 
@@ -282,9 +372,16 @@ def safe_extract_text(content: Any) -> str:
             text_parts: list[str] = []
             for i, item in enumerate(content):
                 if isinstance(item, dict):
-                    item_type = item.get("type")
+                    item_type = _string_type(item)
                     # Try both "text" and "content" keys (tool_result uses "content")
                     text_value = item.get("text") or item.get("content")
+                    if media_marker is not None:
+                        if (media := parse_media_block(item)) is not None:
+                            text_value = media_marker(media)
+                            item_type = None
+                        elif isinstance(text_value, list):
+                            # Tool results can hold image blocks.
+                            text_value = safe_extract_text(text_value, media_marker)
 
                     if text_value:
                         # Add spacing between all content blocks in the array
@@ -324,7 +421,7 @@ def _is_special_block(block: Any) -> bool:
     if not isinstance(block, dict):
         return False
 
-    block_type = block.get("type")
+    block_type = _string_type(block)
     if block_type in SPECIAL_BLOCK_TYPES:
         return True
 
@@ -335,7 +432,7 @@ def _is_special_block(block: Any) -> bool:
     return False
 
 
-def _format_special_block(block: dict) -> str | None:
+def _format_special_block(block: dict, media_marker: MediaMarker | None = None) -> str | None:
     """
     Format special blocks (tool calls, tool_use, etc).
 
@@ -359,7 +456,7 @@ def _format_special_block(block: dict) -> str | None:
         if not tool_input and "partial_json" in block:
             try:
                 tool_input = json.loads(block["partial_json"])
-            except (json.JSONDecodeError, ValueError):
+            except (TypeError, ValueError):
                 pass
 
         return format_single_tool_call(tool_name, tool_input)
@@ -381,10 +478,10 @@ def _format_special_block(block: dict) -> str | None:
             return f"[Tool result: {tool_name}]"
 
     # Block not handled by this function
-    return safe_extract_text(block)
+    return safe_extract_text(block, media_marker)
 
 
-def extract_text_content(content: Any) -> str:
+def extract_text_content(content: Any, media_marker: MediaMarker | None = None) -> str:
     """
     Extract text content from various message content formats.
     Uses safe extraction with fallback for unparseable content.
@@ -398,7 +495,7 @@ def extract_text_content(content: Any) -> str:
             text_parts: list[str] = []
             for block in content:
                 if isinstance(block, dict):
-                    formatted = _format_special_block(block)
+                    formatted = _format_special_block(block, media_marker)
                     if formatted is not None and formatted:
                         text_parts.append(formatted)
                 # Handle non-dict items in list
@@ -409,10 +506,10 @@ def extract_text_content(content: Any) -> str:
                 return "\n\n".join(text_parts)
 
     # Use safe extraction for non-special content (handles type labels for text/reasoning/etc)
-    return safe_extract_text(content)
+    return safe_extract_text(content, media_marker)
 
 
-def extract_payload_text(payload: Any) -> str:
+def extract_payload_text(payload: Any, media_marker: MediaMarker | None = None) -> str:
     """Extract text from a tool payload, returning "" only when nothing was recorded.
 
     A falsey scalar such as `0` or `False` is a real result, so it must not collapse to "" the
@@ -427,7 +524,7 @@ def extract_payload_text(payload: Any) -> str:
         # `extract_text_content`'s repr fallback would render an empty container as a literal
         # "[]" / "{}", which reads as recorded output.
         return ""
-    return extract_text_content(payload)
+    return extract_text_content(payload, media_marker)
 
 
 def _is_responses_item(msg: dict[str, Any]) -> bool:
@@ -440,7 +537,11 @@ def _is_responses_item(msg: dict[str, Any]) -> bool:
     to be keyed by `type` and carries nothing but tool calls.
     """
     item_type = msg.get("type")
-    return bool(item_type) and item_type not in PLAIN_TEXT_BLOCK_TYPES and CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg)
+    if not item_type or not CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg):
+        return False
+    # Only a string can name a plain-text block, so any other type is a malformed item whose
+    # recorded payload is still worth rendering.
+    return not isinstance(item_type, str) or item_type not in PLAIN_TEXT_BLOCK_TYPES
 
 
 def _format_call_signature(msg: dict[str, Any]) -> str:
@@ -498,7 +599,7 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
     `content` alone drops every tool call, tool result, and reasoning summary in the conversation
     while still printing its header.
     """
-    item_type = msg.get("type")
+    item_type = _string_type(msg)
 
     if item_type in RESPONSES_TOOL_CALL_TYPES:
         lines, _ = truncate_content(_format_call_signature(msg), options)
@@ -506,7 +607,8 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
 
     if item_type in RESPONSES_TOOL_OUTPUT_TYPES:
         output = msg.get("output")
-        text = extract_payload_text(msg.get("content") if output is None else output)
+        media_marker = options.get("media_marker") if options else None
+        text = extract_payload_text(msg.get("content") if output is None else output, media_marker)
         if not text:
             return [MISSING_TOOL_OUTPUT_NOTE]
         lines, _ = truncate_content(text, options)
@@ -552,6 +654,107 @@ def _extract_responses_output_items(value: Any) -> list[Any] | None:
     return output if isinstance(output, list) else None
 
 
+def _format_message_body(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    """Format what sits under a message header: its Responses item or content, then its tool calls."""
+    lines: list[str] = []
+
+    responses_lines = _format_responses_item(msg, options)
+    content = msg.get("content", "")
+    media_marker = options.get("media_marker") if options else None
+    media_part = msg.get(MEDIA_PART_KEY)
+    if media_marker is not None and isinstance(media_part, dict) and (media := parse_media_block(media_part)):
+        lines.append(media_marker(media))
+    elif responses_lines is not None:
+        lines.extend(responses_lines)
+    elif content:
+        text_content = extract_text_content(content, media_marker)
+        if text_content:
+            content_lines, _ = truncate_content(text_content, options)
+            lines.extend(content_lines)
+
+    tool_calls = msg.get("tool_calls", [])
+    if tool_calls:
+        lines.append("")
+        lines.extend(format_tool_calls(tool_calls))
+
+    return lines
+
+
+def _flatten_parts_messages(messages: list[Any]) -> Iterable[Any]:
+    for msg in messages:
+        if isinstance(msg, dict):
+            yield from flatten_parts_message(msg)
+        else:
+            yield msg
+
+
+def _safe_format_message_body(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    try:
+        return _format_message_body(msg, options)
+    except RenderBudgetExceeded:
+        raise
+    except Exception:
+        # Customer payloads can break any shape assumption in the body formatters, so one
+        # malformed message degrades to its own repr and the rest of the trace still renders.
+        body_lines, _ = truncate_content(safe_extract_text(msg), options)
+        return body_lines
+
+
+def _normalize_output_messages(choices: list[Any]) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+
+        # The Responses API can send its items at the top level of the array, with no `role`
+        # and no `content`. Pass those straight to `format_messages_array`, which knows their
+        # shapes, rather than dropping them for failing the role check below.
+        if _is_responses_item(choice):
+            messages.append(choice)
+            continue
+
+        # Extract message from choice
+        # Handle both OpenAI format (choice.message) and Anthropic format (choice is the message)
+        message = choice.get("message")
+        if not message or not isinstance(message, dict):
+            # Anthropic/direct format - choice IS the message
+            if "role" in choice or "content" in choice:
+                message = choice
+            else:
+                continue
+
+        # Normalize tool_calls - extract from content if present
+        tool_calls = message.get("tool_calls", [])
+        content = message.get("content", "")
+        content_tool_calls = extract_tool_calls_from_content(content)
+        if content_tool_calls:
+            tool_calls = content_tool_calls
+
+        # Create normalized message
+        normalized_message = {
+            "role": message.get("role", "assistant"),
+            "content": content,
+            "tool_calls": tool_calls,
+        }
+        # Defer parts expansion until the budgeted renderer consumes each message.
+        if "parts" in message:
+            normalized_message["parts"] = message["parts"]
+        messages.append(normalized_message)
+
+    return messages
+
+
+def has_message_content(messages: list[Any], *, is_output: bool = False) -> bool:
+    if is_output:
+        messages = _normalize_output_messages(messages)
+    return any(
+        line.strip()
+        for msg in _flatten_parts_messages(messages)
+        if isinstance(msg, dict)
+        for line in _safe_format_message_body(msg, {"truncated": False, "include_markers": False})
+    )
+
+
 def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
     """
     Format an array of message objects without header.
@@ -566,37 +769,26 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
     Returns:
         List of formatted lines (no header, starts directly with messages)
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
+    needs_separator = False
 
-    for i, msg in enumerate(messages):
+    for i, msg in enumerate(_flatten_parts_messages(messages)):
+        # Add separator between messages (but not after the last one)
+        if needs_separator:
+            lines.append("")
+            lines.append("-" * 80)
+        needs_separator = isinstance(msg, dict)
         if not isinstance(msg, dict):
             continue
 
-        role = msg.get("role") or msg.get("type") or "unknown"
-        content = msg.get("content", "")
-        tool_calls = msg.get("tool_calls", [])
+        # SDKs record non-string roles, which crash `.upper()`.
+        role = str(msg.get("role") or msg.get("type") or "unknown")
 
         lines.append("")
         lines.append(f"[{i + 1}] {role.upper()}")
         lines.append("")
 
-        responses_lines = _format_responses_item(msg, options)
-        if responses_lines is not None:
-            lines.extend(responses_lines)
-        elif content:
-            text_content = extract_text_content(content)
-            if text_content:
-                content_lines, _ = truncate_content(text_content, options)
-                lines.extend(content_lines)
-
-        if tool_calls:
-            lines.append("")
-            lines.extend(format_tool_calls(tool_calls))
-
-        # Add separator between messages (but not after the last one)
-        if i < len(messages) - 1:
-            lines.append("")
-            lines.append("-" * 80)
+        lines.extend(_safe_format_message_body(msg, options))
 
     return lines
 
@@ -666,44 +858,7 @@ def format_output_messages(
 
     # Output choices (most common format)
     if choices and isinstance(choices, list) and len(choices) > 0:
-        # Extract messages from choices
-        messages = []
-        for choice in choices:
-            if not isinstance(choice, dict):
-                continue
-
-            # The Responses API can send its items at the top level of the array, with no `role`
-            # and no `content`. Pass those straight to `format_messages_array`, which knows their
-            # shapes, rather than dropping them for failing the role check below.
-            if _is_responses_item(choice):
-                messages.append(choice)
-                continue
-
-            # Extract message from choice
-            # Handle both OpenAI format (choice.message) and Anthropic format (choice is the message)
-            message = choice.get("message")
-            if not message or not isinstance(message, dict):
-                # Anthropic/direct format - choice IS the message
-                if "role" in choice or "content" in choice:
-                    message = choice
-                else:
-                    continue
-
-            # Normalize tool_calls - extract from content if present
-            tool_calls = message.get("tool_calls", [])
-            content = message.get("content", "")
-            content_tool_calls = extract_tool_calls_from_content(content)
-            if content_tool_calls:
-                tool_calls = content_tool_calls
-
-            # Create normalized message
-            normalized_message = {
-                "role": message.get("role", "assistant"),
-                "content": content,
-                "tool_calls": tool_calls,
-            }
-            messages.append(normalized_message)
-
+        messages = _normalize_output_messages(choices)
         if messages:
             lines.append("")
             lines.append("OUTPUT:")

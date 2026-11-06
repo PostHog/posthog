@@ -1,12 +1,13 @@
-import { ComponentType, HTMLProps } from 'react'
+import { CSSProperties, ComponentType, HTMLProps, ReactNode } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
+import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
     CurrencyCode,
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     InsightActorsQuery,
     QuerySchema,
     RefreshType,
@@ -15,21 +16,38 @@ import { InsightLogicProps, TrendResult } from '~/types'
 
 import { ColumnFeature } from './nodes/DataTable/DataTable'
 import { DataTableRow } from './nodes/DataTable/dataTableLogic'
+import { SampleRowsSource } from './nodes/DataTable/sampleRows'
+import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    onSelectBIMark?: (record: Record<string, unknown>) => void
+    isBIMarkActiveFilter?: (record: Record<string, unknown>) => boolean
+    getBIMarkDashboardUrl?: (record: Record<string, unknown>) => string
+    dashboardResultMenu?: boolean
+    loadQueue?: TaskQueue
+
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
+    tableLayout?: 'auto' | 'fixed'
+    tableStyle?: CSSProperties
     /** used to override the value in the query */
     showOpenEditorButton?: boolean
     showQueryEditor?: boolean
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
+    /** Shows the result of the data checks next to the chart. For a surface where the person can change the query. */
+    showDataChecks?: boolean
     insightProps?: InsightLogicProps<Q>
     emptyStateHeading?: string
     emptyStateDetail?: string | JSX.Element
     emptyStateIcon?: JSX.Element
     renderEmptyStateAsSkeleton?: boolean
+    /**
+     * Fills the sample-data card of an empty data table with invented values for the table's columns, before
+     * the project ingests its first event. Without it, the card shows its own made-up rows.
+     */
+    dataTableSampleRows?: SampleRowsSource
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**
      * Displayed in insight tooltip's "Click to view {groupTypeLabel}".
@@ -49,6 +67,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     showLoadNextButton?: boolean
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
+    dataTableExportExcludedColumns?: string[]
+    dataTableExportQuery?: DataTableNode
     /** Cohort ID to enable cohort-specific features like View Replays button */
     cohortId?: number | null
     /** Custom column features to pass down to the DataTable */
@@ -57,6 +77,24 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataNodeLogicKey?: string
     /** Override the maximum pagination limit for Data Tables. */
     dataTableMaxPaginationLimit?: number
+    /** Stop Data Table pagination after this many accumulated rows. */
+    dataTableMaxPaginationRows?: number
+    /** Keep the Data Table toolbar fixed while its table content scrolls. */
+    dataTableAllowContentScroll?: boolean
+    /** Virtualize rows in an embedded SQL result table with a bounded height. */
+    dataVisualizationTableVirtualized?: boolean
+    dataVisualizationTableVirtualizationCellThreshold?: number
+    /** Keep the Data Table header row visible while the page scrolls. See `LemonTable`'s `stickyHeader`. */
+    dataTableStickyHeader?: boolean
+    /** Override the nouns used by Data Table counts and pagination. */
+    dataTableNouns?: [string, string]
+    /** Expected total row count from another source. The footer shows "X of Y" when all rows are loaded and the counts differ. */
+    dataTableExpectedTotalRows?: number
+    compactDataTableToolbar?: boolean
+    dataTableToolbarClassName?: string
+    dataTableExportIconOnly?: boolean
+    dataTableHideLoadNextWhenComplete?: boolean
+    hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
     /** Ignore action/event names in series labels (show only breakdown/compare values) */
@@ -74,6 +112,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     customActions?: JSX.Element | JSX.Element[]
     /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
+    /** Drawn on top of a trends line or bar chart, as a child of the chart, so it can read the chart's scales. */
+    chartOverlay?: ReactNode
+    /** When a series matches, a trends line or bar chart fades every series that does not. */
+    isSeriesHighlighted?: (result: TrendResult) => boolean
     /** Wired by the web analytics scene so a pre-computed tile's badge can offer "always query live data". */
     onDisableWebAnalyticsPrecompute?: () => void
     /**
@@ -82,16 +124,37 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.
      */
     suppressSlowQuerySuggestions?: boolean
+    /**
+     * Let this table's event pickers offer events whose data is moving out of the `events` table.
+     * Set it where the pick is thrown away with the page. A surface whose query gets saved (an
+     * insight, a dashboard tile, a notebook, a table view) leaves it unset, so it stops saving a
+     * filter that returns nothing once the data moves. See `TaxonomicFilterProps.includeHiddenEvents`.
+     */
+    includeHiddenEvents?: boolean
+    /** Drop axis ticks and titles, for thumbnail-sized renders such as the chart type gallery. */
+    hideAxes?: boolean
+    /** Hide or resize the visualization selector when the host provides its own chart picker. */
+    chartTypeSelectorClassName?: string
+    onEditBIAxis?: (axis: 'x' | 'left' | 'right') => void
+    onDrillBIHierarchy?: (worksheet: BIVisualizationNode) => void
+    biHierarchyDrillDisabledReason?: string
+    onKeepBISelection?: (records: Record<string, unknown>[]) => void
+    /** Hosts visualization settings in the scene's own panel instead of opening another sidebar. */
+    visualizationSettingsPanel?: {
+        isOpen: boolean
+        onToggle: () => void
+        container: HTMLElement | null
+    }
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
     columnName: string
-    query: DataTableNode | DataVisualizationNode
+    query: DataTableNode | VisualizationNode
 }>
 
 export type QueryContextColumnComponent = ComponentType<{
     columnName: string
-    query: DataTableNode | DataVisualizationNode
+    query: DataTableNode | VisualizationNode
     record: unknown
     recordIndex: number
     rowCount: number
@@ -104,7 +167,10 @@ export interface QueryContextColumn {
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
     align?: 'left' | 'right' | 'center' // default is left
-    width?: string
+    width?: string | number
+    resizable?: boolean
+    onResize?: (width: number) => void
+    onResizeEnd?: () => void
     hidden?: boolean // don't show this column in the table
     isRowFillFraction?: boolean // if true, this row will be filled with a background color based on the value (from 0 to 1)
 }

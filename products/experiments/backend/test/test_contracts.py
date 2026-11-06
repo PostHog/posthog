@@ -12,7 +12,7 @@ the experiment's feature_flag object, not here.
 from datetime import UTC, datetime
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from products.experiments.backend.facade.contracts import CreateExperimentInput, Experiment, FeatureFlag
 
@@ -36,7 +36,7 @@ class TestContractImmutability:
         with pytest.raises(AttributeError):
             setattr(instance, field_name, new_value)
 
-    @freeze_time("2026-03-21T12:00:00Z")
+    @time_machine.travel("2026-03-21T12:00:00Z", tick=False)
     @pytest.mark.parametrize(
         ("instance", "field_name", "new_value"),
         [
@@ -75,7 +75,7 @@ class TestContractImmutability:
 class TestContractHashability:
     """Test that contracts are hashable (required for Turbo caching)."""
 
-    @freeze_time("2026-03-21T12:00:00Z")
+    @time_machine.travel("2026-03-21T12:00:00Z", tick=False)
     @pytest.mark.parametrize(
         "instance",
         [
@@ -144,61 +144,3 @@ class TestCreateExperimentInput:
 
         assert input_dto.parameters is not None
         assert "variant_notes" in input_dto.parameters
-
-
-@freeze_time("2026-03-21T12:00:00Z")
-class TestFeatureFlag:
-    def test_feature_flag_output(self):
-        """Test feature flag output DTO."""
-        flag = FeatureFlag(
-            id=123,
-            key="my-flag",
-            name="My Flag",
-            active=True,
-            created_at=datetime.now(UTC),
-        )
-
-        assert flag.id == 123
-        assert flag.key == "my-flag"
-        assert flag.name == "My Flag"
-        assert flag.active is True
-
-
-@freeze_time("2026-03-21T12:00:00Z")
-class TestExperiment:
-    def test_experiment_output_minimal(self):
-        """Test experiment output DTO with minimal fields."""
-        exp = Experiment(
-            id=456,
-            name="My Experiment",
-            feature_flag_id=123,
-            feature_flag_key="my-flag",
-            is_draft=True,
-            created_at=datetime.now(UTC),
-        )
-
-        assert exp.id == 456
-        assert exp.name == "My Experiment"
-        assert exp.feature_flag_id == 123
-        assert exp.is_draft is True
-
-    def test_experiment_output_full(self):
-        """Test experiment output with all fields."""
-        now = datetime.now(UTC)
-        exp = Experiment(
-            id=456,
-            name="My Experiment",
-            description="Test description",
-            feature_flag_id=123,
-            feature_flag_key="my-flag",
-            is_draft=False,
-            start_date=now,
-            end_date=None,
-            created_at=now,
-            updated_at=now,
-        )
-
-        assert exp.description == "Test description"
-        assert exp.is_draft is False
-        assert exp.start_date == now
-        assert exp.updated_at == now

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
+import { CollapsiblePrimitive, CollapsiblePrimitiveContent } from 'lib/ui/Collapsible/lib/CollapsiblePrimitive'
 import { cn } from 'lib/utils/css-classes'
 
 export interface Option {
@@ -28,6 +29,7 @@ interface OptionSelectorProps {
     submitLabel?: string
     /** Called when the user clicks "Skip question" */
     onSkip?: () => void
+    multiline?: boolean
 }
 
 export function OptionSelector({
@@ -43,10 +45,12 @@ export function OptionSelector({
     selectedValue,
     submitLabel = 'Next',
     onSkip,
+    multiline = false,
 }: OptionSelectorProps): JSX.Element {
+    const freeTextOnly = allowCustom && options.length === 0
     const isCustomValue = selectedValue !== undefined && !options.some((o) => o.value === selectedValue)
     const [userWantsCustomMode, setUserWantsCustomMode] = useState(isCustomValue)
-    const showCustomInput = userWantsCustomMode || isCustomValue
+    const showCustomInput = freeTextOnly || userWantsCustomMode || isCustomValue
     const [customInput, setCustomInput] = useState(initialCustomValue ?? '')
     const selectedValueRef = useRef(selectedValue)
     selectedValueRef.current = selectedValue
@@ -57,7 +61,7 @@ export function OptionSelector({
         }
 
         function handleKeyDown(event: KeyboardEvent): void {
-            if (showCustomInput && event.key === 'Escape') {
+            if (showCustomInput && !freeTextOnly && event.key === 'Escape') {
                 event.preventDefault()
                 setUserWantsCustomMode(false)
                 setCustomInput('')
@@ -92,15 +96,24 @@ export function OptionSelector({
         return () => {
             window.removeEventListener('keydown', handleKeyDown)
         }
-    }, [options, onSelect, allowCustom, disabled, loading, showCustomInput])
+    }, [options, onSelect, allowCustom, disabled, loading, showCustomInput, freeTextOnly])
 
     const noDescriptions = options.every((o) => !o.description)
+    const footerOpen = !!onSkip || showCustomInput
+    // Without a skip button the submit button is the panel's only content. Base UI measures the closing
+    // height after React commits, so if the button unmounted in the same render the row would snap to
+    // its padding before it slides shut. Keep it mounted for as long as the panel is.
+    const showSubmit = showCustomInput || !onSkip
 
     const handleCustomSubmit = (): void => {
         if (!customInput.trim()) {
             // When not choosing a custom input, hide the input and show button again
             setUserWantsCustomMode(false)
 
+            return
+        }
+        if (freeTextOnly) {
+            onCustomSubmit?.(multiline ? customInput : customInput.trim())
             return
         }
         setUserWantsCustomMode(false)
@@ -117,55 +130,60 @@ export function OptionSelector({
     }
 
     return (
-        <div
-            className={cn('flex flex-col gap-1.5', {
-                // When there are no descriptions, reduce the gap between options to 0.5
-                'gap-0.5': noDescriptions,
-            })}
-        >
-            <div className="flex flex-col gap-2 font-medium">
-                {options.map((o) => (
-                    <label
-                        key={o.value}
-                        className="grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm cursor-pointer"
-                        onClick={(e) => {
-                            e.preventDefault()
-                            if (selectedValue === o.value) {
-                                onSelect(null)
-                            } else {
-                                setUserWantsCustomMode(false)
-                                onSelect(o.value)
-                            }
-                        }}
-                    >
-                        <input
-                            type="radio"
-                            className="cursor-pointer"
-                            checked={selectedValue === o.value && !showCustomInput}
-                            onChange={() => {}}
-                        />
-                        <span>{o.label}</span>
-                        {o.description && (
-                            <div className="text-secondary font-normal row-start-2 col-start-2 text-pretty text-xs">
-                                {o.description}
-                            </div>
-                        )}
-                    </label>
-                ))}
-            </div>
+        <CollapsiblePrimitive open={footerOpen} className="flex flex-col">
+            <div
+                className={cn('flex flex-col gap-1.5', {
+                    // When there are no descriptions, reduce the gap between options to 0.5
+                    'gap-0.5': noDescriptions,
+                })}
+            >
+                <div className="flex flex-col gap-2 font-medium">
+                    {options.map((o) => (
+                        <label
+                            key={o.value}
+                            className="grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm cursor-pointer"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                if (disabled) {
+                                    return
+                                }
+                                if (selectedValue === o.value) {
+                                    onSelect(null)
+                                } else {
+                                    setUserWantsCustomMode(false)
+                                    onSelect(o.value)
+                                }
+                            }}
+                        >
+                            <input
+                                type="radio"
+                                className="cursor-pointer"
+                                checked={selectedValue === o.value && !showCustomInput}
+                                disabled={disabled}
+                                onChange={() => {}}
+                            />
+                            <span>{o.label}</span>
+                            {o.description && (
+                                <div className="text-secondary font-normal row-start-2 col-start-2 text-pretty text-xs">
+                                    {o.description}
+                                </div>
+                            )}
+                        </label>
+                    ))}
+                </div>
 
-            {allowCustom && (
-                <label className="grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm font-medium cursor-pointer">
-                    <input
-                        type="radio"
-                        className="cursor-pointer"
-                        checked={showCustomInput}
-                        onChange={() => {
-                            setUserWantsCustomMode(true)
-                        }}
-                        value="custom"
-                    />
-                    {showCustomInput ? (
+                {freeTextOnly &&
+                    (multiline ? (
+                        <LemonTextArea
+                            placeholder={customPlaceholder}
+                            value={customInput}
+                            onChange={setCustomInput}
+                            onPressCmdEnter={handleCustomSubmit}
+                            minRows={3}
+                            maxRows={12}
+                            autoFocus
+                        />
+                    ) : (
                         <LemonInput
                             placeholder={customPlaceholder}
                             fullWidth
@@ -173,33 +191,67 @@ export function OptionSelector({
                             value={customInput}
                             onChange={setCustomInput}
                             onPressEnter={handleCustomSubmit}
-                            autoFocus={true}
+                            autoFocus
                         />
-                    ) : (
-                        <span className="my-1.5">Explain what you'd like instead.</span>
-                    )}
-                </label>
+                    ))}
+                {allowCustom && !freeTextOnly && (
+                    <label className="grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm font-medium cursor-pointer">
+                        <input
+                            type="radio"
+                            className="cursor-pointer"
+                            checked={showCustomInput}
+                            disabled={disabled}
+                            onChange={() => {
+                                setUserWantsCustomMode(true)
+                            }}
+                            value="custom"
+                        />
+                        {showCustomInput ? (
+                            <LemonInput
+                                className="starting:opacity-0 opacity-100 transition-[opacity] duration-150 motion-reduce:transition-none"
+                                placeholder={customPlaceholder}
+                                fullWidth
+                                size="small"
+                                value={customInput}
+                                onChange={setCustomInput}
+                                onPressEnter={handleCustomSubmit}
+                                disabled={disabled}
+                                autoFocus={true}
+                            />
+                        ) : (
+                            <span className="my-1.5">Explain what you'd like instead.</span>
+                        )}
+                    </label>
+                )}
+            </div>
+            {(allowCustom || footerOpen) && (
+                <CollapsiblePrimitiveContent className="transition-[height,opacity] duration-150 ease-out opacity-100 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 motion-reduce:transition-none">
+                    <div
+                        className={cn('flex items-center justify-between gap-2 pt-3.5', {
+                            'pt-2.5': noDescriptions,
+                        })}
+                    >
+                        {onSkip && (
+                            <LemonButton type="secondary" size="small" onClick={onSkip} disabled={disabled}>
+                                Skip question
+                            </LemonButton>
+                        )}
+                        {showSubmit && (
+                            <div className="ml-auto starting:opacity-0 opacity-100 transition-[opacity] duration-150 motion-reduce:transition-none">
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    disabled={disabled}
+                                    disabledReason={!customInput.trim() ? 'Please type a response' : undefined}
+                                    onClick={handleCustomSubmit}
+                                >
+                                    {submitLabel}
+                                </LemonButton>
+                            </div>
+                        )}
+                    </div>
+                </CollapsiblePrimitiveContent>
             )}
-            {(onSkip || showCustomInput) && (
-                <div className="flex items-center justify-between gap-2 pt-2">
-                    {onSkip && (
-                        <LemonButton type="secondary" size="small" onClick={onSkip}>
-                            Skip question
-                        </LemonButton>
-                    )}
-                    {showCustomInput && (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            disabledReason={!customInput.trim() ? 'Please type a response' : undefined}
-                            onClick={handleCustomSubmit}
-                            className="ml-auto"
-                        >
-                            {submitLabel}
-                        </LemonButton>
-                    )}
-                </div>
-            )}
-        </div>
+        </CollapsiblePrimitive>
     )
 }

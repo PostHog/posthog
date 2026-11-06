@@ -198,6 +198,724 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-11-02 — push gate: the four shadow rules are gone
+
+- **What.** `docs_only`, `small_change`, `system_one_below_threshold`, and `next_push_likely` are removed, with their `SKIP_*` switches, the small-change Redis counter, the next-push table, and the System One call.
+  A push that no remaining rule matches reviews with the reason `no_rule_matched`.
+  The gate event drops `system_one_probability`, `system_one_model`, `system_one_skip_below`, `net_code_lines`, `small_change_deferrals`, and `next_push_probability`.
+- **Why.** Each rule logged a shadow decision while the review still ran, so every match is a measured review (review-eval `experiments/2026-11-02-shadow-rules`, Oct 17 to Nov 2).
+  None of them earned a live switch:
+  - `next_push_likely` matched the most productive follow-ups: about 1.7 times the must-fix labels per review of other follow-ups. About 30% of its matches were the PR's last automatic review. Live, it also needed a fix first, because a skip does not advance `run_index`, so it would match every later push.
+  - `small_change` held must-fix labels at close to the rate of other follow-ups, and almost half of its matches were the PR's last automatic review. The preconditions in the 2026-10-15 entry (a review on Stamphog's request, a "latest push not reviewed" state) were never built. `quiet_small_push` already skips small pushes after a review that kept nothing.
+  - `system_one_below_threshold` matched few pushes, and about 15% of System One calls came back unavailable. The earlier replays already found its below-threshold pushes carried must-fix labels at the same rate as the rest.
+  - `docs_only` saved the least, and the Markdown it treats as docs includes agent skill files, which this repo treats as instructions.
+- **Behavior change.** A System One outage was a gate failure, so it kept those pushes out of rules 5 to 7, `zero_change`, and the delta split. Those pushes now meet every rule like any other push.
+  A push GitHub cannot show in full (a left-out patch, or more than `MAX_OWN_PATCH_CHARS` of patch text) still fails open as `interdiff_too_large`.
+- **Replay.** The gate activity returns `PushGateDecision`, and Temporal's converter rejects a literal it does not know.
+  `RetiredReason` keeps the old reason strings so a `review-pr` history recorded before the removal still decodes. Remove it once no such history is open.
+
+### ✅ BUILT 2026-10-29 — no label starts a review; Stamphog hands off through the finished-review hook (#124327)
+
+- **What.** The `reviewhog` label no longer starts a review, and a `labeled` delivery starts nothing.
+  This replaces the 2026-08-21 label handler below.
+  When Stamphog refuses or escalates a self-driving PR, its finished-review hook (`facade/finished_review_hooks.py`) calls a callback `receivers.py` registers.
+  The callback queues `process_stamphog_handoff`, which reviews the head Stamphog judged (`stamphog_handoff.py`).
+  The review is Standard, or Deep once the PR has a published Deep review.
+- **Why the hook.** Stamphog already calls the finished-review hooks right after its terminal save.
+  A second registry would repeat it with a different payload.
+  `FinishedReviewRun` gains `head_sha` and `request_external_review`, because a gate-blocked refusal is stored as `WAIT` and the verdict alone does not say to hand off.
+- **No installation id in the payload.** Stamphog's installation belongs to its own GitHub App, so it never matches a PostHog App `Integration`.
+  The handoff finds the owning project and installation by repository name (`RepositoryOwnership.find_by_name`).
+- **Skips.** A head with a pending or completed review is not reviewed again; a failed status lookup raises so the task retries.
+  A missing owner, missing integration, missing run user, or running resolution is a no-op counted in `posthog_review_hog_stamphog_handoff_total`.
+
+### ✅ BUILT 2026-10-16 — push gate skips follow-ups that rarely surface anything (live)
+
+- **What.** Three live push gate rules run after `draft`: `late_follow_up` (the push would start review 9 or a later
+  one), `small_pr` (the PR has fewer than 150 reviewable lines, the size the lens parts use), and `quiet_small_push`
+  (the last review kept no finding and the push changes at most 30 own code lines). They take over a shadow match of an
+  earlier rule. A skipped push leaves the baseline in place, so the next review covers its changes, and skipped small
+  pushes add up until one crosses 30 lines. Every gate decision now carries `reviewable_lines` and `previous_findings`.
+- **Why.** Automatic follow-ups make up most of the Standard spend, and most of them surface nothing. The findings of
+  the previous review predict what a follow-up surfaces better than the PR size does: inside each PR size band, a
+  follow-up after a review with two or more findings surfaced three to five times the must-fix findings of a follow-up
+  after a review that kept none.
+- **Evidence.** A replay of automatic follow-ups under the current posting rules, with model cost joined per turn
+  (review-eval `experiments/2026-10-16-follow-up-value`):
+  - The three rules match about two in five of those follow-ups and about a third of their cost.
+  - They hold back about one in six follow-up must-fix labels and follow-up findings. The labels are the model's own,
+    and a skipped push stays in the next review's scope, so both shares are upper bounds.
+  - Follow-ups after a push the gate expects another push for surfaced the most per review, so `next_push_likely`
+    stays a shadow rule.
+- **Not chosen.**
+  - Skipping first reviews of small PRs: a first review of a 30 to 99 line PR still surfaces must-fix findings.
+  - System One below 0.7: it saves less per must-fix label held back than the push-size rule.
+  - A cap from review 5: it saves about half as much and holds back almost as many must-fix labels.
+
+### ✅ BUILT 2026-10-15 — push gate: small-change deferral (shadow; removed 2026-11-02)
+
+- **What.** A new push gate rule, `small_change`, sits after `docs_only` and before `system_one_below_threshold`. It
+  matches a push that changes 1 to `SMALL_CHANGE_MAX_NET_CODE_LINES` (10) code lines net: the additions plus deletions
+  of the GitHub compare between the last reviewed head and the push head, over files `_NON_CODE_FILE` does not match.
+  A capped file list or a file without counts makes the net lines unknown, and the rule does not match. A per-PR
+  counter in Redis allows `SMALL_CHANGE_MAX_DEFERRALS` (2) deferrals in a row: the next small push runs the review and
+  sets the counter to 0, and so does any push the rule does not match. Without Redis the rule does not match. A retried
+  turn at the same head reuses the count of its first attempt. The count is stored with a compare-and-set: when another
+  turn stored a count first or the write fails, the small push runs the review (`small_change_not_stored`). `SKIP_SMALL_CHANGE = False`, so the rule only logs:
+  every decision carries `net_code_lines` and `small_change_deferrals` on `reviewhog_push_gate_decided`.
+- **Why.** Since Oct 14 14:33 UTC, 71% of automatic follow-up runs surfaced nothing. The chance that a run surfaces
+  something grows with the net code lines of the push, and small pushes rarely surface anything.
+- **Evidence.**
+  - Surfacing rate by net code lines of the push (run 3+, 367 runs; run 2 under the changed-code rule looks the
+    same):
+
+    | Net code lines               | 0   | 1-10 | 11-30 | 31-100 | 101-300 | >300 |
+    | ---------------------------- | --- | ---- | ----- | ------ | ------- | ---- |
+    | Runs that surfaced something | 6%  | 3%   | 12%   | 23%    | 35%     | 56%  |
+
+  - An offline replay of 527 follow-ups on 243 PRs (review-eval `experiments/2026-10-15-gate-surfacing`): deferring at
+    10 net lines with two deferrals in a row at most saves about 16% of follow-up spend (9% of all Standard spend). It
+    withholds 7 of 167 surfaced findings at the deferred push (3 of them on docs-only pushes) and 0 of 40 must-fix
+    labels (95% upper bound 10%).
+  - A 30-line threshold saves 25% but withholds 3 must-fix labels.
+  - A fitted probability model did not beat the size buckets (Brier 0.145 vs 0.148). A cost-per-probability term
+    changed 7 of 125 deferrals.
+  - `own_code_lines` counts churn: a rebase counts every commit again, which made large pushes look small-yield in an
+    earlier read. The rule uses net lines for that reason.
+
+- **Not chosen.**
+  - A 30-line threshold: it withholds must-fix findings.
+  - A probability model: no better than the size buckets.
+  - A per-repo cost term: it changes few deferrals.
+  - System One: its below-threshold pushes carried must-fix labels at the same rate as the rest.
+- **Before it goes live.**
+  - A few days of shadow decisions. In shadow mode the review still runs and moves the baseline, so net lines are per
+    push, not added up over deferred pushes as in live mode.
+  - The final-push gap: in the replay 62 of 243 PRs ended on a deferred push, 33 of them merged. That needs a review
+    started when stamphog asks for evidence on a deferred head, and a visible "latest push not reviewed yet" state on
+    the PR.
+  - One baseline for the gate and the posting filter.
+
+### ✅ BUILT 2026-10-15 — automatic Standard follow-ups post only changed-code findings from run 2 on
+
+- **What.** `FLASH_WHOLE_PR_TURNS` goes from 2 to 1. Run 1 still reviews the whole pull request with the doubled
+  first-review cap. From run 2 on, an automatic Standard (Flash) turn drops every P2 and P3 finding more than
+  `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` lines from code the push changed, as `old_code`. Must-fix findings post
+  anywhere. A requested review (`@posthog review`, the label, the UI) still reviews the whole pull request.
+- **Why.** The per-PR loop complaints came from run 2 and later turns that re-reviewed unchanged code: each fix push
+  drew new should-fix findings on code the push never touched, so the author fixed and pushed again. After the
+  Oct 14 changes, run 2 produced 135 of 241 follow-up findings and 7 of its must-fix findings.
+- **Evidence.** An offline replay of 215 run-2 turns (155 after the Oct 14 cutover, 60 before) through the
+  production rule code (review-eval `experiments/2026-10-15-run2-scope-replay`):
+  - The rule suppresses 147 posted findings on 80 turns, all labeled should-fix by the model.
+  - A blind Sonnet judge graded them 91 real, 54 unsure, 2 not real, and none must-fix.
+  - 18 must-fix findings on unchanged code stay posted.
+  - 13% of the suppressed findings were caused by the push: the 3-line margin misses a changed caller that breaks an
+    unchanged callee. A 10-line margin rescues 4 of those 19 and adds 17 unrelated findings, so the margin stays.
+- **Not chosen.**
+  - A lower run-2 cap: unrelated findings still get through, only fewer of them.
+  - Run 2 as a whole-PR review only when run 1 hit its cap: cap saturation says nothing about the new push.
+  - A wider margin: see the Evidence numbers above.
+
+### ✅ BUILT 2026-10-13 — Flash follow-ups drop only P3 findings on unchanged code (`reviewhog-flash-2-3`)
+
+- **What.** The `old_code` rule from `reviewhog-flash-2-1` now drops only P3 findings on code unchanged since the last
+  reviewed head. A P2 on old code goes through dedup like any other finding, so it posts unless it repeats a finding
+  an earlier turn posted.
+- **Why.** Reading the findings the rule dropped showed that many P2s on old code named specific bugs the earlier
+  turn had missed, such as unhandled errors on request paths and races, while no other drop rule removed real
+  findings. Other review bots on the same PRs raised issues in old code that authors then fixed. The rule existed to
+  stop repeats, and dedup against earlier turns' findings already removes a repeat of a finding that posted.
+- **Kept.** P3 findings on old code still drop: they are the trickle the rule was built for, and Flash posts P3s
+  rarely.
+- **Supersedes** the idea of letting an old-code finding through only when two turns raise it independently, which
+  would have kept most of these bugs dropped.
+
+### ✅ DECIDED 2026-10-09 — the `review-hog-internal` gate is gone
+
+- **What.** `review-hog` is the only ReviewHog flag. Automatic Flash reviews, the label trigger, resolution, manual
+  Flash, Inbox reviews, the Stamphog Inbox switch, and the tiered review arms run wherever it is on.
+  `backend/internal_features.py` and the `internal_feature` refusal code are removed.
+- **Why.** The gate was never created in production, so after the deploy all of those parts stopped with no error.
+  The flag then went to 100% for every organization, which left a second flag with no remaining audience and a
+  silent off switch for most of the product. Removing it keeps the behavior of the 100% rollout and removes the
+  failure mode. The resolution hardening TODO in ARCHITECTURE.md still applies: the `review-hog` flag does not
+  establish repository or comment trust.
+
+### ✅ BUILT 2026-10-09 — Full reviews without other reviewers' comments (`reviewhog-full-1-4`)
+
+- **What.** The perspective review prompt quotes only the PR author's own inline comments, as context for intent and
+  replies. Other reviewers' comments, from people and bots, are left out. Dedup still matches findings against them
+  afterwards and lists the overlaps (entry below).
+- **Why.** The prompt used to quote every comment "to understand what has already been discussed". A reviewer that
+  reads another bot's finding tends to agree with it or skip it, so Full's own judgment and its agreement both lost
+  meaning. Seeing comments and posting duplicates are separate choices: detection stays independent, and the output
+  is consolidated after it.
+- **Also.** The chunking prompt gets the same author-only comments, because its free-text chunk summary reaches every
+  review prompt. Dedup treats a PR comment anywhere in a finding's file as a possible repeat, not only one on
+  overlapping lines, because a review that never saw the comment often anchors the same problem elsewhere.
+- **Measure.** Compare `reviewhog-full-1-4` with `1-3` on findings per turn, overlaps listed per turn, and how often
+  authors act on Full's findings.
+
+### ✅ BUILT 2026-10-09 — Full lists what other reviewers already raised; Flash never reads PR comments (`reviewhog-full-1-3`)
+
+- **What.** A Full turn reads the PR's inline comments again at dedup time, skips outdated ones, and still keeps a
+  finding another comment already raises off the PR. The final status comment now lists those findings with the
+  comment they repeat ("Also found in comments already on this pull request"), and a turn with nothing new says
+  "Nothing new to raise." instead of celebrating. Flash, in both designs, never reads PR comments. The
+  `dedupe_against_pr_comments` switch from the entry below is gone: no trigger ever set it, and a flag that changed
+  Flash but not Full would have meant two things.
+- **Why.** How people run Full (Sep 25 to Oct 9, human-authored PRs): 85% of runs are a label the author adds about
+  6 minutes after opening the PR, and another review bot is active on 85% of PRs, so Full almost always has company.
+  Posting duplicates would cost authors double replies; dropping them silently hid that ReviewHog agreed. Listing
+  them keeps one thread per issue and shows the agreement. When Full is the only reviewer, nothing changes.
+- **Next.** Full's review prompt still shows every PR comment, so its reviewers can still lean on what others said.
+  Showing only the PR author's own comments is the follow-up, measured under its own version.
+
+### ✅ BUILT 2026-10-09 — Flash reviews independently of other PR comments (`reviewhog-flash-2-2`)
+
+- **What.** Flash dedup no longer reads the PR's comments, from people or other bots. It still drops repeats of
+  ReviewHog's own earlier findings. A per-trigger switch on the review input, `dedupe_against_pr_comments` (default
+  off), brings the old behavior back for a review that should add only what is not on the PR yet; the status comment
+  then counts the findings it skipped. No setting stores it. The `@posthog review` comment command is the planned way
+  to set it.
+- **Why.** A finding that repeated another bot's comment dropped silently, so the PR showed that bot's P1 next to
+  ReviewHog's "Nothing worth raising" although ReviewHog found the same issue. No vendor we checked dedups against
+  other bots' comments; each dedups only against its own earlier comments. On PostHog PRs, 16% of bot comments repeat
+  another bot's, almost all from bots running in parallel on the same commit, and no bot acknowledged another.
+- **Not chosen.** A reply in the other bot's thread (Greptile answers bot replies about half the time, which starts
+  a bot exchange) and a stored per-user preference (only if someone asks). Full mode keeps its comment dedup for now:
+  its chunker and dedup prompts both read PR comments, so it is a separate change.
+
+### ✅ DECIDED 2026-10-09 — resolution fix profiles as canonical skills
+
+- **What.** Two new canonical resolution-criteria skills, `review-hog-resolution-criteria-gaps` and
+  `review-hog-resolution-criteria-small`, sit next to the default `review-hog-resolution-criteria`.
+  A user picks one in the existing per-user criteria picker.
+  - **gaps** fixes real, reachable `should_fix` and `must_fix` bugs.
+    It leaves typos, nits, wording, stale docs and style to the author.
+  - **small** fixes small, contained issues, typos included.
+    It leaves a finding only when the fix needs a design choice that the code and conventions do not settle.
+  - Only the default auto-seeds active. The loader treats every name in `CANONICAL_RESOLUTION_SKILL_NAMES` as
+    visible, so a selected profile drives the run instead of falling back to the default.
+- **Why skills, not settings.** The resolution stage already applies one selected skill per user.
+  A profile changes the bar, and the bar lives in the skill text.
+  A skill needs no new setting, migration or UI control, and a team can copy a profile into a custom skill.
+- **Why a leave uses `escalate`.** `escalate` keeps the thread open, and the driver never resolves it.
+  `wont_fix` resolves the thread and hides it from the author and from an observing agent.
+  The reply opens "Left for the author:" and says what was checked and why the profile left it,
+  so an observing agent can act on it.
+- **Trial evidence.** A coarse offline trial ran the same 10 bot threads from 3 merged PRs under each profile,
+  with Opus and Sonnet at high effort, one run each, on API keys. No tests ran.
+  - The first gaps text fixed only the one `must_fix` thread and left 4 real bugs.
+    Version 2 states that a confirmed, reachable `should_fix` or `must_fix` bug is a gap.
+    With it, gaps fixes the reachable bugs and leaves the copy, docs and logging nits.
+    The two models agree on 9 of 10 threads.
+  - The first small text made Sonnet escalate contained fixes.
+    Version 2 says that several correct small fixes are not a design choice.
+    With it, Sonnet fixes those threads, and both models leave the one thread whose fix needs a design choice.
+    The two models agree on 8 of the 9 threads that ran.
+  - Both profiles cost about the same as the default criteria on the same model, or slightly less.
+  - The leave replies give code evidence and a reason.
+    One run in the first trial returned `wont_fix` for a leave, so both profiles now forbid `wont_fix` for a leave.
+- **Rejected.** A code-level skip of P2 and P3 findings before the resolution turn.
+  In the trial it matched 0 of 10 threads, because older comments carry their level as a badge or a priority line,
+  not as the `**P{n} · title**` heading. The skill rubric handles priority for now.
+- **Caveats.** Each thread and model ran once. Production runs one warm session per PR, not one session per thread.
+  Like the default, gaps still fixes one ask that the author declined on the original PR.
+  Watch the resolution outcomes per profile on the dashboard after users pick them.
+
+### ✅ BUILT 2026-10-09 — Flash follow-up turns drop P2 and P3 findings on unchanged code (`reviewhog-flash-2-1`)
+
+- **What.** On a follow-up turn, a P2 or P3 finding that sits more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
+  lines from any code that changed since the head the last completed turn reviewed drops as `old_code` before dedup.
+  P0 and P1 findings still post. The two heads' PR diffs are compared by line content per file
+  (`ChangedSinceReview`), so lines that a base merge or a rebase only moved stay old. A first review, a re-run at the
+  reviewed head, a missing snapshot, or a file whose patch GitHub left out skips the check.
+- **Why.** Each follow-up turn re-reviews the whole PR, and a fresh review picks different issues out of the same
+  code, so findings on code from the first commit trickled in push after push. An offline study of 12 PRs found that
+  51% of later-turn findings sat on code unchanged since the first review (66% on PRs with three or more posting
+  turns). Authors acted on 34% of those, against 70% of first-turn findings and 73% of later findings on new code,
+  which are often bugs in the author's fixes. Performance and security findings on old code: 0 of 8 acted on.
+- **Not chosen yet.** Reviewing only the changes since the last head (a delta prompt) or resuming the earlier session
+  would also save review cost, but neither is tested. The prompt does not mention the rule, so the sessions have no
+  reason to raise a level to get a finding posted.
+
+### ✅ DECIDED 2026-10-09 — resolution stage on Opus 5.5 @ high instead of xhigh
+
+- **What.** `RESOLUTION_REASONING_EFFORT` moves from `xhigh` to `high`. The model stays `claude-opus-5-5`.
+- **Why.** The xhigh pin came from the validator, and no one compared it against other options. A coarse offline
+  trial ran 10 bot threads from 3 merged PRs (#72074, #106886, #109785), one fresh session per thread, on API keys.
+  - Opus @ high matched the reference outcome on 9 of 10 threads. Opus @ xhigh matched on all 6 threads it ran.
+  - On the shared threads, high cost about two thirds of xhigh and took about half the wall time.
+  - Clear fixes came out the same at every effort level. xhigh only added extra tests and docs.
+  - xhigh's one extra win was declining a speculative bot ask (read from the writer DB). The cheaper arms made a
+    small, plausible fix there instead.
+- **Rejected.** Opus @ medium saves little over high. Sonnet 5.5 @ high escalated contained fixes it should make.
+  GPT-6.1 Sol @ high made a wrong decline and one large out-of-scope fix.
+- **Caveats.** Each thread and arm ran once, and no tests ran in the trial. Production runs one warm session per PR,
+  not one session per thread. Watch the resolution outcomes on the dashboard after the change.
+
+### ✅ BUILT 2026-10-09 — settings rework: project rules, repository ownership, the PR owner rule, and first-class enablement
+
+Decided with the maintainer on 2026-10-09 (settings audit and settings mockup). Built in two layers: the data model
+and API (storage, ownership, the Flash decision), then the behavior rules. The record of the settled spec:
+
+- **Storage.** Personal preferences live in `ReviewUserSettings.preferences`, a sparse JSON dict typed in
+  `backend/preferences.py`: an absent key inherits, unknown keys and invalid values are ignored on read, and a write
+  equal to the inherited value removes the key. Keys: `default_review_mode` (follow / flash / off), `resolve_comments`
+  (default off, personal only), `urgency_threshold` and `celebrate_clean_reviews` (Full only, layered code default →
+  project default → user value), and the two Inbox opt-ins. The old columns stay on the model, unused. A GET creates no
+  row. Project rules live in `ReviewProjectSettings`: `flash_for` (everyone / listed / off, default off = opt-in only),
+  `bot_prs` (skip / run), and the two project defaults. People lists are `ReviewRepositoryPerson` rows; a row without
+  a repository belongs to the project rule.
+- **Ownership.** A repository belongs to at most one project, like GitHub's install picker: a
+  `ReviewInstallationClaim` per (project, installation) is `all` (at most one project per installation) or
+  `selected`, and a selected `ReviewRepository` row (unique across projects, matched by GitHub repository id, then by
+  name) wins over another project's `all` claim. Global uniqueness, not one project per GitHub organization, because
+  several projects often share one installation. The repository list in the settings reads the core GitHub
+  integration's cached repository list; the core `installation_repositories` webhook refreshes it.
+- **Flash decision**, highest first: the user's choice for the repository → the user's default unless follow → the
+  repository exception → the project rule. Bots and authors without an active member follow `bot_prs` only; a bot
+  review runs as the user who connected the installation, with default settings and no writes.
+- **PR owner** (`backend/pr_owner.py`): the author when the login maps to an active member; a self-driving PR (opened
+  by the PostHog app) belongs to its Inbox report's canonical reviewer; else nobody.
+- **Whose settings shape a review.** Automatic: the owner's rules (Flash reads no personal settings). Review button
+  and MCP: the person who asks. Label: the owner, else the connector with default settings. Inbox: the report
+  reviewer. The `review_labeled_prs` opt-out is gone: a label always runs.
+- **Resolution** runs only after a Full review, only when the owner opted in, whoever triggered, and only with the
+  `review-hog-internal` flag (`review_request_rules.ResolutionGate`). No owner, no writes. The resolve-only action
+  answers 409 `resolution_not_opted_in`, and `_prepare_run` checks the gate again. Guards: a protected head branch
+  holds the stage before any push (`CommitHold.BRANCH_PROTECTED`), and `is_app_bot_author` fails closed in production
+  when `REVIEWHOG_GITHUB_BOT_LOGIN` is unset.
+- **Flash vs Full.** Flash ignores `urgency_threshold`: it publishes every kept finding and records `consider` in
+  `published_urgency_thresholds`. No Flash after Full: once a PR has a published Full review, automatic dispatch, the
+  turn's recheck, and manual Flash requests (API, MCP) refuse it (`flash_after_full`). Full may resolve Flash threads.
+- **Push gate.** New rule `reviewhog_commits_only`: an automatic follow-up skips when the ReviewHog app authored every
+  new commit since the last automatically reviewed head (resolution fixes). It emits `reviewhog_push_gate_decided`
+  like the other rules.
+- **First-class enablement.** No per-deploy team constant decides behavior: `REVIEWHOG_TEAM_IDS`,
+  `REVIEWHOG_RUN_USER_ID`, and `REVIEWHOG_TRIGGER_TOKEN` are gone. One feature flag, `review-hog-internal`, evaluated
+  per project like `review-hog`, gates the internal-only parts: automatic reviews, the label trigger, resolution, manual
+  Flash, the tiered review arms, and the Inbox and Stamphog controls. The `review-hog` flag stays the product switch.
+  The label trigger moved from the GitHub Action (deleted) to the GitHub App's own `labeled` delivery through the
+  existing `review_hog_authored_prs` consumer, which now routes by action (`accept_pull_request_event`). A person or
+  `stamphog[bot]` may label; another bot's label gets the explaining comment and is removed with the app token. The
+  shared-secret `/api/review_hog/trigger` and `/resolve` endpoints are removed, because nothing else called them. No
+  migration seeds a claim: a project admin sets the claim in the settings UI. Customer setup: enable the flag →
+  connect GitHub → claim the installation → set the project rule.
+- **Facade.** `facade/github.py::owning_team_id(installation_id, repository)` exposes ownership, so a PR comment
+  command dispatcher can pick the project.
+- **One request entry.** `requested_reviews.request_pr_review()` serves the UI, MCP and the `@posthog review` comment,
+  and applies the owner rule, the resolution gate and the Flash-after-Full check for all of them. A comment run
+  follows the same owner rule.
+- **Open follow-ups.** Claims and rows of an uninstalled installation are not cleaned up yet.
+
+### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
+
+- **What.** An inline comment is `**P{n} · {title}**`, then one paragraph with the issue and its fix, then the hidden
+  marker. A pipeline finding's `suggestion` joins its body with one space. The `### {title}` heading, the
+  "Should fix · category" line, the "Suggested fix" header, and the GitHub suggestion block are gone. The body's
+  "Other findings" section uses the same heading, then the file and lines, then the same paragraph, with no collapsed
+  blocks and no category.
+- **Why.** Every published finding is meant to be fixed, so a "should fix" label adds nothing, and the category does
+  not change what the author does. Coding agents read most of these comments and apply the fix from the wording, so
+  the suggestion block added length without value. `suggestion_code` stays stored on the finding for a later UI. The
+  comment stays plain text, so it reads the same in email notifications.
+- **P level.** A single-agent finding shows its own P0-P3 while that level still folds into the effective priority
+  (validator override first, as before). A validator override or a dedup survivor raised by a more severe duplicate
+  shows the mapped level instead: `must_fix` P1, `should_fix` P2, `consider` P3. Pipeline findings always map.
+- **Matching.** `find_finding_comment` accepts the whole first line as `**P{n} · {title}**` for P0-P3 or as the old
+  `### {title}`, so comments already on open PRs still match. The level is not checked, because it can change after
+  publish. The resolution stage finds ReviewHog threads by the hidden marker, and the body-only fallback copies the
+  comment text, so neither depends on the heading.
+
+### ✅ BUILT 2026-10-08 — Flash v2: lens sessions, one short prioritized list, any PR size
+
+- **What.** A single-agent turn runs the main session and two lens sessions (performance and reliability, contracts
+  and security) in parallel, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` at medium effort). Parallel lens sessions
+  add breadth that one session misses; one prioritized list keeps comments few. Higher effort found the same
+  important issues as medium in more time, so every session runs at medium. Ships together with the 2026-10-06 entry
+  below as `reviewhog-flash-2-0` and replaces its arm, its P3 handling, and its fixed size fallback.
+- **Lens prompts.** `lens_performance_reliability.md` and `lens_contracts_security.md` are DevEx-owned copies of the two
+  pipeline perspective skills with the pipeline's review framing in front, and `lens_priority.md` follows the finding
+  format: it maps the severity guide onto P0-P3 and limits findings to issues the change causes. The text matches the
+  version the design was measured with. Skill edits do not reach the copies.
+- **Fetched files.** The design was measured with test and `.txt` files in the diff, but the PR fetch dropped both for
+  every design. A single-agent turn now fetches them (`PRFilter(review_tests_and_text=True)`), with their PR comments
+  so dedup sees the comments on every reviewed file; the pipeline keeps the old filter. Lockfiles, minified assets,
+  snapshots, `*.schema.py`, build dirs, and images stay out for both. The fetch activity therefore picks the design
+  before it fetches. A full and a Flash turn at the same head each persist their own `pr_snapshot`, tagged with the
+  design, and the review and dedup stages read only their own design's snapshot. Body build and publish still read
+  the newest snapshot at the head, so when a full turn fetches the same head after Flash, a Flash finding on a test
+  file can land in the body's "Other findings" instead of inline.
+- **Lens parts.** `plan_lens_chunks` counts reviewable lines only: everything except lockfiles, snapshots, generated
+  code, binary and image assets, and `max_migration.txt`. Markdown, JSON, tests, docs, CI config, and `tools/` count,
+  because a general reviewer cannot assume what a repository's other files are: Markdown can be the product (prompt
+  files), and `tools/` can hold real code. Up to 600 lines: one part with every file. Above: parts over the reviewable files,
+  directories kept together, at most 4, growing to about equal size past that. The plan is deterministic, recomputed
+  from the PR snapshot, and never persisted as a chunk set (`split_chunks_activity` reuses any chunk set for a head).
+  Fetch records the part count on `ReviewMeta`, and the fan-out sits behind the `flash-lens-sessions-2026-10` patch.
+- **Failures.** A failed or timed-out lens session costs only its findings; a failed main session fails the turn.
+  A lens session has its own `FLASH_LENS_SESSION_TIMEOUT` (10 minutes) as a schedule-to-close timeout, so the retry
+  falls inside the same window and a slow lens cannot hold the turn for the full sandbox timeout.
+- **Dedup and merge.** Two dedup calls run in parallel, both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna`
+  at medium, `run_oneshot_openai_review`; the pipeline's dedup pins are unchanged). The main findings dedup as before.
+  The lens findings also dedup against the main findings as anchors, and an anchor is never removed, so a main finding
+  never loses to a lens finding. A Flash dedup sends every finding to the LLM, not only the positional colliders the
+  pipeline sends: a lens finding often states a main finding's root cause on other lines or in another file, and a
+  missed duplicate can take a real finding's slot under the cap. The positional pre-filter stays as the fallback when
+  the call fails. `compose_flash_findings`
+  then ranks the findings highest first, a reported P0 before a P1, main first on ties. The cap is `flash_max_findings(parts)`: 4, plus 2 for each
+  lens part past the first, up to 10 (4, 6, 8, 10 for 1-4 parts). A larger PR gets a few more comments because each
+  extra part covers more code.
+  It runs before anything persists, because a persisted finding that never posts counts as already raised and would
+  stay off the PR on every later turn.
+- **Survivor priority.** Dedup keeps the most complete statement of a problem, not the most severe, so a lens P1
+  that repeated a main P3 anchor dropped and the problem posted as a P3, or not at all once the cap cut it. The Flash
+  dedup output (`FlashIssueDeduplication`) now names what each duplicate repeats (`duplicate_of`), and the survivor
+  takes the highest priority of the duplicates removed in its favor, anchors and siblings alike. Prior findings carry
+  their issue key as `id` in the Flash prompt so the dedup can name them. The pipeline's dedup output is unchanged.
+  `reported_priority` stays the reviewer's own P level, so a raised finding reads `must_fix` with its original P3.
+- **Survivor rule.** The dedup can name a finding it also removes. Two lens findings that named each other both
+  dropped, and a problem both lenses raised left the review. A removal now holds only when what it names survives: a
+  kept main or lens finding, an earlier turn's finding, or a PR comment. A finding that names itself or an id its call
+  was never shown stays, and the turn logs it, because a guess at the target could drop the only statement of a
+  problem. In a loop of findings that name each other, the first in the compose order (priority, P level, main before
+  lens, session order) stays, so the choice is deterministic and matches what the cap would prefer. A removal whose target
+  also drops follows the chain, and its `dropped_finding` record and the priority raise name the final survivor. This
+  replaced the `dedup_unmatched` disposition, which recorded an unknown id as a drop.
+- **Dedup fallback.** The Flash dedup depends on one model through the LLM gateway. A non-retryable error there (the
+  gateway rejects the model, a 4xx) used to fail the turn after every review session had already run and paid. A
+  failed call now falls back to the positional pre-filter alone, right away for a non-retryable error and on the
+  activity's last attempt for a transient one: a finding on the lines of an earlier turn's finding or a PR comment
+  drops as its repeat, and findings of the turn itself all stay, because only the LLM can tell two problems on the
+  same lines apart. The turn logs the failure, marks those drops `dedup_fallback`, and reports
+  `flash_dedup_fallback` on the completed event.
+- **Cap rule.** Must-fix (P0/P1) findings always post, outside the cap, so the cap never hides a
+  finding that blocks the merge. A hard ceiling of `FLASH_MUST_FIX_CAP_MULTIPLIER` (2) times the cap still bounds
+  them, because a lens prompt maps its skill's "Must fix" onto P1 and a session that marks everything must-fix would
+  otherwise void the cap. P2 and then P3 findings fill the slots left under the cap. This reverses the earlier rule
+  that dropped every P3: a P3 posts when the turn has room for it.
+- **Publishing.** Every kept finding posts inline. `review_priorities_for` and the status comment's low-priority list
+  are removed. Both designs now publish the same way, so the publish path, its inputs, and the standalone
+  `publish_review` command no longer carry the design.
+- **Dropped findings.** Every finding that dedup or the cap drops persists as a `dropped_finding` artefact with its
+  disposition, what it repeats, its rank and the cap, so a later analysis and a judge pass can measure what each rule
+  costs. A new artefact type, not a disposition column on `issue_finding`, because every reader of `issue_finding`
+  would then need a filter, and one missed filter would post a dropped finding or let it suppress a later turn. The
+  dispositions follow the survivor each removal resolves to (see the survivor rule). Findings that scope cleaning drops
+  before dedup are not recorded. The choices are callable, so the new
+  type needs no migration.
+- **Large PRs.** A diff over about 200K tokens (`FLASH_PROMPT_DIFF_MAX_CHARS`) shrinks to the reviewable files, then
+  to the file list with a git command to read the changes. The command fetches the PR's merge base by its commit id
+  and diffs it against the head, which works in the sandbox's depth-1 clone; a three-dot diff against the base branch
+  fails there with no merge base, and a base branch name in a shell command is repository-controlled text. The
+  prompt renders only a full commit id. A PR past the lens part cap gets one line in the status
+  comment, because a clean turn posts no review and a note in the review body would never show. A Flash turn never
+  falls back to the pipeline for size: the lens parts cap keeps a big PR to a fixed number of sessions, and on big PRs
+  the single-agent design matched the pipeline on high-severity findings with far fewer comments. The
+  `FLASH_LARGE_PR_FALLBACK_TO_PIPELINE` switch, the 2,500-line and 40-file limits, and the `size_fallback` reason are
+  removed. The kill-switch flag still moves Flash turns to the pipeline.
+- **Telemetry.** Lens cost lands under `ai_stage=flash-lens-<lens>-c<part>`, dedup under `dedup`. The fingerprint hashes
+  the lens prompt files, `lens_priority.md`, the Flash dedup pins, and the Flash limits. `reviewhog_review_completed`
+  carries the turn's finding funnel (candidates and must-fix count and share per session, after dedup, dropped per
+  disposition, kept, the cap and lens parts, reviewable lines) and session health (lens failures and timeouts, the
+  slowest session). The must-fix share per session is the early sign of priority inflation, before the must-fix
+  ceiling cuts anything. ReviewHog does not see the token counts or cost of a sandbox session, so the event carries
+  neither; cost stays on `$ai_generation`, per `ai_stage`.
+- **Known gaps.** Storage folds P0 and P1 into `must_fix`. The compose order reads `reported_priority` (on `Issue` and
+  `ReviewIssueFinding`) within a stored priority, so a lens P0 ranks above a main P1 before the must-fix ceiling. A
+  survivor that dedup raised to must-fix keeps its own reported level, so it ranks after the reported P0 and P1 findings. The cap holds per turn, so a later push can post more.
+  The contracts skill has no severity guide, so `lens_priority.md`'s mapping only shapes the performance lens, as
+  measured. The Python LLM gateway's `review_hog` product does not list `gpt-6-luna`, so check that the gateway
+  serving ReviewHog allows it before rollout; until it does, every Flash dedup runs on the positional fallback.
+
+### ✅ BUILT 2026-10-06 — Flash v2: one Codex session per PR replaces the Flash pipeline
+
+- **What.** Every Flash turn runs the single-agent design (`REVIEW_DESIGN_SINGLE_AGENT`, version `reviewhog-flash-2-0`):
+  one Codex sandbox session (`SINGLE_AGENT_FLASH_ARM`, `gpt-6-luna` at `xhigh`) gets the PR title, description, and
+  the whole numbered diff, and returns findings in one JSON answer. No chunking, perspective selection, blind-spot
+  sweep, or validator. Dedup against earlier turns and PR comments and the publish path stay.
+  `single_agent_review_activity` persists the answer as one `perspective_result` under `SINGLE_AGENT_PASS_NUMBER`, so
+  the shared dedup activity combines it; dedup then writes an accept-as-found verdict per survivor, because no
+  validator runs. Full turns are unchanged.
+- **Prompt.** Three files in `prompts/single_agent_review/`, so prompt iterations edit no code: `core.md` (the DevEx-owned
+  rubric, adapted from OpenAI's Apache-2.0 Codex review rubric with attribution, sent as the system prompt),
+  `prompt.jinja` (the PR, earlier findings, the finding format), and the generated `schema.json`.
+  No team slot: Flash v2 runs only the DevEx-owned core rubric, so every team gets the same review and no team's
+  skill edit changes its fingerprint. A prompt edit, a model pin, or a Flash limit still does.
+- **Finding format.** Title (at most 80 characters, imperative), priority P0-P3, file and line range, one body
+  paragraph that names trigger, consequence, and anchor, and an optional `suggestion_code`. Storage maps P0/P1 to
+  `must_fix`, P2 to `should_fix`, P3 to `consider`. The finding's `suggestion` is empty; `suggestion_code` posts as a
+  GitHub suggestion block only when the inline comment covers exactly the finding's range.
+- **Publishing.** P0-P2 post inline as before. P3 findings stay out of the review (`review_priorities_for`) and the
+  status comment lists them in a collapsed block.
+- **Fallback.** A Flash PR over `FLASH_SINGLE_AGENT_MAX_CHANGED_LINES` (2,500 changed lines) or
+  `FLASH_SINGLE_AGENT_MAX_FILES` (40 files), counted over the reviewable files, runs the Flash pipeline (`reviewhog-flash-1-1`).
+  The single-chunk gate (400 added lines) was too small for a one-session review.
+- **Rollback.** The `reviewhog-flash-pipeline-kill-switch` PostHog feature flag, evaluated per organization in the
+  fetch activity (never in workflow code, so a replay reads the recorded choice), moves Flash turns back to the pipeline
+  without a deploy. A flag evaluation error reads as off and keeps the single agent. `FLASH_DESIGN_DEFAULT` stays as the
+  code default. `reviewhog_review_started` carries `review_design_reason`.
+- **Decision point.** The fetch activity picks the design, so the workflow branches on a recorded activity result,
+  behind the `flash-single-agent-2026-10` patch.
+- **Version and telemetry.** `REVIEWHOG_VERSIONS` is keyed by mode and design. The single-agent fingerprint hashes its
+  prompt files, the dedup prompt, the stage pins, and its arm. Events carry `review_design`
+  and report no validator pins for a single-agent turn; cost lands on `$ai_generation` under `ai_stage=single-agent-review`.
+- **Superseded.** The arm, the P3 status-comment list, the fixed size fallback, and the republish design read changed in
+  the 2026-10-08 entry above.
+- **Known gaps.** The reviews API progress for a single-agent turn reads "Splitting into chunks" until dedup lands (the
+  stage derivation knows only pipeline artefacts). The Code review drawer shows an empty "Suggested fix" panel and the
+  accept-as-found note as the validator note. The standalone `publish_review` command reads the turn's design from its
+  findings, and outcome classification counts single-agent P3 findings as not posted.
+
+### ✅ BUILT 2026-09-11 — resolution replies: one verdict sentence, a divider, a few lines (feedback-driven)
+
+- **What.** The resolution prompt (`prompts/thread_resolution/prompt.jinja`, `<reply_shape>`) fixes the reply's shape:
+  one verdict sentence, a blank line, `---`, then at most 3 short lines (5 for `escalate`), written in Simplified
+  Technical English via the `writing-simplified-technical-english` skill the sandbox image already carries (the
+  review and validation prompts adopted it 2026-08-13, PR #80776). Follow-up turns carry a one-line reminder and the
+  `reply` schema description says the same. Test and lint output leave the reply: the driver posts the verdict's
+  `verification` field under it as a collapsed "How this was verified" block (`_verification_section`,
+  `temporal/resolution.py`), after the commit link, and inserts the blank line GitHub needs before a `---` the model
+  wrote directly under its verdict (`_normalize_reply_divider`; without it the verdict renders as a heading). A reply
+  past the shape (more than 5 support lines or 150 visible words) is folded, not cut or rejected: the verdict and the
+  first lines stay visible, the rest goes under a collapsed "More detail" block, and a warning logs the drift
+  (`_fold_overlong_reply`). Rejecting was ruled out in review: a schema limit fails the turn parser with no correction
+  path, so a landed fix commit would get no reply. Review also flagged that publishing `verification` opens a
+  credential channel: the sandbox holds the GitHub token and a PostHog personal API key, the git remote carries the
+  token inline, and nothing inspected the body before it posted (the reply had the same gap on master). The posted
+  body is now scrubbed of credential shapes last (`tools/redaction.py`: PostHog secret prefixes `phx_`/`phs_`/
+  `pha_`/`phr_` and the per-run `phe_` AI gateway token, GitHub `gh?_`/`github_pat_` tokens, `x-access-token` clone URLs; `phc_` project tokens are public
+  and stay), with a warning logged, and the prompt asks for a summary rather than raw command output. The review
+  stage runs the same scrub over the review body and every inline finding comment (`_post_github_review`), since
+  its sandboxes hold the same tokens. Comparing against live token values was ruled out as overengineering: the
+  sandbox's copies can differ from what the delivery step could fetch, and the shapes already cover every
+  credential type the sandbox holds. The resolution-criteria
+  skill's step 4 no longer asks for "how it was verified" in the reply (new canonical version).
+- **Why.** Dogfood feedback on PR #97753: four replies of 5 to 7 paragraphs each, walls of text nobody reads. The
+  prompt asked for a self-contained answer plus how it was verified, and the model over-delivered; the
+  `verification` field was stored and shown nowhere. The shape lives in the prompt, not the editable criteria
+  skill, because it is format rather than judgment and a team edit cannot lose it.
+- **Not changed.** Finding comments (STE since 2026-08-13; their validator bullets sit collapsed) and the finding
+  comment's layout, which repeats its text inside the copy-paste AI prompt block. Trimming that is a rendering
+  follow-up in `publish_review.py`, not a prompt one.
+- **Check.** No live e2e. A throwaway one-shot harness rendered the real opener for five invented threads (one per
+  outcome) plus invented investigation notes and the two skills inline, and asked `claude-opus-5` @ xhigh for the
+  verdict, three runs per outcome. 15/15 replies matched the shape: verdict sentence, blank line before `---`,
+  ≤3 support lines (≤5 for escalate), no test output in the reply, 33 to 116 words (the flagged replies ran 300 to
+  400). Watch the next dogfood resolution run for drift after a long in-sandbox investigation, which the one-shot
+  cannot reproduce.
+
+### ✅ BUILT 2026-09-17: Flash mode uses Luna medium for review and validation
+
+- **What.** The Code review page's **Review in Flash mode** action sends `run_mode=flash` for one review turn.
+  `FLASH_ARM` uses `gpt-5.6-luna` at `medium` reasoning effort with the Codex runtime and `full-access` permission mode.
+  The perspective reviews, blind-spot sweep, and validator share that arm.
+  Chunking, selection, and deduplication keep their Sonnet one-shots.
+  Flash prompts instruct the agent to fetch pinned review and validation skills over MCP with `skill-get`, as full reviews do.
+- **Why.** The [Flash experiment](https://github.com/PostHog/posthog/blob/1f09ba3e98adb9d23c8c63cff6d9978ed6a9ba17/products/review_hog/eval/experiments/2026-09-flash-mode/FINAL_REPORT.md) compared five configurations, with two runs each on one frozen PR.
+  Those benchmark runs used inlined skill bodies.
+  Luna medium posted three distinct serious issues per run for $0.59, compared with 1.5 for $0.30 at low.
+  Its false-comment share was 53%, so it remains a budget choice with permissive validation.
+  Xhigh improved coverage but cost $3.32 per run.
+- **Turn isolation.** Flash leaves the report's stored tier and arm unchanged so later full reviews use their normal configuration.
+  The mode travels in the workflow payload to each stage, and telemetry reads the same arm-selection helpers as execution.
+  Cached perspective results carry the reviewer model, preventing a full Sol review from reusing Luna findings.
+  The existing join-on-running and already-reviewed rules still allow only one review per commit.
+- **Publishing.** Flash prefixes status, promotion, review-body, and inline comments with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` followed by a newline.
+  It never chains comment resolution.
+  The UI and generated MCP trigger accept the mode; the CLI exposes it through `run_review --review-mode flash`.
+- **Gateway access.** Luna already belongs to the `review_hog` model allowance.
+  Flash requires no additional gateway permissions.
+
+### ✅ BUILT 2026-09-03 — comment layout back to description-first (reverses the 2026-07-17 validation-first order)
+
+User call: the issue description reads first, the validator's verdict second.
+Reading order is now claim (title) → what the issue is (description) → why it's real (validation) → fix / AI prompt.
+Applied in both renderers (`_format_issue_comment` in `publish_review.py`, `_render_off_diff_section` in `prepare_validation_markdown.py`); the order tests in both suites flipped with it.
+Template-level and reversible, same as the original move.
+
+- **Follow-up from review (2026-09-11).** The validator prompt, the `argumentation` field description, and the
+  regenerated `issue_validation/schema.json` now describe the description as sitting _above_ the verdict, and keep
+  the "bullets stand on their own" rule on its order-independent reason (a reader can expand them alone, and later
+  pipeline steps read them without the description).
+
+### ✅ BUILT 2026-08-27 — reviewer tier by PR origin and Signals priority (agent PRs review cheaper; branch-only inbox reviews retired; resolver on Opus 5)
+
+- **What.** The reviewer's effort is no longer one fleet-wide pin. Each `ReviewReport` is placed in a **review
+  tier** when it is created (`select_review_tier`, `REVIEW_ARMS_BY_TIER` in `reviewer/constants.py`): a person's
+  PR → `human` (Sol @ xhigh); an **agent PR** (a report created with a Signals link, which only the inbox trigger
+  passes) → by the report's latest priority judgment, P0/P1 → xhigh, P2 → medium, P3/P4 → low, no readable
+  judgment → `agent_unprioritized` at xhigh with a warning. The priority is the one the report carried when the
+  implementation task was created: the inbox receiver reads it with a `created_at < task.created_at` cut-off
+  (`persisted_report_priority`) and passes it into the workflow inputs, so the implementation agent — which holds
+  the `task:write` artefact tool that appends judgments — cannot lower the effort of its own review (ReviewHog
+  finding on the PR). The tier and the priority used are persisted
+  beside the arm (`review_tier`, `review_signal_priority`; migration 0031) and labeled on the review events
+  (`review_tier`, `signal_priority`, `signal_report_id`, plus `turn_trigger_source`, the trigger of THIS turn —
+  the row only remembers the trigger that created it). The validator stays Opus 5 @ xhigh for every tier.
+- **Why.** The 2026-08 validator/reviewer experiment (`eval/experiments/2026-08-validator-model-sol/`) showed the
+  reviewer's effort is the one knob that trades findings for cost predictably: medium keeps about half of xhigh's
+  real findings, low about a third, and only xhigh surfaces issues nobody reported before. Most reviews are agent
+  PRs and most of those sit at P2 or below, where a cheaper review is an acceptable trade; a person's PR, and the
+  agent PRs a person asks about, keep the full review. Start simple, then iterate on the tier telemetry.
+- **Rules that were grilled (2026-08-27; the record with the options that lost is in the maintainer's playground
+  notes, the outcomes here):** the agent-PR predicate is the Signals link at creation, so label/UI-triggered
+  agent PRs route as human in v1 (the branch-name lookup through the tasks facade is the first iteration). The
+  tier is decided **once** at creation (a per-turn re-decision would feed a cheap turn's findings into a stronger
+  turn's "already covered" injection), with one exception: a person's trigger (`HUMAN_TRIGGER_SOURCES`: label,
+  UI, CLI) that starts a review of a cheaper tier **lifts** it to `human` for that and every later turn, never
+  the reverse — the accepted cost is that the lifted turn treats the cheap findings as already covered. The lift
+  is the review fetch's opt-in (`lift_tier_on_human_trigger`), because the resolution stage upserts the same row
+  under the person's trigger and a resolve-only request reviews nothing (found in review). A person's trigger
+  that lands while the review is still running joins it (`USE_EXISTING`) and never reaches that fetch, so the
+  trigger endpoints write the lift themselves and answer `joined_running_review` (ReviewHog finding on the PR:
+  stamphog's refusal hand-off adds the label minutes in, inside that window). A missing priority fails
+  expensive under its own label. The table lives in code, not in per-user or per-team settings (the "single
+  existing threshold knob, no separate inbox threshold" precedent from Stage 6 applies to model choice too), and
+  the cheaper arms roll out per team through the existing `REVIEWHOG_TEAM_IDS` dogfood gate (other teams record
+  their tier but run the default arm). No A/B: the weighted arm draw (`REVIEW_EXPERIMENT_ARMS`) is gone, model
+  selection is deterministic.
+- **Also in this change.** The inbox trigger no longer reviews a pushed branch before its PR opens: a review of a
+  branch whose PR never opens is spend with no reader, and the PR save re-fires the receiver, so waiting costs
+  only the head start (the workflow/client keep their branch-target support; the receiver just never uses it).
+  The resolution stage moves from Opus 4.8 to **Opus 5** @ xhigh (validated outside this repo; a plain pin
+  change, not tiered).
+- **Watch.** Dashboard 1922705 splits reviews, cost per review, and valid findings by `review_tier`, and an
+  executed-effort tile reads the gateway's `$ai_effort` on the review generations — the pinned effort and the
+  executed effort are two different facts (the 2026-08 Tasks effort bug ran every Sol review at `low` for weeks
+  while the pin said xhigh), so a silent regression shows on day one.
+- **Backlog, in order.** (1) Route label/UI-triggered agent PRs by priority too (branch-name lookup through the
+  tasks facade). (2) Skip the blind-spot sweep on P3/P4. (3) A daily budget guard that drops new agent PRs one
+  tier. (4) Only with an experiment: validator at `high` on P3/P4. Parked: a PR-size axis, dollar-value bumps.
+  Excluded: resolver tiering.
+
+### ✅ DECIDED 2026-08-21 — label trigger moves onto the GitHub App webhook (additive handler, no second inlet)
+
+- **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's
+  unified GitHub App fan-out (`posthog/urls.py:GITHUB_WEBHOOK_HANDLERS`), alongside the tasks backstop
+  and Loops. The handler reuses the trigger endpoint's gates (allowlist → team → run user → busy-guard)
+  through a shared plain function, plus two webhook-only gates: the payload's `installation.id` must map
+  to the configured team's GitHub integration, and the sender must be a human or the Stamphog App bot (the
+  Action's allowed-labeler policy; other bots are ignored and logged, the Action's comment-and-strip is
+  not ported). Same `start_review_pr_workflow(trigger_source="label")`.
+- **Why now.** Stage 5 rejected "Path B" (webhook) because it diverged from Stamphog's CI model; Stamphog
+  is hosted and webhook-driven since #70407, so that reason is gone. The Action costs a CI run per
+  label, carries a secret in Actions, and only works in repos that ship the workflow file. ReviewHog
+  already publishes through the PostHog GitHub App installation token, so that App's inlet is the
+  right one — **not** a standalone endpoint like Stamphog's (a different App, hence a different secret).
+- **Constraints.** Core's dispatcher owns verification, parsing, and per-handler delivery dedup — the
+  handler does none of that. It has no retry either, and GitHub does not redeliver on its own, so the
+  handler hands off to a retried Celery task that starts the workflow (Stamphog's shape) rather than
+  starting it in-request; until that hand-off is in, the Action's curl retries are the only durability.
+  `USE_EXISTING` on the deterministic workflow id makes Action + webhook firing together harmless, so
+  the Action stays during rollout and is removed in a follow-up.
+- **Scope fence.** `synchronize` / comment signals, when they come, **extend this handler module**:
+  `synchronize` in the same `pull_request` bucket, comments registered under their own event types
+  (`issue_comment`, `pull_request_review_comment` — the dispatcher routes strictly by `X-GitHub-Event`),
+  all sharing the gates. They do not open a second inlet, and `signal-with-start` / per-PR Schedules
+  wait for the loop workflow itself (nest-then-promote, see "Triggers — GitHub events → turns").
+
+### ✅ BUILT 2026-08-19 — "Use an existing skill": adopt a team skill as a review skill by copy (grilled 2026-08-19; ADR `adr/0002`)
+
+Users with an existing team skill had no path into ReviewHog short of running the "Create your own" authoring
+agent — the ask was a picker beside those buttons that reuses what the team already has. Design settled by a
+grilled Q&A (copy-vs-reference was the root call, recorded with its consequences in
+[ADR 0002](./adr/0002-adopt-existing-skills-by-copy.md)): **adopt = duplicate the source under the kind's
+prefix + activate, verbatim** (no agent adaptation; the picker's body preview does the judgment work, and the
+fixed output schema means a foreign body can never break the pipeline format). Mechanics, all existing
+endpoints — the skills product's `duplicate` (strips `seeded_by`, adopter becomes author, so author-only
+visibility and the sync's seeded-rows-only reconcile hold untouched) then the kind's config PATCH
+(perspectives `enabled`, single-active kinds `active`, swapping the current selection; the confirm step names
+the swap). Two client calls over a new atomic endpoint on purpose: the one partial-failure mode (copied but
+not switched on) is harmless — the card exists, a toast says to flip it.
+
+- **Picker scope:** one searchable list, two groups — teammates' same-kind `review-hog-*` customs first
+  (adoptable precisely because the config surface hides them: the fork makes them yours), then every other
+  team skill (cross-kind review skills included — a validation bar adopted as resolution criteria is
+  legitimate). Community store deliberately out of scope (phase 2, own trust surface).
+- **Naming:** confirm step with the prefix fixed and an editable slug, prefilled from the source name (any
+  review-hog kind prefix stripped so cross-kind adoption doesn't double-prefix), client-side mirror of the
+  name rules for inline errors; the server stays authoritative on conflicts.
+- **Component layering:** the generic piece (`SkillPicker` — controlled groups, client-side search, lazy body
+  preview) lives in `frontend/src/lib/components/SkillPicker/` per the no-cross-product-component-imports
+  rule (the grill's products/skills pick adjusted to the sanctioned shared layer); ReviewHog's
+  `AdoptSkillModal` owns the groups, the confirm step, and the adopt orchestration in
+  `reviewHogSettingsLogic`.
+- **Skills-product fix along the way:** `duplicate_skill` now derives `category` from the new name exactly
+  like the create paths (was deliberately empty), so adopted skills group under the Skills page's Code review
+  tab like agent-authored ones — also fixes the manual duplicate-into-prefix path.
+- Tests: jest — adopt orchestration per kind (duplicate name + activation body), copy-failure keeps the modal
+  open with no activation fired, activation-failure still reloads the kind's cards, picker grouping, slug
+  prefill/validation (pure); BE — duplicate category derivation parameterized (new-name prefix wins, source
+  category never copied).
+
+### ✅ BUILT 2026-08-12 — review body cut to a severity tally (the chunk summary is gone)
+
+The published body opened with a walk of the chunk tree: a `## <chunk type>` heading per chunk, an `Issues: N`
+line, a collapsed file list, and a collapsed "What were the main changes" block built from the chunker's
+`key_changes`. It was the longest part of a review and the least read — a machine-written summary of a diff the
+author had just written, in front of the findings they actually came for. Sentiment across the company on
+LLM-written PR prose is blunt: people skip it. Decisions:
+
+- **The body is one line: `Found **2 must fix**, **1 consider**.`** Only severities with a non-zero count
+  appear, most urgent first (`PRIORITIES_BY_URGENCY`), and the tally counts exactly what publishes — valid
+  findings at or above the acting user's threshold, bucketed by **effective** (validator-wins) priority. An
+  empty tally renders "No issues to report." (defensive: publish self-skips with nothing publishable, but the
+  body is also stored and shown in the UI for store-only runs).
+- **Labels are shared, not duplicated.** `PRIORITY_LABELS` + `PRIORITIES_BY_URGENCY` moved to `constants.py`,
+  so the body and the status comment's found-counts line can't drift into two vocabularies.
+- **What deliberately stayed:** the `# ReviewHog Report` title (the report's identity in the UI and in the
+  publish test's marker assertions) and the "Other findings (outside the changed lines)" section — that one
+  isn't a summary, it's the only place off-diff findings surface at all.
+- **The chunk tree left the renderer entirely.** `_assemble_report` and
+  `models/prepare_validation_markdown.py` (`ValidationMarkdownReport*`) are deleted, and `build_review_body`
+  no longer takes `chunks_data` — so `_build_and_finalize` drops its `load_chunk_set` call. The chunker's
+  `chunk_type` / `key_changes` are untouched: perspective selection still reads them, and the pipeline-trace UI
+  still shows the chunks. Only the PR-facing prose was the problem.
+- Rejected: keeping the summary behind a `<details>` (still the first thing in the review, still written for
+  nobody), and shortening it with another LLM call (paying per review to generate text we just established
+  people skip).
+
+### ✅ DECIDED 2026-08-12 — reviewer model: Codex GPT-5.6 Sol @ xhigh (production A/B vs Sonnet 5)
+
+The review-stage default moved from Claude Sonnet 5 @ xhigh to **OpenAI Codex `gpt-5.6-sol` @ `xhigh`**
+(`full-access`), settling the first production reviewer-model experiment. Mechanics: since early August every
+new report drew a sticky per-report arm from `REVIEW_EXPERIMENT_ARMS` (50/50 Sonnet 5 vs GPT-5.6 Sol, both
+@ xhigh), labeled on the `reviewhog_review_completed` / `_failed` events (`review_model`, `review_arm_fallback`)
+and tracked on the "ReviewHog — usage & health" dashboard (us.posthog.com/project/2/dashboard/1922705,
+auth-gated). About a week of dogfood traffic split roughly evenly; PR-size and trigger mixes balanced across
+arms; zero fallback turns; `$ai_model` on the review generations confirmed both arms ran their assigned model.
+
+What the split showed (experiment window only, per arm):
+
+- **Cost:** Sol reviews cost roughly a third of Sonnet's all-in per PR, and the gap is wider on the
+  arm-controlled review stage alone. Sonnet's ~2x candidate volume also roughly doubles the shared Opus
+  validation spend, so its junk flows straight into the pipeline's biggest cost line.
+- **Latency:** Sol turns finish in roughly a third of the wall-clock, at p50 and p90 alike.
+- **Precision (the item-9 lever above):** Sol emitted well under half the candidates per turn at a validator
+  keep rate near double Sonnet's (~41% vs ~24%) — the "stop spamming the validator" direction, achieved by the
+  finder model rather than by skill tuning.
+- **Quality:** Sonnet kept more valid findings per turn overall, but the surplus was should-fix/consider;
+  valid must-fix per turn leaned Sol (not significant). Author engagement with published findings (the
+  finding-outcome telemetry: addressed/reacted vs ignored) was level, directionally favoring Sol. Steady-state
+  completion was indistinguishable — the dashboard's lower Sol completion rate is rollout-day failures from
+  before its first successful turn.
+
+Decision notes:
+
+- The experiment ended the sanctioned way: `REVIEW_EXPERIMENT_ARMS` collapsed to the single default arm,
+  nothing deregistered in `products/tasks` — so reports that drew Sonnet keep finishing on Sonnet (persisted
+  assignments stay honored while registry-valid, for the report's life).
+- The outcome judge (`OUTCOME_JUDGE_MODEL`, claude-opus-5) stays cross-family from the reviewer, now from the
+  other side: Claude judges an OpenAI reviewer's findings. Validator, chunking, dedup, and one-shot pins stay
+  Claude.
+- What a week could NOT settle: whether Sol is strictly better at must-fix coverage — too few must-fix findings
+  for significance. Watch the dashboard's importance-mix and precision tiles; re-open with a weighted arm if
+  the must-fix trend inverts.
+
 ### ✅ BUILT 2026-07-27 — reviews surface exposed as MCP tools (grantable `review_hog` scope)
 
 Agents needed to drive ReviewHog over MCP — kick off a review, poll progress, pull the finished findings
@@ -230,7 +948,7 @@ matched `acting_user` only), no way to link to the report (drawer state was kea-
 blamed "the author's … ReviewHog settings" for a threshold that wasn't theirs, and the drawer's "Published (N)"
 tab claimed publication for findings computed against the _viewer's current_ threshold. Decisions:
 
-- **Report deep links**: `/code_review?review=<report UUID>`, mirrored both ways by the existing URL sync in
+- **Report deep links**: `/code-review?review=<report UUID>`, mirrored both ways by the existing URL sync in
   `reviewHogSettingsLogic` (`replace`, never `push`, so drawer open/close doesn't stack history). The status
   comment's held-back sentence links here ("View them in PostHog", auth-gated — same posture as Slack links),
   which makes the param a **permanent public contract**. A deep link has no list row, so the drawer renders
@@ -460,11 +1178,12 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
 
 - **Placement (as of 2026-07-13 — standalone scene):** originally shipped as a `'code-review'`
   `InboxTabKey` after `'archived'` (staff-gated via `INBOX_STAFF_ONLY_TAB_KEYS`, "Alpha" tag from
-  `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code_review`, registered
+  `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code-review`, registered
   by `products/review_hog/manifest.tsx` with an "Unreleased" nav entry (`ProductItemCategory.UNRELEASED`,
-  `tags: ['alpha']`). Gating is two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
+  `tags: ['alpha']`). Gating was two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
   **only the menu entry's visibility** (who discovers it); the scene itself stays **staff-only**
-  (non-staff get `NotFound`) regardless of the flag. The old inbox tab and `/inbox/code-review` URL are
+  (non-staff get `NotFound`) regardless of the flag. (Superseded 2026-08-12 — the scene now honors the
+  flag too; see the follow-up below.) The old inbox tab and `/inbox/code-review` URL are
   gone with no redirect. Body unchanged: hero → pipeline diagram → trigger toggles → urgency slider →
   perspectives → blind-spot check → validation criteria → read-only skill drawer; it no longer sits
   behind the Inbox onboarding takeover.
@@ -508,8 +1227,23 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   drawer shows the canonical SKILL.md body, threshold click PATCHes and persists (`must_fix` verified in
   DB, then reset), blind-spot deactivation blocked with the toast. New workflow tests cover the opt-out
   skip, the CLI-override bypass, and threshold threading into body+publish.
-- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); non-staff
-  rollout. (The "Review all your Inbox PRs" behavior is **BUILT** — see Stage 6.)
+- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`). Non-staff
+  rollout is **BUILT** — see the 2026-08-12 follow-up below. (The "Review all your Inbox PRs" behavior
+  is **BUILT** — see Stage 6.)
+
+#### ✅ BUILT 2026-08-12 — scene access follows the menu flag (staff-only gate relaxed)
+
+The two-layer gating above carried an unstated invariant: the `review-hog` flag's audience had to stay
+within Django-staff users, or people would discover a menu entry they couldn't open. The invariant is
+also unenforceable — `is_staff` is a Django DB column, not a person/group property a flag can target —
+and the flag's real rollout (org-wide internally) broke it: non-staff colleagues saw "Code review"
+under Unreleased and got `NotFound` on click. `CodeReviewScene` now allows
+`FEATURE_FLAGS.REVIEW_HOG` **or** `is_staff`, so the menu entry and the page can no longer disagree,
+and staff keep direct-URL access where the flag is off. Rollout control is now entirely the flag's.
+Nothing changed on the backend: the endpoints were already deliberately self-/team-scoped rather than
+staff-gated, and the UI trigger stays behind the `REVIEWHOG_TEAM_ID` dogfood gate. Before widening the
+flag beyond the internal org, close the QAREPORT note about config endpoints returning skill bodies
+without the `llm_analytics` resource check.
 
 #### ✅ BUILT 2026-07-16 — default urgency threshold flipped to "All issues" (`consider`)
 
@@ -1979,6 +2713,8 @@ is unrouted — `webhooks.py:78-143`): **label add → start the loop**; **`sync
 `start_workflow`; in A each is a `signal-with-start`. Two non-negotiables from the existing handler: **dedupe on
 `X-GitHub-Delivery`** + **hand off fast (200/202) to Temporal**, and the **fork guard** (`head.repo == base repo`,
 `webhooks.py:127-133`) before reviewing — and certainly before _implementing_ — on an attacker-influenced head ref.
+_(2026-08-21: the label-add signal lands as a handler in the unified dispatcher; the other two signals extend that
+handler when the loop exists, per the scope fence in the "✅ DECIDED 2026-08-21" entry.)_
 Publish/fetch move off the static `GITHUB_TOKEN` onto the team's installation token (`first_for_team_repository` +
 `get_access_token`, `posthog/models/integration.py:2504-2519`, `github_integration_base.py:1433`) — or the
 maintainer's service-user + project key — when multi-tenant identity is needed; a PR-_review_ POST helper
@@ -2067,6 +2803,11 @@ the **right substrate** — keep it; the loop only fixes what's positional. **Si
 > dedup's same-problem match above, not a new key. **This lands before publish is re-enabled for the loop.**
 
 #### Action plane — "implement the fixes" (step 4)
+
+> **⚠️ Superseded for comment-shaped fixes (2026-07-17).** The C→A ordering below is kept as history.
+> The action plane is now the **resolution stage** (Stage 7): direct signed commits to the PR head branch,
+> driven by the PR's unresolved review threads — not suggestion blocks, not a companion PR.
+> Stage 7 records the settled design and the scoped consent model that replaces "never push the author's branch".
 
 Today ReviewHog only reviews + comments; editing code is net-new. Three tiers (verified against the real Tasks
 write path):
@@ -2200,7 +2941,8 @@ Modal sandbox + Postgres + DB-synced LLMA skills) — it **cannot** run on a Git
 does. So the label trigger is a **thin GitHub Action** that calls a **PostHog endpoint**, which starts the Temporal
 workflow; the workflow fetches + publishes **server-side** via the GitHub App installation token. Rejected:
 **Path B** (label → the existing `webhooks/github/pr` dispatcher → Temporal, no CI — diverges from the team's
-Stamphog model) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
+Stamphog model; _superseded 2026-08-21, Stamphog is hosted now — see "✅ DECIDED 2026-08-21 — label trigger moves
+onto the GitHub App webhook"_) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
 pipeline just built + hardened).
 
 ```text
@@ -2646,7 +3388,10 @@ trigger_source=TRIGGER_UI)` → `202 {workflow_id, status}`. The URL is canonica
 > fetch, empty-diff skip, branch-keyed rows + PR upgrade) for callers that know a real head branch;
 > the receiver rejoins once tasks records the pushed head branch. **→ It rejoined 2026-07-03:
 > `output.head_branch` (agent-server-synced pushed head) is that trustworthy carrier — see the
-> 🔁 trigger-redesign note above. The `TaskRun.branch` FIELD stays banned.**
+> 🔁 trigger-redesign note above. The `TaskRun.branch` FIELD stays banned.** **→ Retired again
+> 2026-08-27: the receiver fires on `output.pr_url` only (a review of a branch whose PR never opens
+> is spend with no reader); the client/workflow branch-target support stays. See the reviewer-tier
+> decision near the top.**
 >
 > **2026-07-03 adversarial review (7 finder dimensions × 3-skeptic refutation panels, findings in
 > `/tmp/reviewhog-signals-combination-adversarial-review.md`) — 4 fixes applied:** (1) the confirmed
@@ -2824,10 +3569,12 @@ fleet-level control during alpha).
 3. ✅ **The trigger** — the `TaskRun` receiver behind the settings gate. REDESIGNED 2026-07-03
    (see the 🔁 note above): fires on the `output`-recording save — `output.pr_url` (PR leg) else
    `output.head_branch` (branch leg) — never on completion (successful runs stay `in_progress`
-   forever) and never on the `TaskRun.branch` field.
+   forever) and never on the `TaskRun.branch` field. **→ Since 2026-08-27 the receiver fires on
+   `output.pr_url` only; the branch leg is retired (reviewer-tier decision near the top).**
 4. ✅ **Branch targets** — PR-by-branch resolve in fetch, the compare fallback (empty diff →
-   self-skip), nullable `pr_number` identity + the branch workflow id. Receiver-reachable again
-   via `output.head_branch` since the 2026-07-03 trigger redesign.
+   self-skip), nullable `pr_number` identity + the branch workflow id. Receiver-reachable via
+   `output.head_branch` from the 2026-07-03 trigger redesign until 2026-08-27; client/workflow
+   support only since then.
 5. ✅ **Dogfood e2e — RAN 2026-07-03** — synthetic report + real Inbox "Create PR" click + real
    PR #68141: receiver fired on the `pr_url` save, inbox workflow with creation-time provenance,
    single-chunk pipeline, zero findings on the clean typo PR → publish self-skipped → receipt
@@ -2835,6 +3582,284 @@ fleet-level control during alpha).
    unobserved live: receipt `outcome="published"` (needs a findings-bearing inbox PR; publish
    machinery proven by the manual leg on #68108) and the **repeat turn on the same report — the
    first real exercise of re-review**. Log those here when they happen.
+
+---
+
+### 🛠️ Stage 7 — the resolution stage (design settled + BUILT 2026-07-17; live e2e GO 2026-07-18; drift re-e2e passed 2026-08-06)
+
+> **Status: built and live-qualified.** The live e2e ran 2026-07-18 on the stage's own PR #72074 — verdicts,
+> findings, and the GO call in `eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`; a drift-check re-e2e
+> passed 2026-08-06 on PR #78848, and the escalations it produced are recorded under item 8 below.
+> Grilled to closure with the maintainer on 2026-07-17;
+> the settled vocabulary lives in [CONTEXT.md](./CONTEXT.md) (the "Resolution stage" block) and is not repeated here.
+> This section records what was decided, the two decisions it deliberately supersedes, and the build map.
+> The stage was prototyped as an interactive triage skill (verify each unresolved thread against current code,
+> fix on confirmation, reply, resolve); this is its autonomous adaptation.
+>
+> **As built (same day):** everything below landed as designed. Topology map: `backend/temporal/resolution.py`
+> (`ResolvePRWorkflow`, id `resolve-pr:{team}:{owner}/{repo}:{pr}` — reuses the review's setup activities, then ONE
+> long `resolve_threads_activity` owning fetch → gates → pre-filter → warm session → verdict-driven side effects;
+> 4h ceiling, 5m heartbeat, 2 attempts with per-thread skip-resume à la validation). Thread I/O:
+> `reviewer/tools/github_threads.py` (GraphQL `reviewThreads` fetch + reply/resolve mutations over the gated egress
+> transport; `order_threads` priority tiers; `classify_thread` pre-filter incl. partial-delivery redelivery;
+> `should_resolve` etiquette gate). Turn contract: `reviewer/models/thread_resolution.py` (`ThreadResolution`,
+> `fixed` requires the real commit SHA) + `prompts/thread_resolution/` (hard floors in the template; criteria
+> pulled via `skill-get` of `review-hog-resolution-criteria`, single-active per user, validator pattern
+> end-to-end: prefix loader, lazy-seed sync, canonical skill on disk under `skills/`). Persistence:
+> `thread_verdict` artefact (latest-wins per thread; `latest_comment_id` watermark; `reply_posted`/`resolved`
+> delivery flags — written before AND after side effects so a crash redoes only writes, never LLM turns), plus the
+> first writers for `task_run` / `commit` / `note`. Entry points: `POST /api/review_hog/resolve` (standalone) and
+> the chained `ReviewPRWorkflow` fire-and-forget ABANDON child dispatch (gating below), `run_resolution` command.
+> Model pin: `RESOLUTION_*` constants (validator's Claude tier); cap: `MAX_THREADS_PER_RUN = 20`, overflow named
+> in the run-summary `note`. **Live e2e (2026-07-18): GO** — the qualification run in
+> `eval/experiments/2026-07-resolution-e2e/PLAN.md` ran against the stage's own PR #72074; the installation token
+> CAN `resolveReviewThread`, where the interactive prototype's PAT could not (verdicts and findings in
+> `eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`). **Still not done:** the label Action client, and
+> self-driving calling the endpoint after implementation PRs gather comments.
+>
+> **Superseded same day — reviewing includes resolving (maintainer decision, 2026-07-17).** The first cut gated
+> chaining on a per-run caller flag (`resolve=true` on the label trigger, default-False `resolve_comments` input);
+> that opt-in posture is gone. Whether a published review chains into the resolution stage is the **acting user's
+> `ReviewUserSettings.resolve_comments` setting (default on)** — surfaced beside the trigger opt-outs — snapshotted
+> into `ResolveActingUserResult` at acting-user resolution (new field defaulting **False**, the replay skip value:
+> pre-field histories never reach the dispatch command; the model default is True, and the default-user fallback
+> forces it on — a borrowed user's opt-out never governs someone else's PR).
+> `ReviewPRWorkflowInputs.resolve_comments` became a tri-state per-run override: `None` (every trigger's default) =
+> follow the setting on publishing runs — an unpublished eval/CLI review never writes to the PR; `False`/`True` =
+> pin, used only by the Code review scene. UI (same day): the "Resolve comments on your PRs" toggle, a
+> single-active resolution-criteria config block (`api/resolution.py`, route `review_hog/resolution`, validator
+> pattern end-to-end; the authoring companion gained the resolution path), a "Resolve" phase on the pipeline
+> diagram, and the Review button grew split-button side actions — "Review without resolving comments"
+> (`run_mode=review_only`) and "Only resolve existing comments" (`run_mode=resolve_only`, which keeps the trigger's
+> synchronous PR gates but skips the already-reviewed early-return and starts `ResolvePRWorkflow` directly;
+> feedback is a toast, since resolution runs don't produce the report-row activity the review watch polls).
+
+**The goal.** After a review — anyone's, not just ReviewHog's — the PR should end up _as close to ready-to-merge as
+possible_, not merely "reviewed". The resolution stage loads the PR's unresolved review threads and settles each one:
+implement what is worth doing and safe to do unattended, answer what isn't, and escalate what needs a human.
+
+**The shape (all settled; rationale in CONTEXT.md).**
+
+1. **Scope** — any non-fork PR the acting team's GitHub App installation can access, person- or bot-authored.
+   Installation-relative on purpose: the stage must work on any customer's project, so prompts, criteria, and scope
+   rules never assume our own repos or internal docs; the session discovers the target repo's own convention docs
+   (CLAUDE.md / AGENTS.md / CONTRIBUTING) when present. Forks are hard-refused — this stage writes.
+2. **A ReviewHog stage, standalone-capable.** Chained after a review turn — reviewing includes resolving by
+   default, gated by the acting user's `resolve_comments` setting (see the supersession note above; the original
+   design said "per-run gated, off by default") — _and_ independently triggerable — many PRs never get a review
+   turn. The work-list is always the comments posted on the PR, never in-memory findings, so chained and
+   standalone runs are identical in shape.
+3. **Work-list** — unresolved review threads only; the thread (not the comment) is the unit; outdated unresolved
+   threads included ("already addressed → reply" is a cheap win). Conversation comments and review bodies load as
+   context, never as work items — the stage acts only on surfaces it can both answer and resolve.
+4. **Topology** — one warm writable sandbox session per PR (the shared working tree is load-bearing: later turns see
+   earlier fixes; one pusher, no races), one thread per turn in priority order (humans → ReviewHog → other bots),
+   assess-and-fix in the same turn (they share the same repo investigation). GitHub side effects are verdict-driven:
+   the driver posts replies / resolves server-side from each turn's structured verdict; the schema is fixed in code.
+5. **Triage** — three layers: hard floors in code (never touch CI workflows / CODEOWNERS / auth-secrets-crypto
+   surfaces / dependencies on comment say-so; nothing beyond the PR's intent; prompt-injection → decline + callout),
+   a "worth" bar (real, not already addressed, concrete; source rank is _ordering and trust weighting_ — an unknown
+   bot's ask is never implemented on its say-so alone), and a "safe" bar (contained + provable in-session by
+   lint/tests vs needs-e2e → escalate; proportionality: a fix needing new infrastructure is a decision, not a
+   mechanical fix). Worth/safe ship as a team-owned DB-synced skill (`review-hog-resolution-criteria`, seeded from
+   the interactive triage skill); the floors stay in code — the skill may tighten, never loosen. Standing human
+   verdicts left as thread replies (SAFE TO FIX / E2E REQUIRED) are honored: the human override channel.
+6. **Outcomes & etiquette** — every thread ends FIXED / WON'T FIX / ALREADY FIXED / OBSOLETE / ESCALATE. Triage and
+   fixing are author-blind; only _resolve_ is author-gated: human threads get the bot's reply (fix + commit link, or
+   the reasoning) but are **never resolved** — the human keeps the final word; bot threads are resolved on terminal
+   outcomes; ESCALATE never resolves.
+7. **Entry points** — a trigger-style endpoint is the durable interface (mirroring the review trigger: shared-secret
+   bearer, server-side identity), with a thin label Action and API callers (e.g. self-driving) as clients; a
+   `run_resolution` management command mirrors `run_review` for dev. Deterministic skip gates before any sandbox
+   (closed/merged, fork, empty work-list); one run per PR via a deterministic workflow id.
+8. **Writing mechanics** — one signed commit per FIXED thread (signed commits are remote by construction, so commit
+   cadence is push cadence), that thread's reply/resolve posted once its commit is visible. Mid-run race (author
+   pushed): sync onto the new head once, re-verify, retry; if it moves again, yield — done threads keep their
+   outcomes. **CI is out of scope**: the Tasks CI follow-up owns checks; this stage owns threads.
+   _Built 2026-08-06 (off the e2e's commit-provenance escalation):_ the "commit is visible" precondition is now
+   enforced — delivery verifies the turn's echoed `commit_sha` server-side (`commit_on_branch`: exists + reachable
+   from the head branch's current tip, persisted as `thread_verdict.commit_verified`). An unproven SHA delivers the
+   reply **without** the public commit link and never auto-resolves (`should_resolve` gates on it; the delivered
+   verdict settles as SKIP, the thread stays open for a human). Full session-provenance — capturing the true SHA
+   from the signed-commit tooling instead of the model's echo — remains the recorded follow-up (needs Tasks to
+   surface it). _Same date (off the token-TTL escalation):_ deliveries resolve a **fresh** installation token per
+   thread inside `_deliver_side_effects` instead of carrying the run-start
+   token — a 20-thread session can outlive the ~1h token TTL, which silently failed the tail's replies/resolves.
+   Outright delivery failures are now counted (`ResolutionRunResult.undelivered`) and named in the run note.
+   _Refined 2026-08-10 (off the second review round):_ the per-delivery resolve was quietly re-running the
+   installation-**selection** probe too — a live `GET /repos/{owner}/{repo}` per thread, at CRITICAL priority,
+   answering a question settled at run start. Selection is now pinned once in `_prepare_run` (its probe stays as
+   the access gate; `_PreparedRun.integration_row_id` carries the row) and deliveries only mint fresh tokens from
+   that row (`_delivery_auth`). Fresh-token-per-delivery semantics unchanged; a mid-run revocation now surfaces
+   as a 401/404 on the write itself with the same per-thread undelivered accounting.
+   _Same date (off the poison-thread escalation):_ a session-OPEN failure now raises only while **no turn has
+   completed this run** — the outage signal stays loud — but once turns have landed it degrades to the same
+   final-attempt per-thread skip as a turn failure, so one thread whose content reliably breaks its opening turn
+   can't block the PR's resolution forever. Residual (accepted): a poison thread at position 0 with zero other
+   work is indistinguishable from an outage and still fails the run; the recorded follow-up is typed sandbox
+   errors from the Tasks facade (infra vs turn) to close that corner.
+   _Same date (off the /resolve criteria-borrowing escalation):_ `ResolveThreadsInput.acting_user_id` is now
+   tri-state — `None` (the shared-secret `/resolve` path, which pins nobody) means **the PR author**: prepare maps
+   the fetched author login to a PostHog user (`_login_to_user_id`, the review path's own mapping) and applies
+   their criteria selection; an unmapped author pins the **canonical** bar directly
+   (`load_resolution_skill_for_run(…, None)`) — a borrowed account's personal selection never governs someone
+   else's PR, the same principle as the review path's borrowed-toggle rules. The workflow no longer coerces
+   `acting_user_id or user_id`.
+   _Same date (off the reply-idempotency escalation):_ the duplicate-reply crash window is **accepted as
+   by-design** (maintainer decision): the reply mutation has no idempotency key; the window is a process death
+   between the GitHub post and the DB persist; the cost when hit is one visible duplicate comment plus one
+   re-judged turn, self-correcting on the next persist. Reply-first stays chosen — fail toward a visible
+   duplicate rather than a lost reply. Revisit only if the comment-reply trigger's self-skip lands a
+   reply-identity marker, which would make dedup nearly free.
+   _Same date (off the injection-surface security cluster — maintainer decision):_ of the three e2e-escalated
+   hardening items, the deterministic piece is **built** and the two design-heavy pieces are **deferred as
+   BLOCKING pre-public-release gates** (ARCHITECTURE.md carries the blocking TODOs). Built: the **hard-floor
+   path backstop** — after `commit_on_branch` proves a FIXED commit real, `commit_restricted_paths` fetches its
+   changed files server-side (failing closed on GitHub's 300-file cap) and a commit touching `.github/`,
+   CODEOWNERS, or dependency manifests/lockfiles is never presented as settled: the reply carries a human-review
+   warning instead of the commit link, `thread_verdict.commit_restricted` persists, and `should_resolve` refuses
+   it (delivered verdict settles as SKIP, thread stays open). Security-sensitive _code_ stays prompt-judged —
+   it is not path-derivable. Residual (accepted 2026-08-10, dogfood only): the backstop is post-push
+   containment, not prevention — `createCommitOnBranch` makes commit and push one atomic act, so a restricted
+   commit is already on the PR branch (and CI has already run against it) before the check fires; nothing
+   un-pushes it. Pre-push enforcement needs a guard inside the signed-commit tooling (desktop agent package +
+   Tasks facade + sandbox image — outside this product), recorded as BLOCKING pre-public-release gate 3 in
+   ARCHITECTURE.md the same date. Deferred to pre-GA: structural (JSON) comment rendering in the resolution prompt
+   (e2e-gated — forged author headers / fake SAFE TO FIX), and the author-permission gate policy (which
+   `author_association`s may drive a write turn; naive filters drop the bot threads the stage exists for).
+   _2026-09-30 (limited manual rollout decision):_ retain full review and resolution for explicitly enabled,
+   trusted projects reviewing repositories their teams own. This extends the dogfood-only risk acceptance
+   above to that limited rollout. Repository ownership and GitHub App access do not authenticate commenters;
+   untrusted comments can still reach a writable session, and the path backstop still runs after the push.
+   Operators must assess repository and comment trust before enabling a project. The feature flag is an
+   operator allowlist, not an enforced ownership or commenter-trust boundary. Use review without resolution
+   for untrusted PRs. Public rollout and resolution on untrusted PRs or unowned repositories remain blocked
+   on all three hardening items. The manual rollout does not satisfy or remove those gates.
+   _Built 2026-08-10 (off the second review round on PR #72074):_ three verified findings fixed. **Watermark
+   truncation** — the per-thread `comments(first: 50)` fetch returned the oldest 50 with no overflow detection, so
+   a 51+-comment thread's watermark froze below its real newest comment and the thread went permanently blind to
+   new pushback; the fetch now reads the inner connection's `pageInfo` and pages the tail (stamphog's pattern,
+   `_MAX_COMMENT_PAGES = 20`, failing closed past 1000 comments). **Commit-artefact provenance** — the `commit`
+   artefact was appended at triage time from the model's unverified echo, violating the Commit schema's
+   pushed-commits-only contract; it now appends inside delivery, right after `commit_on_branch` verifies the SHA
+   (exactly once per verdict; restricted commits are still recorded — they are real pushed commits, the
+   restriction gates delivery, not the audit log). **Unverified-fix reply caveat** — a FIXED reply whose commit
+   failed verification used to post the model's success claim verbatim (link withheld but no visible signal); the
+   reply now carries a could-not-confirm warning mirroring the restricted-path one.
+   _Same date (off the third review round):_ five more verified findings fixed. **Rename bypass (must-fix)** —
+   `commit_restricted_paths` read only each entry's `filename`, so renaming a restricted file out of place
+   (one `renamed` entry, new name clean) reported the commit clean; both `filename` and `previous_filename`
+   are checked now, matching `line_proximity`/`classify`'s rename handling. **Outdated-thread anchors** — the
+   thread query now fetches `originalLine` and falls back to it when GitHub nulls `line` on drifted threads
+   (desktop's `line ?? original_line` pattern). **GraphQL rate limits** — a 200 with `errors[].type
+RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) now raises
+   `GitHubRateLimitError` with `reset_at`/`retry_after` instead of a generic API error. **Resolve-failure
+   accounting** — `_deliver_side_effects` no longer swallows a failed `resolveReviewThread`: the failure
+   propagates into the run's `undelivered` count and the run note, so a systematic resolve-permission failure
+   can't hide behind clean-looking summaries (the reply persists first, so redelivery still only redoes the
+   resolve). **Outer paging cap** — `fetch_unresolved_threads` fails closed past 20 thread pages (2000
+   threads), the same posture as the comment-tail cap and stamphog's identical query.
+   _Same date (prompt tightenings, maintainer decision — verified by the next live run on this PR):_ two
+   wording holes in the resolution prompt's safety text closed. **Tests are proof, not obstacles** — step 3
+   and the criteria skill now forbid weakening/loosening/deleting a test to make a run pass (tests change only
+   for deliberately changed behavior the reply calls out; provability requiring a test edit → `escalate`), and
+   **the security-code floor is absolute** — the "on comment guidance alone" qualifier was removable by the
+   agent's own mandated investigation ("I verified it myself, so the floor doesn't apply"); security-sensitive
+   code is now always `escalate`, regardless of who asked or what the investigation concluded.
+   _Same date (least-privilege MCP scopes, maintainer decision — verified by the next live run):_ every
+   ReviewHog sandbox session (perspectives, validation, resolution) ran with the context default of **full**
+   PostHog MCP access — execute-sql and every write tool — while reading untrusted PR-comment text; no prompt
+   ever uses more than `skill-get`/`skill-file-get`. The executor now pins `posthog_mcp_scopes` to
+   `REVIEW_MCP_SCOPES = ["llm_skill:read", "user:read"]` at both context constructions (internal sandbox-plumbing
+   scopes are re-added by the resolver). `user:read` is the MCP handshake, not a data grant: the MCP server
+   resolves the calling user (`/api/users/@me/`) when a session opens and refuses the connection without it.
+   The pin shipped on 2026-08-13 with only `llm_skill:read`, so until 2026-08-25 every ReviewHog session
+   (perspectives, blind-spot, validation, resolution) had its MCP connection refused and reviewed without its
+   skill — the agents carry on without MCP instead of failing, so nothing flagged it. A future skill that
+   legitimately needs product data adds its specific read scope with that feature.
+   _Same date (fix-commit provenance gate, maintainer decision):_ `commit_on_branch`'s "reachable from the
+   branch tip" necessarily accepts every ancestor (later turns and the author push on top mid-run), so a
+   steered turn could echo someone's old clean commit and have every check inspect the wrong one. The
+   restricted-paths call is now `inspect_fix_commit`: the same single `GET /commits/{sha}` also requires a
+   verified web-flow signature and an app-bot author (`is_app_bot_author` — probed against the July e2e fix
+   commits: authored `posthog-local-dev[bot]`/Bot, `verification.verified` true; fail-open on login when
+   `REVIEWHOG_GITHUB_BOT_LOGIN` is unset). A reachable SHA failing provenance persists
+   `commit_verified=False` — caveat reply, no link, never auto-resolves. Residual (accepted): echoing one of
+   the bot's own earlier fix commits still passes; that closes only with the recorded Tasks
+   session-provenance follow-up.
+9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
+   schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
+   is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on
+   a WON'T FIX gets a fresh assessment). Cap: **20 threads per run** — the binding constraint is the warm session's
+   context window, not cost; overflow is always named in the run summary and the next run continues. Model/effort
+   pinned by `RESOLUTION_*` constants (validator's Claude default to start).
+
+**Supersessions (deliberate, recorded so nobody "fixes" the new behavior back).**
+
+- **Stage 4 action plane (C → A) is superseded for comment-shaped fixes.** No suggestion blocks, no companion PR:
+  the stage commits directly to the PR head branch. The "never push the author's branch" principle is replaced by
+  the scoped consent model above (non-fork, installation-accessible PRs; forks hard-refused). The Tasks engine
+  choice survives — the stage runs on `MultiTurnSession` exactly as the validator does.
+- **The Tasks CI follow-up's "do not resolve or dismiss review threads" rule is narrowed, not repealed.** Resolving
+  _bot_ threads is now the resolution stage's job; human threads remain human-resolved. Known seam to close on the
+  Tasks side when the stage goes live there: `_should_run_ci_follow_up` also fires on new unresolved threads and
+  `DEFAULT_CI_MESSAGE` mandates comment-addressing — narrow that to checks-only where the resolution stage is
+  active, so two bots never fix the same comment.
+
+**Net-new build list (feasibility verified against master, 2026-07-17).**
+
+- **Thread-shaped fetch** — today's `PRComment` is REST, flat, inline-comments-only (no thread ids, no
+  `isResolved`/`isOutdated`, no `author_association`). Thread state is GraphQL-only: `pullRequest.reviewThreads`
+  via the gated egress transport (the limiter already classifies `/graphql` into the core budget).
+- **Write helpers** — `addPullRequestReviewThreadReply` + `resolveReviewThread` (GraphQL; verify the installation
+  token can resolve — the interactive prototype hit token-capability failures here).
+- **The workflow + session driver** — validator-pattern warm session with priority-ordered turns and skip-resume;
+  the per-turn verdict schema (code-owned); `thread_verdict` persistence; endpoint + command + chained dispatch;
+  `RESOLUTION_*` constants; the criteria skill.
+- **Already exists, verified** — commit-to-PR-branch via the signed-commit harness (the protected-base carve-out in
+  `start_agent_server._resolve_protected_base_branch` exists precisely for updating a PR-heading branch),
+  `MultiTurnSession` start/continue/end, the living `ReviewReport` + artefact substrate, the fork guard, and the
+  trigger-endpoint pattern to mirror.
+
+---
+
+### 🧯 Live statuses in the Code review UI — baseline polling + idle deferred to publish (BUILT 2026-08-13)
+
+The Code review scene went stale without a manual refresh, three ways, all rooted in the list poll arming only
+while an in-progress row was already visible: externally-triggered runs (label / inbox / MCP / a teammate) never
+appeared on an already-open page; the run-end race froze rows on "Not published" (finalize wrote `idle` before the
+publish stage wrote `published_head_sha`, and a poll tick landing in that window was the poll's last — it disposes
+itself at the first at-rest response); and the stats cards and an open drawer never refreshed at all.
+
+**Decisions (and the alternatives weighed):**
+
+- **The poll never stops; it changes cadence.** 10s while a run is in progress or freshly triggered, 30s idle,
+  paused on hidden tabs (the disposables plugin), one immediate refresh on tab return (a non-pausing
+  `visibilitychange` listener — a pausing one would be re-attached mid-dispatch of the very event it must observe,
+  and listeners added during dispatch don't run for that event). Rejected: stop-after-N-idle (a state machine to
+  save a flag-gated dogfood page a 30s request) and a push channel (nothing else on the scene justifies the
+  infrastructure).
+- **Finalize defers the idle write on publishing runs** (`will_publish` on `BuildBodyInput` →
+  `finalize_review_report`); `publish_persisted_review` returns the report to `idle` on every outcome (posted — in
+  the same save as the watermark —, already-posted skip, and no-post), and `fail_status_comment_activity` restores
+  rest on a dead run. The failure-path write lives inside that existing activity, not as a new workflow command,
+  because a new unconditional command breaks replay for in-flight histories. Rejected: a `publishing` status enum
+  value (a migration plus every status reader, for a state that lasts seconds) and a frontend-only reconciliation
+  delay (leaves the API reporting `in_progress=false, published=false` for a state that is neither).
+- **The publish window reads "finalizing".** With `run_count` already bumped there are no in-flight findings, so
+  `progress_payload` otherwise falls through and misreads the finished turn's working state as "deduplicating".
+  The branch is scoped to the not-yet-published head deliberately: a resolution run holds the same
+  ACTIVE-at-completed-head shape at a _published_ head and keeps its pre-existing label — the proper `resolving`
+  stage (serializer enum + frontend labels + regenerated types) is a separate change, in flight on its own
+  (maintainer, 2026-08-13), tracked in ARCHITECTURE.md's known issues.
+- **A poll response is the fan-out point.** A run observed finishing (its `in_progress` dropping or `run_count`
+  bumping between responses) reloads the perspective stats, and the drawer's detail when it is open on that
+  report. The error banner keys off a new `markInitialLoadFailed` (dispatched only when the failing surface has
+  nothing loaded), so a background poll blip retries silently instead of flashing the page-level failure banner.
+
+Known residuals, deliberate: the list's `published` flag is still report-lifetime (the drawer-flag TODO in
+ARCHITECTURE.md's known issues), and `_in_progress_report_ids`' 30-minute staleness cutoff can still hide a run
+whose current stage stays quiet longer than that.
 
 ---
 
@@ -3440,3 +4465,68 @@ the model/effort is brand-new, add it to the registry in **both** repos (`utils.
 gateway model list in `@posthog/agent`) or startup validation rejects it on one side.
 
 ---
+
+## Resolution-stage visibility & cycle guard (grilled 2026-08-13)
+
+Motivated by the first prod day: a resolution on a user's PR (#80527) showed no progress anywhere, and #78061's
+resolution died silently at sandbox checkout. Decisions, in one PR:
+
+- **Busy-guard, both directions.** Starting a review (UI, label, trigger API) is refused while the PR's
+  `resolve-pr` workflow runs ("Still resolving comments from the last review"); starting a standalone resolution
+  is refused while `review-pr` runs. Chained hand-off exempt (fires post-publish by construction). Explicit check
+  on the two deterministic workflow ids — Temporal same-id joining can't see across workflows (ADR 0001; blocked,
+  not queued — queueing machinery isn't worth it yet).
+- **Resolving progress derives from the artefact stream, not new columns.** At prepare, the run appends a
+  work-list artefact (total, skipped); the reviews API counts the run's thread-verdict artefacts against it.
+  Row shows "Resolving comments · 6/10 · 5 fixed, 1 needs you"; crashed runs go quiet and age out via the
+  existing staleness window, mirroring review progress. Rejected: mutable stats block on the report (second
+  writer, stale stats on crash).
+- **Settled means delivered** (PR-review follow-up, 2026-08-18). The counters originally bumped at judge time,
+  so a thread whose GitHub reply/resolve failed still read as done/fixed until the next run redelivered. Both
+  surfaces now count only delivered threads — the activity renders from `delivered_outcomes` (bumped after
+  `_deliver_side_effects` succeeds) and the UI derivation counts only `reply_posted` verdict rows — with
+  undelivered threads folded into the closing tally's "couldn't handle" count. `triaged`/`outcomes` keep their
+  judge-time meaning for the run note. Rejected: leaving it (the tally claimed replies that weren't on the PR)
+  and a separate "pending redelivery" bucket (a third state to explain for a transient window).
+- **Same GitHub status comment, extended.** Chained runs edit the review's existing status comment with a
+  resolving section + final tally; standalone runs create the comment on demand via the same machinery
+  (edits don't notify — one ReviewHog voice per PR).
+- **Failure is visible.** UI: work-list artefact present + activity stale + no closing run-note ⇒ "Resolution
+  didn't finish · stopped at N/M". GitHub: partial failures flow into the final tally ("couldn't handle 2");
+  hard crashes get a best-effort failure edit (reusing the review's `fail_status_comment` pattern). Closes the
+  silent-death mode observed on #78061.
+- **Workflow-level failure cleanup** (PR-review follow-up, 2026-08-18). The activity's final-attempt failure
+  edit misses three death modes: `_prepare_run` failures (before its `try` opens), timeout/cancellation
+  (`CancelledError` is a `BaseException`), and worker death (no handler runs) — all of which left the GitHub
+  comment saying "Resolving comments" forever (the UI half self-heals via staleness). `ResolvePRWorkflow` now
+  wraps the resolution activity and fires a best-effort `fail_resolution_activity` before re-raising, gated
+  behind `workflow.patched("fail-resolution-cleanup-2026-08")` for in-flight runs. The cleanup locates the
+  report by `(team, repo, pr_number)` (the workflow never learns the report id on failure), idles it, and
+  derives stopped-at counts via `resolution_states` — the exact numbers the UI row shows; no live run anchor
+  means no comment edit, so a pre-queue crash can't spawn a spurious "stopped at 0/0" comment. The
+  activity-level edit stays as the fast path. Mirrors the review workflow's `fail_status_comment_activity`.
+- **👀 reaction marks queued threads.** Added right after work-list classification, triage-queued threads only
+  (so 👀 = "in this run's queue"), best-effort, and left in place afterwards (removal doubles API calls for no
+  real gain). Reactions send no notifications. Rejected: placeholder "working on it" comments — double
+  notifications, and a crashed run leaves broken promises.
+- **Not doing:** re-review-after-fixes dispatch (the loop's job, separately costed); prohibiting re-review after
+  a _finished_ cycle (already safe: same-id review starts join the running workflow).
+
+Vocabulary added to CONTEXT.md: **Review cycle**, **Busy-guard**. ADR: `adr/0001-resolution-is-a-separate-workflow.md`
+(kept resolution a separate workflow after challenging it — standalone mode, failure isolation, independent
+versioning outweigh the manual seam).
+
+## Sandbox checkout ref: head branch by name (2026-08-25, maintainer decision)
+
+Review sandboxes check out the PR's **head branch by name** again. The 2026-07-15 switch to `pull/N/head` (meant to
+survive a mid-review merge, which deletes the head branch) never worked: the Tasks checkout resolves only
+`refs/heads/<name>`, so the pull ref fell through to a fresh local branch on the base tip and every review
+sandbox investigated the base branch instead of the PR. Invisible while base ≈ PR; loud once the base carried
+later fixes — validators dismissed real findings as "already fixed" because the tree they examined was master.
+The reviewer's findings still came from the diff pasted into its prompt, so review volume never dropped.
+Residual gap (not a loud failure): if a mid-review merge deletes the head branch, the Tasks checkout does not
+raise — `git ls-remote --exit-code --heads origin refs/heads/<name>` returns exit 2 and `checkout_branch_in_sandbox`
+falls back to a fresh branch on the base tip. A later checkout can then still land on the base tree, but only for
+checkouts after the branch is gone, not the whole review as the 2026-07-15 regression did. Closing that window —
+a strict checkout that fails on a missing head branch, or a proper `refs/pull/N/head` fetch — belongs in the Tasks
+checkout, out of scope here.

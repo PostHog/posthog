@@ -8,7 +8,7 @@ This document describes the Dagster jobs and sensors for backfilling ClickHouse 
 DuckgresServer (Django model) + control-plane team rows
     │ DuckgresServer stores the org connection; control-plane rows gate each team's enablement
     ▼
-ClickHouse (events/person tables)
+ClickHouse (events/person/groups tables)
     │ export via s3() - bucket policy allows ClickHouse EC2 role
     ▼
 Duckling S3 Bucket (parquet files)
@@ -21,6 +21,48 @@ Duckling RDS Catalog (PostgreSQL)
 
 - **ClickHouse EC2 role**: Allowed in duckling bucket policy for direct S3 writes
 - **Dagster IRSA role**: Can assume duckling cross-account roles for DuckDB registration
+
+### Registration through Trino
+
+Organizations with the `managed-warehouse-trino-import-registration` flag register the events, persons, and groups backfills through the organization's Trino catalog instead of duckgres.
+The ClickHouse export is the same, except that it casts each column to the Parquet type that DuckLake writes for its Trino column, because `add_files` refuses any type conversion.
+An export-only run (`skip_ducklake_registration: true`) writes the same types, so `add_files` can register its files later.
+ClickHouse lists the files it exported, because nothing else on the path can list the duckling bucket.
+Each export writes under a new file prefix, so a retry never overwrites a file that DuckLake has already registered.
+A Trino backfill connects through the normal Trino hostname.
+Set `use_trino_canary: true` in the run config to connect through the canary hostname instead, which needs `MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN` to be set. Without it, the run fails.
+The flag `managed-warehouse-trino-canary` does not apply to backfills.
+A run with `register_through_trino: true` registers through Trino even when the organization is not on the flag, and scheduled runs keep following the flag.
+Before each statement that removes rows from the base `events`, `persons` or `groups` table, Trino checks that no other team has rows in the range it removes, and the run refuses otherwise.
+A team without a control-plane row cannot fall back to a base table that another team of the organization writes, so its backfill fails instead.
+
+One `add_files` call registers the files of an export and removes the rows they replace in a single DuckLake snapshot:
+
+- A daily export replaces the rows of its UTC day, by `timestamp` for events and by `_timestamp` for persons and groups.
+- A full persons or groups export replaces the whole table.
+- An export with no files deletes the rows it would replace.
+- With `cleanup_existing_partition_data: false`, the files are added and no rows are removed.
+
+Tables that duckgres created can hold unsigned columns, which Trino shows as other types, so `add_files` refuses the export's files.
+Daily and other Trino runs refuse such a table and fail with a message.
+To change an organization over:
+
+1. Run `duckling_trino_conversion_job` for the team, with `dry_run: true` first.
+   It widens the columns that DuckLake can widen in place, such as groups `group_type_index`, and reports the tables that still need a rebuild.
+   It fails when the events table needs a rebuild, because no snapshot run can rebuild events.
+2. A column that DuckLake cannot widen, such as persons `person_version`, needs a full backfill with `rebuild_mismatched_table: true`.
+   Run it with the organization on the Trino flag or with `register_through_trino: true`, and without `skip_schema_validation`, because the validation finds the mismatch.
+   The run replaces the table after the export and keeps the columns that the export does not write.
+   Readers see an empty table until the run registers the files, and a run that fails after the rebuild leaves the table empty until the next full backfill.
+
+The duckgres path accepts the converted layout, so turning the flag off still works.
+
+The call has an import ID, so a retry after a lost response adds nothing.
+A statement that fails for a transient reason, such as a DuckLake commit conflict, a lost coordinator, or a cluster fault, runs again up to four times.
+Readers never see a day without rows or with two copies of it, so this path needs no delete-then-register replay.
+Day and table replacements remove rows without a team filter, so the Trino path refuses to replace rows in the shared `events`, `persons`, and `groups` tables, or to drop them with `delete_tables: true` or rebuild them.
+Trino-created tables have no year/month/day partitioning.
+Each file holds one day, so file statistics still prune reads.
 
 ## Jobs and Sensors
 
@@ -41,6 +83,52 @@ Duckling RDS Catalog (PostgreSQL)
 | `duckling_persons_backfill_job`          | Job wrapping the asset                               |
 | `duckling_persons_daily_backfill_sensor` | Hourly sensor for yesterday's data (top-up)          |
 | `duckling_persons_full_backfill_sensor`  | Sensor for historical backfill (full export)         |
+
+### Groups backfill
+
+`duckling_groups_backfill_job` supports full-team and daily exports, like persons.
+A numeric team partition (for example, `12345`) exports the full current state.
+A team/date partition (for example, `12345_2026-01-01`) exports groups whose `_timestamp` falls within that UTC day.
+`duckling_groups_full_backfill_sensor` discovers teams with backfills enabled in a ready warehouse and retries failed full runs.
+`duckling_groups_daily_backfill_sensor` creates yesterday's team/date partitions for teams with a successful full backfill.
+The daily date appears in the partition key, run key, and `groups_backfill/refresh_date` tag.
+A successful full run does not replace the daily partition's own success record; previews do not count as completed imports.
+Failed daily runs retry with a new run key after the backoff window. An active full run or an active run for that day blocks another daily request.
+Each sensor tick checks at most 25 teams, performs at most four bounded run-storage reads per team, schedules at most three runs, and advances a cursor so repeated failures cannot block discovery.
+Both sensors check every 10 minutes. The daily sensor can submit at most 18 refreshes per hour; failures and available run capacity can reduce throughput.
+Failed snapshots retry with exponential backoff from 10 minutes to a maximum of 320 minutes.
+The sensor checks active runs separately from real snapshot history; previews do not hide a successful or active snapshot.
+The export reads ClickHouse groups with `FINAL` and follows the persons delete-and-register flow.
+Deduplication follows the table engine: the highest `_timestamp` wins, with equal timestamps resolved by insertion order.
+The export does not apply an explicit sort.
+With the default `cleanup_existing_partition_data: true`, a full run deletes the team's rows before export; a daily run deletes only that team's rows in the UTC `_timestamp` day.
+Immediately before registering files, the job repeats the same scoped delete; reconnect retries replay that delete-and-register unit to avoid duplicate rows.
+Daily runs preserve other days' rows and can retain older versions of a group, like persons; HogQL groups queries select the latest version.
+Daily imports do not remove older versions when a source group disappears. Rerun the full team partition to replace the complete state.
+Registration uses autocommit, matching persons; failures can leave an empty or partially registered partition until a retry succeeds.
+There is no generation marker or table-comment dependency. Avoid overlapping manual runs for the same team because an older export can replace newer data.
+`delete_tables` is refused for the legacy shared `groups` table.
+The job supports `dry_run` and `skip_ducklake_registration`.
+As with persons, setting `cleanup_existing_partition_data: false` appends files instead of replacing rows and disables replay deduplication.
+
+Groups exports default to a 100 GiB query memory limit, matching full persons exports.
+Override it with `clickhouse_settings.max_memory_usage` when launching a run.
+For a memory failure, lower `max_s3_file_fanout` and rerun the same team partition with `delete_tables: false`.
+A failed export leaves the affected partition empty when cleanup is enabled; only a successful export proceeds to registration.
+
+Both groups sensors default to stopped. Use a manual snapshot to validate rollout before enabling automatic discovery:
+
+1. Deploy the job and confirm both `duckling_groups_full_backfill_sensor` and `duckling_groups_daily_backfill_sensor` are stopped in Dagster. The default does not override a previously stored running state.
+2. Add the selected team's ID to the `duckling_groups_backfill` dynamic partition set through **Materialize… → Add a partition**.
+3. Launch `duckling_groups_backfill_job` for that partition with `dry_run: false`, `skip_ducklake_registration: false`, and `delete_tables: false`.
+4. Verify the latest groups per type/key against ClickHouse and run a managed warehouse HogQL groups query. Use Dagster run status and output metadata to inspect registration.
+5. Start `duckling_groups_full_backfill_sensor` to discover all teams with `backfill_enabled: true` in ready warehouses. The successful manual snapshot is skipped.
+6. Start `duckling_groups_daily_backfill_sensor` after the initial snapshot succeeds. It imports yesterday's UTC `_timestamp` day under a separate team/date partition.
+
+To retry an older day manually, add its `team_id_YYYY-MM-DD` partition and materialize it with `delete_tables: false`. Like the persons sensor, automatic daily discovery targets yesterday.
+
+Stop both sensors to pause new discovery and daily refreshes. Stop queued or active runs separately if they must not finish.
+Groups query mapping is available before the first snapshot completes; queries can fail before table creation or read an empty table during the initial export.
 
 ## Partition Strategy
 
@@ -125,6 +213,7 @@ class DucklingBackfillConfig:
     create_tables_if_missing: bool = True     # Auto-create events/persons tables
     delete_tables: bool = False               # DANGER: Drop and recreate tables
     dry_run: bool = False                     # Preview mode, no writes
+    use_trino_canary: bool = False            # Trino path only: connect through the canary hostname
     events_parquet_row_group_size_bytes: int = 536_870_912  # Events only; 512 MiB
     target_rows_per_file: int = 5_000_000      # Target rows per exported file
     max_s3_file_fanout: int = 256              # Maximum before the automatic buffer-budget limit
@@ -145,15 +234,18 @@ class DucklingBackfillConfig:
 2. Enable another team's backfill with the "Enable warehouse backfill for a team" admin
    action or the managed warehouse onboarding API. This creates the control-plane team row
    with backfill enabled. The discovery sensor will pick up the team on its next run.
-   The enablement flow also creates a
-   managed Postgres live-query connection with a distinct Duckgres reader for the team. Once the
-   warehouse is ready, background schema discovery exposes every table in the team's event/person,
-   data-import, team, and modeled-data namespaces in the SQL editor. Duckgres enforces read-only
-   access to those namespaces for both HogQL and raw SQL. Legacy teams that still use the shared
-   unsuffixed `events` and `persons` tables are not exposed because those tables contain rows for
-   multiple teams.
+   A new managed SQL-editor source uses short-lived `duckgres_service` credentials and appears as the built-in
+   `PostHog (Managed warehouse)` connection. Existing static and `project_reader` sources keep their current
+   authentication mode. The chooser prefers dynamic authentication, then a ready reader, and otherwise exposes
+   the canonical valid static source as an external connection. Reader provisioning and rotation remain separate
+   from this enablement flow.
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
+
+Each Dagster backfill session mints a new short-lived Duckgres service credential.
+Concurrent sessions use the same `dagster:events-backfill` audit principal but receive
+different credential IDs and secrets. A reconnect refreshes only the credential ID held
+by that session.
 
 ## Troubleshooting
 
@@ -184,6 +276,10 @@ If multiple partitions for the same team run concurrently, they may race to crea
 - **Dagster registration**: `posthog/dags/locations/data_stack.py`
 - **DuckgresServer model**: `products/managed_warehouse/backend/models.py`
 - **Control-plane team state**: `products/managed_warehouse/backend/cp_teams.py` and `products/managed_warehouse/backend/team_state.py`
+
+Backfill sensors only schedule teams with backfills enabled in a managed warehouse that reports `state: ready`.
+The sensor skips provisioning, failed, deleting, deleted, and resharding warehouses.
+If either control-plane listing is unavailable, the sensor tick schedules no new work and retries on its next tick.
 
 ## S3 Path Structure
 

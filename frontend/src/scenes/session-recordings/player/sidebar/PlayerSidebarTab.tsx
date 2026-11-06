@@ -5,15 +5,17 @@ import { PlayerInspector } from 'scenes/session-recordings/player/inspector/Play
 
 import { SessionRecordingSidebarTab } from '~/types'
 
+import { PlayerSidebarObservationsTab } from 'products/replay_vision/frontend/components/PlayerSidebarObservationsTab'
+
 import { PlayerSidebarLinkedIssuesTab } from './PlayerSidebarLinkedIssuesTab'
 import { playerSidebarLogic } from './playerSidebarLogic'
 import { PlayerSidebarOverviewTab } from './PlayerSidebarOverviewTab'
 import { PlayerSidebarPersonRecordingsTab } from './PlayerSidebarPersonRecordingsTab'
 
-export function PlayerSidebarTab(): JSX.Element | null {
+export function PlayerSidebarTab({ tab }: { tab?: SessionRecordingSidebarTab } = {}): JSX.Element | null {
     const { activeTab } = useValues(playerSidebarLogic)
 
-    switch (activeTab) {
+    switch (tab ?? activeTab) {
         case SessionRecordingSidebarTab.OVERVIEW:
             return <PlayerSidebarOverviewTab />
         case SessionRecordingSidebarTab.INSPECTOR:
@@ -24,6 +26,8 @@ export function PlayerSidebarTab(): JSX.Element | null {
             return <PlayerSidebarLinkedIssuesTab />
         case SessionRecordingSidebarTab.SESSIONS:
             return <PlayerSidebarPersonRecordingsTab />
+        case SessionRecordingSidebarTab.OBSERVATIONS:
+            return <PlayerSidebarObservationsTab />
         default:
             return null
     }

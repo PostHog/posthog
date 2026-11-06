@@ -1,25 +1,29 @@
 import json
-from ipaddress import ip_address
 
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache as real_cache
 
 from parameterized import parameterized
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
-from posthog.api.oauth.cimd import (
-    _blocked_key,
-    _cache_key,
-    apply_provisioning_defaults,
-    fetch_and_upsert_cimd_application,
-)
+from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
+from posthog.api.oauth.client_assertion import PRIVATE_KEY_REQUIRED_MESSAGE
+from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
 from posthog.models.oauth import OAuthApplication
-from posthog.models.oauth_provisioning import ProvisioningRateLimits
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.test.base import (
+    TEST_PARTNER_CLIENT_SECRET,
+    TEST_PARTNER_JWKS_URI,
+    ProvisioningTestBase,
+    provisioning_config,
+)
 
 WIZARD_CLIENT_ID = "test-wizard-client"
 
@@ -32,8 +36,9 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         self.wizard_app = OAuthApplication.objects.create(
             client_id=WIZARD_CLIENT_ID,
             name="PostHog Wizard",
-            client_secret=TEST_PARTNER_CLIENT_SECRET,
+            client_secret="",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
@@ -42,6 +47,18 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
             ),
+        )
+        # A client secret is enough only for a partner that neither creates accounts nor pays.
+        self.secret_partner = OAuthApplication.objects.create(
+            client_id="test-client-secret-partner",
+            name="Client Secret Partner",
+            client_secret=TEST_PARTNER_CLIENT_SECRET,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+            _provisioning_config=provisioning_config(active=True, can_create_accounts=False),
         )
 
     def _wizard_account_request(self, request_id: str, email: str, challenge: str):
@@ -52,7 +69,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
                 "email": email,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
-                **self._client_credentials(self.wizard_app),
+                **self._client_auth(self.wizard_app),
             },
         )
 
@@ -63,7 +80,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
                 "grant_type": "authorization_code",
                 "code": code,
                 "code_verifier": verifier,
-                **self._client_credentials(partner or self.wizard_app),
+                **self._client_auth(partner or self.wizard_app),
             },
         )
 
@@ -73,16 +90,45 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
     def test_client_secret_partner_identified(self, transport):
         payload = {"id": f"req_secret_{transport}", "email": f"{transport}-new-user@example.com"}
         if transport == "body":
-            res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", payload)
+            res = self._post_as_partner("/api/agentic/provisioning/account_requests", payload, self.secret_partner)
         else:
             res = self._post_api(
                 "/api/agentic/provisioning/account_requests",
-                {**payload, "client_id": self.partner.client_id},
-                HTTP_AUTHORIZATION=self._basic_auth_header(),
+                {**payload, "client_id": self.secret_partner.client_id},
+                HTTP_AUTHORIZATION=self._basic_auth_header(self.secret_partner),
             )
 
-        assert res.status_code == 200
-        assert res.json()["type"] == "oauth"
+        # Past authentication to the capability check, which a partner that cannot create accounts fails.
+        assert res.status_code == 403, res.json()
+        assert res.json()["error"]["code"] == "forbidden"
+
+    @parameterized.expand([("proven by its secret", True), ("public client id only", False)])
+    def test_partner_is_recorded_by_id_only_when_it_proved_itself(self, _name, confidential):
+        if confidential:
+            partner = self.secret_partner
+            data = self._client_auth(partner)
+        else:
+            partner = OAuthApplication.objects.create(
+                client_id="activity-log-public-partner",
+                name="Public partner",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://partner.example.com/callback",
+                algorithm="RS256",
+                is_provisioning_partner=True,
+                _provisioning_config=provisioning_config(can_create_accounts=False),
+            )
+            data = {"client_id": partner.client_id}
+        request = Request(APIRequestFactory().post("/", data, format="json"), parsers=[JSONParser()])
+
+        activity_storage.mark_request_scoped()
+        try:
+            assert ProvisioningAuthentication().authenticate(request) == (None, partner)
+            credential = activity_storage.get_credential()
+        finally:
+            activity_storage.clear_all()
+
+        assert credential == ActivityCredential(type="partner", id=str(partner.id) if confidential else None)
 
     @parameterized.expand(
         [
@@ -96,7 +142,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             {
                 "id": "req_bad_secret",
                 "email": "bad-secret@example.com",
-                "client_id": self.partner.client_id,
+                "client_id": self.secret_partner.client_id,
                 "client_secret": secret,
             },
         )
@@ -111,7 +157,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             {
                 "id": "req_no_secret",
                 "email": "no-secret@example.com",
-                "client_id": self.partner.client_id,
+                "client_id": self.secret_partner.client_id,
                 "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
                 "code_challenge_method": "S256",
             },
@@ -131,11 +177,12 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         assert res.json()["error"]["code"] == "unauthorized"
 
     def test_inactive_client_secret_partner_rejected(self):
-        self.partner.update_provisioning(active=False)
+        self.secret_partner.update_provisioning(active=False)
 
-        res = self._post_with_client_secret(
+        res = self._post_as_partner(
             "/api/agentic/provisioning/account_requests",
             {"id": "req_inactive_secret", "email": "inactive-secret@example.com"},
+            self.secret_partner,
         )
         assert res.status_code == 401
         assert res.json()["error"]["code"] == "unauthorized"
@@ -266,7 +313,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
 
         user = User.objects.get(email=email)
-        # The wizard app does not set provisioning_issues_personal_api_key, so no PAT is minted.
+        # The wizard app does not set issues_personal_api_key, so no PAT is minted.
         pat = PersonalAPIKey.objects.filter(user=user).first()
         assert pat is None
 
@@ -279,15 +326,38 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         res = self._wizard_account_request("req_inactive_pkce", "inactive-pkce@example.com", challenge)
         assert res.status_code == 401
 
-    # --- can_provision_resources enforcement ---
-
-    def test_partner_without_can_provision_resources_rejected(self):
+    def test_deactivated_user_bearer_token_rejected(self):
         token = self._get_bearer_token()
 
-        self.partner.update_provisioning(can_provision_resources=False)
+        self.user.is_active = False
+        self.user.save()
 
         res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
-        assert res.status_code == 403
+        assert res.status_code == 401
+
+    # --- partner config changes apply to tokens minted before them ---
+
+    @parameterized.expand(
+        [
+            ("cannot_provision_resources", {"can_provision_resources": False}, False, 403),
+            ("dropped_its_private_key", {}, True, 401),
+            # The Wizard's production shape: a client secret, and no account creation.
+            ("dropped_its_private_key_but_cannot_create_accounts", {"can_create_accounts": False}, True, 200),
+        ]
+    )
+    def test_bearer_after_partner_changes(
+        self, _name: str, change: dict[str, bool], drop_key: bool, expected_status: int
+    ) -> None:
+        token = self._get_bearer_token()
+
+        if change:
+            self.partner.update_provisioning(**change)
+        if drop_key:
+            self.partner.jwks_uri = None
+            self.partner.save(update_fields=["jwks_uri"])
+
+        res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
+        assert res.status_code == expected_status
 
     # --- CIMD URL-based PKCE identification ---
 
@@ -301,11 +371,11 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
+            client_id=cimd_url,
             is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
-                active=True, can_create_accounts=True, can_provision_resources=True
+                active=True, can_create_accounts=False, can_provision_resources=True
             ),
         )
 
@@ -320,8 +390,9 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
                 "code_challenge_method": "S256",
             },
         )
-        assert res.status_code == 200
-        assert res.json()["type"] == "oauth"
+        # Past authentication to the capability check: an unknown client_id would be a 401.
+        assert res.status_code == 403, res.json()
+        assert res.json()["error"]["code"] == "forbidden"
 
     @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
     def test_cimd_url_inactive_partner_rejected(self, mock_refresh):
@@ -333,8 +404,8 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
+            client_id=cimd_url,
             is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(active=False, can_create_accounts=True),
         )
@@ -370,16 +441,14 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
+            client_id=cimd_url,
             is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
             ),
         )
         self.addCleanup(real_cache.delete, _cache_key(cimd_url))
-        # _identify_pkce_partner warms the blocklist cache with a 1-year TTL; clear it too.
-        self.addCleanup(real_cache.delete, _blocked_key(cimd_url))
 
         if cache_is_fresh:
             real_cache.set(_cache_key(cimd_url), True, timeout=300)
@@ -403,11 +472,68 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
                 "email": "plain-pkce@example.com",
                 "code_challenge": "some_challenge",
                 "code_challenge_method": "plain",
-                **self._client_credentials(self.wizard_app),
+                **self._client_auth(self.wizard_app),
             },
         )
         assert res.status_code == 400
         assert "S256" in res.json()["error"]["message"]
+
+
+class TestUnsignedProvisioning(ProvisioningTestBase):
+    def _public_partner(self, *, capabilities: dict[str, bool] | None = None) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id="unsigned-public-partner",
+            name="Unsigned partner",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+            _provisioning_config=provisioning_config(**(capabilities or {})),
+        )
+
+    def _account_request(self, partner: OAuthApplication, email: str):
+        _, challenge = self._pkce_pair()
+        with patch("ee.api.agentic_provisioning.authentication.capture_auth_event") as capture_auth_event:
+            res = self._post_api(
+                "/api/agentic/provisioning/account_requests",
+                {
+                    "id": f"req_{email}",
+                    "email": email,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                    "client_id": partner.client_id,
+                },
+            )
+        signing = capture_auth_event.call_args.kwargs.get("provisioning_signing") if capture_auth_event.called else None
+        return res, signing
+
+    def _assert_refused(self, res, email: str) -> None:
+        assert res.status_code == 401, res.json()
+        assert res.json()["error"] == {"code": "unauthorized", "message": PRIVATE_KEY_REQUIRED_MESSAGE}
+        assert not User.objects.filter(email=email).exists()
+
+    @parameterized.expand(
+        [
+            ("creates_accounts", {}, 401, "refused"),
+            ("pays_for_customers", {"can_create_accounts": False, "pays_for_customers": True}, 401, "refused"),
+            # Not asked to sign, so it gets past authentication to the capability check.
+            ("neither", {"can_create_accounts": False}, 403, "unsigned_exempt"),
+        ]
+    )
+    def test_partner_that_must_sign_is_refused_unsigned(
+        self, name: str, capabilities: dict[str, bool], expected_status: int, expected_signing: str
+    ) -> None:
+        email = f"new-partner-{name}@example.com"
+        partner = self._public_partner(capabilities=capabilities)
+        res, signing = self._account_request(partner, email)
+
+        assert signing == expected_signing
+        if expected_status == 401:
+            self._assert_refused(res, email)
+        else:
+            assert res.status_code == expected_status, res.json()
+            assert res.json()["error"]["code"] == "forbidden"
 
 
 CIMD_PROV_URL = "https://partner.example.com/.well-known/oauth-client-metadata.json"
@@ -420,7 +546,9 @@ def _make_cimd_metadata(url: str = CIMD_PROV_URL, **overrides) -> dict:
         "redirect_uris": ["http://127.0.0.1:3000/callback"],
         "grant_types": ["authorization_code"],
         "response_types": ["code"],
-        "token_endpoint_auth_method": "none",
+        "token_endpoint_auth_method": "private_key_jwt",
+        "jwks_uri": TEST_PARTNER_JWKS_URI,
+        "com.posthog": {"provisioning": True},
     }
     metadata.update(overrides)
     return metadata
@@ -438,18 +566,19 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
     return resp
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestCimdProvisioningRegistration(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
-        OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).delete()
+        OAuthApplication.objects.filter(client_id=CIMD_PROV_URL).delete()
         real_cache.clear()
 
     def _register(self) -> OAuthApplication:
-        """Register the partner the way client_registration does."""
-        app = fetch_and_upsert_cimd_application(CIMD_PROV_URL)
+        """Register the partner the way client_registration does, so the promotion depends on
+        the mocked document declaring the opt-in."""
+        app = fetch_and_upsert_cimd_application(CIMD_PROV_URL, register_provisioning=True)
         assert app is not None
-        return apply_provisioning_defaults(app)
+        return app
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_registered_cimd_partner_can_create_accounts(self, mock_get, _url_mock):
@@ -463,93 +592,90 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         assert app.provisioning.can_provision_resources
 
         _, challenge = self._pkce_pair()
-        res = self.client.post(
+        res = self._post_as_partner(
             "/api/agentic/provisioning/account_requests",
-            data={
+            {
                 "id": "req_cimd_auto",
                 "email": "cimd-auto@example.com",
-                "client_id": CIMD_PROV_URL,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
             },
-            content_type="application/json",
+            partner=app,
         )
-        assert res.status_code == 200
+        assert res.status_code == 200, res.json()
         assert res.json()["type"] == "oauth"
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_cimd_scope_ceiling_refreshes_on_agentic_auth_after_metadata_edit(self, mock_get, _url_mock):
         initial = _make_cimd_metadata()
-        initial["com.posthog"] = {"scopes": ["insight:read"]}
+        initial["com.posthog"] = {"provisioning": True, "scopes": ["insight:read"]}
         mock_get.return_value = _cimd_mock_response(initial)
         self._register()
 
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        app = OAuthApplication.objects.get(client_id=CIMD_PROV_URL)
         assert app.scopes == ["insight:read"]
 
         # Partner edits the live metadata to widen the ceiling; the cached doc goes stale.
         real_cache.delete(_cache_key(CIMD_PROV_URL))
         widened = _make_cimd_metadata()
-        widened["com.posthog"] = {"scopes": ["insight:read", "dashboard:read"]}
+        widened["com.posthog"] = {"provisioning": True, "scopes": ["insight:read", "dashboard:read"]}
         mock_get.return_value = _cimd_mock_response(widened)
 
         # A later agentic provisioning auth request must propagate the edit — the bug was that
         # this raw-lookup path never refreshed, so the ceiling stayed frozen at registration.
         _, challenge = self._pkce_pair()
-        res = self.client.post(
+        res = self._post_as_partner(
             "/api/agentic/provisioning/account_requests",
-            data={
+            {
                 "id": "req_cimd_refresh_e2e",
                 "email": "cimd-refresh-e2e@example.com",
-                "client_id": CIMD_PROV_URL,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
             },
-            content_type="application/json",
+            partner=app,
         )
-        assert res.status_code == 200
+        assert res.status_code == 200, res.json()
 
         app.refresh_from_db()
         assert app.scopes == ["insight:read", "dashboard:read"]
 
     @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
     def test_partner_rate_limit_enforced_after_threshold(self, mock_refresh, _url_mock):
-        OAuthApplication.objects.create(
+        partner = OAuthApplication.objects.create(
             name="Rate Limit Test CIMD",
             client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://127.0.0.1:3000/callback",
             algorithm="RS256",
+            client_id=CIMD_PROV_URL,
             is_cimd_client=True,
-            cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True,
                 can_create_accounts=True,
                 can_provision_resources=True,
-                rate_limits=ProvisioningRateLimits(account_requests=10),
+                rate_limits={"account_requests": 10},
             ),
         )
 
         _, challenge = self._pkce_pair()
 
         def post_account_request(email: str):
-            return self.client.post(
+            return self._post_as_partner(
                 "/api/agentic/provisioning/account_requests",
-                data={
+                {
                     "id": f"req_{email}",
                     "email": email,
-                    "client_id": CIMD_PROV_URL,
                     "code_challenge": challenge,
                     "code_challenge_method": "S256",
                 },
-                content_type="application/json",
+                partner=partner,
             )
 
         assert post_account_request("ratelimit-1@example.com").status_code == 200
 
-        partner = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
         partner.update_provisioning_rate_limits(account_requests=2)
 
         assert post_account_request("ratelimit-2@example.com").status_code == 200
@@ -628,12 +754,13 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             OAuthApplication.objects.create(
                 name=f"Existing CIMD {i}",
                 client_secret="",
-                client_type=OAuthApplication.CLIENT_PUBLIC,
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                jwks_uri=TEST_PARTNER_JWKS_URI,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="http://127.0.0.1:3000/callback",
                 algorithm="RS256",
+                client_id=url,
                 is_cimd_client=True,
-                cimd_metadata_url=url,
                 is_provisioning_partner=True,
                 _provisioning_config=provisioning_config(
                     active=True, can_create_accounts=True, can_provision_resources=True
@@ -641,30 +768,30 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             )
 
         url = f"https://{base_domain}/path-0/metadata.json"
-        res = self.client.post(
+        res = self._post_as_partner(
             "/api/agentic/provisioning/account_requests",
-            data={
+            {
                 "id": "req_existing_domain",
                 "email": "existing-domain@example.com",
-                "client_id": url,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
             },
-            content_type="application/json",
+            partner=OAuthApplication.objects.get(client_id=url),
         )
-        assert res.status_code == 200
+        assert res.status_code == 200, res.json()
 
     @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
     def test_self_serve_org_named_after_client_name(self, mock_refresh, _url_mock):
-        OAuthApplication.objects.create(
+        partner = OAuthApplication.objects.create(
             name="Partner App",
             client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://127.0.0.1:3000/callback",
             algorithm="RS256",
+            client_id=CIMD_PROV_URL,
             is_cimd_client=True,
-            cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
@@ -673,71 +800,17 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
 
         email = "cimd-org-name@example.com"
         _, challenge = self._pkce_pair()
-        self.client.post(
+        self._post_as_partner(
             "/api/agentic/provisioning/account_requests",
-            data={
+            {
                 "id": "req_cimd_org",
                 "email": email,
-                "client_id": CIMD_PROV_URL,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
             },
-            content_type="application/json",
+            partner=partner,
         )
 
         user = User.objects.get(email=email)
         org = user.organization_memberships.first().organization
         assert org.name == f"Partner App ({email})"
-
-    def test_blocked_cimd_url_returns_unauthorized(self, _url_mock):
-        from posthog.api.oauth.cimd import block_cimd_url
-
-        block_cimd_url(CIMD_PROV_URL)
-
-        _, challenge = self._pkce_pair()
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={
-                "id": "req_blocked",
-                "email": "blocked@example.com",
-                "client_id": CIMD_PROV_URL,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            },
-            content_type="application/json",
-        )
-        assert res.status_code == 401
-
-    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
-    def test_blocked_cimd_url_with_existing_app_returns_unauthorized(self, mock_refresh, _url_mock):
-        from posthog.api.oauth.cimd import block_cimd_url
-
-        OAuthApplication.objects.create(
-            name="Blocked CIMD App",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://127.0.0.1:3000/callback",
-            algorithm="RS256",
-            is_cimd_client=True,
-            cimd_metadata_url=CIMD_PROV_URL,
-            is_provisioning_partner=True,
-            _provisioning_config=provisioning_config(
-                active=True, can_create_accounts=True, can_provision_resources=True
-            ),
-        )
-        block_cimd_url(CIMD_PROV_URL)
-
-        _, challenge = self._pkce_pair()
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={
-                "id": "req_blocked_existing",
-                "email": "blocked-existing@example.com",
-                "client_id": CIMD_PROV_URL,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            },
-            content_type="application/json",
-        )
-        assert res.status_code == 401

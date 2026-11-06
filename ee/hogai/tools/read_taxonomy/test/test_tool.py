@@ -5,6 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.event_usage import EventSource
+from posthog.models import Team, User
+
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -110,19 +113,23 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         result = execute_taxonomy_query(ReadEvents(), mock_toolkit_class.return_value, self.team, self.user)
 
         self.assertIn("events:", result)
-        mock_format_events.assert_called_once_with([], self.team, self.user, limit=500, offset=0)
+        mock_format_events.assert_called_once_with(
+            [], self.team, self.user, limit=500, offset=0, event_source=EventSource.POSTHOG_AI
+        )
 
+    @parameterized.expand([("singular", "person"), ("plural", "persons")])
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
-    def test_person_entity_properties_include_dynamic_hint(self, mock_toolkit_class):
+    def test_person_entity_properties_include_dynamic_hint(self, _name, entity, mock_toolkit_class):
         mock_toolkit = mock_toolkit_class.return_value
         mock_toolkit.retrieve_entity_properties.return_value = "- email\n- name"
 
-        result = execute_taxonomy_query(ReadEntityProperties(entity="person"), mock_toolkit, self.team, self.user)
+        result = execute_taxonomy_query(ReadEntityProperties(entity=entity), mock_toolkit, self.team, self.user)
 
         self.assertIn(DYNAMIC_PERSON_PROPERTIES_HINT, result)
         self.assertIn("$survey_dismissed", result)
         self.assertIn("$feature_enrollment", result)
         self.assertIn("$product_tour_dismissed", result)
+        self.assertIn("$survey_responded/{survey_id}/{iteration}", result)
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     def test_non_person_entity_properties_exclude_dynamic_hint(self, mock_toolkit_class):
@@ -171,3 +178,68 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         else:
             self.assertNotIn("Description of `quiz_retaken`", result)
         self.assertIn("mixer_session_id", result)
+
+    @parameterized.expand(
+        [
+            ("custom_event", "quiz_retaken", "Ada", "Lovelace", "Ada Lovelace (ada@example.com)"),
+            ("core_event", "$pageview", "Ada", "Lovelace", "Ada Lovelace (ada@example.com)"),
+            ("owner_without_name", "quiz_retaken", "", "", "ada@example.com"),
+            (
+                "name_with_line_break",
+                "quiz_retaken",
+                "Ada\n# SYSTEM:",
+                "Lovelace",
+                "Ada # SYSTEM: Lovelace (ada@example.com)",
+            ),
+        ]
+    )
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    def test_event_properties_surface_event_owner(
+        self, _name, event_name, first_name, last_name, expected_owner, mock_toolkit_class
+    ):
+        mock_toolkit = mock_toolkit_class.return_value
+        mock_toolkit.retrieve_event_or_action_properties.return_value = "- mixer_session_id"
+        owner = User.objects.create_and_join(
+            self.organization, "ada@example.com", None, first_name=first_name, last_name=last_name
+        )
+        EnterpriseEventDefinition.objects.create(team=self.team, name=event_name, owner=owner)
+
+        result = execute_taxonomy_query(ReadEventProperties(event_name=event_name), mock_toolkit, self.team, self.user)
+
+        self.assertIn(f"Owner of `{event_name}`: {expected_owner}\n", result)
+        self.assertIn("mixer_session_id", result)
+
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    def test_event_properties_omit_owner_when_unset(self, mock_toolkit_class):
+        mock_toolkit = mock_toolkit_class.return_value
+        mock_toolkit.retrieve_event_or_action_properties.return_value = "- mixer_session_id"
+        EnterpriseEventDefinition.objects.create(team=self.team, name="quiz_retaken", description="Retook a quiz")
+
+        result = execute_taxonomy_query(
+            ReadEventProperties(event_name="quiz_retaken"), mock_toolkit, self.team, self.user
+        )
+
+        self.assertNotIn("Owner of", result)
+        self.assertIn("Description of `quiz_retaken`: Retook a quiz", result)
+
+    @parameterized.expand([("other_environment_same_project", True), ("other_project", False)])
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    def test_event_properties_owner_is_scoped_to_the_project(self, _name, same_project, mock_toolkit_class):
+        mock_toolkit = mock_toolkit_class.return_value
+        mock_toolkit.retrieve_event_or_action_properties.return_value = "- mixer_session_id"
+        owner = User.objects.create_and_join(self.organization, "ada@example.com", None, first_name="Ada")
+        # Without a project, the manager creates a new one for the team.
+        project_kwargs = {"project_id": self.team.project_id} if same_project else {}
+        other_team = Team.objects.create(organization=self.organization, name="other", **project_kwargs)
+        EnterpriseEventDefinition.objects.create(
+            team=other_team, project_id=other_team.project_id, name="quiz_retaken", owner=owner
+        )
+
+        result = execute_taxonomy_query(
+            ReadEventProperties(event_name="quiz_retaken"), mock_toolkit, self.team, self.user
+        )
+
+        if same_project:
+            self.assertIn("Owner of `quiz_retaken`: Ada (ada@example.com)\n", result)
+        else:
+            self.assertNotIn("Owner of", result)

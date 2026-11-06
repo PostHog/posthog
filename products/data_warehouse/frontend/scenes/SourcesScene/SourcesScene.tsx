@@ -1,8 +1,11 @@
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -11,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { dataWarehouseEmptyState } from '../../emptyState/dataWarehouseEmptyState'
 import { SourcesList } from './SourcesList'
 import { sourcesSceneLogic } from './sourcesSceneLogic'
 
@@ -18,9 +22,11 @@ export const scene: SceneExport = {
     component: SourcesScene,
     logic: sourcesSceneLogic,
     productKey: ProductKey.DATA_WAREHOUSE,
+    emptyState: dataWarehouseEmptyState,
 }
 
 export function SourcesScene(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const action = (
         <Shortcut
             name="NewPipelineSource"
@@ -29,16 +35,28 @@ export function SourcesScene(): JSX.Element {
             interaction="click"
             scope={Scene.Sources}
         >
-            <LemonButton
-                type="primary"
-                to={urls.dataPipelinesNew('source')}
-                icon={<IconPlusSmall />}
-                size="small"
-                tooltip="New source"
-                data-attr="new-source"
-            >
-                New source
-            </LemonButton>
+            {todayRailNav ? (
+                <Button
+                    variant="primary"
+                    render={<LinkPrimitive to={urls.dataPipelinesNew('source')} />}
+                    tooltip="New source"
+                    data-attr="new-source"
+                >
+                    <IconPlus />
+                    New source
+                </Button>
+            ) : (
+                <LemonButton
+                    type="primary"
+                    to={urls.dataPipelinesNew('source')}
+                    icon={<IconPlusSmall />}
+                    size="small"
+                    tooltip="New source"
+                    data-attr="new-source"
+                >
+                    New source
+                </LemonButton>
+            )}
         </Shortcut>
     )
 
@@ -52,7 +70,7 @@ export function SourcesScene(): JSX.Element {
                 }}
                 actions={action}
             />
-            <SourcesList action={action} />
+            <SourcesList />
         </SceneContent>
     )
 }

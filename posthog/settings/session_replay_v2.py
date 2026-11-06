@@ -30,3 +30,24 @@ if TEST or DEBUG:
     RECORDING_API_URL = os.getenv("RECORDING_API_URL", "http://localhost:6741")
 else:
     RECORDING_API_URL = os.getenv("RECORDING_API_URL", "")
+
+# Dedicated signing secret for the team-scoped JWTs that authorize recording-api calls.
+# Kept off SECRET_KEY/JWT_SIGNING_KEY (which are fleet-wide) so only the designated minters
+# — Django web and the Python Temporal workers — can mint recording-api tokens. Comma-separated
+# `new_key,old_key` for rotation: callers sign with the first key, recording-api verifies against
+# all. Dev/test default matches the recording-api Node default so local end-to-end calls validate.
+RECORDING_API_JWT_SECRET = os.getenv(
+    "RECORDING_API_JWT_SECRET", "dev-recording-api-jwt-secret" if (TEST or DEBUG) else ""
+)
+
+# Signs the tokens the replay player sends to recording-api's public block route. Kept apart from
+# RECORDING_API_JWT_SECRET because the internet-facing recording-api pods hold this key, and an HMAC key that verifies
+# can also sign. The dev/test default matches the recording-api Node default. Comma-separated `new,old` for rotation.
+RECORDING_API_BLOCKS_JWT_SECRET = os.getenv(
+    "RECORDING_API_BLOCKS_JWT_SECRET", "dev-recording-api-blocks-jwt-secret" if (TEST or DEBUG) else ""
+)
+
+# Signs the replay player's tokens for replay.ph-proxy.com, which holds the same comma-separated `new,old` keys.
+# Never reuse SECRET_KEY or JWT_SIGNING_KEY. No dev default, because a key in public source lets anyone mint tokens.
+# Empty means no token, so self-hosted installs never use the proxy.
+REPLAY_PROXY_JWT_SECRET = os.getenv("REPLAY_PROXY_JWT_SECRET", "")

@@ -1,7 +1,11 @@
+import { PropertyFilterType } from '~/types'
+
+import { isAiEventSpan } from '../../aiEventSpans'
 import { formatDuration } from '../../TraceWaterfallView'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
 import { SpanAttributes } from './SpanAttributes'
+import { SpanEvents } from './SpanEvents'
 
 export interface ExpandedSpanContentProps {
     span: Span
@@ -10,9 +14,15 @@ export interface ExpandedSpanContentProps {
      * already surfaces these facts, so it passes false. @default true
      */
     showDetails?: boolean
+    /** Offer include, exclude and column actions on each attribute. @default true */
+    showFilterActions?: boolean
 }
 
-export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanContentProps): JSX.Element {
+export function ExpandedSpanContent({
+    span,
+    showDetails = true,
+    showFilterActions = true,
+}: ExpandedSpanContentProps): JSX.Element {
     const status = STATUS_CODE_LABELS[span.status_code]
 
     // The OTel attributes the user set on the span — the thing the row is here to surface.
@@ -33,7 +43,15 @@ export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanCo
 
     return (
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
-            <SpanAttributes title="Attributes" attributes={attributes} emptyLabel="No attributes set on this span" />
+            <SpanAttributes
+                title="Attributes"
+                attributes={attributes}
+                emptyLabel="No attributes set on this span"
+                // An AI row's attributes come from LLM analytics events, not trace_spans, so a span
+                // attribute filter built from them matches no span and empties the span list.
+                showFilterActions={showFilterActions && !isAiEventSpan(span)}
+                propertyType={PropertyFilterType.SpanAttribute}
+            />
             {/* Sibling section after the span attributes — same split the logs detail view uses.
                 Often absent (non-k8s / no resource attrs), so hidden when empty to avoid noise. */}
             {Object.keys(span.resource_attributes ?? {}).length > 0 && (
@@ -41,9 +59,14 @@ export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanCo
                     title="Resource attributes"
                     attributes={span.resource_attributes}
                     emptyLabel="No resource attributes on this span"
+                    showFilterActions={showFilterActions}
+                    propertyType={PropertyFilterType.SpanResourceAttribute}
                 />
             )}
-            {showDetails && <SpanAttributes title="Span details" attributes={details} />}
+            {span.events && span.events.length > 0 && (
+                <SpanEvents events={span.events} spanTimestamp={span.timestamp} />
+            )}
+            {showDetails && <SpanAttributes title="Span details" attributes={details} showFilterActions={false} />}
         </div>
     )
 }

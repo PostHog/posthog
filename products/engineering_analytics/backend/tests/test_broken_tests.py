@@ -7,6 +7,8 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 
 from products.engineering_analytics.backend.facade.contracts import BROKEN_TEST_SPARKLINE_HOURS, BrokenTestState
@@ -61,17 +63,17 @@ from products.engineering_analytics.backend.logic.sources import GitHubTables
     ],
 )
 def test_classify_states(
-    master_hits,
-    queue_hits,
-    pr_hits,
-    age_hours,
-    span_hours,
-    branches,
-    latest_conclusion,
-    last_master_hit_age,
-    latest_completed_age,
-    expected,
-):
+    master_hits: int,
+    queue_hits: int,
+    pr_hits: int,
+    age_hours: int,
+    span_hours: int,
+    branches: int,
+    latest_conclusion: str | None,
+    last_master_hit_age: int,
+    latest_completed_age: int | None,
+    expected: BrokenTestState,
+) -> None:
     assert (
         _classify(
             master_hits=master_hits,
@@ -142,6 +144,7 @@ def _fp_row(
         "some-branch",
         workflow_name,
         last_master_hit_age,
+        None,
     )
 
 
@@ -155,7 +158,7 @@ def _run_query(*, fingerprint_rows, hourly_rows, master_rows, jobs_synced=True, 
             return SimpleNamespace(results=fingerprint_rows)
         if "hourly" in query_type:
             return SimpleNamespace(results=hourly_rows)
-        return SimpleNamespace(results=master_rows)
+        return SimpleNamespace(results=[(*row, "github_actions") for row in master_rows])
 
     curated.run.side_effect = run_side_effect
     return query_broken_tests(
@@ -272,7 +275,6 @@ def test_build_query_embeds_the_failures_view():
     # Guards the private read path: the fingerprint scan reads the ci_failures builder as a subquery,
     # not the registered warehouse view by name (keeps the product off the global catalog).
     assert "engineering_analytics_ci_failures" not in module._FINGERPRINTS_SELECT
-    assert "FAILED" in module.ci_failures.build_query()
 
 
 class TestBrokenTestsQueryOverClickHouse(ClickhouseTestMixin, BaseTest):
@@ -285,7 +287,7 @@ class TestBrokenTestsQueryOverClickHouse(ClickhouseTestMixin, BaseTest):
         payload = "".join(json.dumps({"team_id": self.team.id, **row}) + "\n" for row in rows)
         sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{payload}")
 
-    def _failure_log(self, *, repo: str, test_id: str) -> dict[str, Any]:
+    def _failure_log(self, *, repo: str, test_id: str, branch: str = "master") -> dict[str, Any]:
         # attributes_map_str keys carry the "__str" suffix the logs table strips for the queryable map.
         return {
             "timestamp": "2026-07-10 12:00:00.000000",
@@ -293,7 +295,7 @@ class TestBrokenTestsQueryOverClickHouse(ClickhouseTestMixin, BaseTest):
             "service_name": CI_LOGS_SERVICE_NAME,
             "attributes_map_str": {
                 "repo__str": repo,
-                "branch__str": "master",
+                "branch__str": branch,
                 "head_sha__str": "abc123",
                 "workflow_name__str": "Backend CI",
                 "job_name__str": "test (1)",
@@ -330,3 +332,36 @@ class TestBrokenTestsQueryOverClickHouse(ClickhouseTestMixin, BaseTest):
         # only the selected repo's failure comes back.
         assert [row.test_id for row in result.rows] == ["posthog/api/test_foo.py::test_bar"]
         assert result.rows[0].repo == "PostHog/posthog"
+
+    @parameterized.expand(
+        [
+            # The capped read keeps the wider-spread test, so only a filter applied before the cap finds the other one.
+            ("unfiltered", None, None, ["posthog/api/test_foo.py::test_bar"], 2),
+            ("test_substring", "TEST_BAZ", None, ["posthog/api/test_foo.py::test_baz"], 1),
+            # A branch keeps the test that failed there and still counts its other branches.
+            ("branch", None, "feature-y", ["posthog/api/test_foo.py::test_baz"], 1),
+            ("branch_keeps_other_branch_counts", None, "feature-x", ["posthog/api/test_foo.py::test_bar"], 2),
+        ]
+    )
+    def test_filters_apply_before_the_cap(
+        self, _name: str, test: str | None, branch: str | None, expected: list[str], expected_branches: int
+    ) -> None:
+        bar, baz = "posthog/api/test_foo.py::test_bar", "posthog/api/test_foo.py::test_baz"
+        self._insert_logs(
+            [
+                self._failure_log(repo="PostHog/posthog", test_id=bar, branch="master"),
+                self._failure_log(repo="PostHog/posthog", test_id=bar, branch="feature-x"),
+                self._failure_log(repo="PostHog/posthog", test_id=baz, branch="feature-y"),
+            ]
+        )
+        result = query_broken_tests(
+            curated=self._source(),
+            date_from=datetime(2026, 7, 9, tzinfo=UTC),
+            hourly_from=datetime(2026, 7, 9, tzinfo=UTC),
+            window_days=2,
+            limit=1,
+            test=test,
+            branch=branch,
+        )
+        assert [row.test_id for row in result.rows] == expected
+        assert result.rows[0].branches == expected_branches

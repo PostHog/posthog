@@ -3,9 +3,19 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.contrib import admin
+from django.test import RequestFactory
 from django.urls import reverse
 
-from products.tasks.backend.models import Task, TaskRun
+from parameterized import parameterized
+
+from posthog.admin import register_all_admin
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
+
+from products.tasks.backend.models import Channel, Task, TaskRun, TeamTasksConfig, UserTasksConfig
+
+register_all_admin()
 
 
 class TestTaskRunAdminDownloadLogs(BaseTest):
@@ -72,6 +82,28 @@ class TestTaskRunAdminDownloadLogs(BaseTest):
         self.assertEqual(resp.status_code, 404)
         mock_head.assert_not_called()
 
+    def test_other_users_private_space_run_returns_404(self):
+        other_user = self._create_user("other@example.com")
+        private_channel = Channel.objects.unscoped().create(
+            team=self.team,
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=other_user,
+        )
+        private_task = Task.objects.create(
+            team=self.team,
+            channel=private_channel,
+            title="private",
+            description="private",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=other_user,
+        )
+        private_run = TaskRun.objects.create(task=private_task, team=self.team)
+
+        response = self.client.get(reverse("admin:tasks_taskrun_download_logs", args=[private_run.id]))
+
+        self.assertEqual(response.status_code, 404)
+
     def test_non_staff_cannot_access(self):
         self.user.is_staff = False
         self.user.save()
@@ -80,3 +112,59 @@ class TestTaskRunAdminDownloadLogs(BaseTest):
 
         self.assertEqual(resp.status_code, 302)
         self.assertIn("/login", resp["Location"])
+
+
+class TestTasksConfigAdminForms(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        request = RequestFactory().get("/")
+        request.user = self.user
+        self.team_form_class = admin.site._registry[TeamTasksConfig].get_form(request)
+        self.user_form_class = admin.site._registry[UserTasksConfig].get_form(request)
+
+    @parameterized.expand(
+        [
+            ("model_without_adapter", {"model": "claude-opus-4-8"}),
+            ("unknown_key", {"runtime_adapter": "claude", "model": "claude-opus-4-8", "profile": "max"}),
+            ("non_string_value", {"runtime_adapter": "claude", "model": 7}),
+            ("pi_with_an_adapter", {"runtime": "pi", "runtime_adapter": "claude", "model": "gpt-5.6-terra"}),
+            ("unknown_runtime", {"runtime": "acp2", "runtime_adapter": "claude", "model": "claude-opus-4-8"}),
+        ]
+    )
+    def test_rejects_invalid_preference_payloads(self, _name: str, payload: dict) -> None:
+        form = self.team_form_class(data={"team": self.team.pk, "ai_run_preferences": payload})
+        assert not form.is_valid()
+        assert "ai_run_preferences" in form.errors
+
+    def test_accepts_a_valid_payload_on_both_admin_forms(self) -> None:
+        # Pass an existing row so that the admin flow is a change form.
+        team_form = self.team_form_class(
+            instance=get_or_create_team_extension(self.team, TeamTasksConfig),
+            data={
+                "team": self.team.pk,
+                "ai_run_preferences": {"runtime_adapter": "claude", "model": "claude-opus-4-8"},
+            },
+        )
+        assert team_form.is_valid(), team_form.errors
+        user_form = self.user_form_class(data={"team": self.team.pk, "user": self.user.pk, "ai_run_preferences": {}})
+        assert user_form.is_valid(), user_form.errors
+
+    def test_accepts_a_pi_payload(self) -> None:
+        form = self.user_form_class(
+            data={
+                "team": self.team.pk,
+                "user": self.user.pk,
+                "ai_run_preferences": {"runtime": "pi", "model": "gpt-5.6-terra", "reasoning_effort": "off"},
+            }
+        )
+        assert form.is_valid(), form.errors
+
+    def test_rejects_a_row_keyed_on_an_environment_team(self) -> None:
+        env_team = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="env"
+        )
+        form = self.team_form_class(data={"team": env_team.pk, "ai_run_preferences": None})
+        assert not form.is_valid()
+        assert "project root team" in str(form.errors["team"])

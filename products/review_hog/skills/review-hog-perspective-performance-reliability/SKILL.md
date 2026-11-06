@@ -1,9 +1,7 @@
 ---
 name: review-hog-perspective-performance-reliability
 description: >
-  The Performance & Reliability review perspective for ReviewHog. Verifies that changed code will
-  perform and hold up in production — resource efficiency, error handling and recovery, scalability,
-  and operational readiness. Reports performance and reliability issues only.
+  Checks resource use, error recovery, and scaling. Reports performance and reliability issues only.
 metadata:
   owner_team: review_hog
   perspective: performance_reliability
@@ -79,7 +77,7 @@ context.
 
 - Logic and correctness errors → Logic & Correctness
 - Security vulnerabilities and API-contract changes → Contracts & Security
-- Code style or formatting → not a ReviewHog concern
+- Code style or formatting → not a PostHog Review concern
 
 ## Key questions
 

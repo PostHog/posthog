@@ -1,29 +1,44 @@
+import os
 import json
+import tempfile
 from datetime import datetime
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import patch
 
+from django.test import override_settings
+
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.templates.helpers import mock_transpile
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
 from posthog.plugins.access import can_configure_plugins, can_globally_manage_plugins, can_install_plugins
-from posthog.plugins.test.mock import mocked_plugin_requests_get
+from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
+from posthog.test.test_plugin_log_entry import create_plugin_log_entry
 
+from products.cdp.backend.api.plugin import SECRET_FIELD_VALUE
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
+from products.cdp.backend.models.plugin import (
+    Plugin,
+    PluginConfig,
+    PluginLogEntrySource,
+    PluginLogEntryType,
+    PluginSourceFile,
+)
+from products.cdp.backend.templates.helpers import mock_transpile
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
 
 def mocked_plugin_reload(*args, **kwargs):
@@ -32,6 +47,8 @@ def mocked_plugin_reload(*args, **kwargs):
 
 @mock.patch("products.cdp.backend.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("products.cdp.backend.api.plugin.requests.get", side_effect=mocked_plugin_requests_get)
+# `new=` keeps this out of every test signature (nothing here asserts on the commit lookup).
+@mock.patch("posthog.plugins.utils.github_request", new=mocked_plugin_github_request)
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     maxDiff = None
@@ -82,7 +99,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert response.status_code == expected_status, response.json()
         return response.json()
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_create_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
 
@@ -364,7 +381,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         self.assertNotEqual(plugin.updated_at, fake_date)
 
-        with freeze_time(fake_date.isoformat()):
+        with time_machine.travel(fake_date.isoformat(), tick=False):
             api_url = f"/api/organizations/@current/plugins/{response.json()['id']}/upgrade"
             response = self.client.post(api_url, {"url": repo_url})
             self.assertEqual(response.status_code, 200)
@@ -383,12 +400,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             self.assertEqual(mock_sync_from_plugin_archive.call_count, 2)  # Not extracted on auth failure
 
     def test_delete_plugin_auth(self, mock_get, mock_reload):
-        with freeze_time("2021-08-25T22:09:14.252Z"):
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False):
             repo_url = "https://github.com/PostHog/helloworldplugin"
             response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
             self.assertEqual(response.status_code, 201)
 
-        with freeze_time("2021-08-25T22:09:14.253Z"):
+        with time_machine.travel("2021-08-25T22:09:14.253Z", tick=False):
             plugin_id = response.json()["id"]
 
             api_url = "/api/organizations/@current/plugins/{}".format(response.json()["id"])
@@ -605,6 +622,18 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(Plugin.objects.count(), 1)
         self.assertEqual(mock_reload.call_count, 1)
+
+    @override_settings(DEBUG=False)
+    def test_create_plugin_rejects_local_file_url(self, mock_get, mock_reload):
+        with tempfile.TemporaryDirectory() as plugin_dir:
+            with open(os.path.join(plugin_dir, "plugin.json"), "w") as plugin_json:
+                json.dump({"name": "on-disk", "description": "contents of a file on the server"}, plugin_json)
+
+            response = self.client.post("/api/organizations/@current/plugins/", {"url": f"file:{plugin_dir}"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(Plugin.objects.count(), 0)
+        self.assertEqual(PluginSourceFile.objects.count(), 0)
 
     def test_create_plugin_version_range_eq_current(self, mock_get, mock_reload):
         with self.is_cloud(False):
@@ -897,7 +926,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
 
         fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
-        with freeze_time(fake_date.isoformat()):
+        with time_machine.travel(fake_date.isoformat(), tick=False):
             response = self.client.post(
                 f"/api/organizations/{my_org.id}/plugins/",
                 {"url": "https://github.com/PostHog/helloworldplugin"},
@@ -955,22 +984,22 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_listing_plugins_is_not_nplus1(self, _mock_get, _mock_reload) -> None:
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(8):
             self._assert_number_of_when_listed_plugins(0)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(8):
             self._assert_number_of_when_listed_plugins(1)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(8):
             self._assert_number_of_when_listed_plugins(2)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(8):
             self._assert_number_of_when_listed_plugins(3)
 
     def _assert_number_of_when_listed_plugins(self, expected_plugins_count: int) -> None:
@@ -1040,7 +1069,47 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"count": 0, "next": None, "previous": None, "results": []})
 
-    @freeze_time("2021-12-05T13:23:00Z")
+    def test_retrieving_plugin_config_logs_second_page(self, mock_get, mock_reload):
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=self.team, order=0)
+        for index in range(3):
+            create_plugin_log_entry(
+                team_id=self.team.pk,
+                plugin_id=plugin.pk,
+                plugin_config_id=plugin_config.pk,
+                source=PluginLogEntrySource.CONSOLE,
+                type=PluginLogEntryType.INFO,
+                message=f"entry {index}",
+                instance_id=str(UUIDT()),
+            )
+        url = f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/"
+
+        first_page = self.client.get(url, {"limit": "2", "search": ""}).json()
+        second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
+        past_the_end = self.client.get(url, {"limit": 2, "offset": 5}).json()
+
+        self.assertEqual(first_page["count"], 3)
+        self.assertEqual(second_page["count"], 3)
+        self.assertEqual(past_the_end["count"], 3)
+        self.assertEqual(past_the_end["results"], [])
+        self.assertEqual(len(second_page["results"]), 1)
+        messages = {entry["message"] for entry in first_page["results"] + second_page["results"]}
+        self.assertEqual(messages, {"entry 0", "entry 1", "entry 2"})
+
+    @parameterized.expand(
+        [("after", "not-a-date"), ("before", "not-a-date"), ("type_filter", "NOT_A_TYPE"), ("limit", "5000")]
+    )
+    def test_retrieving_plugin_config_logs_rejects_bad_filter(self, mock_get, mock_reload, param, value):
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=self.team, order=0)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/", {param: value}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @time_machine.travel("2021-12-05T13:23:00Z", tick=False)
     def test_plugin_config_list(self, mock_get, mock_reload):
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config1 = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
@@ -1092,6 +1161,29 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             ],
         )
 
+    @parameterized.expand(
+        [
+            ("list_schema", [{"key": "api_key", "secret": True}, {"key": "host"}]),
+            ("dict_schema", {"api_key": {"secret": True}, "host": {}}),
+        ]
+    )
+    def test_plugin_config_masks_secret_fields(self, mock_get, mock_reload, _name, config_schema):
+        plugin = Plugin.objects.create(organization=self.organization, config_schema=config_schema)
+        PluginConfig.objects.create(
+            plugin=plugin,
+            team=self.team,
+            enabled=True,
+            order=1,
+            config={"api_key": "sk_test_123", "host": "example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/plugin_configs/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["results"][0]["config"], {"api_key": SECRET_FIELD_VALUE, "host": "example.com"}
+        )
+
     def test_create_hog_function_from_plugin_config(self, mock_get, mock_reload):
         mock_geoip_plugin = Plugin.objects.create(
             organization=self.organization,
@@ -1124,6 +1216,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert hog_function[0].filters == {
             "source": "events",
             "bytecode": ["_H", 1, 29],
+            "bytecode_contract": RUNTIME_CONTRACT,
         }  # Assert the compiled bytecode for empty filter
         assert hog_function[0].hog == "return event"
         assert hog_function[0].enabled
@@ -1179,7 +1272,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         self.assertNotEqual(plugin.latest_tag_checked_at, fake_date)
 
-        with freeze_time(fake_date.isoformat()):
+        with time_machine.travel(fake_date.isoformat(), tick=False):
             response = self.client.get(f"/api/organizations/@current/plugins/{plugin_id}/check_for_updates")
             plugin.refresh_from_db()
 

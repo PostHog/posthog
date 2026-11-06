@@ -9,8 +9,8 @@ import {
   type ShellClient,
 } from "@posthog/ui/features/terminal/shellClient";
 import { terminalManager } from "@posthog/ui/features/terminal/TerminalManager";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
-import { Spinner } from "@radix-ui/themes";
 import { useCallback, useState } from "react";
 
 interface ActionTabIconProps {
@@ -50,7 +50,7 @@ export function ActionTabIcon({ actionId }: ActionTabIconProps) {
   } else if (status === "error") {
     icon = <X size={14} weight="bold" className="text-red-9" />;
   } else {
-    icon = <Spinner size="1" />;
+    icon = <Spinner size="sm" />;
   }
 
   const content = (

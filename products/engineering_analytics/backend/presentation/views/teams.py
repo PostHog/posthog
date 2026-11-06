@@ -15,6 +15,7 @@ from products.engineering_analytics.backend.presentation.serializers.teams impor
 )
 from products.engineering_analytics.backend.presentation.views._base import (
     _DATE_TO,
+    _REPO,
     _SOURCE_ID,
     EngineeringAnalyticsViewSetBase,
     _bad_request,
@@ -55,7 +56,16 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 required=False,
                 description="Maximum number of teams to return (1-200). Defaults to 100.",
             ),
+            OpenApiParameter(
+                name="owner_team",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict the roster to one owning team slug (or 'unowned'). The cheap way to "
+                "read a single team's rollup.",
+            ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: TeamCIHealthListSerializer,
@@ -69,9 +79,12 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
             "seen both failing and passing in the window, regression_test_count is owned tests that failed "
             "with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an "
             "equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI "
-            "emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); unstamped "
+            "emission time from the repo's ownership map (the distributed owners.yaml files); unstamped "
             "spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest "
-            "owner only. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "owner only. Each row also carries test_file_count (the daily owners.yaml census denominator, with "
+            "a window-start twin) and merged_pr_count (merged PRs by the team's members, bots excluded); teams "
+            "with census counts but no CI signal appear with zero signal counts and a null last_seen_at. Teams "
+            "are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -83,11 +96,13 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
+                owner_team=request.query_params.get("owner_team") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
+            return _bad_request(exc, fallback="Invalid date, threshold, limit, source_id, or repo")
         return Response(TeamCIHealthListSerializer(instance=result).data)
 
     @extend_schema(
@@ -119,6 +134,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 description="Maximum number of per-test signal rows to return (1-100). Defaults to 25.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: TeamCIActivitySerializer,
@@ -143,10 +159,11 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 test_limit=_optional_int_param(request, "test_limit"),
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid owner_team, date, test_limit, or source_id")
+            return _bad_request(exc, fallback="Invalid owner_team, date, test_limit, source_id, or repo")
         return Response(TeamCIActivitySerializer(instance=result).data)
 
     @extend_schema(
@@ -171,6 +188,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
             ),
             _DATE_TO,
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: TeamMergeTrendSerializer,
@@ -195,8 +213,9 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid owner_team, date, or source_id")
+            return _bad_request(exc, fallback="Invalid owner_team, date, source_id, or repo")
         return Response(TeamMergeTrendSerializer(instance=result).data)

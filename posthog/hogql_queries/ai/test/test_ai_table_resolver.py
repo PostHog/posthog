@@ -1,7 +1,11 @@
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, materialized
 from unittest.mock import Mock, patch
 
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
+
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.ai.ai_table_resolver import (
     AIEventsExpiredError,
@@ -9,6 +13,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import (
     is_ai_events_enabled,
     query_ai_events,
 )
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 
 
 class TestIsAiEventsEnabled:
@@ -37,6 +42,10 @@ class TestIsAiEventsEnabled:
         )
 
 
+# query_ai_events resolves the events-schema gate. On a legacy-schema run that gate falls through
+# to an instance setting read from Postgres, which only stays off the wire while some earlier
+# BaseTest has warmed its cache. Declare the access rather than depend on test order.
+@pytest.mark.django_db
 class TestQueryAiEvents:
     def _make_query(self):
         return ast.SelectQuery(
@@ -72,10 +81,12 @@ class TestQueryAiEvents:
         mock_execute.side_effect = [ai_result, events_result]
 
         team = Mock(id=1, organization_id="org")
+        user = Mock()
         result = query_ai_events(
             query=self._make_query(),
             placeholders={},
             team=team,
+            user=user,
             query_type="TestQuery",
             fall_back_to_events=True,
         )
@@ -83,24 +94,32 @@ class TestQueryAiEvents:
         assert result is events_result
         assert mock_execute.call_count == 2
         assert mock_execute.call_args.kwargs["context"].use_new_events_schema is True
+        assert mock_execute.call_args.kwargs["context"].user is user
+        assert all(call.kwargs["user"] is user for call in mock_execute.call_args_list)
 
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.use_new_events_schema", return_value=False)
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_raises_expired_when_ai_events_empty_but_events_has_rows(self, mock_execute):
+    def test_raises_expired_when_ai_events_empty_but_events_has_rows(self, mock_execute, _mock_use_new_events_schema):
         # ai_events empty, events probe finds the row -> the data aged past the TTL.
         mock_execute.side_effect = [self._make_result([]), self._make_result([[1]])]
 
         team = Mock(id=1, organization_id="org")
+        user = Mock()
         with pytest.raises(AIEventsExpiredError):
             query_ai_events(
                 query=self._make_query(),
                 placeholders={},
                 team=team,
+                user=user,
                 query_type="TestQuery",
             )
         assert mock_execute.call_count == 2
+        assert mock_execute.call_args.kwargs["context"].user is user
+        assert all(call.kwargs["user"] is user for call in mock_execute.call_args_list)
 
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.use_new_events_schema", return_value=False)
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_raises_not_found_when_empty_in_both_tables(self, mock_execute):
+    def test_raises_not_found_when_empty_in_both_tables(self, mock_execute, _mock_use_new_events_schema):
         mock_execute.side_effect = [self._make_result([]), self._make_result([])]
 
         team = Mock(id=1, organization_id="org")
@@ -132,8 +151,9 @@ class TestQueryAiEvents:
         assert isinstance(rewritten, ast.Field)
         assert rewritten.chain == ["trace_id"]
 
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.use_new_events_schema", return_value=False)
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_rewrites_placeholders_for_events_fallback(self, mock_execute):
+    def test_rewrites_placeholders_for_events_fallback(self, mock_execute, _mock_use_new_events_schema):
         mock_execute.side_effect = [self._make_result([]), self._make_result([["found"]])]
 
         team = Mock(id=1, organization_id="org")
@@ -153,8 +173,9 @@ class TestQueryAiEvents:
         assert isinstance(rewritten, ast.Field)
         assert rewritten.chain == ["properties", "$ai_trace_id"]
 
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.use_new_events_schema", return_value=False)
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_rewrites_query_from_clause_for_events_fallback(self, mock_execute):
+    def test_rewrites_query_from_clause_for_events_fallback(self, mock_execute, _mock_use_new_events_schema):
         mock_execute.side_effect = [self._make_result([]), self._make_result([])]
 
         team = Mock(id=1, organization_id="org")
@@ -179,10 +200,11 @@ class TestQueryAiEvents:
 
         team = Mock(id=1, organization_id="org")
         timings = Mock()
-        modifiers = Mock()
+        modifiers = HogQLQueryModifiers(debug=True)
         limit_context = Mock()
         settings = Mock()
         workload = Mock()
+        user = Mock()
 
         query_ai_events(
             query=self._make_query(),
@@ -194,14 +216,16 @@ class TestQueryAiEvents:
             limit_context=limit_context,
             settings=settings,
             workload=workload,
+            user=user,
         )
 
         kwargs = mock_execute.call_args.kwargs
         assert kwargs["timings"] is timings
-        assert kwargs["modifiers"] is modifiers
+        assert kwargs["modifiers"] == HogQLQueryModifiers(debug=True, materializationMode=MaterializationMode.DISABLED)
         assert kwargs["limit_context"] is limit_context
         assert kwargs["settings"] is settings
         assert kwargs["workload"] is workload
+        assert kwargs["user"] is user
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_omits_unset_optional_kwargs(self, mock_execute):
@@ -219,7 +243,34 @@ class TestQueryAiEvents:
 
         kwargs = mock_execute.call_args.kwargs
         assert "timings" not in kwargs
-        assert "modifiers" not in kwargs
+        assert kwargs["modifiers"].model_dump(exclude_none=True) == {"materializationMode": "disabled"}
         assert "limit_context" not in kwargs
         assert "settings" not in kwargs
         assert "workload" not in kwargs
+        assert kwargs["user"] is None
+
+
+class TestQueryAiEventsPersonJoin(ClickhouseTestMixin, BaseTest):
+    def test_reads_person_properties_without_materialized_columns(self):
+        with materialized("person", "email"):
+            _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "user@example.com"})
+            bulk_create_ai_events(
+                [
+                    {
+                        "event": "$ai_generation",
+                        "team": self.team,
+                        "distinct_id": "person1",
+                        "properties": {"$ai_trace_id": "trace-1"},
+                    }
+                ]
+            )
+
+            result = query_ai_events(
+                query=parse_select("SELECT person.properties.email FROM posthog.ai_events"),
+                placeholders={},
+                team=self.team,
+                query_type="TestQuery",
+            )
+
+        assert result.results == [("user@example.com",)]
+        assert "pmat_email" not in result.clickhouse

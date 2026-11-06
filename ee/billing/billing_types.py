@@ -1,10 +1,96 @@
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal, Optional, TypedDict
+from typing import Any, Literal, NotRequired, Optional, TypedDict, cast, get_args
 
 
 class BillingProvider(StrEnum):
     VERCEL = "vercel"
+
+
+# Mirror of `billing/billing/types/usage.py::SupportedUsageType` in the billing repo.
+# These identifiers are accepted by the billing service's /api/v2/usage/ and
+# /api/v2/spend/ endpoints through the `usage_types` query param.
+UsageType = Literal[
+    "event_count_in_period",
+    "exceptions_captured_in_period",
+    "recording_count_in_period",
+    "rows_synced_in_period",
+    "free_historical_rows_synced_in_period",
+    "survey_responses_count_in_period",
+    "mobile_recording_count_in_period",
+    "mobile_billable_recording_count_in_period",
+    "billable_feature_flag_requests_count_in_period",
+    "enhanced_persons_event_count_in_period",
+    "ai_event_count_in_period",
+    "cdp_billable_invocations_in_period",
+    "rows_exported_in_period",
+    "ai_credits_used_in_period",
+    "signals_credits_used_in_period",
+    "signals_spend_credits_used_in_period",
+    "posthog_code_credits_used_in_period",
+    "posthog_code_token_credits_used_in_period",
+    "sandbox_compute_credits_used_in_period",
+    "sandbox_compute_cpu_millicore_seconds_in_period",
+    "sandbox_compute_memory_mib_seconds_in_period",
+    "workflow_emails_sent_in_period",
+    "workflow_billable_invocations_in_period",
+    "logs_and_traces_mb_in_period",
+    "logs_mb_in_period",
+    "apm_tracing_mb_in_period",
+    "logs_retention_30d_mb_in_period",
+    "logs_retention_mb_days_in_period",
+    "replay_vision_credits_used_in_period",
+    "data_pipelines",
+    "group_analytics",
+]
+
+
+class UsageTypeOption(TypedDict):
+    label: str
+    value: UsageType
+
+
+USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
+    {"label": "Events", "value": "event_count_in_period"},
+    {"label": "Identified events", "value": "enhanced_persons_event_count_in_period"},
+    {"label": "Group analytics", "value": "group_analytics"},
+    {"label": "Recordings", "value": "recording_count_in_period"},
+    {"label": "Mobile recordings", "value": "mobile_billable_recording_count_in_period"},
+    {"label": "Mobile recordings captured", "value": "mobile_recording_count_in_period"},
+    {"label": "Feature flag requests", "value": "billable_feature_flag_requests_count_in_period"},
+    {"label": "Exceptions", "value": "exceptions_captured_in_period"},
+    {"label": "Survey responses", "value": "survey_responses_count_in_period"},
+    {"label": "AI events", "value": "ai_event_count_in_period"},
+    {"label": "Synced rows", "value": "rows_synced_in_period"},
+    {"label": "Free synced rows", "value": "free_historical_rows_synced_in_period"},
+    {"label": "Data pipelines (deprecated)", "value": "data_pipelines"},
+    {"label": "Destinations trigger events", "value": "cdp_billable_invocations_in_period"},
+    {"label": "Rows exported", "value": "rows_exported_in_period"},
+    {"label": "PostHog AI", "value": "ai_credits_used_in_period"},
+    {"label": "Self-driving inbox credits", "value": "signals_credits_used_in_period"},
+    {"label": "Self-driving spend credits", "value": "signals_spend_credits_used_in_period"},
+    {"label": "PostHog Desktop credits", "value": "posthog_code_credits_used_in_period"},
+    {"label": "PostHog Desktop token credits", "value": "posthog_code_token_credits_used_in_period"},
+    {"label": "Sandbox compute credits", "value": "sandbox_compute_credits_used_in_period"},
+    {
+        "label": "Sandbox compute CPU millicore-seconds",
+        "value": "sandbox_compute_cpu_millicore_seconds_in_period",
+    },
+    {
+        "label": "Sandbox compute memory MiB-seconds",
+        "value": "sandbox_compute_memory_mib_seconds_in_period",
+    },
+    {"label": "Replay vision credits", "value": "replay_vision_credits_used_in_period"},
+    {"label": "Workflow emails", "value": "workflow_emails_sent_in_period"},
+    {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
+    {"label": "Logs and traces ingested (MB)", "value": "logs_and_traces_mb_in_period"},
+    {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
+    {"label": "Traces ingested (MB)", "value": "apm_tracing_mb_in_period"},
+    {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
+    {"label": "Logs retention (MB-days)", "value": "logs_retention_mb_days_in_period"},
+)
+
+USAGE_TYPE_VALUES: tuple[UsageType, ...] = cast(tuple[UsageType, ...], get_args(UsageType))
 
 
 class Tier(TypedDict):
@@ -67,6 +153,10 @@ class CustomerProduct(TypedDict):
     projected_amount_usd: Decimal
     usage_key: str
     addons: list[CustomerProductAddon]
+    # Billing refuses a customer billing limit for this product. Older billing omits the key.
+    no_billing_limit: NotRequired[bool]
+    # Set on a companion product: the type of the product it is billed under. Older billing omits the key.
+    companion_of: NotRequired[Optional[str]]
 
 
 class LicenseInfo(TypedDict):
@@ -82,6 +172,7 @@ class BillingPeriod(TypedDict):
 class UsageSummary(TypedDict):
     limit: Optional[int]
     usage: Optional[int]
+    billing_start_date: NotRequired[str]
 
 
 class ProductFeature(TypedDict):
@@ -96,15 +187,15 @@ class ProductFeature(TypedDict):
 
 class CustomerInfo(TypedDict):
     customer_id: Optional[str]
-    deactivated: bool
     has_active_subscription: bool
     billing_period: BillingPeriod
     available_product_features: list[ProductFeature]
     current_total_amount_usd: Optional[str]
     current_total_amount_usd_after_discount: Optional[str]
+    projected_total_amount_usd_with_limit_after_discount: Optional[str]
     products: Optional[list[CustomerProduct]]
     custom_limits_usd: Optional[dict[str, int]]
-    usage_summary: Optional[dict[str, dict[str, Optional[int]]]]
+    usage_summary: Optional[dict[str, UsageSummary]]
     free_trial_until: Optional[str]
     discount_percent: Optional[int]
     discount_amount_usd: Optional[str]
@@ -114,6 +205,8 @@ class CustomerInfo(TypedDict):
 class BillingStatus(TypedDict):
     license: LicenseInfo
     customer: CustomerInfo
+    computed_at: NotRequired[str]
+    latest_usage_report_date: NotRequired[Optional[str]]
 
 
 class ProductPlan(TypedDict):

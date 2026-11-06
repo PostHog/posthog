@@ -56,3 +56,44 @@ def compute_error_tracking_recommendation(recommendation_id: str, team_id: int) 
         status=ErrorTrackingRecommendation.Status.READY,
         status_changed_at=now,
     )
+
+
+@shared_task(
+    name="products.error_tracking.backend.tasks.dispatch_error_tracking_alert_deliveries",
+    ignore_result=True,
+    # Acked after the starts, and requeued if the worker dies mid-flight: every start
+    # is idempotent on its notification id, so redelivery is safe and loss is not.
+    acks_late=True,
+    reject_on_worker_lost=True,
+    autoretry_for=(Exception,),
+    max_retries=5,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+@with_team_scope()
+def dispatch_error_tracking_alert_deliveries(team_id: int, notifications: list[dict]) -> None:
+    """Start the delivery workflows for one transaction's worth of manual lifecycle transitions.
+
+    Queued after commit so the request never waits on Temporal. Every start is
+    idempotent on its notification id, so a retry after a partial failure only
+    fills in the starts Temporal never accepted.
+    """
+    # Anything under the temporal package pulls in its aggregator, which loads every
+    # worker-only workflow module (and, through recommendations, this tasks package):
+    # keep it off this module's import path.
+    from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflows  # noqa: PLC0415
+    from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs  # noqa: PLC0415
+
+    start_alert_delivery_workflows([AlertDeliveryWorkflowInputs(**notification) for notification in notifications])
+
+
+@shared_task(
+    name="products.error_tracking.backend.tasks.generate_error_tracking_issue_summary",
+    ignore_result=True,
+    max_retries=0,
+)
+def generate_error_tracking_issue_summary(team_id: int, issue_id: str, queued_at: float | None = None) -> None:
+    # A no-op that keeps the task name registered. Web pods from the previous release queue this task until the deploy
+    # replaces them, and a worker logs an error for each task name it does not know. Delete it after that deploy.
+    pass
